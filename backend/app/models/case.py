@@ -25,6 +25,7 @@ class Case(Base):
     photos: Mapped[list["Photo"]] = relationship(back_populates="case")  # noqa: F821
     shade_selections: Mapped[list["ShadeSelection"]] = relationship(back_populates="case")  # noqa: F821
     shape_selections: Mapped[list["ShapeSelection"]] = relationship(back_populates="case")  # noqa: F821
+    scan_body_selections: Mapped[list["ScanBodySelection"]] = relationship(back_populates="case")  # noqa: F821
     messages: Mapped[list["Message"]] = relationship(back_populates="case")  # noqa: F821
     xml_exports: Mapped[list["XMLExport"]] = relationship(back_populates="case")  # noqa: F821
     notifications: Mapped[list["Notification"]] = relationship(back_populates="case")  # noqa: F821

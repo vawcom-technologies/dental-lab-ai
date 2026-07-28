@@ -1,5 +1,7 @@
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/theme/app_theme.dart';
@@ -19,8 +21,8 @@ class _ShadePageState extends State<ShadePage> {
   Map<String, dynamic>? _patient;
   Map<String, dynamic>? _case;
 
-  String _selected = 'B2';
-  String _detected = 'B2';
+  String _selected = '—';
+  String _detected = '—';
   double _confidence = 0.0;
   String? _note;
   String? _finalShade;
@@ -28,6 +30,9 @@ class _ShadePageState extends State<ShadePage> {
   bool _saving = false;
   bool _loading = true;
   String? _saveStatus;
+  String? _error;
+  Uint8List? _previewBytes;
+  List<Map<String, dynamic>> _topMatches = [];
   final List<Map<String, dynamic>> _history = [];
 
   final _vita = const [
@@ -71,7 +76,7 @@ class _ShadePageState extends State<ShadePage> {
       setState(() => _patients = patients);
       if (patients.isNotEmpty) await _selectPatient(patients.first);
     } catch (e) {
-      setState(() => _note = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -91,23 +96,48 @@ class _ShadePageState extends State<ShadePage> {
   }
 
   Future<void> _runAiFromGallery() async {
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _error = null;
+      _saveStatus = null;
+    });
     try {
-      final picker = ImagePicker();
-      final file = await picker.pickImage(source: ImageSource.gallery, imageQuality: 100);
-      if (file == null) return;
-      final bytes = await file.readAsBytes();
-      final result = await widget.api.suggestShade(bytes, file.name);
+      final picked = await FilePicker.pickFiles(
+        type: FileType.image,
+        withData: true,
+        allowMultiple: false,
+      );
+      if (picked == null || picked.files.isEmpty) return;
+
+      final file = picked.files.first;
+      final bytes = file.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        setState(() => _error = 'Could not read image bytes. Try another photo.');
+        return;
+      }
+
+      final name = file.name.isNotEmpty ? file.name : 'tooth.jpg';
+      setState(() => _previewBytes = Uint8List.fromList(bytes));
+
+      final result = await widget.api.suggestShade(bytes, name);
+      final suggested = result['suggested_shade'] as String? ?? 'A2';
+      final top = (result['top_matches'] as List?)
+              ?.whereType<Map>()
+              .map((e) => e.map((k, v) => MapEntry(k.toString(), v)))
+              .cast<Map<String, dynamic>>()
+              .toList() ??
+          <Map<String, dynamic>>[];
+
       setState(() {
-        _detected = result['suggested_shade'] as String? ?? _detected;
-        _selected = _detected;
+        _detected = suggested;
+        _selected = suggested;
         _confidence = (result['confidence'] as num?)?.toDouble() ?? 0;
-        _note = result['note'] as String?;
+        _note = result['note'] as String? ?? 'Shade detected from uploaded photo.';
+        _topMatches = top;
         _finalShade = null;
-        _saveStatus = null;
       });
     } catch (e) {
-      setState(() => _note = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -115,22 +145,31 @@ class _ShadePageState extends State<ShadePage> {
 
   Future<void> _persist({required bool acceptAi}) async {
     if (_case == null) {
-      setState(() => _note = 'Select a patient first');
+      setState(() => _error = 'Select a patient first');
+      return;
+    }
+    if (_detected == '—' && acceptAi) {
+      setState(() => _error = 'Upload a tooth photo first so AI can detect a shade.');
       return;
     }
     final finalShade = acceptAi ? _detected : _selected;
+    if (finalShade == '—' || !_vita.contains(finalShade)) {
+      setState(() => _error = 'Pick a VITA shade before saving.');
+      return;
+    }
     final overridden = !acceptAi && finalShade != _detected;
     setState(() {
       _saving = true;
       _saveStatus = null;
+      _error = null;
     });
     try {
       await widget.api.saveShade(
         caseId: _case!['id'] as int,
-        aiSuggested: _detected,
+        aiSuggested: _detected == '—' ? null : _detected,
         confidence: _confidence > 0 ? _confidence : null,
         finalShade: finalShade,
-        overridden: overridden || (!acceptAi && finalShade != _detected),
+        overridden: overridden,
       );
       setState(() {
         _finalShade = finalShade;
@@ -147,7 +186,7 @@ class _ShadePageState extends State<ShadePage> {
         });
       });
     } catch (e) {
-      setState(() => _note = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -177,7 +216,7 @@ class _ShadePageState extends State<ShadePage> {
                       ),
                     ),
                     Text(
-                      'AI suggestion · manual override · persisted on case',
+                      'Upload a tooth photo → AI detects VITA shade → confirm or override',
                       style: TextStyle(color: AppColors.muted),
                     ),
                   ],
@@ -203,6 +242,12 @@ class _ShadePageState extends State<ShadePage> {
                     },
                   ),
                 ),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: _busy ? null : _runAiFromGallery,
+                icon: Icon(_busy ? Icons.hourglass_top : Icons.upload_file, size: 18),
+                label: Text(_busy ? 'Detecting…' : 'Upload & detect'),
+              ),
             ],
           ),
           if (_saveStatus != null)
@@ -212,6 +257,11 @@ class _ShadePageState extends State<ShadePage> {
                 _saveStatus!,
                 style: const TextStyle(color: AppColors.success),
               ),
+            ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(_error!, style: const TextStyle(color: AppColors.danger)),
             ),
           const SizedBox(height: 16),
           Expanded(
@@ -229,159 +279,308 @@ class _ShadePageState extends State<ShadePage> {
                               flex: 3,
                               child: SectionCard(
                                 padding: EdgeInsets.zero,
-                                child: Container(
-                                  decoration: BoxDecoration(
+                                child: ClipRRect(
+                                  borderRadius: AppRadii.border,
+                                  child: Container(
                                     color: const Color(0xFF15263F),
-                                    borderRadius: AppRadii.border,
-                                  ),
-                                  child: Stack(
-                                    children: [
-                                      const Center(
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(Icons.photo_camera_outlined,
-                                                color: Colors.white54, size: 40),
-                                            SizedBox(height: 8),
-                                            Text('Tooth photo analysis',
-                                                style: TextStyle(color: Colors.white70)),
-                                          ],
-                                        ),
-                                      ),
-                                      Positioned(
-                                        left: 16,
-                                        right: 16,
-                                        bottom: 12,
-                                        child: Row(
-                                          children: [
-                                            const Text(
-                                              'VITA Classical A1–D4',
-                                              style: TextStyle(
-                                                color: Colors.white70,
-                                                fontSize: 12,
+                                    child: Stack(
+                                      fit: StackFit.expand,
+                                      children: [
+                                        if (_previewBytes != null)
+                                          Image.memory(
+                                            _previewBytes!,
+                                            fit: BoxFit.contain,
+                                          )
+                                        else
+                                          const Center(
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.add_photo_alternate_outlined,
+                                                  color: Colors.white54,
+                                                  size: 44,
+                                                ),
+                                                SizedBox(height: 10),
+                                                Text(
+                                                  'Upload a close-up tooth / smile photo',
+                                                  style: TextStyle(color: Colors.white70),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        if (_busy)
+                                          Container(
+                                            color: Colors.black45,
+                                            child: const Center(
+                                              child: Column(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  CircularProgressIndicator(
+                                                    color: Colors.white,
+                                                  ),
+                                                  SizedBox(height: 12),
+                                                  Text(
+                                                    'Analyzing shade…',
+                                                    style: TextStyle(
+                                                      color: Colors.white,
+                                                      fontWeight: FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
                                             ),
-                                            const Spacer(),
-                                            TextButton(
-                                              onPressed: _busy ? null : _runAiFromGallery,
+                                          ),
+                                        if (_detected != '—' && !_busy)
+                                          Positioned(
+                                            left: 12,
+                                            top: 12,
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                horizontal: 12,
+                                                vertical: 8,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: AppColors.navy,
+                                                borderRadius: BorderRadius.circular(10),
+                                              ),
                                               child: Text(
-                                                _busy ? 'ANALYZING…' : 'AUTO CAPTURE',
+                                                'AI: $_detected · ${(_confidence * 100).round()}%',
                                                 style: const TextStyle(
                                                   color: Colors.white,
                                                   fontWeight: FontWeight.w700,
                                                 ),
                                               ),
                                             ),
-                                          ],
+                                          ),
+                                        Positioned(
+                                          left: 12,
+                                          right: 12,
+                                          bottom: 12,
+                                          child: FilledButton.icon(
+                                            onPressed:
+                                                _busy ? null : _runAiFromGallery,
+                                            icon: const Icon(
+                                              Icons.upload_file,
+                                              size: 18,
+                                            ),
+                                            label: Text(
+                                              _previewBytes == null
+                                                  ? 'Upload tooth photo'
+                                                  : 'Upload another',
+                                            ),
+                                            style: FilledButton.styleFrom(
+                                              backgroundColor: AppColors.dentalBlue,
+                                            ),
+                                          ),
                                         ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
-                              flex: 2,
+                              flex: 3,
                               child: SectionCard(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('AI Detected',
-                                        style: TextStyle(fontWeight: FontWeight.w700)),
-                                    const SizedBox(height: 12),
-                                    Row(
-                                      children: [
-                                        _ShadeBlock(
-                                          label: 'DETECTED',
-                                          shade: _detected,
-                                          color: _swatch(_detected),
-                                          highlight: true,
-                                          sub: _confidence > 0
-                                              ? '${(_confidence * 100).round()}%'
-                                              : '—',
+                                padding: const EdgeInsets.all(14),
+                                child: LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    return SingleChildScrollView(
+                                      child: ConstrainedBox(
+                                        constraints: BoxConstraints(
+                                          minHeight: constraints.maxHeight,
                                         ),
-                                        _ShadeBlock(
-                                          label: 'SELECTED',
-                                          shade: _selected,
-                                          color: _swatch(_selected),
-                                        ),
-                                        _ShadeBlock(
-                                          label: 'FINAL',
-                                          shade: _finalShade ?? '—',
-                                          color: _finalShade == null
-                                              ? AppColors.border
-                                              : _swatch(_finalShade!),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 16),
-                                    Text(
-                                      _confidence > 0
-                                          ? 'Confidence ${(_confidence * 100).round()}%'
-                                          : 'Confidence — run AUTO CAPTURE',
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        color: AppColors.muted,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: LinearProgressIndicator(
-                                        value: _confidence.clamp(0, 1),
-                                        minHeight: 8,
-                                        backgroundColor: AppColors.border,
-                                        color: AppColors.aiPurple,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 14),
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: FilledButton.icon(
-                                            onPressed: _saving
-                                                ? null
-                                                : () => _persist(acceptAi: true),
-                                            icon: const Icon(Icons.check, size: 18),
-                                            label: Text(
-                                              _saving ? 'Saving…' : 'Accept AI',
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                                          children: [
+                                            const Text(
+                                              'Result',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 15,
+                                              ),
                                             ),
-                                            style: FilledButton.styleFrom(
-                                              backgroundColor: AppColors.navy,
+                                            const SizedBox(height: 10),
+                                            Container(
+                                              padding: const EdgeInsets.all(12),
+                                              decoration: BoxDecoration(
+                                                color: AppColors.aiPurpleSoft,
+                                                borderRadius: BorderRadius.circular(12),
+                                                border: Border.all(
+                                                  color: AppColors.aiPurple.withValues(alpha: 0.35),
+                                                ),
+                                              ),
+                                              child: Row(
+                                                children: [
+                                                  Container(
+                                                    width: 52,
+                                                    height: 52,
+                                                    decoration: BoxDecoration(
+                                                      color: _detected == '—'
+                                                          ? AppColors.border
+                                                          : _swatch(_detected),
+                                                      borderRadius: BorderRadius.circular(10),
+                                                      border: Border.all(color: AppColors.border),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 12),
+                                                  Expanded(
+                                                    child: Column(
+                                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                                      children: [
+                                                        Text(
+                                                          _detected == '—' ? 'No detection yet' : _detected,
+                                                          style: const TextStyle(
+                                                            fontSize: 28,
+                                                            fontWeight: FontWeight.w800,
+                                                            color: AppColors.navy,
+                                                            height: 1.1,
+                                                          ),
+                                                        ),
+                                                        const SizedBox(height: 2),
+                                                        Text(
+                                                          _confidence > 0
+                                                              ? '${(_confidence * 100).round()}% confidence'
+                                                              : 'Upload a photo to analyze',
+                                                          style: const TextStyle(
+                                                            fontSize: 12,
+                                                            color: AppColors.muted,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
                                             ),
-                                          ),
+                                            const SizedBox(height: 10),
+                                            ClipRRect(
+                                              borderRadius: BorderRadius.circular(6),
+                                              child: LinearProgressIndicator(
+                                                value: _confidence.clamp(0, 1),
+                                                minHeight: 6,
+                                                backgroundColor: AppColors.border,
+                                                color: AppColors.aiPurple,
+                                              ),
+                                            ),
+                                            if (_selected != '—' && _selected != _detected) ...[
+                                              const SizedBox(height: 10),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                                decoration: BoxDecoration(
+                                                  color: AppColors.warningSoft,
+                                                  borderRadius: BorderRadius.circular(8),
+                                                ),
+                                                child: Text(
+                                                  'Override selected: $_selected',
+                                                  style: const TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: AppColors.warning,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                            if (_finalShade != null) ...[
+                                              const SizedBox(height: 8),
+                                              Text(
+                                                'Saved final: $_finalShade',
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppColors.success,
+                                                ),
+                                              ),
+                                            ],
+                                            if (_topMatches.isNotEmpty) ...[
+                                              const SizedBox(height: 12),
+                                              const Text(
+                                                'Top matches',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppColors.muted,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 6),
+                                              Wrap(
+                                                spacing: 6,
+                                                runSpacing: 6,
+                                                children: _topMatches.take(5).map((m) {
+                                                  final s = m['shade']?.toString() ?? '';
+                                                  final active = _selected == s;
+                                                  return InkWell(
+                                                    onTap: () => setState(() {
+                                                      _selected = s;
+                                                      _saveStatus = null;
+                                                    }),
+                                                    borderRadius: BorderRadius.circular(8),
+                                                    child: Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                                      decoration: BoxDecoration(
+                                                        color: _swatch(s).withValues(alpha: 0.45),
+                                                        borderRadius: BorderRadius.circular(8),
+                                                        border: Border.all(
+                                                          color: active ? AppColors.navy : AppColors.border,
+                                                          width: active ? 1.5 : 1,
+                                                        ),
+                                                      ),
+                                                      child: Text(
+                                                        s,
+                                                        style: const TextStyle(
+                                                          fontWeight: FontWeight.w700,
+                                                          fontSize: 12,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  );
+                                                }).toList(),
+                                              ),
+                                            ],
+                                            const SizedBox(height: 14),
+                                            FilledButton(
+                                              onPressed: _saving || _detected == '—'
+                                                  ? null
+                                                  : () => _persist(acceptAi: true),
+                                              style: FilledButton.styleFrom(
+                                                backgroundColor: AppColors.navy,
+                                                minimumSize: const Size.fromHeight(40),
+                                              ),
+                                              child: Text(
+                                                _saving
+                                                    ? 'Saving…'
+                                                    : (_detected == '—' ? 'Accept AI' : 'Accept $_detected'),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 8),
+                                            OutlinedButton(
+                                              onPressed: _saving ? null : () => _persist(acceptAi: false),
+                                              style: OutlinedButton.styleFrom(
+                                                minimumSize: const Size.fromHeight(40),
+                                              ),
+                                              child: Text(
+                                                _selected == '—' || _selected == _detected
+                                                    ? 'Save override'
+                                                    : 'Save override ($_selected)',
+                                              ),
+                                            ),
+                                            const SizedBox(height: 10),
+                                            Text(
+                                              _note ??
+                                                  'Natural light, close-up tooth photos work best. Confirm or override below.',
+                                              style: const TextStyle(
+                                                fontSize: 11,
+                                                height: 1.35,
+                                                color: AppColors.muted,
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: OutlinedButton.icon(
-                                            onPressed: _saving
-                                                ? null
-                                                : () => _persist(acceptAi: false),
-                                            icon: const Icon(Icons.edit_outlined, size: 18),
-                                            label: const Text('Save override'),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Container(
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.aiPurpleSoft,
-                                        borderRadius: AppRadii.border,
                                       ),
-                                      child: Text(
-                                        _note ??
-                                            'Pick a tooth photo to run shade suggestion. Manual override is always available and saved to the case.',
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          height: 1.4,
-                                          color: AppColors.navy,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
+                                    );
+                                  },
                                 ),
                               ),
                             ),
@@ -402,16 +601,16 @@ class _ShadePageState extends State<ShadePage> {
                               borderRadius: BorderRadius.circular(12),
                               child: Image.asset(
                                 'assets/clinical/vita-classical-a1-d4.png',
-                                height: 110,
+                                height: 90,
                                 width: double.infinity,
                                 fit: BoxFit.contain,
                                 filterQuality: FilterQuality.high,
                               ),
                             ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 10),
                             Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
+                              spacing: 6,
+                              runSpacing: 6,
                               children: _vita.map((s) {
                                 final selected = _selected == s;
                                 return InkWell(
@@ -419,33 +618,31 @@ class _ShadePageState extends State<ShadePage> {
                                     _selected = s;
                                     _saveStatus = null;
                                   }),
-                                  borderRadius: BorderRadius.circular(10),
+                                  borderRadius: BorderRadius.circular(8),
                                   child: Container(
-                                    width: 56,
-                                    padding: const EdgeInsets.all(6),
+                                    width: 48,
+                                    padding: const EdgeInsets.all(4),
                                     decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(10),
+                                      borderRadius: BorderRadius.circular(8),
                                       border: Border.all(
-                                        color: selected
-                                            ? AppColors.navy
-                                            : AppColors.border,
+                                        color: selected ? AppColors.navy : AppColors.border,
                                         width: selected ? 2 : 1,
                                       ),
                                     ),
                                     child: Column(
                                       children: [
                                         Container(
-                                          height: 28,
+                                          height: 22,
                                           decoration: BoxDecoration(
                                             color: _swatch(s),
-                                            borderRadius: BorderRadius.circular(6),
+                                            borderRadius: BorderRadius.circular(5),
                                           ),
                                         ),
-                                        const SizedBox(height: 4),
+                                        const SizedBox(height: 3),
                                         Text(
                                           s,
                                           style: const TextStyle(
-                                            fontSize: 11,
+                                            fontSize: 10,
                                             fontWeight: FontWeight.w600,
                                           ),
                                         ),
@@ -463,17 +660,15 @@ class _ShadePageState extends State<ShadePage> {
                 ),
                 const SizedBox(width: 12),
                 SizedBox(
-                  width: 260,
+                  width: 200,
                   child: SectionCard(
+                    padding: const EdgeInsets.all(12),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        const Text('Session', style: TextStyle(fontWeight: FontWeight.w700)),
                         const Text(
-                          'Session saves',
-                          style: TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        const Text(
-                          'Accepted & overrides this session',
+                          'Saves this visit',
                           style: TextStyle(color: AppColors.muted, fontSize: 12),
                         ),
                         const SizedBox(height: 12),
@@ -507,64 +702,6 @@ class _ShadePageState extends State<ShadePage> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _ShadeBlock extends StatelessWidget {
-  const _ShadeBlock({
-    required this.label,
-    required this.shade,
-    required this.color,
-    this.highlight = false,
-    this.sub,
-  });
-
-  final String label;
-  final String shade;
-  final Color color;
-  final bool highlight;
-  final String? sub;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        margin: const EdgeInsets.only(right: 6),
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: highlight ? AppColors.aiPurple : AppColors.border,
-            width: highlight ? 2 : 1,
-          ),
-          color: highlight ? AppColors.aiPurpleSoft : null,
-        ),
-        child: Column(
-          children: [
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 9,
-                color: AppColors.muted,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Container(
-              height: 36,
-              decoration: BoxDecoration(
-                color: color,
-                borderRadius: BorderRadius.circular(6),
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(shade, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-            if (sub != null)
-              Text(sub!, style: const TextStyle(fontSize: 10, color: AppColors.aiPurple)),
-          ],
-        ),
       ),
     );
   }

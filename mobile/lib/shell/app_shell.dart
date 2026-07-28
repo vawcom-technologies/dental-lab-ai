@@ -83,7 +83,7 @@ class _AppShellState extends State<AppShell> {
       case AppNavItem.scanBody:
         return ScanBodyPage(api: widget.api);
       case AppNavItem.messages:
-        return const MessagesPage();
+        return MessagesPage(api: widget.api);
       case AppNavItem.notifications:
         return const NotificationsPage();
       case AppNavItem.reports:

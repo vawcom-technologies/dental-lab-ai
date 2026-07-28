@@ -46,3 +46,23 @@ class ScanBodyDetection(Base):
     confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     scan: Mapped["Scan"] = relationship(back_populates="scan_body_detections")  # noqa: F821
+
+
+class ScanBodySelection(Base):
+    """Case-level scan-body diameter match (manual or photo-detected)."""
+
+    __tablename__ = "scan_body_selections"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    case_id: Mapped[int] = mapped_column(ForeignKey("cases.id"), index=True)
+    detected_diameter: Mapped[float | None] = mapped_column(Float, nullable=True)
+    table_diameter_mm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    matched_tooth_position: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    matched_manufacturer: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    matched_platform: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    overridden_by_dentist: Mapped[bool] = mapped_column(Boolean, default=False)
+    detection_method: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    case: Mapped["Case"] = relationship(back_populates="scan_body_selections")  # noqa: F821

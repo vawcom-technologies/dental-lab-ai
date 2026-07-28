@@ -7,7 +7,9 @@ import '../../core/widgets/ui_kit.dart';
 class SmilePreviewPage extends StatefulWidget {
   const SmilePreviewPage({super.key});
 
-  static const assetPath = 'assets/clinical/tooth-preview-grid.png';
+  /// Archived original client grid (see [ShapeLibrary.legacyGridAsset]).
+  static const assetPath =
+      'assets/clinical/archive/tooth-preview-grid.legacy.png';
 
   @override
   State<SmilePreviewPage> createState() => _SmilePreviewPageState();

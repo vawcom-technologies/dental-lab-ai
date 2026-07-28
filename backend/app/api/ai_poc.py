@@ -50,7 +50,12 @@ def scan_body_match(diameter_mm: float = Form(...)):
 @router.post("/scan-body/detect")
 async def scan_body_detect(
     file: UploadFile = File(...),
-    pixels_per_mm: float = Form(20.0),
+    pixels_per_mm: float | None = Form(None),
+    known_diameter_mm: float | None = Form(None),
 ):
     data = await file.read()
-    return detect_diameter_from_image(data, pixels_per_mm=pixels_per_mm)
+    return detect_diameter_from_image(
+        data,
+        pixels_per_mm=pixels_per_mm,
+        known_diameter_mm=known_diameter_mm,
+    )

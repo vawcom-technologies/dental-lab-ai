@@ -2,6 +2,8 @@
 
 | File | Source |
 |------|--------|
-| `tooth-preview-grid.png` | Client smile/shape preview grid (20 options, 4×5) |
+| `../mobile/assets/clinical/shapes/shape_XX_*.png` | Active Smile Preview library (12 individual shapes) |
+| `../mobile/assets/clinical/archive/tooth-preview-grid.legacy.png` | Original client 5×4 mosaic (archived) |
 
-Used in Flutter: `assets/clinical/tooth-preview-grid.png` → Smile Preview screen.
+**Active UI:** `ShapeLibrary` in `mobile/lib/features/shapes/shape_overlay_page.dart`  
+**Legacy constant:** `ShapeLibrary.legacyGridAsset`

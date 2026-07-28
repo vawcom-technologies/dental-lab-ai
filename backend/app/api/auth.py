@@ -40,6 +40,7 @@ def login(
     token = create_access_token(subject=user.email, role=user.role)
     return TokenOut(
         access_token=token,
+        user_id=user.id,
         role=user.role,
         name=user.name,
         email=user.email,

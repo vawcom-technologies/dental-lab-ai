@@ -1,0 +1,86 @@
+[
+  {
+    "id": 1,
+    "slug": "soft_oval",
+    "label": "Soft oval",
+    "asset": "assets/clinical/shapes/shape_01_soft_oval.png",
+    "shapeId": "shape_1"
+  },
+  {
+    "id": 2,
+    "slug": "classic_oval",
+    "label": "Classic oval",
+    "asset": "assets/clinical/shapes/shape_02_classic_oval.png",
+    "shapeId": "shape_2"
+  },
+  {
+    "id": 3,
+    "slug": "rounded",
+    "label": "Rounded",
+    "asset": "assets/clinical/shapes/shape_03_rounded.png",
+    "shapeId": "shape_3"
+  },
+  {
+    "id": 4,
+    "slug": "natural_oval",
+    "label": "Natural oval",
+    "asset": "assets/clinical/shapes/shape_04_natural_oval.png",
+    "shapeId": "shape_4"
+  },
+  {
+    "id": 5,
+    "slug": "youthful",
+    "label": "Youthful",
+    "asset": "assets/clinical/shapes/shape_05_youthful.png",
+    "shapeId": "shape_5"
+  },
+  {
+    "id": 6,
+    "slug": "soft_square",
+    "label": "Soft square",
+    "asset": "assets/clinical/shapes/shape_06_soft_square.png",
+    "shapeId": "shape_6"
+  },
+  {
+    "id": 7,
+    "slug": "balanced",
+    "label": "Balanced",
+    "asset": "assets/clinical/shapes/shape_07_balanced.png",
+    "shapeId": "shape_7"
+  },
+  {
+    "id": 8,
+    "slug": "soft_rect",
+    "label": "Soft rect",
+    "asset": "assets/clinical/shapes/shape_08_soft_rect.png",
+    "shapeId": "shape_8"
+  },
+  {
+    "id": 9,
+    "slug": "hollywood",
+    "label": "Hollywood",
+    "asset": "assets/clinical/shapes/shape_09_hollywood.png",
+    "shapeId": "shape_9"
+  },
+  {
+    "id": 10,
+    "slug": "strong_square",
+    "label": "Strong square",
+    "asset": "assets/clinical/shapes/shape_10_strong_square.png",
+    "shapeId": "shape_10"
+  },
+  {
+    "id": 11,
+    "slug": "tapered",
+    "label": "Tapered",
+    "asset": "assets/clinical/shapes/shape_11_tapered.png",
+    "shapeId": "shape_11"
+  },
+  {
+    "id": 12,
+    "slug": "canine_lift",
+    "label": "Canine lift",
+    "asset": "assets/clinical/shapes/shape_12_canine_lift.png",
+    "shapeId": "shape_12"
+  }
+]

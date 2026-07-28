@@ -12,8 +12,14 @@ class ApiClient {
 
   final String baseUrl;
   String? _token;
+  int? _userId;
+  String? _role;
+  String? _name;
 
   String? get token => _token;
+  int? get userId => _userId;
+  String? get role => _role;
+  String? get userName => _name;
 
   void setToken(String? token) => _token = token;
 
@@ -35,6 +41,9 @@ class ApiClient {
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     _token = data['access_token'] as String;
+    _userId = (data['user_id'] as num?)?.toInt();
+    _role = data['role'] as String?;
+    _name = data['name'] as String?;
     return data;
   }
 
@@ -137,15 +146,32 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> suggestShade(List<int> bytes, String filename) async {
+    final name = filename.trim().isEmpty ? 'tooth.jpg' : filename;
     final req = http.MultipartRequest(
       'POST',
       Uri.parse('$baseUrl/api/ai/shade/suggest'),
     );
-    req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
+    req.headers.addAll(_authHeaders);
+    req.files.add(
+      http.MultipartFile.fromBytes(
+        'file',
+        bytes,
+        filename: name,
+      ),
+    );
     final streamed = await req.send();
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  Future<String> exportDatevXml(int patientId) async {
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/exports/$patientId/datev.xml'),
+      headers: _authHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return res.body;
   }
 
   Future<Map<String, dynamic>> validateScan(List<int> bytes, String filename) async {
@@ -208,6 +234,16 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>?> latestShape(int caseId) async {
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/cases/$caseId/shape'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    if (res.body.isEmpty || res.body == 'null') return null;
+    return jsonDecode(res.body) as Map<String, dynamic>?;
+  }
+
   Future<Map<String, dynamic>> matchScanBody(double diameterMm) async {
     final res = await http.post(
       Uri.parse('$baseUrl/api/ai/scan-body/match'),
@@ -224,14 +260,20 @@ class ApiClient {
   Future<Map<String, dynamic>> detectScanBody(
     List<int> bytes,
     String filename, {
-    double pixelsPerMm = 20,
+    double? pixelsPerMm,
+    double? knownDiameterMm,
   }) async {
     final req = http.MultipartRequest(
       'POST',
       Uri.parse('$baseUrl/api/ai/scan-body/detect'),
     );
     req.headers.addAll(_authHeaders);
-    req.fields['pixels_per_mm'] = pixelsPerMm.toString();
+    if (pixelsPerMm != null) {
+      req.fields['pixels_per_mm'] = pixelsPerMm.toString();
+    }
+    if (knownDiameterMm != null) {
+      req.fields['known_diameter_mm'] = knownDiameterMm.toString();
+    }
     req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
     final streamed = await req.send();
     final res = await http.Response.fromStream(streamed);
@@ -247,6 +289,89 @@ class ApiClient {
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     return (body['rows'] as List).cast<Map<String, dynamic>>();
+  }
+
+  Future<Map<String, dynamic>> saveScanBody({
+    required int caseId,
+    double? detectedDiameter,
+    double? tableDiameterMm,
+    String? tooth,
+    String? manufacturer,
+    String? platform,
+    double? confidence,
+    bool overridden = false,
+    String? detectionMethod,
+  }) async {
+    final res = await http.post(
+      Uri.parse('$baseUrl/api/cases/$caseId/scan-body'),
+      headers: _jsonHeaders,
+      body: jsonEncode({
+        'detected_diameter': detectedDiameter,
+        'table_diameter_mm': tableDiameterMm,
+        'matched_tooth_position': tooth,
+        'matched_manufacturer': manufacturer,
+        'matched_platform': platform,
+        'confidence_score': confidence,
+        'overridden_by_dentist': overridden,
+        'detection_method': detectionMethod,
+      }),
+    );
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(_errorMessage(res));
+    }
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>?> latestScanBody(int caseId) async {
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/cases/$caseId/scan-body'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    if (res.body.isEmpty || res.body == 'null') return null;
+    return jsonDecode(res.body) as Map<String, dynamic>?;
+  }
+
+  Future<List<Map<String, dynamic>>> listMessageThreads() async {
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/messages/threads'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
+  }
+
+  Future<List<Map<String, dynamic>>> listMessages(int caseId) async {
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/cases/$caseId/messages'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
+  }
+
+  Future<Map<String, dynamic>> sendMessage({
+    required int caseId,
+    required String body,
+    String type = 'text',
+  }) async {
+    final res = await http.post(
+      Uri.parse('$baseUrl/api/cases/$caseId/messages'),
+      headers: _jsonHeaders,
+      body: jsonEncode({'type': type, 'body': body}),
+    );
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(_errorMessage(res));
+    }
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  Future<void> markThreadRead(int caseId) async {
+    final res = await http.post(
+      Uri.parse('$baseUrl/api/cases/$caseId/messages/read'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
   }
 
   String _errorMessage(http.Response res) {

@@ -5,7 +5,12 @@ from app.models.patient import Patient
 from app.models.case import Case
 from app.models.scan import Scan
 from app.models.photo import Photo
-from app.models.clinical import ShadeSelection, ShapeSelection, ScanBodyDetection
+from app.models.clinical import (
+    ShadeSelection,
+    ShapeSelection,
+    ScanBodyDetection,
+    ScanBodySelection,
+)
 from app.models.comms import Message, Notification, XMLExport, ActivityLog
 
 __all__ = [
@@ -17,6 +22,7 @@ __all__ = [
     "ShadeSelection",
     "ShapeSelection",
     "ScanBodyDetection",
+    "ScanBodySelection",
     "Message",
     "Notification",
     "XMLExport",

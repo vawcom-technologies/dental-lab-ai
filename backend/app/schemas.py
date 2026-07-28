@@ -11,6 +11,7 @@ from pydantic import BaseModel, EmailStr, Field
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    user_id: int
     role: str
     name: str
     email: str
