@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Reference sample provided for Elite Dent / Dental Lab AI.
+  NOTE: Simplified DATEV-like demo — not a full official DATEV XSD document.
+  Real DATEV imports need official XSD, Beraternummer, Mandantennummer, etc.
+-->
+<datev:Document xmlns:datev="http://www.datev.de/schema">
+    <datev:Header>
+        <datev:Version>1.0</datev:Version>
+        <datev:CreationDate>2026-07-22</datev:CreationDate>
+        <datev:Creator>MeinProgramm</datev:Creator>
+    </datev:Header>
+
+    <datev:Data>
+        <datev:Invoice>
+            <datev:InvoiceNumber>RE-2026-001</datev:InvoiceNumber>
+            <datev:InvoiceDate>2026-07-20</datev:InvoiceDate>
+            <datev:Customer>
+                <datev:Name>Max Mustermann</datev:Name>
+                <datev:Address>Musterstraße 1, 12345 Musterstadt</datev:Address>
+            </datev:Customer>
+            <datev:Amount currency="EUR">1500.00</datev:Amount>
+        </datev:Invoice>
+    </datev:Data>
+</datev:Document>
