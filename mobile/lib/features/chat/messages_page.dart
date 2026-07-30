@@ -162,7 +162,7 @@ class _MessagesPageState extends State<MessagesPage> {
     final active = _active;
     final name = active?['patient_name']?.toString() ?? 'Select a conversation';
     final meta = active?['meta']?.toString() ?? '';
-    final status = active?['case_status']?.toString() ?? 'pending';
+    final status = CaseStatuses.normalize(active?['case_status']?.toString());
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),

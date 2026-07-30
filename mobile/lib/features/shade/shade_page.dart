@@ -289,6 +289,11 @@ class _ShadePageState extends State<ShadePage> {
         finalShade: finalShade,
         overridden: overridden,
       );
+      await widget.api.markCaseInProgressIfPending(
+        _case!['id'] as int,
+        _case!['status']?.toString(),
+      );
+      _case = {..._case!, 'status': 'in_progress'};
       setState(() {
         _finalShade = finalShade;
         _selected = finalShade;

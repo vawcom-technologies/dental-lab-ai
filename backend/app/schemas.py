@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -99,9 +99,27 @@ class CaseCreate(BaseModel):
     patient_id: int
     status: str = "pending"
 
+    @field_validator("status")
+    @classmethod
+    def _status_ok(cls, v: str) -> str:
+        allowed = {"pending", "in_progress", "in_review", "rejected", "completed"}
+        if v not in allowed:
+            raise ValueError(f"status must be one of {sorted(allowed)}")
+        return v
+
 
 class CaseUpdate(BaseModel):
     status: Optional[str] = None
+
+    @field_validator("status")
+    @classmethod
+    def _status_ok(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        allowed = {"pending", "in_progress", "in_review", "rejected", "completed"}
+        if v not in allowed:
+            raise ValueError(f"status must be one of {sorted(allowed)}")
+        return v
 
 
 class CaseOut(BaseModel):

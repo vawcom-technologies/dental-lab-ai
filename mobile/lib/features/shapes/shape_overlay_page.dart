@@ -414,6 +414,11 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
         rotation: _rotation,
         scale: _scale,
       );
+      await widget.api.markCaseInProgressIfPending(
+        _case!['id'] as int,
+        _case!['status']?.toString(),
+      );
+      _case = {..._case!, 'status': 'in_progress'};
       setState(() {
         _dirty = false;
         _status =

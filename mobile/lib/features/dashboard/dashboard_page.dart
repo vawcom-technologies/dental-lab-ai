@@ -84,11 +84,17 @@ class _DashboardPageState extends State<DashboardPage> {
     return 'Good evening';
   }
 
-  int get _completed => _cases.where((c) => c['status'] == 'completed').length;
-  int get _pending => _cases.where((c) => c['status'] == 'pending').length;
-  int get _inReview => _cases.where((c) => c['status'] == 'in_review').length;
-  int get _rejected => _cases.where((c) => c['status'] == 'rejected').length;
-  int get _attention => _pending + _inReview + _rejected;
+  int get _completed =>
+      _cases.where((c) => CaseStatuses.normalize('${c['status']}') == CaseStatuses.completed).length;
+  int get _pending =>
+      _cases.where((c) => CaseStatuses.normalize('${c['status']}') == CaseStatuses.pending).length;
+  int get _inProgress =>
+      _cases.where((c) => CaseStatuses.normalize('${c['status']}') == CaseStatuses.inProgress).length;
+  int get _inReview =>
+      _cases.where((c) => CaseStatuses.normalize('${c['status']}') == CaseStatuses.inReview).length;
+  int get _rejected =>
+      _cases.where((c) => CaseStatuses.normalize('${c['status']}') == CaseStatuses.rejected).length;
+  int get _attention => _pending + _inProgress + _inReview + _rejected;
 
   int get _unreadMessages {
     var n = 0;
@@ -100,7 +106,9 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   String get _avgProcessingLabel {
-    final completed = _cases.where((c) => c['status'] == 'completed').toList();
+    final completed = _cases
+        .where((c) => CaseStatuses.normalize('${c['status']}') == CaseStatuses.completed)
+        .toList();
     if (completed.isEmpty) return '—';
     var totalHours = 0.0;
     var counted = 0;
@@ -135,7 +143,7 @@ class _DashboardPageState extends State<DashboardPage> {
         caseLabel: 'CASE-${caseId.toString().padLeft(4, '0')}',
         patientName: name.isEmpty ? 'Unknown' : name,
         dentist: widget.dentistName,
-        status: '${c['status'] ?? 'pending'}',
+        status: CaseStatuses.normalize('${c['status'] ?? 'pending'}'),
         updated: _relativeTime(DateTime.tryParse('${c['updated_at'] ?? ''}')),
       );
     }).toList();
@@ -159,6 +167,7 @@ class _DashboardPageState extends State<DashboardPage> {
         'completed' => 'Case CASE-${caseId.toString().padLeft(4, '0')} marked complete — $name',
         'rejected' => 'Scan rejected for $name — rescan required',
         'in_review' => 'Case for $name moved to lab review',
+        'in_progress' => 'Case for $name is in progress',
         'pending' => 'Case opened for $name — awaiting scan',
         _ => 'Case updated for $name',
       };
@@ -312,10 +321,10 @@ class _DashboardPageState extends State<DashboardPage> {
                 child: _KpiCard(
                   title: 'Pending Scans',
                   value: _loading ? '…' : '$_pending',
-                  hint: _inReview == 0
-                      ? 'None in lab review'
-                      : '$_inReview in lab review',
-                  hintColor: _pending > 0 || _inReview > 0
+                  hint: _inProgress == 0 && _inReview == 0
+                      ? 'None actively in progress'
+                      : '$_inProgress in progress · $_inReview in review',
+                  hintColor: _pending > 0 || _inProgress > 0 || _inReview > 0
                       ? AppColors.warning
                       : AppColors.success,
                 ),

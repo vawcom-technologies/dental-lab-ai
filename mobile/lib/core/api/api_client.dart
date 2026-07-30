@@ -195,6 +195,23 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> updateCaseStatus(int caseId, String status) async {
+    final res = await http.patch(
+      Uri.parse('$baseUrl/api/cases/$caseId'),
+      headers: _jsonHeaders,
+      body: jsonEncode({'status': status}),
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  /// Bump a new case into active work after clinical capture.
+  Future<void> markCaseInProgressIfPending(int caseId, String? currentStatus) async {
+    final status = (currentStatus ?? 'pending').toLowerCase();
+    if (status != 'pending' && status != 'awaiting_scan') return;
+    await updateCaseStatus(caseId, 'in_progress');
+  }
+
   Future<List<Map<String, dynamic>>> listPhotos(int caseId) async {
     final res = await http.get(
       Uri.parse('$baseUrl/api/cases/$caseId/photos'),

@@ -223,8 +223,51 @@ class StatusStyle {
         return const StatusStyle('Complete', AppColors.success, AppColors.successSoft);
       case 'rejected':
         return const StatusStyle('Rejected', AppColors.danger, AppColors.dangerSoft);
+      case 'none':
+      case 'no_case':
+        return const StatusStyle('No case', AppColors.muted, Color(0xFFE8EDF4));
       default:
         return StatusStyle(key, AppColors.muted, AppColors.surface);
     }
+  }
+}
+
+/// Canonical Elite Dent case workflow statuses (matches backend).
+class CaseStatuses {
+  static const pending = 'pending';
+  static const inProgress = 'in_progress';
+  static const inReview = 'in_review';
+  static const completed = 'completed';
+  static const rejected = 'rejected';
+
+  static const all = <String>[
+    pending,
+    inProgress,
+    inReview,
+    completed,
+    rejected,
+  ];
+
+  /// Filter chips shown on Patients (excludes raw aliases).
+  static const filters = <({String key, String label})>[
+    (key: 'all', label: 'All'),
+    (key: pending, label: 'Awaiting Scan'),
+    (key: inProgress, label: 'In Progress'),
+    (key: inReview, label: 'In Review'),
+    (key: completed, label: 'Complete'),
+    (key: rejected, label: 'Rejected'),
+  ];
+
+  static String normalize(String? raw) {
+    final s = (raw ?? pending).trim().toLowerCase();
+    if (s == 'awaiting_scan') return pending;
+    if (s == 'complete') return completed;
+    if (all.contains(s)) return s;
+    return pending;
+  }
+
+  static bool matchesFilter(String? status, String filter) {
+    if (filter == 'all') return true;
+    return normalize(status) == normalize(filter);
   }
 }

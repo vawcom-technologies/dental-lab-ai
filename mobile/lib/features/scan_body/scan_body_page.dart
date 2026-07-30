@@ -431,6 +431,11 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
         overridden: overridden || _match!['ambiguous'] == true,
         detectionMethod: _match!['detection_method']?.toString() ?? 'manual',
       );
+      await widget.api.markCaseInProgressIfPending(
+        _case!['id'] as int,
+        _case!['status']?.toString(),
+      );
+      _case = {..._case!, 'status': 'in_progress'};
       setState(
         () => _status =
             'Saved ${_match!['matched_manufacturer']} · '
