@@ -14,6 +14,8 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(32), default="dentist")  # dentist | lab | admin
     password_hash: Mapped[str] = mapped_column(String(255))
+    clinic_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_login: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

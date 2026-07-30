@@ -15,13 +15,48 @@ class ApiClient {
   int? _userId;
   String? _role;
   String? _name;
+  String? _email;
+  String? _clinicName;
+  String? _phone;
 
   String? get token => _token;
   int? get userId => _userId;
   String? get role => _role;
   String? get userName => _name;
+  String? get email => _email;
+  String? get clinicName => _clinicName;
+  String? get phone => _phone;
 
   void setToken(String? token) => _token = token;
+
+  void _applyAuth(Map<String, dynamic> data) {
+    _token = data['access_token'] as String?;
+    _userId = (data['user_id'] as num?)?.toInt();
+    _role = data['role'] as String?;
+    _name = data['name'] as String?;
+    _email = data['email'] as String?;
+    _clinicName = data['clinic_name'] as String?;
+    _phone = data['phone'] as String?;
+  }
+
+  void _applyProfile(Map<String, dynamic> data) {
+    _userId = (data['id'] as num?)?.toInt() ?? _userId;
+    _role = data['role'] as String? ?? _role;
+    _name = data['name'] as String? ?? _name;
+    _email = data['email'] as String? ?? _email;
+    _clinicName = data['clinic_name'] as String?;
+    _phone = data['phone'] as String?;
+  }
+
+  void logout() {
+    _token = null;
+    _userId = null;
+    _role = null;
+    _name = null;
+    _email = null;
+    _clinicName = null;
+    _phone = null;
+  }
 
   Map<String, String> get _jsonHeaders => {
         'Content-Type': 'application/json',
@@ -40,11 +75,84 @@ class ApiClient {
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     final data = jsonDecode(res.body) as Map<String, dynamic>;
-    _token = data['access_token'] as String;
-    _userId = (data['user_id'] as num?)?.toInt();
-    _role = data['role'] as String?;
-    _name = data['name'] as String?;
+    _applyAuth(data);
     return data;
+  }
+
+  Future<Map<String, dynamic>> register({
+    required String email,
+    required String name,
+    required String password,
+    String role = 'dentist',
+    String? clinicName,
+    String? phone,
+  }) async {
+    final res = await http.post(
+      Uri.parse('$baseUrl/api/auth/register'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'email': email,
+        'name': name,
+        'password': password,
+        'role': role,
+        'clinic_name': clinicName,
+        'phone': phone,
+      }),
+    );
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(_errorMessage(res));
+    }
+    final data = jsonDecode(res.body) as Map<String, dynamic>;
+    _applyAuth(data);
+    return data;
+  }
+
+  Future<Map<String, dynamic>> fetchMe() async {
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/auth/me'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    final data = jsonDecode(res.body) as Map<String, dynamic>;
+    _applyProfile(data);
+    return data;
+  }
+
+  Future<Map<String, dynamic>> updateProfile({
+    String? name,
+    String? email,
+    String? clinicName,
+    String? phone,
+  }) async {
+    final body = <String, dynamic>{};
+    if (name != null) body['name'] = name;
+    if (email != null) body['email'] = email;
+    if (clinicName != null) body['clinic_name'] = clinicName;
+    if (phone != null) body['phone'] = phone;
+    final res = await http.patch(
+      Uri.parse('$baseUrl/api/auth/me'),
+      headers: _jsonHeaders,
+      body: jsonEncode(body),
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    final data = jsonDecode(res.body) as Map<String, dynamic>;
+    _applyProfile(data);
+    return data;
+  }
+
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final res = await http.post(
+      Uri.parse('$baseUrl/api/auth/me/password'),
+      headers: _jsonHeaders,
+      body: jsonEncode({
+        'current_password': currentPassword,
+        'new_password': newPassword,
+      }),
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
   }
 
   Future<List<Map<String, dynamic>>> listPatients() async {

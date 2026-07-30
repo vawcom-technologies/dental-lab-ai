@@ -37,32 +37,35 @@ class AppSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final width = collapsed ? 72.0 : 240.0;
+    final width = collapsed ? 72.0 : 248.0;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       width: width,
-      decoration: const BoxDecoration(
+      margin: const EdgeInsets.fromLTRB(12, 12, 0, 12),
+      decoration: BoxDecoration(
         color: AppColors.sidebarBg,
-        border: Border(right: BorderSide(color: AppColors.border)),
+        borderRadius: AppRadii.border,
+        boxShadow: NeoShadows.raised(depth: 0.85),
       ),
       child: SafeArea(
         child: Column(
           children: [
             Padding(
-              padding: EdgeInsets.fromLTRB(collapsed ? 10 : 14, 16, 12, 16),
+              padding: EdgeInsets.fromLTRB(collapsed ? 10 : 16, 18, 14, 10),
               child: collapsed
                   ? const Center(child: BrandLogo(height: 40, scale: 1.2))
                   : const Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        BrandLogo(height: 58, scale: 1.2),
-                        SizedBox(height: 6),
+                        BrandLogo(height: 56, scale: 1.15),
+                        SizedBox(height: 8),
                         Text(
                           'Pro Edition',
                           style: TextStyle(
                             fontSize: 11,
                             color: AppColors.muted,
-                            fontWeight: FontWeight.w500,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.4,
                           ),
                         ),
                       ],
@@ -70,7 +73,7 @@ class AppSidebar extends StatelessWidget {
             ),
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 children: [
                   _item(AppNavItem.dashboard, Icons.grid_view_rounded, 'Dashboard'),
                   _item(AppNavItem.patients, Icons.people_outline, 'Patients'),
@@ -98,11 +101,15 @@ class AppSidebar extends StatelessWidget {
                 ],
               ),
             ),
-            const Divider(height: 1),
             Padding(
-              padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+              padding: const EdgeInsets.fromLTRB(10, 4, 10, 14),
               child: Column(
                 children: [
+                  Container(
+                    height: 1,
+                    margin: const EdgeInsets.only(bottom: 10),
+                    color: AppColors.border.withValues(alpha: 0.6),
+                  ),
                   _item(AppNavItem.settings, Icons.settings_outlined, 'Settings'),
                   _item(AppNavItem.profile, Icons.person_outline, 'Profile'),
                 ],
@@ -123,24 +130,22 @@ class AppSidebar extends StatelessWidget {
   }) {
     final selected = active == id;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.only(bottom: 6),
       child: Material(
-        color: selected ? AppColors.sidebarActive : Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
+        color: Colors.transparent,
         child: InkWell(
           onTap: () => onSelect(id),
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
-            decoration: selected
-                ? const BoxDecoration(
-                    border: Border(
-                      left: BorderSide(color: AppColors.dentalBlue, width: 3),
-                    ),
-                  )
-                : null,
+          borderRadius: BorderRadius.circular(14),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
             padding: EdgeInsets.symmetric(
               horizontal: collapsed ? 0 : 12,
-              vertical: 10,
+              vertical: 11,
+            ),
+            decoration: BoxDecoration(
+              color: selected ? AppColors.sidebarActive : Colors.transparent,
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: selected ? NeoShadows.pressed() : null,
             ),
             child: Row(
               mainAxisAlignment:
@@ -158,7 +163,7 @@ class AppSidebar extends StatelessWidget {
                       label,
                       style: TextStyle(
                         fontSize: 13.5,
-                        fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                         color: selected ? AppColors.navy : AppColors.muted,
                       ),
                     ),
@@ -169,7 +174,7 @@ class AppSidebar extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
                         color: badgeColor ?? AppColors.danger,
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
                         '$badge',

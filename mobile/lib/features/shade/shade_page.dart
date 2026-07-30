@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
 
 class ShadePage extends StatefulWidget {
@@ -72,9 +73,7 @@ class _ShadePageState extends State<ShadePage> {
 
   Future<void> _bootstrap() async {
     try {
-      final patients = await widget.api.listPatients();
-      setState(() => _patients = patients);
-      if (patients.isNotEmpty) await _selectPatient(patients.first);
+      await _reloadPatients(selectFirst: true);
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -82,17 +81,132 @@ class _ShadePageState extends State<ShadePage> {
     }
   }
 
+  int _pid(Map<String, dynamic> row) => (row['id'] as num).toInt();
+
+  Future<void> _reloadPatients({bool selectFirst = false}) async {
+    final patients = await widget.api.listPatients();
+    if (!mounted) return;
+    setState(() {
+      _patients = patients;
+      _error = null;
+    });
+    if (patients.isEmpty) {
+      setState(() {
+        _patient = null;
+        _case = null;
+      });
+      return;
+    }
+    if (selectFirst || _patient == null) {
+      await _selectPatient(patients.first);
+      return;
+    }
+    final currentId = _pid(_patient!);
+    final stillThere = patients.where((p) => _pid(p) == currentId);
+    if (stillThere.isEmpty) {
+      await _selectPatient(patients.first);
+    } else {
+      await _selectPatient(stillThere.first);
+    }
+  }
+
   Future<void> _selectPatient(Map<String, dynamic> patient) async {
     setState(() {
       _patient = patient;
       _saveStatus = null;
+      _error = null;
     });
-    final cases = await widget.api.listCases();
-    final mine = cases.where((c) => c['patient_id'] == patient['id']).toList();
-    final caseRow = mine.isEmpty
-        ? await widget.api.createCase(patient['id'] as int)
-        : mine.first;
-    setState(() => _case = caseRow);
+    try {
+      final patientId = _pid(patient);
+      final cases = await widget.api.listCases();
+      final mine = cases
+          .where((c) => (c['patient_id'] as num).toInt() == patientId)
+          .toList();
+      final caseRow = mine.isEmpty
+          ? await widget.api.createCase(patientId)
+          : mine.first;
+      if (!mounted) return;
+      setState(() => _case = caseRow);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _case = null;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  Future<void> _quickAddPatient() async {
+    final firstCtrl = TextEditingController();
+    final lastCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add patient'),
+        content: SizedBox(
+          width: 360,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: firstCtrl,
+                decoration: const InputDecoration(labelText: 'First name *'),
+                autofocus: true,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: lastCtrl,
+                decoration: const InputDecoration(labelText: 'Last name *'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) {
+      firstCtrl.dispose();
+      lastCtrl.dispose();
+      return;
+    }
+    final first = firstCtrl.text.trim();
+    final last = lastCtrl.text.trim();
+    firstCtrl.dispose();
+    lastCtrl.dispose();
+    if (first.isEmpty || last.isEmpty) {
+      setState(() => _error = 'First and last name are required');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final created = await widget.api.createPatient({
+        'first_name': first,
+        'last_name': last,
+      });
+      await _reloadPatients();
+      await _selectPatient(created);
+      if (mounted) {
+        setState(() => _saveStatus = 'Patient $first $last ready for shade');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _runAiFromGallery() async {
@@ -144,8 +258,12 @@ class _ShadePageState extends State<ShadePage> {
   }
 
   Future<void> _persist({required bool acceptAi}) async {
-    if (_case == null) {
-      setState(() => _error = 'Select a patient first');
+    if (_case == null || _patient == null) {
+      setState(
+        () => _error = _patients.isEmpty
+            ? 'Add a patient first, then save the shade to their case.'
+            : 'Select a patient from the list first.',
+      );
       return;
     }
     if (_detected == '—' && acceptAi) {
@@ -222,26 +340,22 @@ class _ShadePageState extends State<ShadePage> {
                   ],
                 ),
               ),
-              if (_patients.isNotEmpty)
-                SizedBox(
-                  width: 220,
-                  child: DropdownButtonFormField<int>(
-                    initialValue: _patient?['id'] as int?,
-                    decoration: const InputDecoration(isDense: true),
-                    items: _patients
-                        .map(
-                          (p) => DropdownMenuItem(
-                            value: p['id'] as int,
-                            child: Text('${p['first_name']} ${p['last_name']}'),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (id) {
-                      final p = _patients.firstWhere((e) => e['id'] == id);
-                      _selectPatient(p);
-                    },
-                  ),
-                ),
+              PatientPickerButton(
+                patients: _patients,
+                selected: _patient,
+                caseId: (_case?['id'] as num?)?.toInt(),
+                enabled: !_busy,
+                onSelect: _selectPatient,
+                onAdd: _quickAddPatient,
+                onRefresh: () async {
+                  setState(() => _busy = true);
+                  try {
+                    await _reloadPatients();
+                  } finally {
+                    if (mounted) setState(() => _busy = false);
+                  }
+                },
+              ),
               const SizedBox(width: 8),
               FilledButton.icon(
                 onPressed: _busy ? null : _runAiFromGallery,

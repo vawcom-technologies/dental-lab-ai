@@ -1,17 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// DentalLab Pro Edition tokens (from Figma Make samples).
+/// Elite Dent Pro — soft neumorphic tokens (navy + dental blue).
 class AppColors {
   static const navy = Color(0xFF1D3557);
   static const dentalBlue = Color(0xFF4A90E2);
   static const aiPurple = Color(0xFF8B7CF6);
   static const aiPurpleSoft = Color(0xFFF3F0FF);
-  static const surface = Color(0xFFF4F6F9);
-  static const card = Color(0xFFFFFFFF);
+
+  /// Soft clinical canvas (neumorphic base).
+  static const surface = Color(0xFFE4EBF4);
+  static const surfaceDeep = Color(0xFFD8E2EE);
+  static const neo = Color(0xFFEAF0F7);
+  static const card = Color(0xFFEEF3F9);
+  static const inset = Color(0xFFDDE5F0);
+
   static const text = Color(0xFF1D3557);
   static const muted = Color(0xFF6B7C93);
-  static const border = Color(0xFFE4E9F0);
+  static const border = Color(0xFFD0DBE8);
   static const success = Color(0xFF1F9D63);
   static const successSoft = Color(0xFFE8F8F0);
   static const warning = Color(0xFFE09B2D);
@@ -20,8 +26,8 @@ class AppColors {
   static const dangerSoft = Color(0xFFFDECEC);
   static const review = Color(0xFF8B7CF6);
   static const reviewSoft = Color(0xFFF3F0FF);
-  static const sidebarBg = Color(0xFFFFFFFF);
-  static const sidebarActive = Color(0xFFEAF3FC);
+  static const sidebarBg = Color(0xFFEAF0F7);
+  static const sidebarActive = Color(0xFFE0EAF6);
 
   // Backward-compatible aliases
   static const primary = navy;
@@ -30,8 +36,50 @@ class AppColors {
 }
 
 class AppRadii {
-  static const r = 14.0;
+  static const r = 18.0;
+  static const rSm = 14.0;
+  static const rLg = 24.0;
   static BorderRadius get border => BorderRadius.circular(r);
+  static BorderRadius get borderSm => BorderRadius.circular(rSm);
+  static BorderRadius get borderLg => BorderRadius.circular(rLg);
+}
+
+/// Soft dual-tone shadows for raised / pressed neumorphic surfaces.
+class NeoShadows {
+  static List<BoxShadow> raised({double depth = 1}) {
+    final d = depth.clamp(0.5, 1.6);
+    return [
+      BoxShadow(
+        color: Colors.white.withValues(alpha: 0.85),
+        offset: Offset(-5 * d, -5 * d),
+        blurRadius: 10 * d,
+        spreadRadius: 0,
+      ),
+      BoxShadow(
+        color: const Color(0xFF9AADC4).withValues(alpha: 0.42),
+        offset: Offset(6 * d, 6 * d),
+        blurRadius: 14 * d,
+        spreadRadius: 0,
+      ),
+    ];
+  }
+
+  static List<BoxShadow> soft({double depth = 0.7}) => raised(depth: depth);
+
+  static List<BoxShadow> pressed() => [
+        BoxShadow(
+          color: const Color(0xFF9AADC4).withValues(alpha: 0.35),
+          offset: const Offset(2, 2),
+          blurRadius: 6,
+          spreadRadius: -1,
+        ),
+        BoxShadow(
+          color: Colors.white.withValues(alpha: 0.55),
+          offset: const Offset(-2, -2),
+          blurRadius: 5,
+          spreadRadius: -1,
+        ),
+      ];
 }
 
 class AppTheme {
@@ -48,19 +96,24 @@ class AppTheme {
       scaffoldBackgroundColor: AppColors.surface,
     );
 
-    final textTheme = GoogleFonts.interTextTheme(base.textTheme).apply(
+    final textTheme = GoogleFonts.plusJakartaSansTextTheme(base.textTheme).apply(
       bodyColor: AppColors.text,
       displayColor: AppColors.text,
+    );
+
+    final fieldBorder = OutlineInputBorder(
+      borderRadius: AppRadii.borderSm,
+      borderSide: BorderSide.none,
     );
 
     return base.copyWith(
       textTheme: textTheme,
       appBarTheme: AppBarTheme(
-        backgroundColor: AppColors.card,
+        backgroundColor: AppColors.neo,
         foregroundColor: AppColors.navy,
         elevation: 0,
         scrolledUnderElevation: 0,
-        titleTextStyle: GoogleFonts.inter(
+        titleTextStyle: GoogleFonts.plusJakartaSans(
           color: AppColors.navy,
           fontSize: 22,
           fontWeight: FontWeight.w700,
@@ -70,47 +123,81 @@ class AppTheme {
         style: FilledButton.styleFrom(
           backgroundColor: AppColors.navy,
           foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-          shape: RoundedRectangleBorder(borderRadius: AppRadii.border),
-          textStyle: GoogleFonts.inter(fontWeight: FontWeight.w600),
+          elevation: 0,
+          shadowColor: Colors.transparent,
+          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 15),
+          shape: RoundedRectangleBorder(borderRadius: AppRadii.borderSm),
+          textStyle: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w600,
+            fontSize: 14.5,
+          ),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.navy,
-          side: const BorderSide(color: AppColors.border),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          shape: RoundedRectangleBorder(borderRadius: AppRadii.border),
+          backgroundColor: AppColors.neo,
+          side: BorderSide.none,
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+          shape: RoundedRectangleBorder(borderRadius: AppRadii.borderSm),
+          textStyle: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: AppColors.dentalBlue,
+          textStyle: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.card,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        hintStyle: GoogleFonts.inter(color: AppColors.muted, fontSize: 14),
-        border: OutlineInputBorder(
-          borderRadius: AppRadii.border,
-          borderSide: const BorderSide(color: AppColors.border),
+        fillColor: AppColors.inset,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+        hintStyle: GoogleFonts.plusJakartaSans(color: AppColors.muted, fontSize: 14),
+        labelStyle: GoogleFonts.plusJakartaSans(
+          color: AppColors.muted,
+          fontWeight: FontWeight.w500,
         ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: AppRadii.border,
-          borderSide: const BorderSide(color: AppColors.border),
+        floatingLabelStyle: GoogleFonts.plusJakartaSans(
+          color: AppColors.dentalBlue,
+          fontWeight: FontWeight.w600,
         ),
+        border: fieldBorder,
+        enabledBorder: fieldBorder,
+        disabledBorder: fieldBorder,
         focusedBorder: OutlineInputBorder(
-          borderRadius: AppRadii.border,
-          borderSide: const BorderSide(color: AppColors.dentalBlue, width: 1.5),
+          borderRadius: AppRadii.borderSm,
+          borderSide: const BorderSide(color: AppColors.dentalBlue, width: 1.4),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: AppRadii.borderSm,
+          borderSide: const BorderSide(color: AppColors.danger, width: 1.2),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: AppRadii.borderSm,
+          borderSide: const BorderSide(color: AppColors.danger, width: 1.4),
         ),
       ),
       cardTheme: CardThemeData(
         color: AppColors.card,
         elevation: 0,
         margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(
-          borderRadius: AppRadii.border,
-          side: const BorderSide(color: AppColors.border),
+        shape: RoundedRectangleBorder(borderRadius: AppRadii.border),
+      ),
+      dividerColor: AppColors.border.withValues(alpha: 0.7),
+      dialogTheme: DialogThemeData(
+        backgroundColor: AppColors.card,
+        shape: RoundedRectangleBorder(borderRadius: AppRadii.border),
+      ),
+      menuTheme: MenuThemeData(
+        style: MenuStyle(
+          backgroundColor: WidgetStateProperty.all(AppColors.card),
+          shape: WidgetStateProperty.all(
+            RoundedRectangleBorder(borderRadius: AppRadii.borderSm),
+          ),
         ),
       ),
-      dividerColor: AppColors.border,
     );
   }
 }
@@ -126,10 +213,12 @@ class StatusStyle {
     switch (key) {
       case 'in_progress':
         return const StatusStyle('In Progress', AppColors.dentalBlue, Color(0xFFEAF3FC));
+      case 'pending':
       case 'awaiting_scan':
         return const StatusStyle('Awaiting Scan', AppColors.warning, AppColors.warningSoft);
       case 'in_review':
         return const StatusStyle('In Review', AppColors.review, AppColors.reviewSoft);
+      case 'completed':
       case 'complete':
         return const StatusStyle('Complete', AppColors.success, AppColors.successSoft);
       case 'rejected':

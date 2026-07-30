@@ -15,6 +15,8 @@ class TokenOut(BaseModel):
     role: str
     name: str
     email: str
+    clinic_name: str | None = None
+    phone: str | None = None
 
 
 class UserOut(BaseModel):
@@ -22,9 +24,34 @@ class UserOut(BaseModel):
     email: EmailStr
     name: str
     role: str
+    clinic_name: str | None = None
+    phone: str | None = None
+    created_at: datetime | None = None
+    last_login: datetime | None = None
 
     class Config:
         from_attributes = True
+
+
+class UserRegister(BaseModel):
+    email: EmailStr
+    name: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=6, max_length=128)
+    role: str = Field(default="dentist", pattern="^(dentist|lab)$")
+    clinic_name: str | None = Field(default=None, max_length=255)
+    phone: str | None = Field(default=None, max_length=64)
+
+
+class UserUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    email: EmailStr | None = None
+    clinic_name: str | None = Field(default=None, max_length=255)
+    phone: str | None = Field(default=None, max_length=64)
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=6, max_length=128)
 
 
 # ── Patients ──────────────────────────────────────────────────────────────────

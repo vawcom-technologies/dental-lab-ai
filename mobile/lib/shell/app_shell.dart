@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 
 import '../core/api/api_client.dart';
 import '../core/theme/app_theme.dart';
+import '../core/widgets/ui_kit.dart';
+import '../features/auth/login_screen.dart';
 import '../features/camera/camera_page.dart';
 import '../features/chat/messages_page.dart';
 import '../features/dashboard/dashboard_page.dart';
 import '../features/notifications/notifications_page.dart';
 import '../features/patients/new_patient_page.dart';
 import '../features/patients/patients_page.dart';
+import '../features/profile/profile_page.dart';
 import '../features/scan_body/scan_body_page.dart';
 import '../features/scans/scans_page.dart';
 import '../features/shade/shade_page.dart';
@@ -31,18 +34,46 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   AppNavItem _active = AppNavItem.dashboard;
   int _patientRefresh = 0;
+  late String _dentistName;
+
+  @override
+  void initState() {
+    super.initState();
+    _dentistName = widget.dentistName;
+  }
 
   void _go(AppNavItem item) => setState(() => _active = item);
+
+  void _signOut() {
+    widget.api.logout();
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => LoginScreen(api: widget.api)),
+      (_) => false,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.surface,
-      body: Row(
-        children: [
-          AppSidebar(active: _active, onSelect: _go),
-          Expanded(child: _page()),
-        ],
+      backgroundColor: Colors.transparent,
+      body: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFFEAF1F8),
+              AppColors.surface,
+              Color(0xFFDCE6F2),
+            ],
+          ),
+        ),
+        child: Row(
+          children: [
+            AppSidebar(active: _active, onSelect: _go),
+            Expanded(child: _page()),
+          ],
+        ),
       ),
     );
   }
@@ -51,7 +82,7 @@ class _AppShellState extends State<AppShell> {
     switch (_active) {
       case AppNavItem.dashboard:
         return DashboardPage(
-          dentistName: widget.dentistName,
+          dentistName: _dentistName,
           api: widget.api,
           onNavigate: _go,
         );
@@ -59,7 +90,7 @@ class _AppShellState extends State<AppShell> {
         return PatientsPage(
           key: ValueKey(_patientRefresh),
           api: widget.api,
-          dentistName: widget.dentistName,
+          dentistName: _dentistName,
           onNewPatient: () => _go(AppNavItem.newPatient),
         );
       case AppNavItem.newPatient:
@@ -73,7 +104,7 @@ class _AppShellState extends State<AppShell> {
           },
         );
       case AppNavItem.camera:
-        return CameraPage(api: widget.api, dentistName: widget.dentistName);
+        return CameraPage(api: widget.api, dentistName: _dentistName);
       case AppNavItem.scans:
         return ScansPage(api: widget.api);
       case AppNavItem.shade:
@@ -91,16 +122,19 @@ class _AppShellState extends State<AppShell> {
       case AppNavItem.settings:
         return const _ComingSoon(title: 'Settings');
       case AppNavItem.profile:
-        return _ComingSoon(title: 'Profile', subtitle: widget.dentistName);
+        return ProfilePage(
+          api: widget.api,
+          onProfileUpdated: (name) => setState(() => _dentistName = name),
+          onSignOut: _signOut,
+        );
     }
   }
 }
 
 class _ComingSoon extends StatelessWidget {
-  const _ComingSoon({required this.title, this.subtitle});
+  const _ComingSoon({required this.title});
 
   final String title;
-  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
@@ -109,24 +143,35 @@ class _ComingSoon extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title,
-              style: const TextStyle(
-                  fontSize: 28, fontWeight: FontWeight.w700, color: AppColors.navy)),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w700,
+              color: AppColors.navy,
+              letterSpacing: -0.4,
+            ),
+          ),
           const Spacer(),
           Center(
-            child: Column(
-              children: [
-                Icon(Icons.health_and_safety_outlined,
-                    size: 40, color: AppColors.muted.withValues(alpha: 0.5)),
-                const SizedBox(height: 12),
-                Text(
-                  subtitle == null
-                      ? 'This section is coming soon. Navigate using the sidebar to explore available features.'
-                      : subtitle!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: AppColors.muted),
-                ),
-              ],
+            child: SectionCard(
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.health_and_safety_outlined,
+                    size: 40,
+                    color: AppColors.muted.withValues(alpha: 0.55),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Coming soon',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           const Spacer(),

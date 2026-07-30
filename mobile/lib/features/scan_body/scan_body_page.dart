@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
 
 /// Scan-body diameter → manufacturer / tooth (provisional table until client data).
@@ -81,6 +82,99 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
         : mine.first;
     setState(() => _case = caseRow);
     await _restoreSaved(caseRow['id'] as int);
+  }
+
+  Future<void> _reloadPatients() async {
+    final patients = await widget.api.listPatients();
+    if (!mounted) return;
+    setState(() => _patients = patients);
+    if (patients.isEmpty) {
+      setState(() {
+        _patient = null;
+        _case = null;
+      });
+      return;
+    }
+    final currentId = _patient?['id'];
+    final stillThere = patients.where((p) => p['id'] == currentId);
+    if (_patient == null || stillThere.isEmpty) {
+      await _selectPatient(patients.first);
+    } else {
+      await _selectPatient(stillThere.first);
+    }
+  }
+
+  Future<void> _quickAddPatient() async {
+    final firstCtrl = TextEditingController();
+    final lastCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add patient'),
+        content: SizedBox(
+          width: 360,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: firstCtrl,
+                decoration: const InputDecoration(labelText: 'First name *'),
+                autofocus: true,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: lastCtrl,
+                decoration: const InputDecoration(labelText: 'Last name *'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) {
+      firstCtrl.dispose();
+      lastCtrl.dispose();
+      return;
+    }
+    final first = firstCtrl.text.trim();
+    final last = lastCtrl.text.trim();
+    firstCtrl.dispose();
+    lastCtrl.dispose();
+    if (first.isEmpty || last.isEmpty) {
+      setState(() => _error = 'First and last name are required');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final created = await widget.api.createPatient({
+        'first_name': first,
+        'last_name': last,
+      });
+      await _reloadPatients();
+      await _selectPatient(created);
+      if (mounted) {
+        setState(() => _status = 'Patient $first $last ready for scan body');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _restoreSaved(int caseId) async {
@@ -388,26 +482,22 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                   ],
                 ),
               ),
-              if (_patients.isNotEmpty)
-                SizedBox(
-                  width: 200,
-                  child: DropdownButtonFormField<int>(
-                    initialValue: _patient?['id'] as int?,
-                    decoration: const InputDecoration(isDense: true),
-                    items: _patients
-                        .map(
-                          (p) => DropdownMenuItem(
-                            value: p['id'] as int,
-                            child: Text('${p['first_name']} ${p['last_name']}'),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (id) {
-                      final p = _patients.firstWhere((e) => e['id'] == id);
-                      _selectPatient(p);
-                    },
-                  ),
-                ),
+              PatientPickerButton(
+                patients: _patients,
+                selected: _patient,
+                caseId: (_case?['id'] as num?)?.toInt(),
+                enabled: !_busy && !_saving,
+                onSelect: _selectPatient,
+                onAdd: _quickAddPatient,
+                onRefresh: () async {
+                  setState(() => _busy = true);
+                  try {
+                    await _reloadPatients();
+                  } finally {
+                    if (mounted) setState(() => _busy = false);
+                  }
+                },
+              ),
               const SizedBox(width: 8),
               FilledButton.icon(
                 onPressed: _saving || _match == null ? null : _save,

@@ -5,7 +5,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../../shell/app_sidebar.dart';
 
-class DashboardPage extends StatelessWidget {
+class DashboardPage extends StatefulWidget {
   const DashboardPage({
     super.key,
     required this.dentistName,
@@ -18,105 +18,317 @@ class DashboardPage extends StatelessWidget {
   final ValueChanged<AppNavItem> onNavigate;
 
   @override
-  Widget build(BuildContext context) {
-    final short = dentistName.split(' ').isNotEmpty
-        ? dentistName.split(' ').last
-        : dentistName;
+  State<DashboardPage> createState() => _DashboardPageState();
+}
 
+class _DashboardPageState extends State<DashboardPage> {
+  bool _loading = true;
+  String? _error;
+
+  List<Map<String, dynamic>> _patients = [];
+  List<Map<String, dynamic>> _cases = [];
+  List<Map<String, dynamic>> _threads = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final results = await Future.wait([
+        widget.api.listPatients(),
+        widget.api.listCases(),
+        widget.api.listMessageThreads(),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _patients = results[0];
+        _cases = results[1];
+        _threads = results[2];
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString().replaceFirst('Exception: ', '');
+        _loading = false;
+      });
+    }
+  }
+
+  Map<int, Map<String, dynamic>> get _patientsById {
+    final map = <int, Map<String, dynamic>>{};
+    for (final p in _patients) {
+      final id = p['id'];
+      if (id is int) map[id] = p;
+    }
+    return map;
+  }
+
+  String get _shortName {
+    final parts = widget.dentistName.trim().split(RegExp(r'\s+'));
+    if (parts.isEmpty || parts.first.isEmpty) return widget.dentistName;
+    return parts.last;
+  }
+
+  String get _greeting {
+    final h = DateTime.now().hour;
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    return 'Good evening';
+  }
+
+  int get _completed => _cases.where((c) => c['status'] == 'completed').length;
+  int get _pending => _cases.where((c) => c['status'] == 'pending').length;
+  int get _inReview => _cases.where((c) => c['status'] == 'in_review').length;
+  int get _rejected => _cases.where((c) => c['status'] == 'rejected').length;
+  int get _attention => _pending + _inReview + _rejected;
+
+  int get _unreadMessages {
+    var n = 0;
+    for (final t in _threads) {
+      final u = t['unread'];
+      if (u is int) n += u;
+    }
+    return n;
+  }
+
+  String get _avgProcessingLabel {
+    final completed = _cases.where((c) => c['status'] == 'completed').toList();
+    if (completed.isEmpty) return '—';
+    var totalHours = 0.0;
+    var counted = 0;
+    for (final c in completed) {
+      final created = DateTime.tryParse('${c['created_at'] ?? ''}');
+      final updated = DateTime.tryParse('${c['updated_at'] ?? ''}');
+      if (created == null || updated == null) continue;
+      totalHours += updated.difference(created).inMinutes / 60.0;
+      counted++;
+    }
+    if (counted == 0) return '—';
+    final days = totalHours / counted / 24.0;
+    if (days < 1) return '${(days * 24).toStringAsFixed(0)}h';
+    return '${days.toStringAsFixed(1)}d';
+  }
+
+  List<_CaseRowData> get _recentRows {
+    final byId = _patientsById;
+    final sorted = [..._cases]..sort((a, b) {
+          final ta = DateTime.tryParse('${a['updated_at'] ?? ''}') ?? DateTime(1970);
+          final tb = DateTime.tryParse('${b['updated_at'] ?? ''}') ?? DateTime(1970);
+          return tb.compareTo(ta);
+        });
+    return sorted.take(8).map((c) {
+      final pid = c['patient_id'];
+      final patient = pid is int ? byId[pid] : null;
+      final name = patient == null
+          ? 'Patient #$pid'
+          : '${patient['first_name'] ?? ''} ${patient['last_name'] ?? ''}'.trim();
+      final caseId = c['id'] is int ? c['id'] as int : 0;
+      return _CaseRowData(
+        caseLabel: 'CASE-${caseId.toString().padLeft(4, '0')}',
+        patientName: name.isEmpty ? 'Unknown' : name,
+        dentist: widget.dentistName,
+        status: '${c['status'] ?? 'pending'}',
+        updated: _relativeTime(DateTime.tryParse('${c['updated_at'] ?? ''}')),
+      );
+    }).toList();
+  }
+
+  List<_ActivityItem> get _activity {
+    final items = <_ActivityItem>[];
+    final byId = _patientsById;
+
+    for (final c in _cases) {
+      final updated = DateTime.tryParse('${c['updated_at'] ?? ''}');
+      if (updated == null) continue;
+      final pid = c['patient_id'];
+      final patient = pid is int ? byId[pid] : null;
+      final name = patient == null
+          ? 'a patient'
+          : '${patient['first_name'] ?? ''} ${patient['last_name'] ?? ''}'.trim();
+      final status = '${c['status'] ?? ''}';
+      final caseId = c['id'] is int ? c['id'] as int : 0;
+      final label = switch (status) {
+        'completed' => 'Case CASE-${caseId.toString().padLeft(4, '0')} marked complete — $name',
+        'rejected' => 'Scan rejected for $name — rescan required',
+        'in_review' => 'Case for $name moved to lab review',
+        'pending' => 'Case opened for $name — awaiting scan',
+        _ => 'Case updated for $name',
+      };
+      items.add(_ActivityItem(at: updated, text: label));
+    }
+
+    for (final t in _threads) {
+      if (t['has_messages'] != true) continue;
+      final at = DateTime.tryParse('${t['last_sent_at'] ?? ''}');
+      if (at == null) continue;
+      final name = '${t['patient_name'] ?? 'Patient'}';
+      final preview = '${t['preview'] ?? ''}'.trim();
+      final short = preview.length > 72 ? '${preview.substring(0, 72)}…' : preview;
+      items.add(
+        _ActivityItem(
+          at: at,
+          text: short.isEmpty
+              ? 'Message activity on $name'
+              : 'Message · $name — $short',
+        ),
+      );
+    }
+
+    items.sort((a, b) => b.at.compareTo(a.at));
+    return items.take(10).toList();
+  }
+
+  String get _subtitle {
+    if (_cases.isEmpty) {
+      return 'No open cases yet — add a patient to get started.';
+    }
+    final parts = <String>[];
+    if (_attention > 0) {
+      parts.add(
+        '$_attention case${_attention == 1 ? '' : 's'} need${_attention == 1 ? 's' : ''} attention',
+      );
+    }
+    if (_unreadMessages > 0) {
+      parts.add(
+        '$_unreadMessages unread message${_unreadMessages == 1 ? '' : 's'}',
+      );
+    }
+    if (parts.isEmpty) {
+      return '${_patients.length} patients · ${_cases.length} cases on file.';
+    }
+    return '${parts.join(' · ')}.';
+  }
+
+  static String _relativeTime(DateTime? dt) {
+    if (dt == null) return '—';
+    final local = dt.isUtc ? dt.toLocal() : dt;
+    final diff = DateTime.now().difference(local);
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+    if (diff.inHours < 24) {
+      return '${diff.inHours} hour${diff.inHours == 1 ? '' : 's'} ago';
+    }
+    if (diff.inDays == 1) return 'Yesterday';
+    if (diff.inDays < 7) return '${diff.inDays} days ago';
+    return '${local.day}.${local.month.toString().padLeft(2, '0')}.${local.year}';
+  }
+
+  static String _clock(DateTime dt) {
+    final local = dt.isUtc ? dt.toLocal() : dt;
+    final h = local.hour.toString().padLeft(2, '0');
+    final m = local.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Good morning, Dr. $short',
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.navy,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      '7 cases require your attention today.',
-                      style: TextStyle(color: AppColors.muted, fontSize: 14),
-                    ),
-                  ],
-                ),
+          PageHeader(
+            icon: Icons.grid_view_rounded,
+            title: '$_greeting, Dr. $_shortName',
+            subtitle: _loading ? 'Loading clinic data…' : _subtitle,
+            actions: [
+              IconButton(
+                tooltip: 'Refresh',
+                onPressed: _loading ? null : _load,
+                icon: const Icon(Icons.refresh, size: 20),
               ),
               OutlinedButton.icon(
-                onPressed: () => onNavigate(AppNavItem.newPatient),
+                onPressed: () => widget.onNavigate(AppNavItem.newPatient),
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('New Patient'),
                 style: OutlinedButton.styleFrom(
                   backgroundColor: AppColors.navy,
                   foregroundColor: Colors.white,
-                  side: BorderSide.none,
                 ),
               ),
-              const SizedBox(width: 8),
               OutlinedButton.icon(
-                onPressed: () => onNavigate(AppNavItem.camera),
+                onPressed: () => widget.onNavigate(AppNavItem.camera),
                 icon: const Icon(Icons.photo_camera_outlined, size: 18),
                 label: const Text('Camera'),
               ),
-              const SizedBox(width: 8),
               OutlinedButton.icon(
-                onPressed: () => onNavigate(AppNavItem.scans),
+                onPressed: () => widget.onNavigate(AppNavItem.scans),
                 icon: const Icon(Icons.view_in_ar_outlined, size: 18),
                 label: const Text('Start Scan'),
               ),
-              const SizedBox(width: 8),
               OutlinedButton.icon(
-                onPressed: () => onNavigate(AppNavItem.messages),
+                onPressed: () => widget.onNavigate(AppNavItem.messages),
                 icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                label: const Text('Messages'),
+                label: Text(
+                  _unreadMessages > 0
+                      ? 'Messages ($_unreadMessages)'
+                      : 'Messages',
+                ),
               ),
             ],
           ),
           const SizedBox(height: 20),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(
+                _error!,
+                style: const TextStyle(color: AppColors.danger, fontSize: 13),
+              ),
+            ),
           Row(
-            children: const [
+            children: [
               Expanded(
                 child: _KpiCard(
                   title: 'Completed Cases',
-                  value: '124',
-                  hint: '+8 this week',
+                  value: _loading ? '…' : '$_completed',
+                  hint: _patients.isEmpty
+                      ? 'No patients yet'
+                      : '${_patients.length} patients on file',
                   hintColor: AppColors.success,
                 ),
               ),
-              SizedBox(width: 12),
+              const SizedBox(width: 12),
               Expanded(
                 child: _KpiCard(
                   title: 'Avg. Processing',
-                  value: '2.4d',
-                  hint: '-0.3d vs last week',
-                  hintColor: AppColors.success,
+                  value: _loading ? '…' : _avgProcessingLabel,
+                  hint: _completed == 0
+                      ? 'Based on completed cases'
+                      : 'Across $_completed completed',
+                  hintColor: AppColors.muted,
                 ),
               ),
-              SizedBox(width: 12),
+              const SizedBox(width: 12),
               Expanded(
                 child: _KpiCard(
                   title: 'Pending Scans',
-                  value: '7',
-                  hint: '3 require review',
-                  hintColor: AppColors.warning,
+                  value: _loading ? '…' : '$_pending',
+                  hint: _inReview == 0
+                      ? 'None in lab review'
+                      : '$_inReview in lab review',
+                  hintColor: _pending > 0 || _inReview > 0
+                      ? AppColors.warning
+                      : AppColors.success,
                 ),
               ),
-              SizedBox(width: 12),
+              const SizedBox(width: 12),
               Expanded(
                 child: _KpiCard(
                   title: 'Rejected Scans',
-                  value: '2',
-                  hint: 'Down from 5 last week',
-                  hintColor: AppColors.success,
+                  value: _loading ? '…' : '$_rejected',
+                  hint: _rejected == 0
+                      ? 'No rejections open'
+                      : 'Need rescan before remake',
+                  hintColor: _rejected > 0 ? AppColors.danger : AppColors.success,
                 ),
               ),
             ],
@@ -134,7 +346,7 @@ class DashboardPage extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Recent Patients',
+                          'Recent Cases',
                           style: TextStyle(
                             fontWeight: FontWeight.w700,
                             fontSize: 16,
@@ -145,38 +357,28 @@ class DashboardPage extends StatelessWidget {
                         const _TableHeader(),
                         const Divider(height: 1),
                         Expanded(
-                          child: ListView(
-                            children: const [
-                              _PatientRow(
-                                id: 'PT-2841',
-                                name: 'Marcus Webb',
-                                dentist: 'Dr. Sarah Chen',
-                                status: 'in_progress',
-                                updated: '2 hours ago',
-                              ),
-                              _PatientRow(
-                                id: 'PT-2839',
-                                name: 'Elaine Torres',
-                                dentist: 'Dr. Park',
-                                status: 'awaiting_scan',
-                                updated: '4 hours ago',
-                              ),
-                              _PatientRow(
-                                id: 'PT-2836',
-                                name: 'Linda Moore',
-                                dentist: 'Dr. Sarah Chen',
-                                status: 'complete',
-                                updated: 'Yesterday',
-                              ),
-                              _PatientRow(
-                                id: 'PT-2834',
-                                name: 'Robert Kim',
-                                dentist: 'Dr. Park',
-                                status: 'in_review',
-                                updated: 'Yesterday',
-                              ),
-                            ],
-                          ),
+                          child: _loading
+                              ? const Center(child: CircularProgressIndicator())
+                              : _recentRows.isEmpty
+                                  ? const Center(
+                                      child: Text(
+                                        'No cases yet. Create a patient to start.',
+                                        style: TextStyle(color: AppColors.muted),
+                                      ),
+                                    )
+                                  : ListView.builder(
+                                      itemCount: _recentRows.length,
+                                      itemBuilder: (context, i) {
+                                        final row = _recentRows[i];
+                                        return _PatientRow(
+                                          id: row.caseLabel,
+                                          name: row.patientName,
+                                          dentist: row.dentist,
+                                          status: row.status,
+                                          updated: row.updated,
+                                        );
+                                      },
+                                    ),
                         ),
                       ],
                     ),
@@ -190,7 +392,7 @@ class DashboardPage extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          "Today's Activity",
+                          'Recent Activity',
                           style: TextStyle(
                             fontWeight: FontWeight.w700,
                             fontSize: 16,
@@ -199,26 +401,23 @@ class DashboardPage extends StatelessWidget {
                         ),
                         const SizedBox(height: 16),
                         Expanded(
-                          child: ListView(
-                            children: const [
-                              _Activity(
-                                time: '10:24',
-                                text: 'Scan uploaded for Marcus Webb',
-                              ),
-                              _Activity(
-                                time: '09:51',
-                                text: 'AI shade detection completed — B2 confirmed',
-                              ),
-                              _Activity(
-                                time: '09:33',
-                                text: 'Message from Dr. Park re: Linda Moore case',
-                              ),
-                              _Activity(
-                                time: '08:17',
-                                text: 'Case PT-2836 marked complete',
-                              ),
-                            ],
-                          ),
+                          child: _loading
+                              ? const Center(child: CircularProgressIndicator())
+                              : _activity.isEmpty
+                                  ? const Text(
+                                      'Activity from cases and messages will appear here.',
+                                      style: TextStyle(color: AppColors.muted, fontSize: 13),
+                                    )
+                                  : ListView.builder(
+                                      itemCount: _activity.length,
+                                      itemBuilder: (context, i) {
+                                        final a = _activity[i];
+                                        return _Activity(
+                                          time: _clock(a.at),
+                                          text: a.text,
+                                        );
+                                      },
+                                    ),
                         ),
                       ],
                     ),
@@ -231,6 +430,29 @@ class DashboardPage extends StatelessWidget {
       ),
     );
   }
+}
+
+class _CaseRowData {
+  const _CaseRowData({
+    required this.caseLabel,
+    required this.patientName,
+    required this.dentist,
+    required this.status,
+    required this.updated,
+  });
+
+  final String caseLabel;
+  final String patientName;
+  final String dentist;
+  final String status;
+  final String updated;
+}
+
+class _ActivityItem {
+  const _ActivityItem({required this.at, required this.text});
+
+  final DateTime at;
+  final String text;
 }
 
 class _KpiCard extends StatelessWidget {
@@ -254,11 +476,19 @@ class _KpiCard extends StatelessWidget {
         children: [
           Text(title, style: const TextStyle(color: AppColors.muted, fontSize: 12)),
           const SizedBox(height: 8),
-          Text(value,
-              style: const TextStyle(
-                  fontSize: 28, fontWeight: FontWeight.w700, color: AppColors.navy)),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w700,
+              color: AppColors.navy,
+            ),
+          ),
           const SizedBox(height: 6),
-          Text(hint, style: TextStyle(color: hintColor, fontSize: 12, fontWeight: FontWeight.w600)),
+          Text(
+            hint,
+            style: TextStyle(color: hintColor, fontSize: 12, fontWeight: FontWeight.w600),
+          ),
         ],
       ),
     );
@@ -327,11 +557,23 @@ class _PatientRow extends StatelessWidget {
               ],
             ),
           ),
-          Expanded(flex: 3, child: Text(dentist, style: const TextStyle(color: AppColors.muted))),
-          Expanded(flex: 2, child: Align(alignment: Alignment.centerLeft, child: StatusChip(statusKey: status))),
+          Expanded(
+            flex: 3,
+            child: Text(dentist, style: const TextStyle(color: AppColors.muted)),
+          ),
           Expanded(
             flex: 2,
-            child: Text(updated, style: const TextStyle(color: AppColors.muted, fontSize: 12)),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: StatusChip(statusKey: status),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              updated,
+              style: const TextStyle(color: AppColors.muted, fontSize: 12),
+            ),
           ),
         ],
       ),

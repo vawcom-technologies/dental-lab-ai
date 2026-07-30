@@ -40,34 +40,32 @@ class _PatientsPageState extends State<PatientsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Text(
-                'Patients',
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.navy,
-                ),
-              ),
-              const Spacer(),
+          PageHeader(
+            icon: Icons.people_alt_outlined,
+            title: 'Patients',
+            subtitle: 'Clinic roster for chairside capture and lab cases',
+            actions: [
               FutureBuilder(
                 future: _future,
                 builder: (context, snap) {
                   final n = snap.data?.length ?? 0;
-                  return Text(
-                    '$n total',
-                    style: const TextStyle(color: AppColors.muted, fontWeight: FontWeight.w600),
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 4, top: 10),
+                    child: Text(
+                      '$n total',
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   );
                 },
               ),
-              const SizedBox(width: 12),
               FilledButton.icon(
                 onPressed: widget.onNewPatient,
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('New Patient'),
               ),
-              const SizedBox(width: 8),
               OutlinedButton.icon(
                 onPressed: () async {
                   final patients = await widget.api.listPatients();
@@ -83,7 +81,10 @@ class _PatientsPageState extends State<PatientsPage> {
                         width: 480,
                         height: 320,
                         child: SingleChildScrollView(
-                          child: SelectableText(xml, style: const TextStyle(fontSize: 12)),
+                          child: SelectableText(
+                            xml,
+                            style: const TextStyle(fontSize: 12),
+                          ),
                         ),
                       ),
                       actions: [
@@ -100,39 +101,48 @@ class _PatientsPageState extends State<PatientsPage> {
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          TextField(
-            onChanged: (v) => setState(() => _query = v.trim().toLowerCase()),
-            decoration: const InputDecoration(
-              hintText: 'Search patients, case IDs, dentists...',
-              prefixIcon: Icon(Icons.search, color: AppColors.muted),
+          const SizedBox(height: 18),
+          SectionCard(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            depth: 0.7,
+            child: TextField(
+              onChanged: (v) => setState(() => _query = v.trim().toLowerCase()),
+              decoration: const InputDecoration(
+                hintText: 'Search patients by name or ID…',
+                prefixIcon: Icon(Icons.search, color: AppColors.muted),
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                filled: false,
+              ),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           Wrap(
             spacing: 8,
+            runSpacing: 8,
             children: [
-              _FilterChip(
+              SoftFilterChip(
                 label: 'All',
                 selected: _filter == 'all',
                 onTap: () => setState(() => _filter = 'all'),
               ),
-              _FilterChip(
+              SoftFilterChip(
                 label: 'In Progress',
                 selected: _filter == 'in_progress',
                 onTap: () => setState(() => _filter = 'in_progress'),
               ),
-              _FilterChip(
+              SoftFilterChip(
                 label: 'Awaiting Scan',
                 selected: _filter == 'awaiting_scan',
                 onTap: () => setState(() => _filter = 'awaiting_scan'),
               ),
-              _FilterChip(
+              SoftFilterChip(
                 label: 'In Review',
                 selected: _filter == 'in_review',
                 onTap: () => setState(() => _filter = 'in_review'),
               ),
-              _FilterChip(
+              SoftFilterChip(
                 label: 'Complete',
                 selected: _filter == 'complete',
                 onTap: () => setState(() => _filter = 'complete'),
@@ -176,8 +186,10 @@ class _PatientsPageState extends State<PatientsPage> {
                   }
                   return ListView.separated(
                     itemCount: patients.length,
-                    separatorBuilder: (_, _) =>
-                        const Divider(height: 1, color: AppColors.border),
+                    separatorBuilder: (_, _) => Divider(
+                      height: 1,
+                      color: AppColors.border.withValues(alpha: 0.7),
+                    ),
                     itemBuilder: (context, i) {
                       final p = patients[i];
                       final name = '${p['first_name']} ${p['last_name']}';
@@ -200,7 +212,10 @@ class _PatientsPageState extends State<PatientsPage> {
                         ),
                         subtitle: Text(
                           'PT-${p['id']} · ${widget.dentistName}',
-                          style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 12,
+                          ),
                         ),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -213,8 +228,11 @@ class _PatientsPageState extends State<PatientsPage> {
                                 await widget.api.deletePatient(p['id'] as int);
                                 _reload();
                               },
-                              icon: const Icon(Icons.delete_outline,
-                                  color: AppColors.danger, size: 20),
+                              icon: const Icon(
+                                Icons.delete_outline,
+                                color: AppColors.danger,
+                                size: 20,
+                              ),
                             ),
                           ],
                         ),
@@ -231,40 +249,3 @@ class _PatientsPageState extends State<PatientsPage> {
   }
 }
 
-class _FilterChip extends StatelessWidget {
-  const _FilterChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.navy : AppColors.card,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: selected ? AppColors.navy : AppColors.border,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? Colors.white : AppColors.muted,
-            fontWeight: FontWeight.w600,
-            fontSize: 12.5,
-          ),
-        ),
-      ),
-    );
-  }
-}

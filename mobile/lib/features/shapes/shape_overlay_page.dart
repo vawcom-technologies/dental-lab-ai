@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
 
 /// Single entry in the smile-shape library.
@@ -172,14 +173,39 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
 
   Future<void> _bootstrap() async {
     try {
-      final patients = await widget.api.listPatients();
-      setState(() => _patients = patients);
-      if (patients.isNotEmpty) await _selectPatient(patients.first);
+      await _reloadPatients(selectFirst: true);
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  int _pid(Map<String, dynamic> row) => (row['id'] as num).toInt();
+
+  Future<void> _reloadPatients({bool selectFirst = false}) async {
+    final patients = await widget.api.listPatients();
+    if (!mounted) return;
+    setState(() {
+      _patients = patients;
+      _error = null;
+    });
+    if (patients.isEmpty) {
+      setState(() {
+        _patient = null;
+        _case = null;
+      });
+      return;
+    }
+    if (selectFirst || _patient == null) {
+      await _selectPatient(patients.first);
+      return;
+    }
+    final currentId = _pid(_patient!);
+    final stillThere = patients.where((p) => _pid(p) == currentId);
+    await _selectPatient(
+      stillThere.isEmpty ? patients.first : stillThere.first,
+    );
   }
 
   Future<void> _selectPatient(Map<String, dynamic> patient) async {
@@ -189,13 +215,92 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
       _error = null;
       _dirty = false;
     });
-    final cases = await widget.api.listCases();
-    final mine = cases.where((c) => c['patient_id'] == patient['id']).toList();
-    final caseRow = mine.isEmpty
-        ? await widget.api.createCase(patient['id'] as int)
-        : mine.first;
-    setState(() => _case = caseRow);
-    await _restoreSaved(caseRow['id'] as int);
+    try {
+      final patientId = _pid(patient);
+      final cases = await widget.api.listCases();
+      final mine = cases
+          .where((c) => (c['patient_id'] as num).toInt() == patientId)
+          .toList();
+      final caseRow = mine.isEmpty
+          ? await widget.api.createCase(patientId)
+          : mine.first;
+      if (!mounted) return;
+      setState(() => _case = caseRow);
+      await _restoreSaved(caseRow['id'] as int);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _case = null;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  Future<void> _quickAddPatient() async {
+    final firstCtrl = TextEditingController();
+    final lastCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add patient'),
+        content: SizedBox(
+          width: 360,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: firstCtrl,
+                decoration: const InputDecoration(labelText: 'First name *'),
+                autofocus: true,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: lastCtrl,
+                decoration: const InputDecoration(labelText: 'Last name *'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) {
+      firstCtrl.dispose();
+      lastCtrl.dispose();
+      return;
+    }
+    final first = firstCtrl.text.trim();
+    final last = lastCtrl.text.trim();
+    firstCtrl.dispose();
+    lastCtrl.dispose();
+    if (first.isEmpty || last.isEmpty) {
+      setState(() => _error = 'First and last name are required');
+      return;
+    }
+    try {
+      final created = await widget.api.createPatient({
+        'first_name': first,
+        'last_name': last,
+      });
+      await _reloadPatients();
+      await _selectPatient(created);
+      if (mounted) {
+        setState(() => _status = 'Patient $first $last ready for smile preview');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      }
+    }
   }
 
   Future<void> _restoreSaved(int caseId) async {
@@ -392,29 +497,15 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
             ],
           ),
         ),
-        if (_patients.isNotEmpty)
-          SizedBox(
-            width: 200,
-            child: DropdownButtonFormField<int>(
-              initialValue: _patient?['id'] as int?,
-              decoration: const InputDecoration(
-                isDense: true,
-                labelText: 'Patient',
-              ),
-              items: _patients
-                  .map(
-                    (p) => DropdownMenuItem(
-                      value: p['id'] as int,
-                      child: Text('${p['first_name']} ${p['last_name']}'),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (id) {
-                final p = _patients.firstWhere((e) => e['id'] == id);
-                _selectPatient(p);
-              },
-            ),
-          ),
+        PatientPickerButton(
+          patients: _patients,
+          selected: _patient,
+          caseId: (_case?['id'] as num?)?.toInt(),
+          onSelect: _selectPatient,
+          onAdd: _quickAddPatient,
+          onRefresh: _reloadPatients,
+          emptyHint: 'No patients yet — add one to save the try-on.',
+        ),
         const SizedBox(width: 8),
         OutlinedButton.icon(
           onPressed: _pickPhoto,
