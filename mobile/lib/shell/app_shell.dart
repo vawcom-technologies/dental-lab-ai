@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/api/api_client.dart';
+import '../core/l10n/app_localizations.dart';
 import '../core/theme/app_theme.dart';
 import '../core/widgets/ui_kit.dart';
 import '../features/auth/login_screen.dart';
@@ -13,6 +14,7 @@ import '../features/patients/patients_page.dart';
 import '../features/profile/profile_page.dart';
 import '../features/scan_body/scan_body_page.dart';
 import '../features/scans/scans_page.dart';
+import '../features/settings/settings_page.dart';
 import '../features/shade/shade_page.dart';
 import '../features/shapes/shape_overlay_page.dart';
 import 'app_sidebar.dart';
@@ -35,14 +37,45 @@ class _AppShellState extends State<AppShell> {
   AppNavItem _active = AppNavItem.dashboard;
   int _patientRefresh = 0;
   late String _dentistName;
+  int _notificationBadge = 0;
+  int _messageBadge = 0;
 
   @override
   void initState() {
     super.initState();
     _dentistName = widget.dentistName;
+    _refreshBadges();
   }
 
-  void _go(AppNavItem item) => setState(() => _active = item);
+  Future<void> _refreshBadges() async {
+    try {
+      final results = await Future.wait([
+        widget.api.notificationsUnreadCount(),
+        widget.api.listMessageThreads(),
+      ]);
+      if (!mounted) return;
+      final unreadNotifs = results[0] as int;
+      final threads = results[1] as List<Map<String, dynamic>>;
+      var unreadMsgs = 0;
+      for (final t in threads) {
+        final u = t['unread'];
+        if (u is int) unreadMsgs += u;
+      }
+      setState(() {
+        _notificationBadge = unreadNotifs;
+        _messageBadge = unreadMsgs;
+      });
+    } catch (_) {
+      // Badges are non-critical
+    }
+  }
+
+  void _go(AppNavItem item) {
+    setState(() => _active = item);
+    if (item == AppNavItem.notifications || item == AppNavItem.messages) {
+      _refreshBadges();
+    }
+  }
 
   void _signOut() {
     widget.api.logout();
@@ -70,7 +103,12 @@ class _AppShellState extends State<AppShell> {
         ),
         child: Row(
           children: [
-            AppSidebar(active: _active, onSelect: _go),
+            AppSidebar(
+              active: _active,
+              onSelect: _go,
+              messageBadge: _messageBadge,
+              notificationBadge: _notificationBadge,
+            ),
             Expanded(child: _page()),
           ],
         ),
@@ -116,11 +154,19 @@ class _AppShellState extends State<AppShell> {
       case AppNavItem.messages:
         return MessagesPage(api: widget.api);
       case AppNavItem.notifications:
-        return const NotificationsPage();
+        return NotificationsPage(
+          api: widget.api,
+          onNavigate: _go,
+          onUnreadChanged: (n) {
+            if (_notificationBadge != n) {
+              setState(() => _notificationBadge = n);
+            }
+          },
+        );
       case AppNavItem.reports:
-        return const _ComingSoon(title: 'Reports');
+        return _ComingSoon(title: AppLocalizations.of(context).reportsTitle);
       case AppNavItem.settings:
-        return const _ComingSoon(title: 'Settings');
+        return SettingsPage(api: widget.api);
       case AppNavItem.profile:
         return ProfilePage(
           api: widget.api,
@@ -163,9 +209,9 @@ class _ComingSoon extends StatelessWidget {
                     color: AppColors.muted.withValues(alpha: 0.55),
                   ),
                   const SizedBox(height: 12),
-                  const Text(
-                    'Coming soon',
-                    style: TextStyle(
+                  Text(
+                    AppLocalizations.of(context).comingSoon,
+                    style: const TextStyle(
                       fontWeight: FontWeight.w600,
                       color: AppColors.muted,
                     ),

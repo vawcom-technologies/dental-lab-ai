@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../core/offline/sync_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
@@ -137,19 +138,19 @@ class _ScansPageState extends State<ScansPage> {
         children: [
           Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Scan Analysis',
-                      style: TextStyle(
+                      AppLocalizations.of(context).scansTitle,
+                      style: const TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.w700,
                         color: AppColors.navy,
                       ),
                     ),
-                    Text(
+                    const Text(
                       'Upload PLY · AI quality check · encrypted at rest · offline queue',
                       style: TextStyle(color: AppColors.muted),
                     ),

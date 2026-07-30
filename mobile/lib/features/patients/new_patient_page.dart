@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 
@@ -62,6 +63,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
       child: Column(
@@ -69,9 +71,8 @@ class _NewPatientPageState extends State<NewPatientPage> {
         children: [
           PageHeader(
             icon: Icons.person_add_alt_1_rounded,
-            title: 'New Patient',
-            subtitle:
-                'Create a GDPR-ready chairside record. Required fields are marked.',
+            title: loc.newPatientTitle,
+            subtitle: loc.newPatientSubtitle,
             actions: [
               OutlinedButton(
                 onPressed: _loading

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/l10n/app_localizations.dart';
 import '../core/theme/app_theme.dart';
 import '../core/widgets/brand_logo.dart';
 
@@ -37,6 +38,7 @@ class AppSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppLocalizations.of(context);
     final width = collapsed ? 72.0 : 248.0;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
@@ -54,14 +56,14 @@ class AppSidebar extends StatelessWidget {
               padding: EdgeInsets.fromLTRB(collapsed ? 10 : 16, 18, 14, 10),
               child: collapsed
                   ? const Center(child: BrandLogo(height: 40, scale: 1.2))
-                  : const Column(
+                  : Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        BrandLogo(height: 56, scale: 1.15),
-                        SizedBox(height: 8),
+                        const BrandLogo(height: 56, scale: 1.15),
+                        const SizedBox(height: 8),
                         Text(
-                          'Pro Edition',
-                          style: TextStyle(
+                          s.proEdition,
+                          style: const TextStyle(
                             fontSize: 11,
                             color: AppColors.muted,
                             fontWeight: FontWeight.w600,
@@ -75,29 +77,29 @@ class AppSidebar extends StatelessWidget {
               child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 children: [
-                  _item(AppNavItem.dashboard, Icons.grid_view_rounded, 'Dashboard'),
-                  _item(AppNavItem.patients, Icons.people_outline, 'Patients'),
-                  _item(AppNavItem.newPatient, Icons.person_add_alt_1_outlined, 'New Patient'),
-                  _item(AppNavItem.camera, Icons.photo_camera_outlined, 'Camera'),
-                  _item(AppNavItem.scans, Icons.view_in_ar_outlined, 'Scans'),
-                  _item(AppNavItem.shade, Icons.palette_outlined, 'Shade Detection'),
-                  _item(AppNavItem.smilePreview, Icons.sentiment_satisfied_alt_outlined, 'Smile Preview'),
-                  _item(AppNavItem.scanBody, Icons.radio_button_checked_outlined, 'Scan Body'),
+                  _item(AppNavItem.dashboard, Icons.grid_view_rounded, s.navDashboard),
+                  _item(AppNavItem.patients, Icons.people_outline, s.navPatients),
+                  _item(AppNavItem.newPatient, Icons.person_add_alt_1_outlined, s.navNewPatient),
+                  _item(AppNavItem.camera, Icons.photo_camera_outlined, s.navCamera),
+                  _item(AppNavItem.scans, Icons.view_in_ar_outlined, s.navScans),
+                  _item(AppNavItem.shade, Icons.palette_outlined, s.navShade),
+                  _item(AppNavItem.smilePreview, Icons.sentiment_satisfied_alt_outlined, s.navSmilePreview),
+                  _item(AppNavItem.scanBody, Icons.radio_button_checked_outlined, s.navScanBody),
                   _item(
                     AppNavItem.messages,
                     Icons.chat_bubble_outline,
-                    'Messages',
+                    s.navMessages,
                     badge: messageBadge,
                     badgeColor: AppColors.danger,
                   ),
                   _item(
                     AppNavItem.notifications,
                     Icons.notifications_none_rounded,
-                    'Notifications',
+                    s.navNotifications,
                     badge: notificationBadge,
                     badgeColor: AppColors.warning,
                   ),
-                  _item(AppNavItem.reports, Icons.bar_chart_rounded, 'Reports'),
+                  _item(AppNavItem.reports, Icons.bar_chart_rounded, s.navReports),
                 ],
               ),
             ),
@@ -110,8 +112,8 @@ class AppSidebar extends StatelessWidget {
                     margin: const EdgeInsets.only(bottom: 10),
                     color: AppColors.border.withValues(alpha: 0.6),
                   ),
-                  _item(AppNavItem.settings, Icons.settings_outlined, 'Settings'),
-                  _item(AppNavItem.profile, Icons.person_outline, 'Profile'),
+                  _item(AppNavItem.settings, Icons.settings_outlined, s.navSettings),
+                  _item(AppNavItem.profile, Icons.person_outline, s.navProfile),
                 ],
               ),
             ),

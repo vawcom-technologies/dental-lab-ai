@@ -15,13 +15,14 @@ from app.api import (
     photos,
     messages,
     clinical,
+    notifications,
 )
 from app.core.database import Base, engine, SessionLocal
 from app.core.config import settings
 from app.core.security import hash_password
 from datetime import date, datetime, timedelta
 
-from app.models import User, Patient, Case, Message, ShadeSelection
+from app.models import User, Patient, Case, Message, ShadeSelection, Notification
 import app.models  # noqa: F401 — register all tables
 
 
@@ -371,12 +372,128 @@ def seed_demo_clinic_data() -> None:
         db.close()
 
 
+def seed_demo_notifications() -> None:
+    """Seed inbox alerts for the demo dentist (idempotent)."""
+    db = SessionLocal()
+    try:
+        dentist = db.query(User).filter(User.email == "dentist@elitedent.demo").first()
+        if not dentist:
+            return
+        existing = (
+            db.query(Notification).filter(Notification.user_id == dentist.id).count()
+        )
+        if existing > 0:
+            return
+
+        now = datetime.utcnow()
+
+        webb = (
+            db.query(Case)
+            .join(Patient)
+            .filter(Patient.dentist_id == dentist.id, Patient.last_name == "Webb")
+            .first()
+        )
+        novak = (
+            db.query(Case)
+            .join(Patient)
+            .filter(Patient.dentist_id == dentist.id, Patient.last_name == "Novak")
+            .first()
+        )
+        richter = (
+            db.query(Case)
+            .join(Patient)
+            .filter(Patient.dentist_id == dentist.id, Patient.last_name == "Richter")
+            .first()
+        )
+        vogt = (
+            db.query(Case)
+            .join(Patient)
+            .filter(Patient.dentist_id == dentist.id, Patient.last_name == "Vogt")
+            .first()
+        )
+
+        seeds = [
+            (
+                webb,
+                "message",
+                "Elite Dent Lab: Note — distal margin looks slightly underprepared — confirm before fabrication.",
+                False,
+                15,
+            ),
+            (
+                novak,
+                "scan_quality",
+                "Scan quality failed for Marek Novak — occlusal holes / incomplete finish line. Rescan before remake.",
+                False,
+                90,
+            ),
+            (
+                webb,
+                "case_status",
+                "Case for Marcus Webb moved to lab review.",
+                False,
+                120,
+            ),
+            (
+                vogt,
+                "shade",
+                "Shade suggested A3 for Anika Vogt — confirm or override (A3.5 cervical).",
+                False,
+                180,
+            ),
+            (
+                richter,
+                "scan_body",
+                "Scan body diameter detected for Jonas Richter — review tooth / manufacturer mapping.",
+                True,
+                360,
+            ),
+            (
+                webb,
+                "sync",
+                "Offline queue synced — 2 photo(s) uploaded successfully.",
+                True,
+                400,
+            ),
+            (
+                webb,
+                "export",
+                "DATEV XML skeleton ready for Marcus Webb.",
+                True,
+                500,
+            ),
+            (
+                None,
+                "case_status",
+                "Case for Lena Hofmann marked complete.",
+                True,
+                800,
+            ),
+        ]
+
+        for case, ntype, message, read, mins_ago in seeds:
+            db.add(
+                Notification(
+                    user_id=dentist.id,
+                    case_id=case.id if case else None,
+                    type=ntype,
+                    message=message,
+                    read=read,
+                    created_at=now - timedelta(minutes=mins_ago),
+                )
+            )
+        db.commit()
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
     migrate_user_profile_columns()
     seed_demo_users()
     seed_demo_clinic_data()
+    seed_demo_notifications()
     yield
 
 
@@ -403,6 +520,7 @@ app.include_router(scans.router, prefix="/api/cases", tags=["scans"])
 app.include_router(photos.router, prefix="/api/cases", tags=["photos"])
 app.include_router(messages.router, prefix="/api/cases", tags=["messages"])
 app.include_router(messages.inbox_router, prefix="/api/messages", tags=["messages"])
+app.include_router(notifications.router, prefix="/api/notifications", tags=["notifications"])
 app.include_router(clinical.router, prefix="/api/cases", tags=["clinical"])
 app.include_router(exports.router, prefix="/api/exports", tags=["exports"])
 

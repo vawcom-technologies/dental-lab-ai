@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 
@@ -146,6 +147,7 @@ class _PatientsPageState extends State<PatientsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
     final visible = _visible;
     return Padding(
       padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
@@ -154,8 +156,8 @@ class _PatientsPageState extends State<PatientsPage> {
         children: [
           PageHeader(
             icon: Icons.people_alt_outlined,
-            title: 'Patients',
-            subtitle: 'Clinic roster with live case status',
+            title: loc.patientsTitle,
+            subtitle: loc.patientsSubtitle,
             actions: [
               Padding(
                 padding: const EdgeInsets.only(right: 4, top: 10),
@@ -170,14 +172,14 @@ class _PatientsPageState extends State<PatientsPage> {
                 ),
               ),
               IconButton(
-                tooltip: 'Refresh',
+                tooltip: loc.refresh,
                 onPressed: _loading ? null : _load,
                 icon: const Icon(Icons.refresh, size: 20),
               ),
               FilledButton.icon(
                 onPressed: widget.onNewPatient,
                 icon: const Icon(Icons.add, size: 18),
-                label: const Text('New Patient'),
+                label: Text(loc.navNewPatient),
               ),
               OutlinedButton.icon(
                 onPressed: () async {
@@ -219,9 +221,9 @@ class _PatientsPageState extends State<PatientsPage> {
             depth: 0.7,
             child: TextField(
               onChanged: (v) => setState(() => _query = v.trim().toLowerCase()),
-              decoration: const InputDecoration(
-                hintText: 'Search patients by name or ID…',
-                prefixIcon: Icon(Icons.search, color: AppColors.muted),
+              decoration: InputDecoration(
+                hintText: loc.searchPatients,
+                prefixIcon: const Icon(Icons.search, color: AppColors.muted),
                 border: InputBorder.none,
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
@@ -236,7 +238,7 @@ class _PatientsPageState extends State<PatientsPage> {
             children: [
               for (final f in CaseStatuses.filters)
                 SoftFilterChip(
-                  label: f.label,
+                  label: f.key == 'all' ? loc.filterAll : loc.statusLabel(f.key),
                   selected: _filter == f.key,
                   onTap: () => setState(() => _filter = f.key),
                 ),

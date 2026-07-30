@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import 'ui_kit.dart';
 
@@ -72,10 +73,10 @@ class _PatientPickerButtonState extends State<PatientPickerButton> {
           padding: const EdgeInsets.fromLTRB(12, 4, 8, 8),
           child: Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Text(
-                  'Patients',
-                  style: TextStyle(
+                  AppLocalizations.of(context).navPatients,
+                  style: const TextStyle(
                     fontWeight: FontWeight.w700,
                     color: AppColors.navy,
                     fontSize: 13,
@@ -84,7 +85,7 @@ class _PatientPickerButtonState extends State<PatientPickerButton> {
               ),
               if (widget.onRefresh != null)
                 IconButton(
-                  tooltip: 'Refresh',
+                  tooltip: AppLocalizations.of(context).refresh,
                   onPressed: widget.enabled
                       ? () async {
                           await widget.onRefresh!();
@@ -148,7 +149,7 @@ class _PatientPickerButtonState extends State<PatientPickerButton> {
             widget.onAdd();
           },
           leadingIcon: const Icon(Icons.person_add_alt_1, size: 18),
-          child: const Text('Add patient'),
+          child: Text(AppLocalizations.of(context).addPatient),
         ),
       ],
       builder: (context, controller, child) {

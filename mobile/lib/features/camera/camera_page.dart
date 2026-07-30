@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../core/offline/sync_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
@@ -138,9 +139,9 @@ class _CameraPageState extends State<CameraPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Camera Capture',
-            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: AppColors.navy),
+          Text(
+            AppLocalizations.of(context).cameraTitle,
+            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: AppColors.navy),
           ),
           const Text(
             'Frontal / left / right · up to 10 photos · full resolution · encrypted local cache',

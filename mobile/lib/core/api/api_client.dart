@@ -499,6 +499,47 @@ class ApiClient {
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
   }
 
+  Future<List<Map<String, dynamic>>> listNotifications({
+    bool unreadOnly = false,
+    String? type,
+  }) async {
+    final params = <String, String>{};
+    if (unreadOnly) params['unread_only'] = 'true';
+    if (type != null && type.isNotEmpty) params['type'] = type;
+    final uri = Uri.parse('$baseUrl/api/notifications').replace(
+      queryParameters: params.isEmpty ? null : params,
+    );
+    final res = await http.get(uri, headers: _jsonHeaders);
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
+  }
+
+  Future<int> notificationsUnreadCount() async {
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/notifications/unread-count'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    final data = jsonDecode(res.body) as Map<String, dynamic>;
+    return (data['count'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<void> markNotificationRead(int id) async {
+    final res = await http.post(
+      Uri.parse('$baseUrl/api/notifications/$id/read'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+  }
+
+  Future<void> markAllNotificationsRead() async {
+    final res = await http.post(
+      Uri.parse('$baseUrl/api/notifications/read-all'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+  }
+
   String _errorMessage(http.Response res) {
     try {
       final body = jsonDecode(res.body);

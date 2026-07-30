@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../../shell/app_sidebar.dart';
@@ -77,11 +78,11 @@ class _DashboardPageState extends State<DashboardPage> {
     return parts.last;
   }
 
-  String get _greeting {
+  String _greetingTitle(AppLocalizations loc) {
     final h = DateTime.now().hour;
-    if (h < 12) return 'Good morning';
-    if (h < 17) return 'Good afternoon';
-    return 'Good evening';
+    if (h < 12) return loc.goodMorning(_shortName);
+    if (h < 17) return loc.goodAfternoon(_shortName);
+    return loc.goodEvening(_shortName);
   }
 
   int get _completed =>
@@ -195,9 +196,9 @@ class _DashboardPageState extends State<DashboardPage> {
     return items.take(10).toList();
   }
 
-  String get _subtitle {
+  String _subtitleText(AppLocalizations loc) {
     if (_cases.isEmpty) {
-      return 'No open cases yet — add a patient to get started.';
+      return loc.dashNoCases;
     }
     final parts = <String>[];
     if (_attention > 0) {
@@ -239,6 +240,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
       child: Column(
@@ -246,8 +248,8 @@ class _DashboardPageState extends State<DashboardPage> {
         children: [
           PageHeader(
             icon: Icons.grid_view_rounded,
-            title: '$_greeting, Dr. $_shortName',
-            subtitle: _loading ? 'Loading clinic data…' : _subtitle,
+            title: _greetingTitle(loc),
+            subtitle: _loading ? loc.dashLoading : _subtitleText(loc),
             actions: [
               IconButton(
                 tooltip: 'Refresh',
@@ -257,7 +259,7 @@ class _DashboardPageState extends State<DashboardPage> {
               OutlinedButton.icon(
                 onPressed: () => widget.onNavigate(AppNavItem.newPatient),
                 icon: const Icon(Icons.add, size: 18),
-                label: const Text('New Patient'),
+                label: Text(loc.navNewPatient),
                 style: OutlinedButton.styleFrom(
                   backgroundColor: AppColors.navy,
                   foregroundColor: Colors.white,
@@ -266,20 +268,20 @@ class _DashboardPageState extends State<DashboardPage> {
               OutlinedButton.icon(
                 onPressed: () => widget.onNavigate(AppNavItem.camera),
                 icon: const Icon(Icons.photo_camera_outlined, size: 18),
-                label: const Text('Camera'),
+                label: Text(loc.navCamera),
               ),
               OutlinedButton.icon(
                 onPressed: () => widget.onNavigate(AppNavItem.scans),
                 icon: const Icon(Icons.view_in_ar_outlined, size: 18),
-                label: const Text('Start Scan'),
+                label: Text(loc.dashStartScan),
               ),
               OutlinedButton.icon(
                 onPressed: () => widget.onNavigate(AppNavItem.messages),
                 icon: const Icon(Icons.chat_bubble_outline, size: 18),
                 label: Text(
                   _unreadMessages > 0
-                      ? 'Messages ($_unreadMessages)'
-                      : 'Messages',
+                      ? '${loc.navMessages} ($_unreadMessages)'
+                      : loc.navMessages,
                 ),
               ),
             ],
@@ -297,10 +299,10 @@ class _DashboardPageState extends State<DashboardPage> {
             children: [
               Expanded(
                 child: _KpiCard(
-                  title: 'Completed Cases',
+                  title: loc.dashCompletedCases,
                   value: _loading ? '…' : '$_completed',
                   hint: _patients.isEmpty
-                      ? 'No patients yet'
+                      ? loc.dashNoPatientsHint
                       : '${_patients.length} patients on file',
                   hintColor: AppColors.success,
                 ),
@@ -308,10 +310,10 @@ class _DashboardPageState extends State<DashboardPage> {
               const SizedBox(width: 12),
               Expanded(
                 child: _KpiCard(
-                  title: 'Avg. Processing',
+                  title: loc.dashAvgProcessing,
                   value: _loading ? '…' : _avgProcessingLabel,
                   hint: _completed == 0
-                      ? 'Based on completed cases'
+                      ? loc.dashBasedOnCompleted
                       : 'Across $_completed completed',
                   hintColor: AppColors.muted,
                 ),
@@ -319,10 +321,10 @@ class _DashboardPageState extends State<DashboardPage> {
               const SizedBox(width: 12),
               Expanded(
                 child: _KpiCard(
-                  title: 'Pending Scans',
+                  title: loc.dashPendingScans,
                   value: _loading ? '…' : '$_pending',
                   hint: _inProgress == 0 && _inReview == 0
-                      ? 'None actively in progress'
+                      ? loc.dashNoneInProgress
                       : '$_inProgress in progress · $_inReview in review',
                   hintColor: _pending > 0 || _inProgress > 0 || _inReview > 0
                       ? AppColors.warning
@@ -332,11 +334,11 @@ class _DashboardPageState extends State<DashboardPage> {
               const SizedBox(width: 12),
               Expanded(
                 child: _KpiCard(
-                  title: 'Rejected Scans',
+                  title: loc.dashRejectedScans,
                   value: _loading ? '…' : '$_rejected',
                   hint: _rejected == 0
-                      ? 'No rejections open'
-                      : 'Need rescan before remake',
+                      ? loc.dashNoRejections
+                      : loc.dashNeedRescan,
                   hintColor: _rejected > 0 ? AppColors.danger : AppColors.success,
                 ),
               ),
@@ -354,9 +356,9 @@ class _DashboardPageState extends State<DashboardPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Recent Cases',
-                          style: TextStyle(
+                        Text(
+                          loc.dashRecentCases,
+                          style: const TextStyle(
                             fontWeight: FontWeight.w700,
                             fontSize: 16,
                             color: AppColors.navy,
@@ -369,10 +371,10 @@ class _DashboardPageState extends State<DashboardPage> {
                           child: _loading
                               ? const Center(child: CircularProgressIndicator())
                               : _recentRows.isEmpty
-                                  ? const Center(
+                                  ? Center(
                                       child: Text(
-                                        'No cases yet. Create a patient to start.',
-                                        style: TextStyle(color: AppColors.muted),
+                                        loc.dashNoCasesEmpty,
+                                        style: const TextStyle(color: AppColors.muted),
                                       ),
                                     )
                                   : ListView.builder(
@@ -400,9 +402,9 @@ class _DashboardPageState extends State<DashboardPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Recent Activity',
-                          style: TextStyle(
+                        Text(
+                          loc.dashRecentActivity,
+                          style: const TextStyle(
                             fontWeight: FontWeight.w700,
                             fontSize: 16,
                             color: AppColors.navy,
@@ -413,9 +415,9 @@ class _DashboardPageState extends State<DashboardPage> {
                           child: _loading
                               ? const Center(child: CircularProgressIndicator())
                               : _activity.isEmpty
-                                  ? const Text(
-                                      'Activity from cases and messages will appear here.',
-                                      style: TextStyle(color: AppColors.muted, fontSize: 13),
+                                  ? Text(
+                                      loc.dashActivityEmpty,
+                                      style: const TextStyle(color: AppColors.muted, fontSize: 13),
                                     )
                                   : ListView.builder(
                                       itemCount: _activity.length,
@@ -509,15 +511,16 @@ class _TableHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 8),
+    final loc = AppLocalizations.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Expanded(flex: 2, child: Text('CASE ID', style: _h)),
-          Expanded(flex: 3, child: Text('PATIENT', style: _h)),
-          Expanded(flex: 3, child: Text('DENTIST', style: _h)),
-          Expanded(flex: 2, child: Text('STATUS', style: _h)),
-          Expanded(flex: 2, child: Text('UPDATED', style: _h)),
+          Expanded(flex: 2, child: Text(loc.colCaseId, style: _h)),
+          Expanded(flex: 3, child: Text(loc.colPatient, style: _h)),
+          Expanded(flex: 3, child: Text(loc.colDentist, style: _h)),
+          Expanded(flex: 2, child: Text(loc.colStatus, style: _h)),
+          Expanded(flex: 2, child: Text(loc.colUpdated, style: _h)),
         ],
       ),
     );

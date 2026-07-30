@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
@@ -468,19 +469,19 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
         children: [
           Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Scan Body Diameter',
-                      style: TextStyle(
+                      AppLocalizations.of(context).scanBodyTitle,
+                      style: const TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.w700,
                         color: AppColors.navy,
                       ),
                     ),
-                    Text(
+                    const Text(
                       'Platform Ø in millimetres (mm) — typically 3–6 mm, not metres',
                       style: TextStyle(color: AppColors.muted),
                     ),

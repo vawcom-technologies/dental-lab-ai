@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/brand_logo.dart';
 import '../../core/widgets/ui_kit.dart';
@@ -41,16 +42,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final name = _name.text.trim();
     final email = _email.text.trim();
     final password = _password.text;
+    final loc = AppLocalizations.of(context);
     if (name.isEmpty || email.isEmpty || password.isEmpty) {
-      setState(() => _error = 'Name, email, and password are required');
+      setState(() => _error = loc.errNameEmailPassword);
       return;
     }
     if (password.length < 6) {
-      setState(() => _error = 'Password must be at least 6 characters');
+      setState(() => _error = loc.errPasswordShort);
       return;
     }
     if (password != _confirm.text) {
-      setState(() => _error = 'Passwords do not match');
+      setState(() => _error = loc.errPasswordMismatch);
       return;
     }
     setState(() {
@@ -84,6 +86,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: AppColors.surface,
       body: Center(
@@ -98,50 +101,50 @@ class _RegisterScreenState extends State<RegisterScreen> {
               children: [
                 const Center(child: BrandLogo(height: 64, scale: 1.15)),
                 const SizedBox(height: 16),
-                const Text(
-                  'Create profile',
+                Text(
+                  loc.registerTitle,
                   textAlign: TextAlign.center,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.w700,
                     color: AppColors.navy,
                   ),
                 ),
                 const SizedBox(height: 6),
-                const Text(
-                  'Register a dentist or lab account for Elite Dent',
+                Text(
+                  loc.registerSubtitle,
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: AppColors.muted),
+                  style: const TextStyle(color: AppColors.muted),
                 ),
                 const SizedBox(height: 22),
                 TextField(
                   controller: _name,
-                  decoration: const InputDecoration(labelText: 'Full name *'),
+                  decoration: InputDecoration(labelText: loc.fullName),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _email,
                   keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(labelText: 'Email *'),
+                  decoration: InputDecoration(labelText: '${loc.email} *'),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _clinic,
-                  decoration: const InputDecoration(labelText: 'Clinic / lab name'),
+                  decoration: InputDecoration(labelText: loc.clinic),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _phone,
                   keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(labelText: 'Phone'),
+                  decoration: InputDecoration(labelText: loc.phone),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: _role,
-                  decoration: const InputDecoration(labelText: 'Role'),
-                  items: const [
-                    DropdownMenuItem(value: 'dentist', child: Text('Dentist')),
-                    DropdownMenuItem(value: 'lab', child: Text('Lab')),
+                  decoration: InputDecoration(labelText: loc.role),
+                  items: [
+                    DropdownMenuItem(value: 'dentist', child: Text(loc.roleDentist)),
+                    DropdownMenuItem(value: 'lab', child: Text(loc.roleLab)),
                   ],
                   onChanged: (v) {
                     if (v != null) setState(() => _role = v);
@@ -151,13 +154,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 TextField(
                   controller: _password,
                   obscureText: true,
-                  decoration: const InputDecoration(labelText: 'Password *'),
+                  decoration: InputDecoration(labelText: '${loc.password} *'),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _confirm,
                   obscureText: true,
-                  decoration: const InputDecoration(labelText: 'Confirm password *'),
+                  decoration: InputDecoration(labelText: '${loc.confirmPassword} *'),
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
@@ -166,14 +169,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 const SizedBox(height: 20),
                 FilledButton(
                   onPressed: _loading ? null : _submit,
-                  child: Text(_loading ? 'Creating…' : 'Create account'),
+                  child: Text(_loading ? loc.saving : loc.createProfile),
                 ),
                 const SizedBox(height: 10),
                 TextButton(
                   onPressed: _loading
                       ? null
                       : () => Navigator.of(context).pop(),
-                  child: const Text('Back to sign in'),
+                  child: Text(loc.alreadyHaveAccount),
                 ),
               ],
             ),

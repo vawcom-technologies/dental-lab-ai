@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 
@@ -89,7 +90,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final name = _name.text.trim();
     final email = _email.text.trim();
     if (name.isEmpty || email.isEmpty) {
-      setState(() => _error = 'Name and email are required');
+      setState(() => _error = AppLocalizations.of(context).errNameEmailRequired);
       return;
     }
     setState(() {
@@ -105,7 +106,7 @@ class _ProfilePageState extends State<ProfilePage> {
         phone: _phone.text.trim(),
       );
       widget.onProfileUpdated(updated['name']?.toString() ?? name);
-      setState(() => _status = 'Profile saved');
+      setState(() => _status = AppLocalizations.of(context).profileSaved);
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -118,15 +119,15 @@ class _ProfilePageState extends State<ProfilePage> {
     final next = _newPassword.text;
     final confirm = _confirmPassword.text;
     if (current.isEmpty || next.isEmpty) {
-      setState(() => _error = 'Enter current and new password');
+      setState(() => _error = AppLocalizations.of(context).errEnterPasswords);
       return;
     }
     if (next.length < 6) {
-      setState(() => _error = 'New password must be at least 6 characters');
+      setState(() => _error = AppLocalizations.of(context).errNewPasswordShort);
       return;
     }
     if (next != confirm) {
-      setState(() => _error = 'New passwords do not match');
+      setState(() => _error = AppLocalizations.of(context).errNewPasswordMismatch);
       return;
     }
     setState(() {
@@ -142,7 +143,7 @@ class _ProfilePageState extends State<ProfilePage> {
       _currentPassword.clear();
       _newPassword.clear();
       _confirmPassword.clear();
-      setState(() => _status = 'Password updated');
+      setState(() => _status = AppLocalizations.of(context).passwordUpdated);
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -152,6 +153,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
     if (_loading) return const Center(child: CircularProgressIndicator());
 
     final displayName = _name.text.trim().isEmpty ? 'User' : _name.text.trim();
@@ -163,13 +165,13 @@ class _ProfilePageState extends State<ProfilePage> {
         children: [
           PageHeader(
             icon: Icons.person_outline,
-            title: 'Profile',
-            subtitle: 'Your account details — not limited to demo credentials',
+            title: loc.profileTitle,
+            subtitle: loc.profileSubtitle,
             actions: [
               OutlinedButton.icon(
                 onPressed: widget.onSignOut,
                 icon: const Icon(Icons.logout, size: 18),
-                label: const Text('Sign out'),
+                label: Text(loc.signOut),
               ),
             ],
           ),
@@ -241,27 +243,27 @@ class _ProfilePageState extends State<ProfilePage> {
                         const SizedBox(height: 20),
                         TextFormField(
                           controller: _name,
-                          decoration: const InputDecoration(labelText: 'Full name *'),
+                          decoration: InputDecoration(labelText: loc.fullName),
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
                           controller: _email,
                           keyboardType: TextInputType.emailAddress,
-                          decoration: const InputDecoration(labelText: 'Email *'),
+                          decoration: InputDecoration(labelText: '${loc.email} *'),
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
                           controller: _clinic,
-                          decoration: const InputDecoration(
-                            labelText: 'Clinic / practice',
-                            hintText: 'e.g. Elite Dent Munich',
+                          decoration: InputDecoration(
+                            labelText: loc.clinic,
+                            hintText: loc.clinicHint,
                           ),
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
                           controller: _phone,
                           keyboardType: TextInputType.phone,
-                          decoration: const InputDecoration(labelText: 'Phone'),
+                          decoration: InputDecoration(labelText: loc.phone),
                         ),
                         const SizedBox(height: 20),
                         Align(
@@ -269,7 +271,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           child: FilledButton.icon(
                             onPressed: _saving ? null : _saveProfile,
                             icon: const Icon(Icons.save_outlined, size: 18),
-                            label: Text(_saving ? 'Saving…' : 'Save profile'),
+                            label: Text(_saving ? loc.saving : loc.saveProfile),
                           ),
                         ),
                       ],
@@ -285,18 +287,18 @@ class _ProfilePageState extends State<ProfilePage> {
                         child: SectionCard(
                           child: ListView(
                             children: [
-                              const Text(
-                                'Security',
-                                style: TextStyle(
+                              Text(
+                                loc.security,
+                                style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                   fontSize: 16,
                                   color: AppColors.navy,
                                 ),
                               ),
                               const SizedBox(height: 6),
-                              const Text(
-                                'Change your password for this account.',
-                                style: TextStyle(
+                              Text(
+                                loc.securitySub,
+                                style: const TextStyle(
                                   color: AppColors.muted,
                                   fontSize: 13,
                                 ),
@@ -305,24 +307,24 @@ class _ProfilePageState extends State<ProfilePage> {
                               TextField(
                                 controller: _currentPassword,
                                 obscureText: true,
-                                decoration: const InputDecoration(
-                                  labelText: 'Current password',
+                                decoration: InputDecoration(
+                                  labelText: loc.currentPassword,
                                 ),
                               ),
                               const SizedBox(height: 12),
                               TextField(
                                 controller: _newPassword,
                                 obscureText: true,
-                                decoration: const InputDecoration(
-                                  labelText: 'New password',
+                                decoration: InputDecoration(
+                                  labelText: loc.newPassword,
                                 ),
                               ),
                               const SizedBox(height: 12),
                               TextField(
                                 controller: _confirmPassword,
                                 obscureText: true,
-                                decoration: const InputDecoration(
-                                  labelText: 'Confirm new password',
+                                decoration: InputDecoration(
+                                  labelText: loc.confirmNewPassword,
                                 ),
                               ),
                               const SizedBox(height: 16),
@@ -334,8 +336,8 @@ class _ProfilePageState extends State<ProfilePage> {
                                   icon: const Icon(Icons.lock_outline, size: 18),
                                   label: Text(
                                     _changingPassword
-                                        ? 'Updating…'
-                                        : 'Update password',
+                                        ? loc.updating
+                                        : loc.updatePassword,
                                   ),
                                 ),
                               ),
@@ -348,17 +350,17 @@ class _ProfilePageState extends State<ProfilePage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              'Account info',
-                              style: TextStyle(
+                            Text(
+                              loc.accountInfo,
+                              style: const TextStyle(
                                 fontWeight: FontWeight.w700,
                                 color: AppColors.navy,
                               ),
                             ),
                             const SizedBox(height: 10),
-                            _InfoRow(label: 'Role', value: _role),
-                            _InfoRow(label: 'Created', value: _createdAt ?? '—'),
-                            _InfoRow(label: 'Last login', value: _lastLogin ?? '—'),
+                            _InfoRow(label: loc.role, value: _role),
+                            _InfoRow(label: loc.created, value: _createdAt ?? '—'),
+                            _InfoRow(label: loc.lastLogin, value: _lastLogin ?? '—'),
                           ],
                         ),
                       ),

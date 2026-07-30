@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 
 class StatusChip extends StatelessWidget {
@@ -10,6 +11,7 @@ class StatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = StatusStyle.of(statusKey);
+    final label = AppLocalizations.of(context).statusLabel(statusKey);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
       decoration: BoxDecoration(
@@ -18,7 +20,7 @@ class StatusChip extends StatelessWidget {
         boxShadow: NeoShadows.soft(depth: 0.35),
       ),
       child: Text(
-        s.label,
+        label,
         style: TextStyle(
           color: s.fg,
           fontSize: 12,

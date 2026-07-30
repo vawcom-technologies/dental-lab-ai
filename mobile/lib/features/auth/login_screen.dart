@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/brand_logo.dart';
 import '../../core/widgets/ui_kit.dart';
@@ -62,6 +63,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: AppColors.surface,
       body: DecoratedBox(
@@ -95,14 +97,14 @@ class _LoginScreenState extends State<LoginScreen> {
                   children: [
                     const BrandLogo(height: 120, scale: 1.25),
                     const SizedBox(height: 20),
-                    const Text(
-                      'Pro Edition',
-                      style: TextStyle(color: Colors.white70, fontSize: 16),
+                    Text(
+                      loc.proEdition,
+                      style: const TextStyle(color: Colors.white70, fontSize: 16),
                     ),
                     const SizedBox(height: 12),
-                    const Text(
-                      'Chairside scan validation, shade AI, and lab collaboration — designed for iPad.',
-                      style: TextStyle(color: Colors.white70, fontSize: 15, height: 1.45),
+                    Text(
+                      loc.loginHero,
+                      style: const TextStyle(color: Colors.white70, fontSize: 15, height: 1.45),
                     ),
                   ],
                 ),
@@ -123,10 +125,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       children: [
                         const Center(child: BrandLogo(height: 72, scale: 1.2)),
                         const SizedBox(height: 16),
-                        const Text(
-                          'Sign in',
+                        Text(
+                          loc.signIn,
                           textAlign: TextAlign.center,
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.w700,
                             color: AppColors.navy,
@@ -134,23 +136,22 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                         const SizedBox(height: 6),
-                        const Text(
-                          'Use your Elite Dent profile credentials',
+                        Text(
+                          loc.signInSubtitle,
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: AppColors.muted),
+                          style: const TextStyle(color: AppColors.muted),
                         ),
                         const SizedBox(height: 28),
                         TextField(
                           controller: _email,
                           keyboardType: TextInputType.emailAddress,
-                          decoration: const InputDecoration(labelText: 'Email'),
+                          decoration: InputDecoration(labelText: loc.email),
                         ),
                         const SizedBox(height: 12),
                         TextField(
                           controller: _password,
                           obscureText: true,
-                          decoration:
-                              const InputDecoration(labelText: 'Password'),
+                          decoration: InputDecoration(labelText: loc.password),
                           onSubmitted: (_) => _submit(),
                         ),
                         if (_error != null) ...[
@@ -172,7 +173,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     color: Colors.white,
                                   ),
                                 )
-                              : const Text('Sign in'),
+                              : Text(loc.signIn),
                         ),
                         const SizedBox(height: 10),
                         OutlinedButton(
@@ -186,14 +187,14 @@ class _LoginScreenState extends State<LoginScreen> {
                                     ),
                                   );
                                 },
-                          child: const Text('Create a profile'),
+                          child: Text(loc.createProfile),
                         ),
                         const SizedBox(height: 14),
                         TextButton(
                           onPressed: _loading ? null : _fillDemo,
-                          child: const Text(
-                            'Use demo dentist account',
-                            style: TextStyle(fontSize: 12),
+                          child: Text(
+                            loc.useDemo,
+                            style: const TextStyle(fontSize: 12),
                           ),
                         ),
                       ],
