@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../haptics/app_haptics.dart';
+
 class ApiClient {
   ApiClient({
     this.baseUrl = const String.fromEnvironment(
@@ -76,6 +78,7 @@ class ApiClient {
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     _applyAuth(data);
+    AppHaptics.success();
     return data;
   }
 
@@ -104,6 +107,7 @@ class ApiClient {
     }
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     _applyAuth(data);
+    AppHaptics.success();
     return data;
   }
 
@@ -137,6 +141,7 @@ class ApiClient {
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     _applyProfile(data);
+    AppHaptics.success();
     return data;
   }
 
@@ -153,6 +158,7 @@ class ApiClient {
       }),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    AppHaptics.success();
   }
 
   Future<List<Map<String, dynamic>>> listPatients() async {
@@ -168,6 +174,7 @@ class ApiClient {
       body: jsonEncode(body),
     );
     if (res.statusCode != 201) throw Exception(_errorMessage(res));
+    AppHaptics.success();
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
@@ -177,6 +184,7 @@ class ApiClient {
       headers: _jsonHeaders,
     );
     if (res.statusCode != 204) throw Exception(_errorMessage(res));
+    AppHaptics.warn();
   }
 
   Future<List<Map<String, dynamic>>> listCases() async {
@@ -202,6 +210,7 @@ class ApiClient {
       body: jsonEncode({'status': status}),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    AppHaptics.selection();
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
@@ -251,6 +260,19 @@ class ApiClient {
     return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
   }
 
+  /// Downsampled XYZ preview for the chairside 3D viewer.
+  Future<Map<String, dynamic>> fetchScanPreview({
+    required int caseId,
+    required int scanId,
+  }) async {
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/cases/$caseId/scans/$scanId/preview'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> uploadScan({
     required int caseId,
     required List<int> bytes,
@@ -268,6 +290,17 @@ class ApiClient {
       throw Exception(_errorMessage(res));
     }
     return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  Future<void> deleteScan({required int caseId, required int scanId}) async {
+    final res = await http.delete(
+      Uri.parse('$baseUrl/api/cases/$caseId/scans/$scanId'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 204 && res.statusCode != 200) {
+      throw Exception(_errorMessage(res));
+    }
+    AppHaptics.success();
   }
 
   Future<Map<String, dynamic>> suggestShade(List<int> bytes, String filename) async {
@@ -297,6 +330,16 @@ class ApiClient {
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return res.body;
+  }
+
+  /// Clinic analytics. Pass [days] = 0 for all-time.
+  Future<Map<String, dynamic>> fetchReportsSummary({int days = 30}) async {
+    final uri = Uri.parse('$baseUrl/api/reports/summary').replace(
+      queryParameters: {'days': '$days'},
+    );
+    final res = await http.get(uri, headers: _jsonHeaders);
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
   Future<Map<String, dynamic>> validateScan(List<int> bytes, String filename) async {
@@ -331,7 +374,19 @@ class ApiClient {
     if (res.statusCode != 200 && res.statusCode != 201) {
       throw Exception(_errorMessage(res));
     }
+    AppHaptics.success();
     return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  Future<void> deleteShade({required int caseId, required int shadeId}) async {
+    final res = await http.delete(
+      Uri.parse('$baseUrl/api/cases/$caseId/shade/$shadeId'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 204 && res.statusCode != 200) {
+      throw Exception(_errorMessage(res));
+    }
+    AppHaptics.warn();
   }
 
   Future<Map<String, dynamic>> saveShape({
@@ -356,6 +411,7 @@ class ApiClient {
     if (res.statusCode != 200 && res.statusCode != 201) {
       throw Exception(_errorMessage(res));
     }
+    AppHaptics.success();
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
@@ -444,6 +500,7 @@ class ApiClient {
     if (res.statusCode != 200 && res.statusCode != 201) {
       throw Exception(_errorMessage(res));
     }
+    AppHaptics.success();
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
@@ -488,6 +545,7 @@ class ApiClient {
     if (res.statusCode != 200 && res.statusCode != 201) {
       throw Exception(_errorMessage(res));
     }
+    AppHaptics.light();
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 

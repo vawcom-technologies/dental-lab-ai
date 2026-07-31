@@ -3,10 +3,18 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from sqlalchemy.orm import joinedload
+
 from app.core.database import get_db
 from app.core.security import require_dentist
 from app.models import User, Patient, Case, ActivityLog
 from app.schemas import CaseCreate, CaseUpdate, CaseOut
+from app.services.notify import (
+    notify,
+    notify_status_change,
+    notify_lab_users,
+    patient_display_name,
+)
 
 router = APIRouter()
 
@@ -54,6 +62,23 @@ def create_case(
             target_id=case.id,
         )
     )
+    name = patient_display_name(patient)
+    if (payload.status or "pending") == "pending":
+        # Dentist opened a case that still needs a scan — keep it on their radar.
+        notify(
+            db,
+            user_id=user.id if user.role == "dentist" else patient.dentist_id,
+            type="case_status",
+            message=f"{name} needs an intraoral scan before the lab can start.",
+            case_id=case.id,
+        )
+    notify_lab_users(
+        db,
+        type="case_status",
+        message=f"New case opened for {name}.",
+        case_id=case.id,
+        exclude_user_id=user.id,
+    )
     db.commit()
     db.refresh(case)
     return case
@@ -81,14 +106,27 @@ def update_case(
     user: User = Depends(require_dentist),
     db: Session = Depends(get_db),
 ):
-    case = db.query(Case).filter(Case.id == case_id).first()
+    case = (
+        db.query(Case)
+        .options(joinedload(Case.patient))
+        .filter(Case.id == case_id)
+        .first()
+    )
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
     allowed = _dentist_patient_ids(db, user)
     if allowed is not None and case.patient_id not in allowed:
         raise HTTPException(status_code=403, detail="Forbidden")
+    old_status = case.status
     if payload.status is not None:
         case.status = payload.status
+        notify_status_change(
+            db,
+            case,
+            old_status=old_status,
+            new_status=payload.status,
+            actor=user,
+        )
     db.add(
         ActivityLog(
             user_id=user.id,

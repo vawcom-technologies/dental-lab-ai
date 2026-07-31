@@ -16,6 +16,7 @@ from app.api import (
     messages,
     clinical,
     notifications,
+    reports,
 )
 from app.core.database import Base, engine, SessionLocal
 from app.core.config import settings
@@ -373,115 +374,207 @@ def seed_demo_clinic_data() -> None:
 
 
 def seed_demo_notifications() -> None:
-    """Seed inbox alerts for the demo dentist (idempotent)."""
+    """Build the demo dentist inbox from real clinic cases / chat / shades.
+
+    Replaces any previous demo notifications so the inbox stays clinically useful
+    (needs scan, rejected rescan, lab review, shade confirm, unread lab chat).
+    """
+    from app.services.notify import message_for_status, patient_display_name
+
     db = SessionLocal()
     try:
         dentist = db.query(User).filter(User.email == "dentist@elitedent.demo").first()
+        lab = db.query(User).filter(User.email == "lab@elitedent.demo").first()
         if not dentist:
             return
-        existing = (
-            db.query(Notification).filter(Notification.user_id == dentist.id).count()
+
+        # Refresh demo inbox from current clinic truth (not generic placeholders).
+        db.query(Notification).filter(Notification.user_id == dentist.id).delete(
+            synchronize_session=False
         )
-        if existing > 0:
-            return
 
         now = datetime.utcnow()
-
-        webb = (
+        cases = (
             db.query(Case)
             .join(Patient)
-            .filter(Patient.dentist_id == dentist.id, Patient.last_name == "Webb")
-            .first()
-        )
-        novak = (
-            db.query(Case)
-            .join(Patient)
-            .filter(Patient.dentist_id == dentist.id, Patient.last_name == "Novak")
-            .first()
-        )
-        richter = (
-            db.query(Case)
-            .join(Patient)
-            .filter(Patient.dentist_id == dentist.id, Patient.last_name == "Richter")
-            .first()
-        )
-        vogt = (
-            db.query(Case)
-            .join(Patient)
-            .filter(Patient.dentist_id == dentist.id, Patient.last_name == "Vogt")
-            .first()
+            .filter(Patient.dentist_id == dentist.id)
+            .order_by(Case.updated_at.desc())
+            .all()
         )
 
-        seeds = [
-            (
-                webb,
-                "message",
-                "Elite Dent Lab: Note — distal margin looks slightly underprepared — confirm before fabrication.",
-                False,
-                15,
-            ),
-            (
-                novak,
-                "scan_quality",
-                "Scan quality failed for Marek Novak — occlusal holes / incomplete finish line. Rescan before remake.",
-                False,
-                90,
-            ),
-            (
-                webb,
-                "case_status",
-                "Case for Marcus Webb moved to lab review.",
-                False,
-                120,
-            ),
-            (
-                vogt,
-                "shade",
-                "Shade suggested A3 for Anika Vogt — confirm or override (A3.5 cervical).",
-                False,
-                180,
-            ),
-            (
-                richter,
-                "scan_body",
-                "Scan body diameter detected for Jonas Richter — review tooth / manufacturer mapping.",
-                True,
-                360,
-            ),
-            (
-                webb,
-                "sync",
-                "Offline queue synced — 2 photo(s) uploaded successfully.",
-                True,
-                400,
-            ),
-            (
-                webb,
-                "export",
-                "DATEV XML skeleton ready for Marcus Webb.",
-                True,
-                500,
-            ),
-            (
-                None,
-                "case_status",
-                "Case for Lena Hofmann marked complete.",
-                True,
-                800,
-            ),
-        ]
-
-        for case, ntype, message, read, mins_ago in seeds:
-            db.add(
-                Notification(
-                    user_id=dentist.id,
-                    case_id=case.id if case else None,
-                    type=ntype,
-                    message=message,
-                    read=read,
-                    created_at=now - timedelta(minutes=mins_ago),
-                )
+        # Stagger timestamps so the inbox reads as a real timeline.
+        mins = 8
+        for case in cases:
+            patient = (
+                db.query(Patient).filter(Patient.id == case.patient_id).first()
             )
+            name = patient_display_name(patient)
+            notes = patient.notes if patient else None
+            status = (case.status or "pending").lower()
+
+            if status == "pending":
+                ntype, message = message_for_status(name, "pending", notes)
+                db.add(
+                    Notification(
+                        user_id=dentist.id,
+                        case_id=case.id,
+                        type=ntype,
+                        message=message,
+                        read=False,
+                        created_at=now - timedelta(minutes=mins),
+                    )
+                )
+                mins += 25
+            elif status == "rejected":
+                ntype, message = message_for_status(name, "rejected", notes)
+                db.add(
+                    Notification(
+                        user_id=dentist.id,
+                        case_id=case.id,
+                        type=ntype,
+                        message=message,
+                        read=False,
+                        created_at=now - timedelta(minutes=mins),
+                    )
+                )
+                mins += 35
+            elif status == "in_review":
+                ntype, message = message_for_status(name, "in_review", notes)
+                db.add(
+                    Notification(
+                        user_id=dentist.id,
+                        case_id=case.id,
+                        type=ntype,
+                        message=message,
+                        read=False,
+                        created_at=now - timedelta(minutes=mins),
+                    )
+                )
+                mins += 40
+            elif status == "in_progress":
+                # Implant / scan-body work gets a specific prompt; others a soft status.
+                if notes and "scan body" in notes.lower():
+                    db.add(
+                        Notification(
+                            user_id=dentist.id,
+                            case_id=case.id,
+                            type="scan_body",
+                            message=(
+                                f"{name}: confirm scan body diameter / platform "
+                                "before abutment design."
+                            ),
+                            read=False,
+                            created_at=now - timedelta(minutes=mins),
+                        )
+                    )
+                else:
+                    db.add(
+                        Notification(
+                            user_id=dentist.id,
+                            case_id=case.id,
+                            type="case_status",
+                            message=f"{name}'s case is in progress — shade or scan may still be needed.",
+                            read=True,
+                            created_at=now - timedelta(minutes=mins),
+                        )
+                    )
+                mins += 45
+            elif status == "completed":
+                ntype, message = message_for_status(name, "completed", notes)
+                db.add(
+                    Notification(
+                        user_id=dentist.id,
+                        case_id=case.id,
+                        type=ntype,
+                        message=message,
+                        read=True,
+                        created_at=now - timedelta(minutes=mins + 200),
+                    )
+                )
+                mins += 20
+
+            # Shade confirmation when dentist overrode AI
+            shade = (
+                db.query(ShadeSelection)
+                .filter(ShadeSelection.case_id == case.id)
+                .order_by(ShadeSelection.id.desc())
+                .first()
+            )
+            if shade and shade.overridden_by_dentist:
+                ai = shade.ai_suggested_shade or "?"
+                final = shade.final_shade or "?"
+                db.add(
+                    Notification(
+                        user_id=dentist.id,
+                        case_id=case.id,
+                        type="shade",
+                        message=(
+                            f"Shade for {name}: AI suggested {ai} — you confirmed "
+                            f"{final}. Lab will fabricate to the final shade."
+                        ),
+                        read=False,
+                        created_at=now - timedelta(minutes=mins),
+                    )
+                )
+                mins += 30
+            elif shade and shade.confidence_score is not None and shade.confidence_score < 0.85:
+                db.add(
+                    Notification(
+                        user_id=dentist.id,
+                        case_id=case.id,
+                        type="shade",
+                        message=(
+                            f"Low-confidence shade for {name} "
+                            f"({shade.ai_suggested_shade or shade.final_shade}) — "
+                            "re-check photos if the case is still open."
+                        ),
+                        read=status == "completed",
+                        created_at=now - timedelta(minutes=mins),
+                    )
+                )
+                mins += 30
+
+        # Unread lab chat → message notifications (mirror real Message rows)
+        if lab:
+            lab_messages = (
+                db.query(Message)
+                .join(Case)
+                .join(Patient)
+                .filter(
+                    Patient.dentist_id == dentist.id,
+                    Message.sender_id == lab.id,
+                    Message.read_at.is_(None),
+                )
+                .order_by(Message.sent_at.desc())
+                .all()
+            )
+            # One notification per case from the latest unread lab message
+            seen_cases: set[int] = set()
+            for msg in lab_messages:
+                if msg.case_id in seen_cases:
+                    continue
+                seen_cases.add(msg.case_id)
+                patient = (
+                    db.query(Patient)
+                    .join(Case)
+                    .filter(Case.id == msg.case_id)
+                    .first()
+                )
+                name = patient_display_name(patient)
+                preview = (msg.body or "[attachment]").strip()
+                if len(preview) > 90:
+                    preview = f"{preview[:87]}…"
+                db.add(
+                    Notification(
+                        user_id=dentist.id,
+                        case_id=msg.case_id,
+                        type="message",
+                        message=f"{lab.name} · {name}: {preview}",
+                        read=False,
+                        created_at=msg.sent_at or (now - timedelta(minutes=12)),
+                    )
+                )
+
         db.commit()
     finally:
         db.close()
@@ -523,6 +616,7 @@ app.include_router(messages.inbox_router, prefix="/api/messages", tags=["message
 app.include_router(notifications.router, prefix="/api/notifications", tags=["notifications"])
 app.include_router(clinical.router, prefix="/api/cases", tags=["clinical"])
 app.include_router(exports.router, prefix="/api/exports", tags=["exports"])
+app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 
 try:
     from app.api import ai_poc

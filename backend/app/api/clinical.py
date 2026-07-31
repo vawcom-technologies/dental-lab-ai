@@ -51,7 +51,17 @@ def save_shade(
     user: User = Depends(require_dentist),
     db: Session = Depends(get_db),
 ):
-    if not db.query(Case).filter(Case.id == case_id).first():
+    from sqlalchemy.orm import joinedload
+
+    from app.services.notify import notify_lab_users, patient_display_name
+
+    case = (
+        db.query(Case)
+        .options(joinedload(Case.patient))
+        .filter(Case.id == case_id)
+        .first()
+    )
+    if not case:
         raise HTTPException(status_code=404, detail="Case not found")
     row = ShadeSelection(case_id=case_id, **payload.model_dump())
     db.add(row)
@@ -63,6 +73,20 @@ def save_shade(
             target_type="shade_selection",
             target_id=row.id,
         )
+    )
+    name = patient_display_name(case.patient)
+    final = payload.final_shade
+    ai = payload.ai_suggested_shade
+    if payload.overridden_by_dentist and ai and final and ai != final:
+        msg = f"Shade override for {name}: AI {ai} → final {final}."
+    else:
+        msg = f"Shade confirmed for {name}: {final}."
+    notify_lab_users(
+        db,
+        type="shade",
+        message=msg,
+        case_id=case_id,
+        exclude_user_id=user.id,
     )
     db.commit()
     return {"id": row.id, "final_shade": row.final_shade}
@@ -90,6 +114,33 @@ def latest_shade(
         "overridden_by_dentist": row.overridden_by_dentist,
         "created_at": row.created_at,
     }
+
+
+@router.delete("/{case_id}/shade/{shade_id}", status_code=204)
+def delete_shade(
+    case_id: int,
+    shade_id: int,
+    user: User = Depends(require_dentist),
+    db: Session = Depends(get_db),
+):
+    row = (
+        db.query(ShadeSelection)
+        .filter(ShadeSelection.id == shade_id, ShadeSelection.case_id == case_id)
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Shade selection not found")
+    db.delete(row)
+    db.add(
+        ActivityLog(
+            user_id=user.id,
+            action="shade.delete",
+            target_type="shade_selection",
+            target_id=shade_id,
+        )
+    )
+    db.commit()
+    return None
 
 
 @router.post("/{case_id}/shape")

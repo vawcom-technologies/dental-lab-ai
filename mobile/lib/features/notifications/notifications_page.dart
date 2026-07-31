@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/settings/app_settings.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/touchable.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../../shell/app_sidebar.dart';
 
@@ -91,8 +93,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
     }).toList();
   }
 
-  int get _unreadCount =>
-      _items.where((n) => n['read'] != true && _allowedBySettings('${n['type']}')).length;
+  int get _unreadCount => _items
+      .where((n) => n['read'] != true && _allowedBySettings('${n['type']}'))
+      .length;
 
   Future<void> _markOne(Map<String, dynamic> n) async {
     final id = n['id'];
@@ -114,6 +117,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     });
     try {
       await widget.api.markAllNotificationsRead();
+      AppHaptics.success();
       setState(() {
         for (final n in _items) {
           n['read'] = true;
@@ -129,10 +133,15 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 
   void _open(Map<String, dynamic> n) {
+    AppHaptics.light();
     _markOne(n);
     final nav = widget.onNavigate;
     if (nav == null) return;
-    switch ('${n['type']}') {
+    final type = '${n['type']}';
+    final statusRaw = '${n['case_status'] ?? ''}'.trim();
+    final status =
+        statusRaw.isEmpty ? null : CaseStatuses.normalize(statusRaw);
+    switch (type) {
       case 'message':
         nav(AppNavItem.messages);
       case 'scan_quality':
@@ -144,8 +153,15 @@ class _NotificationsPageState extends State<NotificationsPage> {
       case 'sync':
         nav(AppNavItem.settings);
       case 'export':
-      case 'case_status':
         nav(AppNavItem.patients);
+      case 'case_status':
+        if (status == CaseStatuses.pending || status == CaseStatuses.rejected) {
+          nav(AppNavItem.scans);
+        } else if (status == CaseStatuses.inReview) {
+          nav(AppNavItem.messages);
+        } else {
+          nav(AppNavItem.patients);
+        }
       default:
         break;
     }
@@ -164,41 +180,37 @@ class _NotificationsPageState extends State<NotificationsPage> {
           PageHeader(
             icon: Icons.notifications_none_rounded,
             title: loc.notificationsTitle,
-            subtitle: loc.notificationsSubtitle,
+            subtitle: _unreadCount > 0
+                ? loc.notificationsUnreadCount(_unreadCount)
+                : loc.notificationsSubtitle,
             actions: [
-              if (_unreadCount > 0)
-                Padding(
-                  padding: const EdgeInsets.only(right: 4, top: 10),
-                  child: Text(
-                    loc.notificationsUnreadCount(_unreadCount),
-                    style: const TextStyle(
-                      color: AppColors.warning,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              _NeoIconAction(
+              _HeaderIconButton(
                 icon: Icons.refresh_rounded,
                 tooltip: loc.refresh,
                 onPressed: _loading ? null : _bootstrap,
               ),
-              const SizedBox(width: 8),
-              _NeoTextAction(
-                label: _markingAll ? loc.notificationsMarking : loc.notificationsMarkAll,
-                icon: Icons.done_all_rounded,
-                enabled: !_markingAll && _unreadCount > 0,
-                onPressed: _markAll,
-              ),
+              if (_unreadCount > 0)
+                _HeaderTextButton(
+                  label: _markingAll
+                      ? loc.notificationsMarking
+                      : loc.notificationsMarkAll,
+                  icon: Icons.done_all_rounded,
+                  enabled: !_markingAll,
+                  onPressed: _markAll,
+                ),
             ],
           ),
           if (_error != null) ...[
             const SizedBox(height: 10),
-            Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
+            Text(
+              _error!,
+              style: const TextStyle(color: AppColors.danger, fontSize: 13),
+            ),
           ],
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 6,
+            runSpacing: 6,
             children: [
               for (final f in [
                 ('all', loc.filterAll),
@@ -214,28 +226,35 @@ class _NotificationsPageState extends State<NotificationsPage> {
                 ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           Expanded(
             child: _loading
-                ? const Center(child: CircularProgressIndicator(color: AppColors.dentalBlue))
+                ? const Center(
+                    child: CircularProgressIndicator(color: AppColors.dentalBlue),
+                  )
                 : visible.isEmpty
                     ? Center(
                         child: SectionCard(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 28,
+                            vertical: 22,
+                          ),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              NeoIconBadge(
-                                icon: Icons.notifications_off_outlined,
-                                size: 52,
-                                iconSize: 24,
+                              Icon(
+                                Icons.notifications_off_outlined,
+                                size: 28,
+                                color: AppColors.muted.withValues(alpha: 0.7),
                               ),
-                              const SizedBox(height: 12),
+                              const SizedBox(height: 10),
                               Text(
                                 loc.notificationsEmpty,
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w600,
                                   color: AppColors.muted,
+                                  fontSize: 13.5,
                                 ),
                               ),
                             ],
@@ -243,21 +262,25 @@ class _NotificationsPageState extends State<NotificationsPage> {
                         ),
                       )
                     : SectionCard(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        depth: 1.05,
+                        padding: EdgeInsets.zero,
+                        depth: 0.9,
                         child: ListView.separated(
                           itemCount: visible.length,
-                          separatorBuilder: (_, _) => Container(
+                          separatorBuilder: (_, _) => Divider(
                             height: 1,
-                            margin: const EdgeInsets.symmetric(horizontal: 14),
-                            color: AppColors.border.withValues(alpha: 0.5),
+                            indent: 56,
+                            endIndent: 14,
+                            color: AppColors.border.withValues(alpha: 0.55),
                           ),
                           itemBuilder: (context, i) {
                             final n = visible[i];
                             return _NotificationTile(
                               item: n,
                               onTap: () => _open(n),
-                              onMarkRead: () => _markOne(n),
+                              onMarkRead: () {
+                                AppHaptics.selection();
+                                _markOne(n);
+                              },
                             );
                           },
                         ),
@@ -286,62 +309,93 @@ class _NotificationTile extends StatelessWidget {
     final type = '${item['type'] ?? ''}';
     final unread = item['read'] != true;
     final patient = '${item['patient_name'] ?? ''}'.trim();
+    final statusRaw = '${item['case_status'] ?? ''}'.trim();
+    final status = statusRaw.isEmpty ? null : CaseStatuses.normalize(statusRaw);
     final meta = <String>[
       loc.notificationTypeLabel(type),
       if (patient.isNotEmpty) patient,
       _relative(item['created_at']?.toString()),
     ].where((e) => e.isNotEmpty).join(' · ');
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            color: unread ? AppColors.sidebarActive.withValues(alpha: 0.55) : Colors.transparent,
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _TypeIcon(type: type, unread: unread),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${item['message'] ?? ''}',
-                      style: TextStyle(
-                        fontWeight: unread ? FontWeight.w700 : FontWeight.w500,
-                        color: AppColors.navy,
-                        fontSize: 14,
-                        height: 1.35,
-                      ),
+    return Touchable(
+      onTap: onTap,
+      borderRadius: BorderRadius.zero,
+      minHeight: 0,
+      scale: 0.995,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 11, 12, 11),
+        color: unread
+            ? AppColors.sidebarActive.withValues(alpha: 0.45)
+            : Colors.transparent,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _TypeIcon(type: type, unread: unread),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${item['message'] ?? ''}',
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: unread ? FontWeight.w600 : FontWeight.w500,
+                      color: AppColors.navy,
+                      fontSize: 13.5,
+                      height: 1.35,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      meta,
-                      style: const TextStyle(
-                        color: AppColors.muted,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
+                  ),
+                  const SizedBox(height: 5),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          meta,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
-                ),
+                      if (status != null) ...[
+                        const SizedBox(width: 8),
+                        StatusChip(statusKey: status),
+                      ],
+                    ],
+                  ),
+                ],
               ),
-              if (unread)
-                IconButton(
-                  tooltip: loc.notificationsMarkRead,
-                  onPressed: onMarkRead,
-                  icon: const Icon(Icons.circle, size: 10, color: AppColors.dentalBlue),
-                )
-              else
-                const SizedBox(width: 40),
-            ],
-          ),
+            ),
+            const SizedBox(width: 8),
+            if (unread)
+              Tooltip(
+                message: loc.notificationsMarkRead,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onMarkRead,
+                  child: const Padding(
+                    padding: EdgeInsets.fromLTRB(8, 4, 4, 8),
+                    child: SizedBox(
+                      width: 10,
+                      height: 10,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: AppColors.dentalBlue,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              )
+            else
+              const SizedBox(width: 18),
+          ],
         ),
       ),
     );
@@ -381,20 +435,19 @@ class _TypeIcon extends StatelessWidget {
     };
 
     return Container(
-      width: 42,
-      height: 42,
+      width: 34,
+      height: 34,
       decoration: BoxDecoration(
-        color: AppColors.neo,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: unread ? NeoShadows.soft(depth: 0.55) : NeoShadows.pressed(),
+        color: unread ? color.withValues(alpha: 0.12) : AppColors.inset,
+        borderRadius: BorderRadius.circular(10),
       ),
-      child: Icon(icon, size: 20, color: color),
+      child: Icon(icon, size: 17, color: color),
     );
   }
 }
 
-class _NeoIconAction extends StatelessWidget {
-  const _NeoIconAction({
+class _HeaderIconButton extends StatelessWidget {
+  const _HeaderIconButton({
     required this.icon,
     required this.tooltip,
     this.onPressed,
@@ -408,29 +461,29 @@ class _NeoIconAction extends StatelessWidget {
   Widget build(BuildContext context) {
     return Tooltip(
       message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: AppRadii.borderSm,
-          child: Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: AppColors.neo,
-              borderRadius: AppRadii.borderSm,
-              boxShadow: NeoShadows.soft(depth: 0.5),
-            ),
-            child: Icon(icon, size: 20, color: AppColors.navy),
+      child: Touchable(
+        onTap: onPressed,
+        enabled: onPressed != null,
+        borderRadius: BorderRadius.circular(10),
+        minHeight: 34,
+        child: Container(
+          width: 34,
+          height: 34,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: AppColors.neo,
+            borderRadius: BorderRadius.circular(10),
+            boxShadow: NeoShadows.soft(depth: 0.35),
           ),
+          child: Icon(icon, size: 17, color: AppColors.navy),
         ),
       ),
     );
   }
 }
 
-class _NeoTextAction extends StatelessWidget {
-  const _NeoTextAction({
+class _HeaderTextButton extends StatelessWidget {
+  const _HeaderTextButton({
     required this.label,
     required this.icon,
     required this.enabled,
@@ -444,34 +497,34 @@ class _NeoTextAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: enabled ? onPressed : null,
-        borderRadius: AppRadii.borderSm,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-          decoration: BoxDecoration(
-            color: enabled ? AppColors.navy : AppColors.inset,
-            borderRadius: AppRadii.borderSm,
-            boxShadow: enabled ? NeoShadows.soft(depth: 0.4) : null,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 16, color: enabled ? Colors.white : AppColors.muted),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: TextStyle(
-                  color: enabled ? Colors.white : AppColors.muted,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13,
-                ),
+    return Touchable(
+      onTap: enabled ? onPressed : null,
+      enabled: enabled,
+      borderRadius: BorderRadius.circular(10),
+      minHeight: 34,
+      child: Container(
+        height: 34,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: enabled ? AppColors.navy : AppColors.inset,
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: enabled ? NeoShadows.soft(depth: 0.3) : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: enabled ? Colors.white : AppColors.muted),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: enabled ? Colors.white : AppColors.muted,
+                fontWeight: FontWeight.w600,
+                fontSize: 12.5,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

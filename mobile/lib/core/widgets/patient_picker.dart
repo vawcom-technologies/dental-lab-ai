@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../haptics/app_haptics.dart';
 import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
+import 'touchable.dart';
 import 'ui_kit.dart';
 
 /// Compact header control: tap to open the patient list.
@@ -113,6 +115,7 @@ class _PatientPickerButtonState extends State<PatientPickerButton> {
             final name = _name(p);
             return MenuItemButton(
               onPressed: () {
+                AppHaptics.selection();
                 widget.onSelect(p);
                 _menu.close();
               },
@@ -145,6 +148,7 @@ class _PatientPickerButtonState extends State<PatientPickerButton> {
         const Divider(height: 8),
         MenuItemButton(
           onPressed: () {
+            AppHaptics.light();
             _menu.close();
             widget.onAdd();
           },
@@ -155,78 +159,74 @@ class _PatientPickerButtonState extends State<PatientPickerButton> {
       builder: (context, controller, child) {
         return SizedBox(
           width: widget.width,
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: AppRadii.borderSm,
-              onTap: !widget.enabled
-                  ? null
-                  : () {
-                      if (controller.isOpen) {
-                        controller.close();
-                      } else {
-                        controller.open();
-                      }
-                    },
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                decoration: BoxDecoration(
-                  color: AppColors.neo,
-                  borderRadius: AppRadii.borderSm,
-                  boxShadow: controller.isOpen
-                      ? NeoShadows.pressed()
-                      : NeoShadows.soft(depth: 0.55),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.person_outline,
-                      size: 18,
-                      color: selected == null
-                          ? AppColors.warning
-                          : AppColors.navy,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                              color: selected == null
-                                  ? AppColors.warning
-                                  : AppColors.navy,
-                            ),
+          child: Touchable(
+            enabled: widget.enabled,
+            borderRadius: AppRadii.borderSm,
+            minHeight: 44,
+            onTap: () {
+              if (controller.isOpen) {
+                controller.close();
+              } else {
+                controller.open();
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.neo,
+                borderRadius: AppRadii.borderSm,
+                boxShadow: controller.isOpen
+                    ? NeoShadows.pressed()
+                    : NeoShadows.soft(depth: 0.55),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.person_outline,
+                    size: 20,
+                    color: selected == null
+                        ? AppColors.warning
+                        : AppColors.navy,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13.5,
+                            color: selected == null
+                                ? AppColors.warning
+                                : AppColors.navy,
                           ),
-                          Text(
-                            subtitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: AppColors.muted,
-                            ),
+                        ),
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            color: AppColors.muted,
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 2),
-                    Icon(
-                      controller.isOpen
-                          ? Icons.keyboard_arrow_up
-                          : Icons.keyboard_arrow_down,
-                      size: 18,
-                      color: AppColors.muted,
-                    ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 2),
+                  Icon(
+                    controller.isOpen
+                        ? Icons.keyboard_arrow_up
+                        : Icons.keyboard_arrow_down,
+                    size: 20,
+                    color: AppColors.muted,
+                  ),
+                ],
               ),
             ),
           ),

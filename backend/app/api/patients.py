@@ -3,8 +3,9 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import require_dentist
-from app.models import User, Patient, ActivityLog
+from app.models import User, Patient, Case, ActivityLog
 from app.schemas import PatientCreate, PatientUpdate, PatientOut
+from app.services.notify import notify, notify_lab_users, patient_display_name
 
 router = APIRouter()
 
@@ -42,6 +43,49 @@ def create_patient(
             target_id=patient.id,
         )
     )
+
+    # Every new patient opens a pending case so intake / scan work is tracked.
+    case = Case(patient_id=patient.id, status="pending")
+    db.add(case)
+    db.flush()
+    db.add(
+        ActivityLog(
+            user_id=user.id,
+            action="case.create",
+            target_type="case",
+            target_id=case.id,
+        )
+    )
+
+    name = patient_display_name(patient)
+    note = (patient.notes or "").strip()
+    if note:
+        short = note if len(note) <= 70 else f"{note[:67]}…"
+        message = (
+            f"New patient {name} added — needs intake check and an intraoral scan. "
+            f"Note: {short}"
+        )
+    else:
+        message = (
+            f"New patient {name} added — needs intake check and an intraoral scan "
+            "before lab work can start."
+        )
+
+    notify(
+        db,
+        user_id=dentist_id,
+        type="case_status",
+        message=message,
+        case_id=case.id,
+    )
+    notify_lab_users(
+        db,
+        type="case_status",
+        message=f"New patient on file: {name} (awaiting scan).",
+        case_id=case.id,
+        exclude_user_id=user.id,
+    )
+
     db.commit()
     db.refresh(patient)
     return patient

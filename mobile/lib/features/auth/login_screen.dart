@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/brand_logo.dart';
@@ -24,6 +25,7 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _error;
 
   Future<void> _submit() async {
+    AppHaptics.light();
     setState(() {
       _loading = true;
       _error = null;
@@ -40,6 +42,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     } catch (e) {
+      AppHaptics.warn();
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -47,6 +50,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _fillDemo() {
+    AppHaptics.selection();
     setState(() {
       _email.text = 'dentist@elitedent.demo';
       _password.text = 'demo1234';

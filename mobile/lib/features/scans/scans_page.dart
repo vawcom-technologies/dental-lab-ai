@@ -4,10 +4,12 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/offline/sync_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
+import 'mesh_viewer.dart';
 
 class ScansPage extends StatefulWidget {
   const ScansPage({super.key, required this.api});
@@ -28,8 +30,14 @@ class _ScansPageState extends State<ScansPage> {
   int _selected = 0;
   bool _loading = true;
   bool _busy = false;
+  bool _previewLoading = false;
   String? _error;
+  String? _previewError;
   Map<String, dynamic>? _lastResult;
+  List<List<double>> _vertices = const [];
+  int? _vertexCount;
+  int? _sampledCount;
+  int? _previewScanId;
 
   @override
   void initState() {
@@ -53,28 +61,126 @@ class _ScansPageState extends State<ScansPage> {
     }
   }
 
+  String get _patientLabel {
+    final p = _patient;
+    if (p == null) return '';
+    return '${p['first_name'] ?? ''} ${p['last_name'] ?? ''}'.trim();
+  }
+
+  Future<List<Map<String, dynamic>>> _scansForPatient(int patientId) async {
+    final cases = await widget.api.listCases();
+    final mine = cases.where((c) => c['patient_id'] == patientId).toList()
+      ..sort((a, b) {
+        final ta = DateTime.tryParse('${a['updated_at'] ?? ''}') ?? DateTime(1970);
+        final tb = DateTime.tryParse('${b['updated_at'] ?? ''}') ?? DateTime(1970);
+        return tb.compareTo(ta);
+      });
+
+    Map<String, dynamic> caseRow;
+    if (mine.isEmpty) {
+      caseRow = await widget.api.createCase(patientId);
+    } else {
+      caseRow = mine.first;
+    }
+    if (mounted) setState(() => _case = caseRow);
+
+    final all = <Map<String, dynamic>>[];
+    final caseList = mine.isEmpty ? [caseRow] : mine;
+    for (final c in caseList) {
+      final cid = c['id'];
+      if (cid is! int) continue;
+      final rows = await widget.api.listScans(cid);
+      for (final s in rows) {
+        // Ensure patient linkage is always present on the row.
+        s['patient_id'] = patientId;
+        s['patient_name'] ??= _patientLabel;
+        s['case_id'] ??= cid;
+        all.add(s);
+      }
+    }
+    all.sort((a, b) {
+      final ta = DateTime.tryParse('${a['uploaded_at'] ?? ''}') ?? DateTime(1970);
+      final tb = DateTime.tryParse('${b['uploaded_at'] ?? ''}') ?? DateTime(1970);
+      return tb.compareTo(ta);
+    });
+    return all;
+  }
+
   Future<void> _selectPatient(Map<String, dynamic> patient) async {
     setState(() {
       _patient = patient;
       _case = null;
       _scans = [];
       _lastResult = null;
+      _vertices = const [];
+      _previewError = null;
+      _previewScanId = null;
     });
-    final cases = await widget.api.listCases();
-    final mine = cases.where((c) => c['patient_id'] == patient['id']).toList();
-    final caseRow = mine.isEmpty
-        ? await widget.api.createCase(patient['id'] as int)
-        : mine.first;
-    final scans = await widget.api.listScans(caseRow['id'] as int);
+    final pid = patient['id'];
+    if (pid is! int) return;
+    final scans = await _scansForPatient(pid);
+    if (!mounted) return;
     setState(() {
-      _case = caseRow;
       _scans = scans;
-      _selected = 0;
+      _selected = scans.isEmpty ? 0 : 0;
     });
+    if (scans.isNotEmpty) {
+      await _loadPreviewFor(scans.first);
+    }
+  }
+
+  Future<void> _loadPreviewFor(Map<String, dynamic> scan) async {
+    final caseId = scan['case_id'] as int? ?? _case?['id'] as int?;
+    final scanId = scan['id'];
+    if (caseId is! int || scanId is! int) return;
+    setState(() {
+      _previewLoading = true;
+      _previewError = null;
+      _previewScanId = scanId;
+      if (_case == null || _case!['id'] != caseId) {
+        _case = {'id': caseId, 'patient_id': scan['patient_id'] ?? _patient?['id']};
+      }
+    });
+    try {
+      final preview = await widget.api.fetchScanPreview(
+        caseId: caseId,
+        scanId: scanId,
+      );
+      if (!mounted || _previewScanId != scanId) return;
+      final raw = preview['vertices'];
+      final verts = <List<double>>[];
+      if (raw is List) {
+        for (final row in raw) {
+          if (row is List && row.length >= 3) {
+            verts.add([
+              (row[0] as num).toDouble(),
+              (row[1] as num).toDouble(),
+              (row[2] as num).toDouble(),
+            ]);
+          }
+        }
+      }
+      setState(() {
+        _vertices = verts;
+        _vertexCount = (preview['vertex_count'] as num?)?.toInt();
+        _sampledCount = (preview['sampled'] as num?)?.toInt() ?? verts.length;
+        _previewError = verts.isEmpty
+            ? (preview['error']?.toString() ?? 'Preview has no points')
+            : null;
+        _previewLoading = false;
+      });
+    } catch (e) {
+      if (!mounted || _previewScanId != scanId) return;
+      setState(() {
+        _vertices = const [];
+        _previewError = e.toString().replaceFirst('Exception: ', '');
+        _previewLoading = false;
+      });
+    }
   }
 
   Future<void> _upload() async {
-    if (_case == null) return;
+    if (_case == null || _patient == null) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -100,12 +206,78 @@ class _ScansPageState extends State<ScansPage> {
       );
       setState(() => _lastResult = upload);
       await _sync.flush();
-      final scans = await widget.api.listScans(_case!['id'] as int);
+      final pid = _patient!['id'] as int;
+      final scans = await _scansForPatient(pid);
+      if (!mounted) return;
       setState(() {
         _scans = scans;
-        _selected = scans.isEmpty ? 0 : scans.length - 1;
+        _selected = 0;
       });
+      if (scans.isNotEmpty) {
+        await _loadPreviewFor(scans.first);
+      }
     } catch (e) {
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _deleteScan(Map<String, dynamic> scan) async {
+    final caseId = scan['case_id'] as int? ?? _case?['id'] as int?;
+    final scanId = scan['id'];
+    if (caseId is! int || scanId is! int) return;
+
+    final filename = '${scan['filename'] ?? 'Scan #$scanId'}';
+    final patient = '${scan['patient_name'] ?? _patientLabel}';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete scan?'),
+        content: Text(
+          'Remove $filename for $patient?\nThis cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await widget.api.deleteScan(caseId: caseId, scanId: scanId);
+      AppHaptics.success();
+      final pid = _patient?['id'] as int?;
+      if (pid == null) return;
+      final scans = await _scansForPatient(pid);
+      if (!mounted) return;
+      setState(() {
+        _scans = scans;
+        _selected = 0;
+        _lastResult = null;
+        if (scans.isEmpty) {
+          _vertices = const [];
+          _previewError = null;
+          _previewScanId = null;
+        }
+      });
+      if (scans.isNotEmpty) {
+        await _loadPreviewFor(scans.first);
+      }
+    } catch (e) {
+      if (!mounted) return;
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -150,19 +322,24 @@ class _ScansPageState extends State<ScansPage> {
                         color: AppColors.navy,
                       ),
                     ),
-                    const Text(
-                      'Upload PLY · AI quality check · encrypted at rest · offline queue',
-                      style: TextStyle(color: AppColors.muted),
+                    Text(
+                      _patient == null
+                          ? 'Upload PLY / STL / OBJ · AI quality check · 3D preview'
+                          : 'Patient: $_patientLabel · scans stay linked to this case',
+                      style: const TextStyle(color: AppColors.muted),
                     ),
                   ],
                 ),
               ),
               if (_patients.isNotEmpty)
                 SizedBox(
-                  width: 220,
+                  width: 240,
                   child: DropdownButtonFormField<int>(
                     initialValue: _patient?['id'] as int?,
-                    decoration: const InputDecoration(isDense: true),
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      labelText: 'Patient',
+                    ),
                     items: _patients
                         .map(
                           (p) => DropdownMenuItem(
@@ -208,7 +385,7 @@ class _ScansPageState extends State<ScansPage> {
                               ),
                               const SizedBox(height: 4),
                               const Text(
-                                'PLY, STL, OBJ — encrypted locally + server',
+                                'PLY, STL, OBJ — uploads to server when online',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(color: AppColors.muted, fontSize: 12),
                               ),
@@ -221,9 +398,14 @@ class _ScansPageState extends State<ScansPage> {
                         child: SectionCard(
                           padding: const EdgeInsets.symmetric(vertical: 8),
                           child: _scans.isEmpty
-                              ? const Center(
-                                  child: Text('No scans yet',
-                                      style: TextStyle(color: AppColors.muted)),
+                              ? Center(
+                                  child: Text(
+                                    _patient == null
+                                        ? 'Select a patient'
+                                        : 'No scans for $_patientLabel yet',
+                                    style: const TextStyle(color: AppColors.muted),
+                                    textAlign: TextAlign.center,
+                                  ),
                                 )
                               : ListView.builder(
                                   itemCount: _scans.length,
@@ -232,31 +414,60 @@ class _ScansPageState extends State<ScansPage> {
                                     final selected = i == _selected;
                                     final q = ((s['quality_score'] as num?)?.toDouble() ?? 0);
                                     final pct = (q <= 1 ? q * 100 : q).round();
+                                    final file = '${s['filename'] ?? 'Scan #${s['id']}'}';
+                                    final short = file.length > 28
+                                        ? '${file.substring(0, 26)}…'
+                                        : file;
                                     return ListTile(
                                       selected: selected,
                                       selectedTileColor: AppColors.sidebarActive,
-                                      onTap: () => setState(() => _selected = i),
+                                      onTap: () {
+                                        setState(() => _selected = i);
+                                        _loadPreviewFor(s);
+                                      },
                                       title: Text(
-                                        'Scan #${s['id']}',
+                                        short,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                         style: const TextStyle(
                                           fontSize: 13,
                                           fontWeight: FontWeight.w600,
                                         ),
                                       ),
                                       subtitle: Text(
-                                        '${s['validation_result'] ?? 'pending'}',
-                                        style: const TextStyle(fontSize: 12),
+                                        '${s['patient_name'] ?? _patientLabel}'
+                                        ' · ${s['validation_result'] ?? 'pending'}'
+                                        ' · #${s['id']}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 11.5),
                                       ),
-                                      trailing: Text(
-                                        '$pct%',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          color: pct >= 80
-                                              ? AppColors.success
-                                              : pct >= 50
-                                                  ? AppColors.warning
-                                                  : AppColors.danger,
-                                        ),
+                                      trailing: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            '$pct%',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              color: pct >= 80
+                                                  ? AppColors.success
+                                                  : pct >= 50
+                                                      ? AppColors.warning
+                                                      : AppColors.danger,
+                                            ),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Delete scan',
+                                            onPressed: _busy
+                                                ? null
+                                                : () => _deleteScan(s),
+                                            icon: const Icon(
+                                              Icons.delete_outline,
+                                              size: 18,
+                                              color: AppColors.danger,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     );
                                   },
@@ -272,35 +483,39 @@ class _ScansPageState extends State<ScansPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          scan == null
-                              ? 'No scan selected'
-                              : 'Scan #${scan['id']} · ${_patient?['first_name'] ?? ''} ${_patient?['last_name'] ?? ''}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 16,
-                          ),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                scan == null
+                                    ? 'No scan selected'
+                                    : '${scan['filename'] ?? 'Scan #${scan['id']}'}'
+                                        ' · ${scan['patient_name'] ?? _patientLabel}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ),
+                            if (scan != null)
+                              IconButton(
+                                tooltip: 'Delete scan',
+                                onPressed: _busy ? null : () => _deleteScan(scan),
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  color: AppColors.danger,
+                                ),
+                              ),
+                          ],
                         ),
                         const SizedBox(height: 16),
                         Expanded(
-                          child: Container(
-                            width: double.infinity,
-                            decoration: BoxDecoration(
-                              color: AppColors.navy,
-                              borderRadius: AppRadii.border,
-                            ),
-                            child: const Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.remove_red_eye_outlined,
-                                    color: Colors.white70, size: 36),
-                                SizedBox(height: 10),
-                                Text(
-                                  'Interactive viewer — rotate, zoom, inspect',
-                                  style: TextStyle(color: Colors.white70),
-                                ),
-                              ],
-                            ),
+                          child: MeshViewer(
+                            vertices: _vertices,
+                            loading: _previewLoading,
+                            error: _previewError,
+                            vertexCount: _vertexCount,
+                            sampled: _sampledCount,
                           ),
                         ),
                         const SizedBox(height: 16),

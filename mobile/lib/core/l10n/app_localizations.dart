@@ -231,6 +231,54 @@ class AppLocalizations {
   String get reportsTitle => _t('features.reports');
   String get selectPatient => _t('features.selectPatient');
 
+  // ── Reports ──────────────────────────────────────────────────────────────
+  String get reportsSubtitle => _t('reports.subtitle');
+  String get reportsLoading => _t('reports.loading');
+  String get reportsPeriod7 => _t('reports.period7');
+  String get reportsPeriod30 => _t('reports.period30');
+  String get reportsPeriod90 => _t('reports.period90');
+  String get reportsPeriodAll => _t('reports.periodAll');
+  String get reportsPatients => _t('reports.patients');
+  String get reportsActiveCases => _t('reports.activeCases');
+  String get reportsCompleted => _t('reports.completed');
+  String get reportsAvgTime => _t('reports.avgTime');
+  String get reportsRejectionRate => _t('reports.rejectionRate');
+  String get reportsPipeline => _t('reports.pipeline');
+  String get reportsThroughput => _t('reports.throughput');
+  String get reportsCreated => _t('reports.created');
+  String get reportsClinical => _t('reports.clinical');
+  String get reportsCoverage => _t('reports.coverage');
+  String get reportsWithScans => _t('reports.withScans');
+  String get reportsWithPhotos => _t('reports.withPhotos');
+  String get reportsWithShade => _t('reports.withShade');
+  String get reportsWithShape => _t('reports.withShape');
+  String get reportsWithScanBody => _t('reports.withScanBody');
+  String get reportsTotalScans => _t('reports.totalScans');
+  String get reportsTotalShades => _t('reports.totalShades');
+  String get reportsLabInbox => _t('reports.labInbox');
+  String get reportsUnreadMessages => _t('reports.unreadMessages');
+  String get reportsThreads => _t('reports.threads');
+  String get reportsUnreadNotifs => _t('reports.unreadNotifs');
+  String get reportsAttention => _t('reports.attention');
+  String get reportsAttentionEmpty => _t('reports.attentionEmpty');
+  String get reportsTopPatients => _t('reports.topPatients');
+  String get reportsTopEmpty => _t('reports.topEmpty');
+  String get reportsExports => _t('reports.exports');
+  String get reportsExportsHint => _t('reports.exportsHint');
+  String get reportsDatev => _t('reports.datev');
+  String get reportsSummaryExport => _t('reports.summaryExport');
+  String get reportsSummaryTitle => _t('reports.summaryTitle');
+  String get reportsClose => _t('reports.close');
+  String get reportsNewInPeriod => _t('reports.newInPeriod');
+  String get reportsCreatedInPeriod => _t('reports.createdInPeriod');
+  String get reportsCompletedInPeriod => _t('reports.completedInPeriod');
+  String get reportsOpenMessages => _t('reports.openMessages');
+  String get reportsOpenPatients => _t('reports.openPatients');
+  String get reportsClinicalHint => _t('reports.clinicalHint');
+  String get reportsNoData => _t('reports.noData');
+  String get reportsCasesCol => _t('reports.casesCol');
+  String get reportsArtifacts => _t('reports.artifacts');
+
   // ── Case statuses ────────────────────────────────────────────────────────
   String statusLabel(String key) {
     switch (key) {
@@ -419,8 +467,57 @@ class AppLocalizations {
     'features.notifications': 'Notifications',
     'features.reports': 'Reports',
     'features.selectPatient': 'Select patient',
+    'reports.subtitle':
+        'Clinic performance, case pipeline, AI coverage, and DATEV exports',
+    'reports.loading': 'Building clinic report…',
+    'reports.period7': '7 days',
+    'reports.period30': '30 days',
+    'reports.period90': '90 days',
+    'reports.periodAll': 'All time',
+    'reports.patients': 'Patients',
+    'reports.activeCases': 'Active cases',
+    'reports.completed': 'Completed',
+    'reports.avgTime': 'Avg. turnaround',
+    'reports.rejectionRate': 'Rejection rate',
+    'reports.pipeline': 'Case pipeline',
+    'reports.throughput': 'Weekly throughput',
+    'reports.created': 'Created',
+    'reports.clinical': 'Clinical AI coverage',
+    'reports.coverage': 'Cases with AI artifacts',
+    'reports.withScans': 'With scans',
+    'reports.withPhotos': 'With photos',
+    'reports.withShade': 'Shade saved',
+    'reports.withShape': 'Smile preview',
+    'reports.withScanBody': 'Scan body',
+    'reports.totalScans': 'Scan files',
+    'reports.totalShades': 'Shade saves',
+    'reports.labInbox': 'Lab communication',
+    'reports.unreadMessages': 'Unread messages',
+    'reports.threads': 'Active threads',
+    'reports.unreadNotifs': 'Unread alerts',
+    'reports.attention': 'Needs attention',
+    'reports.attentionEmpty': 'No open cases need attention right now.',
+    'reports.topPatients': 'Most active patients',
+    'reports.topEmpty': 'No patient case volume yet.',
+    'reports.exports': 'Exports',
+    'reports.exportsHint':
+        'DATEV XML per patient, or a printable clinic summary for the period.',
+    'reports.datev': 'DATEV XML',
+    'reports.summaryExport': 'Clinic summary',
+    'reports.summaryTitle': 'Clinic report summary',
+    'reports.close': 'Close',
+    'reports.newInPeriod': 'new in period',
+    'reports.createdInPeriod': 'opened in period',
+    'reports.completedInPeriod': 'finished in period',
+    'reports.openMessages': 'Open messages',
+    'reports.openPatients': 'Open patients',
+    'reports.clinicalHint':
+        'Coverage across shade, smile preview, scan body, and scan uploads',
+    'reports.noData': 'No activity in this period yet.',
+    'reports.casesCol': 'Cases',
+    'reports.artifacts': 'Artifacts',
     'notifications.subtitle':
-        'Lab messages, case updates, and scan alerts for your clinic',
+        'Action items from your patients — scans needed, lab review, shade confirms',
     'notifications.empty': "You're all caught up — no notifications here",
     'notifications.markAll': 'Mark all read',
     'notifications.marking': 'Updating…',
@@ -619,8 +716,57 @@ class AppLocalizations {
     'features.notifications': 'Benachrichtigungen',
     'features.reports': 'Berichte',
     'features.selectPatient': 'Patient wählen',
+    'reports.subtitle':
+        'Praxisleistung, Fall-Pipeline, KI-Abdeckung und DATEV-Exporte',
+    'reports.loading': 'Klinikbericht wird erstellt…',
+    'reports.period7': '7 Tage',
+    'reports.period30': '30 Tage',
+    'reports.period90': '90 Tage',
+    'reports.periodAll': 'Gesamt',
+    'reports.patients': 'Patienten',
+    'reports.activeCases': 'Aktive Fälle',
+    'reports.completed': 'Abgeschlossen',
+    'reports.avgTime': 'Ø Durchlaufzeit',
+    'reports.rejectionRate': 'Ablehnungsquote',
+    'reports.pipeline': 'Fall-Pipeline',
+    'reports.throughput': 'Wochendurchsatz',
+    'reports.created': 'Erstellt',
+    'reports.clinical': 'Klinische KI-Abdeckung',
+    'reports.coverage': 'Fälle mit KI-Artefakten',
+    'reports.withScans': 'Mit Scans',
+    'reports.withPhotos': 'Mit Fotos',
+    'reports.withShade': 'Farbe gespeichert',
+    'reports.withShape': 'Lächeln-Vorschau',
+    'reports.withScanBody': 'Scanbody',
+    'reports.totalScans': 'Scan-Dateien',
+    'reports.totalShades': 'Farb-Einträge',
+    'reports.labInbox': 'Laborkommunikation',
+    'reports.unreadMessages': 'Ungelesene Nachrichten',
+    'reports.threads': 'Aktive Threads',
+    'reports.unreadNotifs': 'Ungelesene Hinweise',
+    'reports.attention': 'Handlungsbedarf',
+    'reports.attentionEmpty': 'Keine offenen Fälle mit Handlungsbedarf.',
+    'reports.topPatients': 'Aktivste Patienten',
+    'reports.topEmpty': 'Noch kein Fallvolumen.',
+    'reports.exports': 'Exporte',
+    'reports.exportsHint':
+        'DATEV-XML pro Patient oder eine druckbare Klinikübersicht für den Zeitraum.',
+    'reports.datev': 'DATEV-XML',
+    'reports.summaryExport': 'Klinikübersicht',
+    'reports.summaryTitle': 'Klinikbericht',
+    'reports.close': 'Schließen',
+    'reports.newInPeriod': 'neu im Zeitraum',
+    'reports.createdInPeriod': 'im Zeitraum geöffnet',
+    'reports.completedInPeriod': 'im Zeitraum abgeschlossen',
+    'reports.openMessages': 'Nachrichten öffnen',
+    'reports.openPatients': 'Patienten öffnen',
+    'reports.clinicalHint':
+        'Abdeckung über Farbe, Lächeln-Vorschau, Scanbody und Scan-Uploads',
+    'reports.noData': 'In diesem Zeitraum noch keine Aktivität.',
+    'reports.casesCol': 'Fälle',
+    'reports.artifacts': 'Artefakte',
     'notifications.subtitle':
-        'Labornachrichten, Fall-Updates und Scan-Warnungen für Ihre Praxis',
+        'Aufgaben zu Ihren Patienten — Scans nötig, Laborprüfung, Farbbestätigung',
     'notifications.empty': 'Alles erledigt — keine Benachrichtigungen',
     'notifications.markAll': 'Alle gelesen',
     'notifications.marking': 'Aktualisiere…',

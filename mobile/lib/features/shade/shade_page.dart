@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/patient_picker.dart';
@@ -283,7 +284,7 @@ class _ShadePageState extends State<ShadePage> {
       _error = null;
     });
     try {
-      await widget.api.saveShade(
+      final saved = await widget.api.saveShade(
         caseId: _case!['id'] as int,
         aiSuggested: _detected == '—' ? null : _detected,
         confidence: _confidence > 0 ? _confidence : null,
@@ -302,6 +303,8 @@ class _ShadePageState extends State<ShadePage> {
             ? 'Saved override $finalShade on case #${_case!['id']}'
             : 'Accepted AI $finalShade on case #${_case!['id']}';
         _history.insert(0, {
+          'id': saved['id'],
+          'case_id': _case!['id'],
           'name':
               '${_patient?['first_name'] ?? ''} ${_patient?['last_name'] ?? ''}'.trim(),
           'shade': finalShade,
@@ -313,6 +316,50 @@ class _ShadePageState extends State<ShadePage> {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _deleteHistoryAt(int index) async {
+    if (index < 0 || index >= _history.length) return;
+    final entry = _history[index];
+    final shade = entry['shade']?.toString() ?? 'shade';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove save?'),
+        content: Text('Delete $shade from this session.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    final shadeId = entry['id'];
+    final caseId = entry['case_id'] ?? _case?['id'];
+    try {
+      if (shadeId is int && caseId is int) {
+        await widget.api.deleteShade(caseId: caseId, shadeId: shadeId);
+      } else {
+        AppHaptics.warn();
+      }
+      if (!mounted) return;
+      setState(() {
+        _history.removeAt(index);
+        _saveStatus = 'Removed $shade from session';
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     }
   }
 
@@ -810,6 +857,7 @@ class _ShadePageState extends State<ShadePage> {
                                       conf: (h['conf'] as num?)?.toDouble() ?? 0,
                                       color: _swatch(h['shade'] as String),
                                       isOverride: h['override'] == true,
+                                      onDelete: () => _deleteHistoryAt(i),
                                     );
                                   },
                                 ),
@@ -833,6 +881,7 @@ class _Recent extends StatelessWidget {
     required this.shade,
     required this.conf,
     required this.color,
+    required this.onDelete,
     this.isOverride = false,
   });
 
@@ -841,15 +890,17 @@ class _Recent extends StatelessWidget {
   final double conf;
   final Color color;
   final bool isOverride;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.fromLTRB(10, 8, 6, 10),
       decoration: BoxDecoration(
-        border: Border.all(color: AppColors.border),
+        color: AppColors.neo,
         borderRadius: BorderRadius.circular(12),
+        boxShadow: NeoShadows.soft(depth: 0.35),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -857,8 +908,8 @@ class _Recent extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: 28,
-                height: 28,
+                width: 26,
+                height: 26,
                 decoration: BoxDecoration(
                   color: color,
                   borderRadius: BorderRadius.circular(6),
@@ -868,10 +919,31 @@ class _Recent extends StatelessWidget {
               Expanded(
                 child: Text(
                   name,
-                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12.5),
                 ),
               ),
-              Text(shade, style: const TextStyle(fontWeight: FontWeight.w700)),
+              Text(
+                shade,
+                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+              ),
+              const SizedBox(width: 2),
+              Tooltip(
+                message: 'Remove from session',
+                child: InkWell(
+                  onTap: onDelete,
+                  borderRadius: BorderRadius.circular(8),
+                  child: const Padding(
+                    padding: EdgeInsets.all(6),
+                    child: Icon(
+                      Icons.close_rounded,
+                      size: 16,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
           if (isOverride) ...[
@@ -897,7 +969,7 @@ class _Recent extends StatelessWidget {
             borderRadius: BorderRadius.circular(6),
             child: LinearProgressIndicator(
               value: conf.clamp(0, 1),
-              minHeight: 6,
+              minHeight: 5,
               backgroundColor: AppColors.border,
               color: AppColors.aiPurple,
             ),

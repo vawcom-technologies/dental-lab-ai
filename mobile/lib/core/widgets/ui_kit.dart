@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
+import 'touchable.dart';
 
 class StatusChip extends StatelessWidget {
   const StatusChip({super.key, required this.statusKey});
@@ -169,11 +170,11 @@ class PageHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         if (icon != null) ...[
-          NeoIconBadge(icon: icon!),
-          const SizedBox(width: 14),
+          NeoIconBadge(icon: icon!, size: 44, iconSize: 20),
+          const SizedBox(width: 12),
         ],
         Expanded(
           child: Column(
@@ -182,19 +183,19 @@ class PageHeader extends StatelessWidget {
               Text(
                 title,
                 style: const TextStyle(
-                  fontSize: 28,
+                  fontSize: 26,
                   fontWeight: FontWeight.w700,
                   color: AppColors.navy,
                   letterSpacing: -0.4,
                 ),
               ),
               if (subtitle != null) ...[
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Text(
                   subtitle!,
                   style: const TextStyle(
                     color: AppColors.muted,
-                    fontSize: 14,
+                    fontSize: 13,
                     height: 1.35,
                   ),
                 ),
@@ -202,9 +203,16 @@ class PageHeader extends StatelessWidget {
             ],
           ),
         ),
-        ...actions.map(
-          (w) => Padding(padding: const EdgeInsets.only(left: 8), child: w),
-        ),
+        if (actions.isNotEmpty)
+          Flexible(
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              alignment: WrapAlignment.end,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: actions,
+            ),
+          ),
       ],
     );
   }
@@ -224,21 +232,28 @@ class SoftFilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
+    // Align widthFactor keeps chips content-sized (not full-width bars).
+    return Align(
+      alignment: Alignment.centerLeft,
+      widthFactor: 1,
+      heightFactor: 1,
+      child: Touchable(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        selectionHaptic: true,
+        borderRadius: BorderRadius.circular(20),
+        minHeight: 32,
+        scale: 0.98,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
             color: selected ? AppColors.navy : AppColors.neo,
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: selected ? null : NeoShadows.soft(depth: 0.45),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: selected ? null : NeoShadows.soft(depth: 0.3),
           ),
           child: Text(
             label,
+            softWrap: false,
             style: TextStyle(
               color: selected ? Colors.white : AppColors.muted,
               fontWeight: FontWeight.w600,

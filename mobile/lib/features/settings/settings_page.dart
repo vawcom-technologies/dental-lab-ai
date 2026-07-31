@@ -904,35 +904,35 @@ class _NeoActionButton extends StatelessWidget {
         borderRadius: AppRadii.borderSm,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
           decoration: BoxDecoration(
             color: bg,
-            borderRadius: AppRadii.borderSm,
+            borderRadius: BorderRadius.circular(10),
             boxShadow: enabled && !primary
-                ? NeoShadows.soft(depth: 0.55)
-                : (primary ? NeoShadows.soft(depth: 0.35) : null),
+                ? NeoShadows.soft(depth: 0.4)
+                : (primary ? NeoShadows.soft(depth: 0.3) : null),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               if (busy)
                 SizedBox(
-                  width: 16,
-                  height: 16,
+                  width: 14,
+                  height: 14,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
                     color: fg,
                   ),
                 )
               else
-                Icon(icon, size: 18, color: enabled ? fg : AppColors.muted),
-              const SizedBox(width: 8),
+                Icon(icon, size: 16, color: enabled ? fg : AppColors.muted),
+              const SizedBox(width: 6),
               Text(
                 label,
                 style: TextStyle(
                   color: enabled ? fg : AppColors.muted,
                   fontWeight: FontWeight.w600,
-                  fontSize: 13.5,
+                  fontSize: 12.5,
                 ),
               ),
             ],

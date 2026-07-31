@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/api/api_client.dart';
-import '../core/l10n/app_localizations.dart';
 import '../core/theme/app_theme.dart';
-import '../core/widgets/ui_kit.dart';
 import '../features/auth/login_screen.dart';
 import '../features/camera/camera_page.dart';
 import '../features/chat/messages_page.dart';
@@ -12,6 +10,7 @@ import '../features/notifications/notifications_page.dart';
 import '../features/patients/new_patient_page.dart';
 import '../features/patients/patients_page.dart';
 import '../features/profile/profile_page.dart';
+import '../features/reports/reports_page.dart';
 import '../features/scan_body/scan_body_page.dart';
 import '../features/scans/scans_page.dart';
 import '../features/settings/settings_page.dart';
@@ -34,6 +33,9 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
+  static const _pageIn = Duration(milliseconds: 320);
+  static const _pageOut = Duration(milliseconds: 220);
+
   AppNavItem _active = AppNavItem.dashboard;
   int _patientRefresh = 0;
   late String _dentistName;
@@ -71,6 +73,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _go(AppNavItem item) {
+    if (item == _active) return;
     setState(() => _active = item);
     if (item == AppNavItem.notifications || item == AppNavItem.messages) {
       _refreshBadges();
@@ -82,6 +85,27 @@ class _AppShellState extends State<AppShell> {
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => LoginScreen(api: widget.api)),
       (_) => false,
+    );
+  }
+
+  Widget _transition(Widget child, Animation<double> animation) {
+    final fade = CurvedAnimation(
+      parent: animation,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+    final slide = Tween<Offset>(
+      begin: const Offset(0.014, 0.008),
+      end: Offset.zero,
+    ).animate(fade);
+
+    // Fade + micro-slide only — avoid scale (expensive on full-page layers).
+    return FadeTransition(
+      opacity: fade,
+      child: SlideTransition(
+        position: slide,
+        child: child,
+      ),
     );
   }
 
@@ -109,7 +133,30 @@ class _AppShellState extends State<AppShell> {
               messageBadge: _messageBadge,
               notificationBadge: _notificationBadge,
             ),
-            Expanded(child: _page()),
+            Expanded(
+              child: ClipRect(
+                child: AnimatedSwitcher(
+                  duration: _pageIn,
+                  reverseDuration: _pageOut,
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  layoutBuilder: (currentChild, previousChildren) {
+                    return Stack(
+                      fit: StackFit.expand,
+                      children: <Widget>[
+                        ...previousChildren,
+                        ?currentChild,
+                      ],
+                    );
+                  },
+                  transitionBuilder: _transition,
+                  child: KeyedSubtree(
+                    key: ValueKey<AppNavItem>(_active),
+                    child: RepaintBoundary(child: _page()),
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -135,10 +182,9 @@ class _AppShellState extends State<AppShell> {
         return NewPatientPage(
           api: widget.api,
           onCreated: () {
-            setState(() {
-              _patientRefresh++;
-              _active = AppNavItem.patients;
-            });
+            _patientRefresh++;
+            _go(AppNavItem.patients);
+            _refreshBadges();
           },
         );
       case AppNavItem.camera:
@@ -164,7 +210,10 @@ class _AppShellState extends State<AppShell> {
           },
         );
       case AppNavItem.reports:
-        return _ComingSoon(title: AppLocalizations.of(context).reportsTitle);
+        return ReportsPage(
+          api: widget.api,
+          onNavigate: _go,
+        );
       case AppNavItem.settings:
         return SettingsPage(api: widget.api);
       case AppNavItem.profile:
@@ -174,55 +223,5 @@ class _AppShellState extends State<AppShell> {
           onSignOut: _signOut,
         );
     }
-  }
-}
-
-class _ComingSoon extends StatelessWidget {
-  const _ComingSoon({required this.title});
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.w700,
-              color: AppColors.navy,
-              letterSpacing: -0.4,
-            ),
-          ),
-          const Spacer(),
-          Center(
-            child: SectionCard(
-              child: Column(
-                children: [
-                  Icon(
-                    Icons.health_and_safety_outlined,
-                    size: 40,
-                    color: AppColors.muted.withValues(alpha: 0.55),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    AppLocalizations.of(context).comingSoon,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.muted,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const Spacer(),
-        ],
-      ),
-    );
   }
 }

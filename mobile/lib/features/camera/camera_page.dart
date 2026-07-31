@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/offline/sync_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
+import 'live_camera_capture.dart';
 
 /// Week 2 camera capture — frontal / left / right, max 10 photos per case.
 class CameraPage extends StatefulWidget {
@@ -90,33 +92,51 @@ class _CameraPageState extends State<CameraPage> {
   Future<void> _capture({required bool fromCamera}) async {
     if (_case == null) return;
     if (_photos.length >= maxPhotos) {
+      AppHaptics.warn();
       setState(() => _error = 'Max $maxPhotos photos per case');
       return;
     }
+
+    Uint8List? bytes;
+    String filename = 'photo_$_angle.jpg';
+
+    if (fromCamera) {
+      // Live camera preview (not the photo library / file picker).
+      bytes = await captureWithLiveCamera(
+        context,
+        hint: 'Capture $_angle photo for this case',
+      );
+      if (bytes == null) return;
+    } else {
+      AppHaptics.medium();
+      final xfile = await _picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 100,
+      );
+      if (xfile == null) return;
+      bytes = Uint8List.fromList(await xfile.readAsBytes());
+      if (xfile.name.isNotEmpty) filename = xfile.name;
+    }
+
     setState(() {
       _busy = true;
       _error = null;
       _status = null;
     });
     try {
-      final xfile = await _picker.pickImage(
-        source: fromCamera ? ImageSource.camera : ImageSource.gallery,
-        imageQuality: 100, // full resolution preference
-        maxWidth: null,
-        maxHeight: null,
-      );
-      if (xfile == null) return;
-      final bytes = await xfile.readAsBytes();
       final result = await _sync.capturePhoto(
         caseId: _case!['id'] as int,
         angle: _angle,
-        bytes: Uint8List.fromList(bytes),
-        filename: xfile.name.isNotEmpty ? xfile.name : 'photo_$_angle.jpg',
+        bytes: bytes,
+        filename: filename,
       );
+      AppHaptics.success();
       if (result['queued'] == true) {
         setState(() => _status = result['note'] as String? ?? 'Queued offline');
       } else {
-        setState(() => _status = 'Uploaded $_angle photo (${bytes.length} bytes)');
+        setState(
+          () => _status = 'Uploaded $_angle photo (${bytes!.length} bytes)',
+        );
         final photos = await widget.api.listPhotos(_case!['id'] as int);
         setState(() => _photos = photos);
       }
@@ -126,6 +146,7 @@ class _CameraPageState extends State<CameraPage> {
         setState(() => _photos = photos);
       }
     } catch (e) {
+      AppHaptics.warn();
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _busy = false);

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
 from app.core.security import require_dentist
-from app.models import User, Case, Patient, Message, ActivityLog, Notification
+from app.models import User, Case, Patient, Message, ActivityLog
 
 router = APIRouter()
 inbox_router = APIRouter()
@@ -159,24 +159,26 @@ def send_message(
     db.flush()
 
     # Notify the other role
+    from app.services.notify import notify, patient_display_name
+
     recipients = (
         db.query(User)
         .filter(User.role == ("lab" if user.role == "dentist" else "dentist"))
         .all()
     )
     preview = body[:80] if body else f"[{payload.type}]"
+    patient_name = patient_display_name(case.patient)
     for recipient in recipients:
         # For dentist recipients, only notify the patient's dentist
         if recipient.role == "dentist" and case.patient:
             if case.patient.dentist_id != recipient.id:
                 continue
-        db.add(
-            Notification(
-                user_id=recipient.id,
-                case_id=case_id,
-                type="message",
-                message=f"{user.name}: {preview}",
-            )
+        notify(
+            db,
+            user_id=recipient.id,
+            case_id=case_id,
+            type="message",
+            message=f"{user.name} · {patient_name}: {preview}",
         )
 
     db.add(

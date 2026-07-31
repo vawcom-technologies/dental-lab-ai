@@ -107,6 +107,10 @@ class AppTheme {
     );
 
     return base.copyWith(
+      // iPad: generous hit targets, no compact density
+      materialTapTargetSize: MaterialTapTargetSize.padded,
+      visualDensity: VisualDensity.standard,
+      splashFactory: InkRipple.splashFactory,
       textTheme: textTheme,
       appBarTheme: AppBarTheme(
         backgroundColor: AppColors.neo,
@@ -125,11 +129,13 @@ class AppTheme {
           foregroundColor: Colors.white,
           elevation: 0,
           shadowColor: Colors.transparent,
-          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 15),
+          minimumSize: const Size(40, 40),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
           shape: RoundedRectangleBorder(borderRadius: AppRadii.borderSm),
           textStyle: GoogleFonts.plusJakartaSans(
             fontWeight: FontWeight.w600,
-            fontSize: 14.5,
+            fontSize: 14,
           ),
         ),
       ),
@@ -139,21 +145,54 @@ class AppTheme {
           backgroundColor: AppColors.neo,
           side: BorderSide.none,
           elevation: 0,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+          minimumSize: const Size(40, 40),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
           shape: RoundedRectangleBorder(borderRadius: AppRadii.borderSm),
-          textStyle: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600),
+          textStyle: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w600,
+            fontSize: 13.5,
+          ),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: AppColors.dentalBlue,
+          minimumSize: const Size(36, 36),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           textStyle: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600),
+        ),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          minimumSize: const Size(36, 36),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: VisualDensity.compact,
+          foregroundColor: AppColors.navy,
+        ),
+      ),
+      listTileTheme: const ListTileThemeData(
+        minVerticalPadding: 10,
+        minLeadingWidth: 40,
+        horizontalTitleGap: 12,
+        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+        iconColor: AppColors.muted,
+        dense: true,
+      ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: AppColors.card,
+        shape: RoundedRectangleBorder(borderRadius: AppRadii.borderSm),
+        textStyle: GoogleFonts.plusJakartaSans(
+          color: AppColors.text,
+          fontWeight: FontWeight.w500,
+          fontSize: 14,
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: AppColors.inset,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         hintStyle: GoogleFonts.plusJakartaSans(color: AppColors.muted, fontSize: 14),
         labelStyle: GoogleFonts.plusJakartaSans(
           color: AppColors.muted,

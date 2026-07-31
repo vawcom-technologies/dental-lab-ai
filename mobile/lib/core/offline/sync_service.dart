@@ -12,10 +12,27 @@ class SyncService {
   final SyncQueue queue;
   final store = LocalEncryptedStore();
 
+  /// SharedPreferences / localStorage can't hold Exocad-sized PLYs (~tens of MB).
+  /// Base64 + AES inflate size further, so keep a conservative ceiling.
+  static const maxLocalCacheBytes = 900 * 1024;
+
   Future<bool> get isOnline async {
     final results = await Connectivity().checkConnectivity();
     if (results.isEmpty) return false;
     return !results.every((r) => r == ConnectivityResult.none);
+  }
+
+  bool _fitsLocalCache(Uint8List bytes) => bytes.length <= maxLocalCacheBytes;
+
+  Never _tooLargeForOfflineCache(String kind) {
+    throw Exception(
+      kIsWeb
+          ? 'This $kind is too large for the browser offline cache '
+              '(localStorage quota). Stay online and upload again — '
+              'files go straight to the server when connected.'
+          : 'This $kind is too large for the encrypted offline cache on this device. '
+              'Connect to the network and upload again.',
+    );
   }
 
   /// Save photo locally encrypted; upload now or enqueue if offline.
@@ -25,11 +42,12 @@ class SyncService {
     required Uint8List bytes,
     required String filename,
   }) async {
-    final rel = 'case_$caseId/photos/${DateTime.now().millisecondsSinceEpoch}_$filename';
-    await store.save(relativePath: rel, bytes: bytes);
+    final rel =
+        'case_$caseId/photos/${DateTime.now().millisecondsSinceEpoch}_$filename';
 
     if (await isOnline) {
       try {
+        // Upload first — never block chairside capture on a local cache write.
         return await api.uploadPhoto(
           caseId: caseId,
           angle: angle,
@@ -37,6 +55,8 @@ class SyncService {
           filename: filename,
         );
       } catch (e) {
+        if (!_fitsLocalCache(bytes)) rethrow;
+        await store.save(relativePath: rel, bytes: bytes);
         await queue.enqueue(
           SyncQueueItem(
             id: 'photo_${DateTime.now().microsecondsSinceEpoch}',
@@ -59,6 +79,8 @@ class SyncService {
       }
     }
 
+    if (!_fitsLocalCache(bytes)) _tooLargeForOfflineCache('photo');
+    await store.save(relativePath: rel, bytes: bytes);
     await queue.enqueue(
       SyncQueueItem(
         id: 'photo_${DateTime.now().microsecondsSinceEpoch}',
@@ -84,13 +106,20 @@ class SyncService {
     required Uint8List bytes,
     required String filename,
   }) async {
-    final rel = 'case_$caseId/scans/${DateTime.now().millisecondsSinceEpoch}_$filename';
-    await store.save(relativePath: rel, bytes: bytes);
+    final rel =
+        'case_$caseId/scans/${DateTime.now().millisecondsSinceEpoch}_$filename';
 
     if (await isOnline) {
       try {
-        return await api.uploadScan(caseId: caseId, bytes: bytes, filename: filename);
+        // Direct upload — large PLYs must not go through localStorage.
+        return await api.uploadScan(
+          caseId: caseId,
+          bytes: bytes,
+          filename: filename,
+        );
       } catch (e) {
+        if (!_fitsLocalCache(bytes)) rethrow;
+        await store.save(relativePath: rel, bytes: bytes);
         await queue.enqueue(
           SyncQueueItem(
             id: 'scan_${DateTime.now().microsecondsSinceEpoch}',
@@ -111,6 +140,8 @@ class SyncService {
       }
     }
 
+    if (!_fitsLocalCache(bytes)) _tooLargeForOfflineCache('scan');
+    await store.save(relativePath: rel, bytes: bytes);
     await queue.enqueue(
       SyncQueueItem(
         id: 'scan_${DateTime.now().microsecondsSinceEpoch}',

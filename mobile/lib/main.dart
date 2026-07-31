@@ -4,6 +4,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'core/api/api_client.dart';
 import 'core/l10n/locale_controller.dart';
 import 'core/theme/app_theme.dart';
+import 'core/widgets/touchable.dart';
 import 'features/auth/login_screen.dart';
 
 Future<void> main() async {
@@ -36,6 +37,7 @@ class _DentalLabAppState extends State<DentalLabApp> {
             title: 'Elite Dent Pro',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.light(),
+            scrollBehavior: const EliteScrollBehavior(),
             locale: widget.localeController.locale,
             supportedLocales: const [
               Locale('en'),

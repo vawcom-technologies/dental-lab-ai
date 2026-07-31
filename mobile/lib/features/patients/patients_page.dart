@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
@@ -341,16 +342,21 @@ class _StatusMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     return PopupMenuButton<String>(
       tooltip: 'Change case status',
-      onSelected: onChanged,
+      onOpened: () => AppHaptics.light(),
+      onSelected: (value) {
+        AppHaptics.selection();
+        onChanged(value);
+      },
       itemBuilder: (context) => [
         for (final key in CaseStatuses.all)
           PopupMenuItem(
             value: key,
+            height: 48,
             child: Row(
               children: [
                 Icon(
                   key == status ? Icons.check_circle : Icons.circle_outlined,
-                  size: 16,
+                  size: 18,
                   color: key == status ? AppColors.dentalBlue : AppColors.muted,
                 ),
                 const SizedBox(width: 10),
@@ -359,7 +365,10 @@ class _StatusMenu extends StatelessWidget {
             ),
           ),
       ],
-      child: StatusChip(statusKey: status),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+        child: StatusChip(statusKey: status),
+      ),
     );
   }
 }

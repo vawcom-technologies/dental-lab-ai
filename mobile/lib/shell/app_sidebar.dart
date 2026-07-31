@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../core/haptics/app_haptics.dart';
 import '../core/l10n/app_localizations.dart';
 import '../core/theme/app_theme.dart';
 import '../core/widgets/brand_logo.dart';
+import '../core/widgets/touchable.dart';
 
 enum AppNavItem {
   dashboard,
@@ -78,8 +80,13 @@ class AppSidebar extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 children: [
                   _item(AppNavItem.dashboard, Icons.grid_view_rounded, s.navDashboard),
-                  _item(AppNavItem.patients, Icons.people_outline, s.navPatients),
-                  _item(AppNavItem.newPatient, Icons.person_add_alt_1_outlined, s.navNewPatient),
+                  _item(
+                    AppNavItem.patients,
+                    Icons.people_outline,
+                    s.navPatients,
+                    // New Patient is opened from Patients — keep Patients highlighted there.
+                    selectedOverride: active == AppNavItem.newPatient,
+                  ),
                   _item(AppNavItem.camera, Icons.photo_camera_outlined, s.navCamera),
                   _item(AppNavItem.scans, Icons.view_in_ar_outlined, s.navScans),
                   _item(AppNavItem.shade, Icons.palette_outlined, s.navShade),
@@ -129,68 +136,77 @@ class AppSidebar extends StatelessWidget {
     String label, {
     int? badge,
     Color? badgeColor,
+    bool selectedOverride = false,
   }) {
-    final selected = active == id;
+    final selected = selectedOverride || active == id;
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => onSelect(id),
-          borderRadius: BorderRadius.circular(14),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            padding: EdgeInsets.symmetric(
-              horizontal: collapsed ? 0 : 12,
-              vertical: 11,
-            ),
-            decoration: BoxDecoration(
-              color: selected ? AppColors.sidebarActive : Colors.transparent,
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: selected ? NeoShadows.pressed() : null,
-            ),
-            child: Row(
-              mainAxisAlignment:
-                  collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
-              children: [
-                Icon(
-                  icon,
-                  size: 20,
-                  color: selected ? AppColors.dentalBlue : AppColors.muted,
+      child: Touchable(
+        onTap: () {
+          if (selected && !selectedOverride) {
+            AppHaptics.light();
+            return;
+          }
+          AppHaptics.selection();
+          onSelect(id);
+        },
+        haptic: false,
+        borderRadius: BorderRadius.circular(14),
+        minHeight: 44,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          padding: EdgeInsets.symmetric(
+            horizontal: collapsed ? 0 : 12,
+            vertical: 12,
+          ),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.sidebarActive : Colors.transparent,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: selected ? NeoShadows.pressed() : null,
+          ),
+          child: Row(
+            mainAxisAlignment:
+                collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
+            children: [
+              Icon(
+                icon,
+                size: 22,
+                color: selected ? AppColors.dentalBlue : AppColors.muted,
+              ),
+              if (!collapsed) ...[
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                      color: selected ? AppColors.navy : AppColors.muted,
+                    ),
+                  ),
                 ),
-                if (!collapsed) ...[
-                  const SizedBox(width: 12),
-                  Expanded(
+                if (badge != null && badge > 0)
+                  Container(
+                    constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: badgeColor ?? AppColors.danger,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                     child: Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 13.5,
-                        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                        color: selected ? AppColors.navy : AppColors.muted,
+                      '$badge',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
-                  if (badge != null && badge > 0)
-                    Container(
-                      constraints: const BoxConstraints(minWidth: 18),
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: badgeColor ?? AppColors.danger,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '$badge',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                ],
               ],
-            ),
+            ],
           ),
         ),
       ),
