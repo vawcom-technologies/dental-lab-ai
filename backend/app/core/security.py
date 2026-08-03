@@ -1,58 +1,67 @@
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from dataclasses import dataclass
+from typing import Any
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-from sqlalchemy.orm import Session
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.core.config import settings
-from app.core.database import get_db
-from app.models.user import User
+from app.core.supabase_client import get_supabase
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+bearer_scheme = HTTPBearer(auto_error=True)
 
 
-def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+@dataclass
+class AuthUser:
+    id: str
+    email: str
+    name: str
+    role: str
+    clinic_name: str | None = None
+    phone: str | None = None
+    raw: Any | None = None
 
 
-def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+def _meta(user: Any) -> dict:
+    return dict(getattr(user, "user_metadata", None) or {})
 
 
-def create_access_token(subject: str, role: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
-    payload = {"sub": subject, "role": role, "exp": expire}
-    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+def user_from_supabase(user: Any) -> AuthUser:
+    meta = _meta(user)
+    email = (getattr(user, "email", None) or meta.get("email") or "").strip().lower()
+    return AuthUser(
+        id=str(user.id),
+        email=email,
+        name=str(meta.get("name") or email.split("@")[0] or "User"),
+        role=str(meta.get("role") or "clinic"),
+        clinic_name=meta.get("clinic_name") or None,
+        phone=meta.get("phone") or None,
+        raw=user,
+    )
 
 
 def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
-) -> User:
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> AuthUser:
+    token = credentials.credentials
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-        email: Optional[str] = payload.get("sub")
-        if email is None:
-            raise credentials_exception
-    except JWTError as exc:
-        raise credentials_exception from exc
+        response = get_supabase().auth.get_user(token)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
 
-    user = db.query(User).filter(User.email == email).first()
+    user = getattr(response, "user", None)
     if user is None:
-        raise credentials_exception
-    return user
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user_from_supabase(user)
 
 
-def require_dentist(user: User = Depends(get_current_user)) -> User:
-    if user.role not in ("dentist", "lab"):
-        raise HTTPException(status_code=403, detail="Dentist or lab access required")
+def require_dentist(user: AuthUser = Depends(get_current_user)) -> AuthUser:
+    if user.role not in ("clinic", "dentist", "lab"):
+        raise HTTPException(status_code=403, detail="Clinic, dentist, or lab access required")
     return user

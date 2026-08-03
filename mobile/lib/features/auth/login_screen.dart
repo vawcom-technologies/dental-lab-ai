@@ -7,6 +7,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/brand_logo.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../../shell/app_shell.dart';
+import 'forgot_password_screen.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -31,7 +32,7 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
     try {
-      final data = await widget.api.login(_email.text.trim(), _password.text);
+      final data = await widget.api.signIn(_email.text.trim(), _password.text);
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
@@ -158,14 +159,36 @@ class _LoginScreenState extends State<LoginScreen> {
                           decoration: InputDecoration(labelText: loc.password),
                           onSubmitted: (_) => _submit(),
                         ),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: _loading
+                                ? null
+                                : () {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => ForgotPasswordScreen(
+                                          api: widget.api,
+                                          initialEmail: _email.text.trim(),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                            child: Text(
+                              loc.forgotPassword,
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ),
+                        ),
                         if (_error != null) ...[
-                          const SizedBox(height: 12),
                           Text(
                             _error!,
                             style: const TextStyle(color: AppColors.danger),
                           ),
+                          const SizedBox(height: 8),
                         ],
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 8),
+                        
                         FilledButton(
                           onPressed: _loading ? null : _submit,
                           child: _loading
