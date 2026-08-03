@@ -40,6 +40,7 @@ class AppLocalizations {
   String get refresh => _t('common.refresh');
   String get save => _t('common.save');
   String get cancel => _t('common.cancel');
+  String get ok => _t('common.ok');
   String get comingSoon => _t('common.comingSoon');
   String get comingSoonBody => _t('common.comingSoonBody');
   String get loading => _t('common.loading');
@@ -149,6 +150,7 @@ class AppLocalizations {
   String get lastLogin => _t('profile.lastLogin');
   String get profileSaved => _t('profile.saved');
   String get passwordUpdated => _t('profile.passwordUpdated');
+  String get changePasswordSuccessBody => _t('profile.changePasswordSuccessBody');
   String get errNameEmailRequired => _t('profile.errNameEmail');
   String get errEnterPasswords => _t('profile.errEnterPasswords');
   String get errNewPasswordShort => _t('profile.errNewPasswordShort');
@@ -352,6 +354,7 @@ class AppLocalizations {
     'common.refresh': 'Refresh',
     'common.save': 'Save',
     'common.cancel': 'Cancel',
+    'common.ok': 'OK',
     'common.comingSoon': 'Coming soon',
     'common.comingSoonBody':
         'This section is coming soon. Navigate using the sidebar to explore available features.',
@@ -461,6 +464,8 @@ class AppLocalizations {
     'profile.lastLogin': 'Last login',
     'profile.saved': 'Profile saved',
     'profile.passwordUpdated': 'Password updated',
+    'profile.changePasswordSuccessBody':
+        'Your password was changed successfully. Please sign in again.',
     'profile.errNameEmail': 'Name and email are required',
     'profile.errEnterPasswords': 'Enter current and new password',
     'profile.errNewPasswordShort': 'New password must be at least 6 characters',
@@ -622,6 +627,7 @@ class AppLocalizations {
     'common.refresh': 'Aktualisieren',
     'common.save': 'Speichern',
     'common.cancel': 'Abbrechen',
+    'common.ok': 'OK',
     'common.comingSoon': 'Demnächst verfügbar',
     'common.comingSoonBody':
         'Dieser Bereich kommt bald. Nutzen Sie die Seitenleiste für verfügbare Funktionen.',
@@ -737,6 +743,8 @@ class AppLocalizations {
     'profile.lastLogin': 'Letzte Anmeldung',
     'profile.saved': 'Profil gespeichert',
     'profile.passwordUpdated': 'Passwort aktualisiert',
+    'profile.changePasswordSuccessBody':
+        'Ihr Passwort wurde geändert. Bitte melden Sie sich erneut an.',
     'profile.errNameEmail': 'Name und E-Mail sind erforderlich',
     'profile.errEnterPasswords': 'Aktuelles und neues Passwort eingeben',
     'profile.errNewPasswordShort':

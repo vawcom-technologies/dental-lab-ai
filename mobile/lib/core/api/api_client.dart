@@ -193,7 +193,7 @@ class ApiClient {
     return data;
   }
 
-  Future<void> changePassword({
+  Future<String> changePassword({
     required String currentPassword,
     required String newPassword,
   }) async {
@@ -207,6 +207,13 @@ class ApiClient {
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     AppHaptics.success();
+    try {
+      final body = jsonDecode(res.body);
+      if (body is Map && body['message'] is String) {
+        return body['message'] as String;
+      }
+    } catch (_) {}
+    return 'Password updated';
   }
 
   Future<List<Map<String, dynamic>>> listPatients() async {

@@ -10,6 +10,8 @@ import '../../core/offline/sync_service.dart';
 import '../../core/settings/app_settings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
+import '../auth/login_screen.dart';
+import 'change_password_screen.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.api});
@@ -106,6 +108,14 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _setLanguage(String code) async {
     await LocaleScope.of(context).setLanguage(code);
     await _persist((x) => x.language = code);
+  }
+
+  void _signOut() {
+    widget.api.logout();
+    Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => LoginScreen(api: widget.api)),
+      (_) => false,
+    );
   }
 
   Future<void> _syncNow() async {
@@ -213,9 +223,10 @@ class _SettingsPageState extends State<SettingsPage> {
             subtitle: loc.settingsSubtitle,
             actions: [
               _NeoActionButton(
-                icon: Icons.refresh_rounded,
-                label: loc.refresh,
-                onPressed: _bootstrap,
+                icon: Icons.logout_rounded,
+                label: loc.signOut,
+                danger: true,
+                onPressed: _signOut,
               ),
             ],
           );
@@ -236,6 +247,8 @@ class _SettingsPageState extends State<SettingsPage> {
                 final left = Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    _SecurityCard(api: widget.api),
+                    const SizedBox(height: 16),
                     _OfflineCard(
                       online: _online,
                       pending: _pending,
@@ -520,6 +533,75 @@ class _LanguageCard extends StatelessWidget {
                   onTap: () => onChanged('de'),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SecurityCard extends StatelessWidget {
+  const _SecurityCard({required this.api});
+
+  final ApiClient api;
+
+  @override
+  Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+    return SectionCard(
+      depth: 1.05,
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionHeader(
+            icon: Icons.lock_outline_rounded,
+            title: loc.security,
+            subtitle: loc.securitySub,
+          ),
+          const SizedBox(height: 14),
+          NeoInset(
+            padding: EdgeInsets.zero,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: AppRadii.borderSm,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => ChangePasswordScreen(api: api),
+                    ),
+                  );
+                },
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.password_rounded,
+                        color: AppColors.dentalBlue,
+                        size: 22,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          loc.updatePassword,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.navy,
+                          ),
+                        ),
+                      ),
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        color: AppColors.muted,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
         ],

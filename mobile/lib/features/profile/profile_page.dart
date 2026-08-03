@@ -359,6 +359,7 @@ class _ProfilePageState extends State<ProfilePage> {
 }
 
 
+
 class _InfoRow extends StatelessWidget {
   const _InfoRow({required this.label, required this.value});
 
