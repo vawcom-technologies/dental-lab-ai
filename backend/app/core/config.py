@@ -11,5 +11,9 @@ class Settings(BaseSettings):
     # Where Supabase sends users after they click the password-reset email link
     password_reset_redirect_url: str = ""
 
+    resend_api_key: str = ""
+    resend_from_email: str = "onboarding@resend.dev"
+    resend_welcome_to_email: str = "hamza.naxeed@gmail.com"
+
 
 settings = Settings()

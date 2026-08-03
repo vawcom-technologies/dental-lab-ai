@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
 from app.core.config import settings
 from app.core.security import AuthUser, get_current_user, user_from_supabase
@@ -13,6 +13,7 @@ from app.schemas import (
     TokenOut,
     UserOut,
 )
+from app.services.email import send_welcome_email
 
 router = APIRouter()
 
@@ -38,10 +39,11 @@ def _token_out(session: Any, user: Any) -> TokenOut:
 
 
 @router.post("/signup", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
-def signup(payload: SignUpRequest):
+def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
     email = payload.email.lower().strip()
+    name = payload.name.strip()
     metadata = {
-        "name": payload.name.strip(),
+        "name": name,
         "role": "clinic",
         "clinic_name": (payload.clinic_name or "").strip() or None,
         "phone": (payload.phone or "").strip() or None,
@@ -67,6 +69,16 @@ def signup(payload: SignUpRequest):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Signup failed",
         )
+
+    # Only send notification email after a successful Supabase user creation
+    background_tasks.add_task(
+        send_welcome_email,
+        name,
+        email,
+        "clinic",
+        metadata.get("clinic_name"),
+        metadata.get("phone"),
+    )
 
     if session is None:
         # Email confirmation enabled in the Supabase project — no session yet
