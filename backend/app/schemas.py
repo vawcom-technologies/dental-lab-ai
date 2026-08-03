@@ -6,12 +6,37 @@ from typing import Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
-# ── Auth ──────────────────────────────────────────────────────────────────────
+# ── Auth (Supabase) ───────────────────────────────────────────────────────────
+
+class SignUpRequest(BaseModel):
+    email: EmailStr
+    name: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=6, max_length=128)
+    clinic_name: str | None = Field(default=None, max_length=255)
+    phone: str | None = Field(default=None, max_length=64)
+
+
+class SignInRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=128)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class AuthMessageOut(BaseModel):
+    message: str
+
 
 class TokenOut(BaseModel):
-    access_token: str
+    access_token: str | None = None
+    refresh_token: str | None = None
+    expires_in: int | None = None
     token_type: str = "bearer"
-    user_id: int
+    email_confirmation_required: bool = False
+    message: str | None = None
+    user_id: str
     role: str
     name: str
     email: str
@@ -20,38 +45,12 @@ class TokenOut(BaseModel):
 
 
 class UserOut(BaseModel):
-    id: int
+    id: str
     email: EmailStr
     name: str
     role: str
     clinic_name: str | None = None
     phone: str | None = None
-    created_at: datetime | None = None
-    last_login: datetime | None = None
-
-    class Config:
-        from_attributes = True
-
-
-class UserRegister(BaseModel):
-    email: EmailStr
-    name: str = Field(min_length=1, max_length=255)
-    password: str = Field(min_length=6, max_length=128)
-    role: str = Field(default="dentist", pattern="^(dentist|lab)$")
-    clinic_name: str | None = Field(default=None, max_length=255)
-    phone: str | None = Field(default=None, max_length=64)
-
-
-class UserUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=255)
-    email: EmailStr | None = None
-    clinic_name: str | None = Field(default=None, max_length=255)
-    phone: str | None = Field(default=None, max_length=64)
-
-
-class PasswordChange(BaseModel):
-    current_password: str = Field(min_length=1, max_length=128)
-    new_password: str = Field(min_length=6, max_length=128)
 
 
 # ── Patients ──────────────────────────────────────────────────────────────────

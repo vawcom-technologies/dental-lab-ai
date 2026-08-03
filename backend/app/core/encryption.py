@@ -7,12 +7,8 @@ import hashlib
 
 from cryptography.fernet import Fernet, InvalidToken
 
-from app.core.config import settings
-
-
 def _fernet(key: bytes | None = None) -> Fernet:
-    raw = key or settings.secret_key.encode("utf-8")
-    # Derive a 32-byte url-safe key from secret
+    raw = key or b"dev-only-file-encryption-key"
     digest = hashlib.sha256(raw).digest()
     return Fernet(base64.urlsafe_b64encode(digest))
 
