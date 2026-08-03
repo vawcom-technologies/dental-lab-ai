@@ -93,5 +93,7 @@ def send_welcome_email(
                 ),
             }
         )
-    except Exception:
-        logger.exception("Failed to send signup notification email via Resend")
+    except Exception as exc:
+        logger.exception(
+            "Failed to send signup notification email via Resend: %s", exc
+        )

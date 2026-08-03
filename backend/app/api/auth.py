@@ -22,6 +22,18 @@ def _supabase_error_detail(exc: Exception) -> str:
     return str(exc).strip() or "Authentication request failed"
 
 
+def _clean_optional(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _is_duplicate_signup(user: Any) -> bool:
+    """Supabase returns a user with empty identities on duplicate email signup."""
+    return hasattr(user, "identities") and user.identities == []
+
+
 def _token_out(session: Any, user: Any) -> TokenOut:
     auth_user = user_from_supabase(user)
     return TokenOut(
@@ -40,14 +52,23 @@ def _token_out(session: Any, user: Any) -> TokenOut:
 
 @router.post("/signup", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
 def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
-    email = payload.email.lower().strip()
-    name = payload.name.strip()
+    email = str(payload.email).lower().strip()
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Name is required",
+        )
+
+    clinic_name = _clean_optional(payload.clinic_name)
+    phone = _clean_optional(payload.phone)
     metadata = {
         "name": name,
         "role": "clinic",
-        "clinic_name": (payload.clinic_name or "").strip() or None,
-        "phone": (payload.phone or "").strip() or None,
+        "clinic_name": clinic_name,
+        "phone": phone,
     }
+
     try:
         result = get_supabase().auth.sign_up(
             {
@@ -62,26 +83,32 @@ def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
             detail=_supabase_error_detail(exc),
         ) from exc
 
-    user = result.user
-    session = result.session
+    user = getattr(result, "user", None)
+    session = getattr(result, "session", None)
+
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Signup failed",
         )
 
-    # Only send notification email after a successful Supabase user creation
+    if _is_duplicate_signup(user):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An account with this email address already exists.",
+        )
+
+    # Notify only after a real, non-duplicate signup succeeded
     background_tasks.add_task(
         send_welcome_email,
         name,
         email,
         "clinic",
-        metadata.get("clinic_name"),
-        metadata.get("phone"),
+        clinic_name,
+        phone,
     )
 
     if session is None:
-        # Email confirmation enabled in the Supabase project — no session yet
         auth_user = user_from_supabase(user)
         return TokenOut(
             access_token=None,
@@ -102,7 +129,7 @@ def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
 
 @router.post("/signin", response_model=TokenOut)
 def signin(payload: SignInRequest):
-    email = payload.email.lower().strip()
+    email = str(payload.email).lower().strip()
     try:
         result = get_supabase().auth.sign_in_with_password(
             {"email": email, "password": payload.password}
@@ -113,18 +140,20 @@ def signin(payload: SignInRequest):
             detail="Incorrect email or password",
         ) from exc
 
-    if result.user is None or result.session is None:
+    user = getattr(result, "user", None)
+    session = getattr(result, "session", None)
+    if user is None or session is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
         )
-    return _token_out(result.session, result.user)
+    return _token_out(session, user)
 
 
 @router.post("/forgot-password", response_model=AuthMessageOut)
 def forgot_password(payload: ForgotPasswordRequest):
-    email = payload.email.lower().strip()
-    redirect = (settings.password_reset_redirect_url or "").strip() or None
+    email = str(payload.email).lower().strip()
+    redirect = _clean_optional(settings.password_reset_redirect_url)
 
     try:
         if redirect:
