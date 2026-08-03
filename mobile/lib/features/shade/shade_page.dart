@@ -9,6 +9,7 @@ import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
+import 'tooth_overlay.dart';
 
 class ShadePage extends StatefulWidget {
   const ShadePage({super.key, required this.api});
@@ -20,6 +21,8 @@ class ShadePage extends StatefulWidget {
 }
 
 class _ShadePageState extends State<ShadePage> {
+  static const _zones = ['cervical', 'middle', 'incisal'];
+
   List<Map<String, dynamic>> _patients = [];
   Map<String, dynamic>? _patient;
   Map<String, dynamic>? _case;
@@ -35,8 +38,22 @@ class _ShadePageState extends State<ShadePage> {
   String? _saveStatus;
   String? _error;
   Uint8List? _previewBytes;
+  String _previewFilename = 'tooth.jpg';
   List<Map<String, dynamic>> _topMatches = [];
   final List<Map<String, dynamic>> _history = [];
+
+  // Per-tooth / per-zone analysis (added onto existing UI)
+  List<Map<String, dynamic>> _teeth = [];
+  int? _selectedToothIndex;
+  String _focusZone = 'middle';
+  int? _analysisId;
+  Size _analysisImageSize = Size.zero;
+
+  // Manual outline nudge (dentist adjusts auto edges slightly)
+  bool _editOutlineMode = false;
+  List<List<double>>? _editOutline;
+  List<List<double>>? _editOutlineBackup;
+  int? _activeHandleIndex;
 
   final _vita = const [
     'A1', 'A2', 'A3', 'A3.5', 'A4',
@@ -65,6 +82,267 @@ class _ShadePageState extends State<ShadePage> {
       'D4': Color(0xFFC4AC92),
     };
     return map[shade] ?? AppColors.border;
+  }
+
+  Map<String, dynamic>? get _selectedTooth {
+    if (_selectedToothIndex == null) return null;
+    for (final t in _teeth) {
+      if ((t['tooth_index'] as num?)?.toInt() == _selectedToothIndex) return t;
+    }
+    return null;
+  }
+
+  Map<String, dynamic>? _zoneOf(Map<String, dynamic> tooth, String name) {
+    final zones = tooth['zones'];
+    if (zones is! Map) return null;
+    final z = zones[name];
+    if (z is Map<String, dynamic>) return z;
+    if (z is Map) return z.map((k, v) => MapEntry(k.toString(), v));
+    return null;
+  }
+
+  String? _zoneEffective(Map<String, dynamic>? zone) {
+    if (zone == null) return null;
+    return (zone['override_shade'] as String?) ?? (zone['detected_shade'] as String?);
+  }
+
+  bool _zoneOverridden(Map<String, dynamic>? zone) =>
+      zone != null && zone['override_shade'] != null;
+
+  List<Map<String, dynamic>> _parseTeeth(dynamic raw) {
+    if (raw is! List) return [];
+    return raw.map((e) {
+      final m = Map<String, dynamic>.from(e as Map);
+      final zones = m['zones'];
+      if (zones is Map) {
+        m['zones'] = {
+          for (final entry in zones.entries)
+            entry.key.toString(): Map<String, dynamic>.from(entry.value as Map),
+        };
+      }
+      return m;
+    }).toList();
+  }
+
+  /// Sync the existing Result / Top matches / swatch selection from the focused tooth+zone.
+  void _syncUiFromSelection({bool resetSelectedToDetected = true}) {
+    final tooth = _selectedTooth;
+    if (tooth == null) {
+      _detected = '—';
+      _confidence = 0;
+      _topMatches = [];
+      if (resetSelectedToDetected) _selected = '—';
+      return;
+    }
+    final zone = _zoneOf(tooth, _focusZone) ?? _zoneOf(tooth, 'middle');
+    final detected = zone?['detected_shade'] as String?;
+    final effective = _zoneEffective(zone);
+    _detected = detected ?? '—';
+    _confidence = (tooth['confidence'] as num?)?.toDouble() ?? 0;
+    if (resetSelectedToDetected) {
+      _selected = effective ?? detected ?? '—';
+    }
+    final raw = zone?['top_matches'];
+    if (raw is List) {
+      _topMatches = raw
+          .whereType<Map>()
+          .map((e) => e.map((k, v) => MapEntry(k.toString(), v)))
+          .cast<Map<String, dynamic>>()
+          .toList();
+    } else {
+      _topMatches = [];
+    }
+  }
+
+  void _selectTooth(int index, {String? zone}) {
+    if (_editOutlineMode) return; // finish or cancel edit first
+    setState(() {
+      _selectedToothIndex = index;
+      _focusZone = zone ?? 'middle';
+      _syncUiFromSelection();
+      _saveStatus = null;
+    });
+  }
+
+  void _deleteSelectedTooth() {
+    final idx = _selectedToothIndex;
+    if (idx == null || _editOutlineMode) return;
+    final remaining = <Map<String, dynamic>>[];
+    for (final t in _teeth) {
+      final ti = (t['tooth_index'] as num?)?.toInt();
+      if (ti == idx) continue;
+      remaining.add(Map<String, dynamic>.from(t));
+    }
+    // Re-index left→right so T1..Tn stay contiguous after a delete.
+    remaining.sort((a, b) {
+      final ax = _toothSortX(a);
+      final bx = _toothSortX(b);
+      return ax.compareTo(bx);
+    });
+    for (var i = 0; i < remaining.length; i++) {
+      remaining[i]['tooth_index'] = i;
+      remaining[i]['label'] = 'Tooth ${i + 1}';
+    }
+    setState(() {
+      _teeth = remaining;
+      _analysisId = null; // local edit — force a fresh save payload
+      if (remaining.isEmpty) {
+        _selectedToothIndex = null;
+        _detected = '—';
+        _confidence = 0;
+        _topMatches = [];
+        _selected = '—';
+        _saveStatus = 'Removed tooth — re-detect or upload if needed.';
+      } else {
+        // Prefer the neighbor that was to the right, else the new last.
+        final next = idx.clamp(0, remaining.length - 1);
+        _selectedToothIndex = next;
+        _syncUiFromSelection();
+        _saveStatus =
+            'Removed tooth. ${remaining.length} remaining (renumbered left → right).';
+      }
+    });
+    AppHaptics.warn();
+  }
+
+  double _toothSortX(Map<String, dynamic> tooth) {
+    final geo = tooth['geometry'];
+    if (geo is Map) {
+      final label = geo['label'];
+      if (label is Map && label['x'] is num) {
+        return (label['x'] as num).toDouble();
+      }
+      final bbox = geo['bbox'];
+      if (bbox is Map && bbox['x'] is num) {
+        final x = (bbox['x'] as num).toDouble();
+        final w = (bbox['w'] as num?)?.toDouble() ?? 0;
+        return x + w / 2;
+      }
+    }
+    return (tooth['tooth_index'] as num?)?.toDouble() ?? 0;
+  }
+
+  void _startOutlineEdit() {
+    final tooth = _selectedTooth;
+    if (tooth == null) return;
+    final geo = tooth['geometry'];
+    if (geo is! Map) return;
+    final raw = geo['outline'];
+    if (raw is! List || raw.length < 3) return;
+    final simplified = simplifyOutlineForEdit(raw, maxPoints: 6, minPoints: 4);
+    setState(() {
+      _editOutlineMode = true;
+      _editOutline = simplified.map((p) => [p[0], p[1]]).toList();
+      _editOutlineBackup = simplified.map((p) => [p[0], p[1]]).toList();
+      _activeHandleIndex = null;
+      _saveStatus =
+          'Drag the 4–6 handles to nudge corners/sides, then Apply.';
+    });
+  }
+
+  void _cancelOutlineEdit() {
+    setState(() {
+      _editOutlineMode = false;
+      _editOutline = null;
+      _editOutlineBackup = null;
+      _activeHandleIndex = null;
+      _saveStatus = null;
+    });
+  }
+
+  Future<void> _applyOutlineEdit() async {
+    final bytes = _previewBytes;
+    final outline = _editOutline;
+    final idx = _selectedToothIndex;
+    if (bytes == null || outline == null || idx == null) return;
+
+    setState(() {
+      _busy = true;
+      _error = null;
+      _saveStatus = 'Updating shade from edited outline…';
+    });
+    try {
+      final result = await widget.api.resampleShadeOutline(
+        bytes: bytes,
+        filename: _previewFilename,
+        outline: outline,
+        toothIndex: idx,
+      );
+      final toothRaw = result['tooth'];
+      if (toothRaw is! Map) {
+        throw Exception('Resample returned no tooth');
+      }
+      final updated = Map<String, dynamic>.from(toothRaw);
+      final zones = updated['zones'];
+      if (zones is Map) {
+        updated['zones'] = {
+          for (final e in zones.entries)
+            e.key.toString(): Map<String, dynamic>.from(e.value as Map),
+        };
+      }
+      setState(() {
+        _teeth = [
+          for (final t in _teeth)
+            ((t['tooth_index'] as num?)?.toInt() == idx) ? updated : t,
+        ];
+        _editOutlineMode = false;
+        _editOutline = null;
+        _editOutlineBackup = null;
+        _activeHandleIndex = null;
+        _syncUiFromSelection();
+        _saveStatus =
+            'Outline applied — zone shades refreshed for T${idx + 1}.';
+      });
+      AppHaptics.success();
+    } catch (e) {
+      setState(() {
+        _error = e.toString().replaceFirst('Exception: ', '');
+        _saveStatus = null;
+      });
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _applyShadeChoice(String shade) {
+    setState(() {
+      _selected = shade;
+      _saveStatus = null;
+      final tooth = _selectedTooth;
+      if (tooth != null) {
+        final zone = _zoneOf(tooth, _focusZone);
+        if (zone != null) {
+          // Keep detected; store dentist choice as override when it differs
+          final detected = zone['detected_shade'] as String?;
+          zone['override_shade'] = (detected != null && shade == detected) ? null : shade;
+        }
+      }
+    });
+  }
+
+  List<Map<String, dynamic>> _teethPayloadForSave() {
+    return _teeth.map((t) {
+      final zonesIn = t['zones'];
+      final zonesOut = <String, dynamic>{};
+      if (zonesIn is Map) {
+        for (final name in _zones) {
+          final z = zonesIn[name];
+          if (z is! Map) continue;
+          zonesOut[name] = {
+            'detected_shade': z['detected_shade'],
+            'delta_e_2000': z['delta_e_2000'],
+            'override_shade': z['override_shade'],
+          };
+        }
+      }
+      return {
+        'tooth_index': t['tooth_index'],
+        'confidence': t['confidence'],
+        'rejected': t['rejected'] == true,
+        'reject_reason': t['reject_reason'],
+        'zones': zonesOut,
+      };
+    }).toList();
   }
 
   @override
@@ -233,24 +511,37 @@ class _ShadePageState extends State<ShadePage> {
       }
 
       final name = file.name.isNotEmpty ? file.name : 'tooth.jpg';
-      setState(() => _previewBytes = Uint8List.fromList(bytes));
+      setState(() {
+        _previewBytes = Uint8List.fromList(bytes);
+        _previewFilename = name;
+        _editOutlineMode = false;
+        _editOutline = null;
+        _editOutlineBackup = null;
+      });
 
       final result = await widget.api.suggestShade(bytes, name);
-      final suggested = result['suggested_shade'] as String? ?? 'A2';
-      final top = (result['top_matches'] as List?)
-              ?.whereType<Map>()
-              .map((e) => e.map((k, v) => MapEntry(k.toString(), v)))
-              .cast<Map<String, dynamic>>()
-              .toList() ??
-          <Map<String, dynamic>>[];
+      final teeth = _parseTeeth(result['teeth']);
+      Map<String, dynamic>? first;
+      for (final t in teeth) {
+        if (t['rejected'] != true) {
+          first = t;
+          break;
+        }
+      }
+      first ??= teeth.isEmpty ? null : teeth.first;
 
       setState(() {
-        _detected = suggested;
-        _selected = suggested;
-        _confidence = (result['confidence'] as num?)?.toDouble() ?? 0;
-        _note = result['note'] as String? ?? 'Shade detected from uploaded photo.';
-        _topMatches = top;
+        _teeth = teeth;
+        _analysisId = null;
+        _selectedToothIndex = (first?['tooth_index'] as num?)?.toInt();
+        _focusZone = 'middle';
+        final iw = (result['image_width'] as num?)?.toDouble() ?? 0;
+        final ih = (result['image_height'] as num?)?.toDouble() ?? 0;
+        _analysisImageSize = (iw > 0 && ih > 0) ? Size(iw, ih) : Size.zero;
+        _note = result['note'] as String? ??
+            'Per-tooth zone shades detected. Confirm or override below.';
         _finalShade = null;
+        _syncUiFromSelection();
       });
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
@@ -268,7 +559,7 @@ class _ShadePageState extends State<ShadePage> {
       );
       return;
     }
-    if (_detected == '—' && acceptAi) {
+    if (_detected == '—' && acceptAi && _teeth.isEmpty) {
       setState(() => _error = 'Upload a tooth photo first so AI can detect a shade.');
       return;
     }
@@ -277,6 +568,25 @@ class _ShadePageState extends State<ShadePage> {
       setState(() => _error = 'Pick a VITA shade before saving.');
       return;
     }
+
+    // Stamp Accept AI / override onto the focused zone before save
+    final tooth = _selectedTooth;
+    if (tooth != null) {
+      final zone = _zoneOf(tooth, _focusZone);
+      if (zone != null) {
+        final detected = zone['detected_shade'] as String?;
+        if (acceptAi) {
+          zone['override_shade'] = null;
+        } else if (detected != null && finalShade != detected) {
+          zone['override_shade'] = finalShade;
+        } else if (detected == finalShade) {
+          zone['override_shade'] = null;
+        } else {
+          zone['override_shade'] = finalShade;
+        }
+      }
+    }
+
     final overridden = !acceptAi && finalShade != _detected;
     setState(() {
       _saving = true;
@@ -284,13 +594,30 @@ class _ShadePageState extends State<ShadePage> {
       _error = null;
     });
     try {
-      final saved = await widget.api.saveShade(
-        caseId: _case!['id'] as int,
-        aiSuggested: _detected == '—' ? null : _detected,
-        confidence: _confidence > 0 ? _confidence : null,
-        finalShade: finalShade,
-        overridden: overridden,
-      );
+      Map<String, dynamic> saved;
+      if (_teeth.isNotEmpty) {
+        saved = await widget.api.saveShadeAnalysis(
+          caseId: _case!['id'] as int,
+          teeth: _teethPayloadForSave(),
+          selectedToothIndex: _selectedToothIndex ?? 0,
+        );
+        _analysisId = (saved['id'] as num?)?.toInt();
+        // Merge zone ids from server for later patches
+        final serverTeeth = _parseTeeth(saved['teeth']);
+        if (serverTeeth.isNotEmpty) {
+          _teeth = serverTeeth;
+          _syncUiFromSelection(resetSelectedToDetected: false);
+          _selected = finalShade;
+        }
+      } else {
+        saved = await widget.api.saveShade(
+          caseId: _case!['id'] as int,
+          aiSuggested: _detected == '—' ? null : _detected,
+          confidence: _confidence > 0 ? _confidence : null,
+          finalShade: finalShade,
+          overridden: overridden,
+        );
+      }
       await widget.api.markCaseInProgressIfPending(
         _case!['id'] as int,
         _case!['status']?.toString(),
@@ -309,7 +636,8 @@ class _ShadePageState extends State<ShadePage> {
               '${_patient?['first_name'] ?? ''} ${_patient?['last_name'] ?? ''}'.trim(),
           'shade': finalShade,
           'conf': _confidence,
-          'override': overridden,
+          'override': overridden || saved['has_override'] == true,
+          'is_analysis': _teeth.isNotEmpty,
         });
       });
     } catch (e) {
@@ -346,14 +674,29 @@ class _ShadePageState extends State<ShadePage> {
     final shadeId = entry['id'];
     final caseId = entry['case_id'] ?? _case?['id'];
     try {
-      if (shadeId is int && caseId is int) {
-        await widget.api.deleteShade(caseId: caseId, shadeId: shadeId);
+      if (shadeId is num && caseId is num) {
+        if (entry['is_analysis'] == true) {
+          await widget.api.deleteShadeAnalysis(
+            caseId: caseId.toInt(),
+            analysisId: shadeId.toInt(),
+          );
+        } else {
+          await widget.api.deleteShade(
+            caseId: caseId.toInt(),
+            shadeId: shadeId.toInt(),
+          );
+        }
       } else {
         AppHaptics.warn();
       }
       if (!mounted) return;
       setState(() {
         _history.removeAt(index);
+        if (entry['is_analysis'] == true &&
+            shadeId is num &&
+            _analysisId == shadeId.toInt()) {
+          _analysisId = null;
+        }
         _saveStatus = 'Removed $shade from session';
         _error = null;
       });
@@ -476,6 +819,111 @@ class _ShadePageState extends State<ShadePage> {
                                               ],
                                             ),
                                           ),
+                                        if (_previewBytes != null &&
+                                            _teeth.isNotEmpty &&
+                                            !_busy)
+                                          Positioned.fill(
+                                            child: LayoutBuilder(
+                                              builder: (context, constraints) {
+                                                final box = Size(
+                                                  constraints.maxWidth,
+                                                  constraints.maxHeight,
+                                                );
+                                                final imgSize =
+                                                    _analysisImageSize ==
+                                                            Size.zero
+                                                        ? box
+                                                        : _analysisImageSize;
+                                                return GestureDetector(
+                                                  behavior:
+                                                      HitTestBehavior.opaque,
+                                                  onTapDown: _editOutlineMode
+                                                      ? null
+                                                      : (details) {
+                                                          final hit =
+                                                              hitTestTooth(
+                                                            local: details
+                                                                .localPosition,
+                                                            box: box,
+                                                            imageSize: imgSize,
+                                                            teeth: _teeth,
+                                                          );
+                                                          if (hit != null) {
+                                                            _selectTooth(hit);
+                                                          }
+                                                        },
+                                                  onPanStart: !_editOutlineMode
+                                                      ? null
+                                                      : (details) {
+                                                          final outline =
+                                                              _editOutline;
+                                                          if (outline == null) {
+                                                            return;
+                                                          }
+                                                          final hi =
+                                                              hitTestOutlineHandle(
+                                                            local: details
+                                                                .localPosition,
+                                                            box: box,
+                                                            imageSize: imgSize,
+                                                            outline: outline,
+                                                          );
+                                                          setState(() =>
+                                                              _activeHandleIndex =
+                                                                  hi);
+                                                        },
+                                                  onPanUpdate: !_editOutlineMode
+                                                      ? null
+                                                      : (details) {
+                                                          final hi =
+                                                              _activeHandleIndex;
+                                                          final outline =
+                                                              _editOutline;
+                                                          if (hi == null ||
+                                                              outline == null) {
+                                                            return;
+                                                          }
+                                                          final dest =
+                                                              containRect(
+                                                            box,
+                                                            imgSize,
+                                                          );
+                                                          final norm =
+                                                              localToNorm(
+                                                            details
+                                                                .localPosition,
+                                                            dest,
+                                                          );
+                                                          setState(() {
+                                                            outline[hi] = [
+                                                              norm[0],
+                                                              norm[1],
+                                                            ];
+                                                          });
+                                                        },
+                                                  onPanEnd: !_editOutlineMode
+                                                      ? null
+                                                      : (_) => setState(() =>
+                                                          _activeHandleIndex =
+                                                              null),
+                                                  child: CustomPaint(
+                                                    painter: ToothOverlayPainter(
+                                                      teeth: _teeth,
+                                                      selectedToothIndex:
+                                                          _selectedToothIndex,
+                                                      imageSize: imgSize,
+                                                      focusZone: _focusZone,
+                                                      editMode:
+                                                          _editOutlineMode,
+                                                      editOutline: _editOutline,
+                                                      activeHandleIndex:
+                                                          _activeHandleIndex,
+                                                    ),
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                          ),
                                         if (_busy)
                                           Container(
                                             color: Colors.black45,
@@ -512,7 +960,9 @@ class _ShadePageState extends State<ShadePage> {
                                                 borderRadius: BorderRadius.circular(10),
                                               ),
                                               child: Text(
-                                                'AI: $_detected · ${(_confidence * 100).round()}%',
+                                                _selectedToothIndex == null
+                                                    ? 'AI: $_detected · ${(_confidence * 100).round()}%'
+                                                    : 'T${_selectedToothIndex! + 1} · $_focusZone · $_detected',
                                                 style: const TextStyle(
                                                   color: Colors.white,
                                                   fontWeight: FontWeight.w700,
@@ -520,27 +970,211 @@ class _ShadePageState extends State<ShadePage> {
                                               ),
                                             ),
                                           ),
-                                        Positioned(
-                                          left: 12,
-                                          right: 12,
-                                          bottom: 12,
-                                          child: FilledButton.icon(
-                                            onPressed:
-                                                _busy ? null : _runAiFromGallery,
-                                            icon: const Icon(
-                                              Icons.upload_file,
-                                              size: 18,
-                                            ),
-                                            label: Text(
-                                              _previewBytes == null
-                                                  ? 'Upload tooth photo'
-                                                  : 'Upload another',
-                                            ),
-                                            style: FilledButton.styleFrom(
-                                              backgroundColor: AppColors.dentalBlue,
+                                        if (_teeth.isNotEmpty && !_busy)
+                                          Positioned(
+                                            left: 12,
+                                            right: 12,
+                                            bottom: 56,
+                                            child: Text(
+                                              _editOutlineMode
+                                                  ? 'Drag a few corner/side handles to reshape the tooth, then Apply.'
+                                                  : 'Tap a tooth to select. Adjust edges, or Delete tooth if one crown was split into two.',
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                color: Colors.white.withValues(alpha: 0.85),
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w600,
+                                                shadows: const [
+                                                  Shadow(
+                                                    blurRadius: 6,
+                                                    color: Colors.black54,
+                                                  ),
+                                                ],
+                                              ),
                                             ),
                                           ),
-                                        ),
+                                        if (_teeth.isNotEmpty &&
+                                            !_busy &&
+                                            _selectedToothIndex != null)
+                                          Positioned(
+                                            left: 12,
+                                            right: 12,
+                                            bottom: 12,
+                                            child: _editOutlineMode
+                                                ? Row(
+                                                    children: [
+                                                      Expanded(
+                                                        child: OutlinedButton(
+                                                          onPressed:
+                                                              _cancelOutlineEdit,
+                                                          style: OutlinedButton
+                                                              .styleFrom(
+                                                            foregroundColor:
+                                                                Colors.white,
+                                                            side:
+                                                                const BorderSide(
+                                                              color:
+                                                                  Colors.white70,
+                                                            ),
+                                                          ),
+                                                          child: const Text(
+                                                            'Cancel',
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      Expanded(
+                                                        child: OutlinedButton(
+                                                          onPressed: () {
+                                                            final bak =
+                                                                _editOutlineBackup;
+                                                            if (bak == null) {
+                                                              return;
+                                                            }
+                                                            setState(() {
+                                                              _editOutline = bak
+                                                                  .map(
+                                                                    (p) => [
+                                                                      p[0],
+                                                                      p[1],
+                                                                    ],
+                                                                  )
+                                                                  .toList();
+                                                              _activeHandleIndex =
+                                                                  null;
+                                                            });
+                                                          },
+                                                          style: OutlinedButton
+                                                              .styleFrom(
+                                                            foregroundColor:
+                                                                Colors.white,
+                                                            side:
+                                                                const BorderSide(
+                                                              color:
+                                                                  Colors.white54,
+                                                            ),
+                                                          ),
+                                                          child: const Text(
+                                                            'Reset',
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      Expanded(
+                                                        flex: 2,
+                                                        child: FilledButton.icon(
+                                                          onPressed:
+                                                              _applyOutlineEdit,
+                                                          icon: const Icon(
+                                                            Icons.check,
+                                                            size: 18,
+                                                          ),
+                                                          label: const Text(
+                                                            'Apply',
+                                                          ),
+                                                          style: FilledButton
+                                                              .styleFrom(
+                                                            backgroundColor:
+                                                                AppColors
+                                                                    .dentalBlue,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  )
+                                                : Row(
+                                                    children: [
+                                                      Expanded(
+                                                        child: FilledButton.icon(
+                                                          onPressed:
+                                                              _startOutlineEdit,
+                                                          icon: const Icon(
+                                                            Icons.open_with,
+                                                            size: 18,
+                                                          ),
+                                                          label: const Text(
+                                                            'Adjust edges',
+                                                          ),
+                                                          style: FilledButton
+                                                              .styleFrom(
+                                                            backgroundColor:
+                                                                AppColors.navy,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      Expanded(
+                                                        child: OutlinedButton.icon(
+                                                          onPressed:
+                                                              _deleteSelectedTooth,
+                                                          icon: const Icon(
+                                                            Icons.delete_outline,
+                                                            size: 18,
+                                                          ),
+                                                          label: const Text(
+                                                            'Delete',
+                                                          ),
+                                                          style: OutlinedButton
+                                                              .styleFrom(
+                                                            foregroundColor:
+                                                                Colors.white,
+                                                            side:
+                                                                const BorderSide(
+                                                              color: Color(
+                                                                0xFFFF8A80,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      Expanded(
+                                                        child: FilledButton.icon(
+                                                          onPressed:
+                                                              _runAiFromGallery,
+                                                          icon: const Icon(
+                                                            Icons.upload_file,
+                                                            size: 18,
+                                                          ),
+                                                          label: Text(
+                                                            _previewBytes == null
+                                                                ? 'Upload'
+                                                                : 'Re-upload',
+                                                          ),
+                                                          style: FilledButton
+                                                              .styleFrom(
+                                                            backgroundColor:
+                                                                AppColors
+                                                                    .dentalBlue,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                          )
+                                        else
+                                          Positioned(
+                                            left: 12,
+                                            right: 12,
+                                            bottom: 12,
+                                            child: FilledButton.icon(
+                                              onPressed:
+                                                  _busy ? null : _runAiFromGallery,
+                                              icon: const Icon(
+                                                Icons.upload_file,
+                                                size: 18,
+                                              ),
+                                              label: Text(
+                                                _previewBytes == null
+                                                    ? 'Upload tooth photo'
+                                                    : 'Upload another',
+                                              ),
+                                              style: FilledButton.styleFrom(
+                                                backgroundColor:
+                                                    AppColors.dentalBlue,
+                                              ),
+                                            ),
+                                          ),
                                       ],
                                     ),
                                   ),
@@ -569,6 +1203,206 @@ class _ShadePageState extends State<ShadePage> {
                                                 fontSize: 15,
                                               ),
                                             ),
+                                            if (_teeth.isNotEmpty) ...[
+                                              const SizedBox(height: 8),
+                                              const Text(
+                                                'Teeth (left → right on photo)',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppColors.muted,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 8),
+                                              ..._teeth.map((t) {
+                                                final idx =
+                                                    (t['tooth_index'] as num)
+                                                        .toInt();
+                                                final rejected =
+                                                    t['rejected'] == true;
+                                                final active =
+                                                    _selectedToothIndex == idx;
+                                                final label =
+                                                    t['label']?.toString() ??
+                                                        'Tooth ${idx + 1}';
+                                                return Padding(
+                                                  padding: const EdgeInsets.only(
+                                                    bottom: 8,
+                                                  ),
+                                                  child: Material(
+                                                    color: Colors.transparent,
+                                                    child: InkWell(
+                                                      onTap: () =>
+                                                          _selectTooth(idx),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                        12,
+                                                      ),
+                                                      child: Ink(
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .all(10),
+                                                        decoration:
+                                                            BoxDecoration(
+                                                          color: active
+                                                              ? AppColors
+                                                                  .dentalBlue
+                                                                  .withValues(
+                                                                  alpha: 0.12,
+                                                                )
+                                                              : AppColors.neo,
+                                                          borderRadius:
+                                                              BorderRadius
+                                                                  .circular(12),
+                                                          border: Border.all(
+                                                            color: active
+                                                                ? AppColors
+                                                                    .dentalBlue
+                                                                : AppColors
+                                                                    .border,
+                                                            width: active
+                                                                ? 1.8
+                                                                : 1,
+                                                          ),
+                                                        ),
+                                                        child: Column(
+                                                          crossAxisAlignment:
+                                                              CrossAxisAlignment
+                                                                  .start,
+                                                          children: [
+                                                            Row(
+                                                              children: [
+                                                                Text(
+                                                                  label,
+                                                                  style:
+                                                                      const TextStyle(
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .w800,
+                                                                    fontSize: 13,
+                                                                  ),
+                                                                ),
+                                                                if (rejected) ...[
+                                                                  const SizedBox(
+                                                                    width: 8,
+                                                                  ),
+                                                                  Text(
+                                                                    t['reject_reason']
+                                                                            ?.toString() ??
+                                                                        'flagged',
+                                                                    style:
+                                                                        const TextStyle(
+                                                                      fontSize:
+                                                                          10,
+                                                                      color: AppColors
+                                                                          .warning,
+                                                                    ),
+                                                                  ),
+                                                                ],
+                                                                const Spacer(),
+                                                                if (active) ...[
+                                                                  IconButton(
+                                                                    tooltip:
+                                                                        'Delete tooth',
+                                                                    onPressed:
+                                                                        _deleteSelectedTooth,
+                                                                    icon:
+                                                                        const Icon(
+                                                                      Icons
+                                                                          .delete_outline,
+                                                                      size: 20,
+                                                                      color: AppColors
+                                                                          .danger,
+                                                                    ),
+                                                                    visualDensity:
+                                                                        VisualDensity
+                                                                            .compact,
+                                                                    padding:
+                                                                        EdgeInsets
+                                                                            .zero,
+                                                                    constraints:
+                                                                        const BoxConstraints(
+                                                                      minWidth:
+                                                                          36,
+                                                                      minHeight:
+                                                                          36,
+                                                                    ),
+                                                                  ),
+                                                                  const Text(
+                                                                    'Selected',
+                                                                    style:
+                                                                        TextStyle(
+                                                                      fontSize:
+                                                                          11,
+                                                                      fontWeight:
+                                                                          FontWeight
+                                                                              .w700,
+                                                                      color: AppColors
+                                                                          .dentalBlue,
+                                                                    ),
+                                                                  ),
+                                                                ],
+                                                              ],
+                                                            ),
+                                                            const SizedBox(
+                                                              height: 8,
+                                                            ),
+                                                            Row(
+                                                              children: [
+                                                                for (final zName
+                                                                    in _zones) ...[
+                                                                  if (zName !=
+                                                                      _zones
+                                                                          .first)
+                                                                    const SizedBox(
+                                                                      width: 6,
+                                                                    ),
+                                                                  Expanded(
+                                                                    child:
+                                                                        _MiniZoneChip(
+                                                                      label: zName[0]
+                                                                              .toUpperCase() +
+                                                                          zName.substring(
+                                                                            1,
+                                                                          ),
+                                                                      shade: _zoneEffective(
+                                                                        _zoneOf(
+                                                                          t,
+                                                                          zName,
+                                                                        ),
+                                                                      ),
+                                                                      overridden:
+                                                                          _zoneOverridden(
+                                                                        _zoneOf(
+                                                                          t,
+                                                                          zName,
+                                                                        ),
+                                                                      ),
+                                                                      focused: active &&
+                                                                          _focusZone ==
+                                                                              zName,
+                                                                      swatch:
+                                                                          _swatch,
+                                                                      onTap: () {
+                                                                        _selectTooth(
+                                                                          idx,
+                                                                          zone:
+                                                                              zName,
+                                                                        );
+                                                                      },
+                                                                    ),
+                                                                  ),
+                                                                ],
+                                                              ],
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                );
+                                              }),
+                                            ],
                                             const SizedBox(height: 10),
                                             Container(
                                               padding: const EdgeInsets.all(12),
@@ -609,7 +1443,7 @@ class _ShadePageState extends State<ShadePage> {
                                                         const SizedBox(height: 2),
                                                         Text(
                                                           _confidence > 0
-                                                              ? '${(_confidence * 100).round()}% confidence'
+                                                              ? '${(_confidence * 100).round()}% · $_focusZone zone'
                                                               : 'Upload a photo to analyze',
                                                           style: const TextStyle(
                                                             fontSize: 12,
@@ -678,11 +1512,9 @@ class _ShadePageState extends State<ShadePage> {
                                                 children: _topMatches.take(5).map((m) {
                                                   final s = m['shade']?.toString() ?? '';
                                                   final active = _selected == s;
+                                                  final de = m['delta_e_2000'] ?? m['distance'];
                                                   return InkWell(
-                                                    onTap: () => setState(() {
-                                                      _selected = s;
-                                                      _saveStatus = null;
-                                                    }),
+                                                    onTap: () => _applyShadeChoice(s),
                                                     borderRadius: BorderRadius.circular(8),
                                                     child: Container(
                                                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -695,7 +1527,9 @@ class _ShadePageState extends State<ShadePage> {
                                                         ),
                                                       ),
                                                       child: Text(
-                                                        s,
+                                                        de == null
+                                                            ? s
+                                                            : '$s · ΔE ${de is num ? de.toStringAsFixed(1) : de}',
                                                         style: const TextStyle(
                                                           fontWeight: FontWeight.w700,
                                                           fontSize: 12,
@@ -781,10 +1615,7 @@ class _ShadePageState extends State<ShadePage> {
                               children: _vita.map((s) {
                                 final selected = _selected == s;
                                 return InkWell(
-                                  onTap: () => setState(() {
-                                    _selected = s;
-                                    _saveStatus = null;
-                                  }),
+                                  onTap: () => _applyShadeChoice(s),
                                   borderRadius: BorderRadius.circular(8),
                                   child: Container(
                                     width: 48,
@@ -870,6 +1701,70 @@ class _ShadePageState extends State<ShadePage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _MiniZoneChip extends StatelessWidget {
+  const _MiniZoneChip({
+    required this.label,
+    required this.shade,
+    required this.overridden,
+    required this.focused,
+    required this.swatch,
+    required this.onTap,
+  });
+
+  final String label;
+  final String? shade;
+  final bool overridden;
+  final bool focused;
+  final Color Function(String) swatch;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        decoration: BoxDecoration(
+          color: AppColors.neo,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: overridden
+                ? AppColors.warning
+                : (focused ? AppColors.dentalBlue : AppColors.border),
+            width: focused || overridden ? 1.5 : 1,
+          ),
+        ),
+        child: Column(
+          children: [
+            Container(
+              height: 18,
+              decoration: BoxDecoration(
+                color: shade == null ? AppColors.border : swatch(shade!),
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w600),
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              shade ?? '—',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                color: overridden ? AppColors.warning : AppColors.navy,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

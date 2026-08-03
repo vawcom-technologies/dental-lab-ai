@@ -298,6 +298,32 @@ def _value_neighbors(sample_lab: np.ndarray, window: int = 4) -> list[str]:
     return by_L[: max(window, 6)]
 
 
+def match_lab_nearest(
+    sample_lab: np.ndarray,
+    *,
+    top_n: int = 3,
+) -> dict[str, Any]:
+    """Nearest VITA Classical shade by raw CIEDE2000 (no chroma/family reweighting).
+
+    Used for per-zone matching where the goal is color fidelity to the photo.
+    """
+    lab = np.asarray(sample_lab, dtype=np.float64).reshape(3)
+    scored = [
+        (shade, _delta_e_cie2000(lab, _VITA_LAB[shade]))
+        for shade in VITA_SHADES
+    ]
+    scored.sort(key=lambda x: x[1])
+    best_shade, best_de = scored[0]
+    return {
+        "shade": best_shade,
+        "delta_e_2000": float(best_de),
+        "top_matches": [
+            {"shade": s, "delta_e_2000": round(float(d), 2)}
+            for s, d in scored[: max(1, top_n)]
+        ],
+    }
+
+
 def _score_shade(sample_lab: np.ndarray, shade: str, sample_fam: str, value_set: set[str]) -> float:
     lab = _VITA_LAB[shade]
     d_full = _delta_e_cie2000(sample_lab, lab)
