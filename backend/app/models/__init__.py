@@ -7,6 +7,9 @@ from app.models.scan import Scan
 from app.models.photo import Photo
 from app.models.clinical import (
     ShadeSelection,
+    ShadeAnalysis,
+    ShadeToothResult,
+    ShadeZoneResult,
     ShapeSelection,
     ScanBodyDetection,
     ScanBodySelection,
@@ -20,6 +23,9 @@ __all__ = [
     "Scan",
     "Photo",
     "ShadeSelection",
+    "ShadeAnalysis",
+    "ShadeToothResult",
+    "ShadeZoneResult",
     "ShapeSelection",
     "ScanBodyDetection",
     "ScanBodySelection",

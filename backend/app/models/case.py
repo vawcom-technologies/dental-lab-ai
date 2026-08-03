@@ -24,6 +24,7 @@ class Case(Base):
     scans: Mapped[list["Scan"]] = relationship(back_populates="case")  # noqa: F821
     photos: Mapped[list["Photo"]] = relationship(back_populates="case")  # noqa: F821
     shade_selections: Mapped[list["ShadeSelection"]] = relationship(back_populates="case")  # noqa: F821
+    shade_analyses: Mapped[list["ShadeAnalysis"]] = relationship(back_populates="case")  # noqa: F821
     shape_selections: Mapped[list["ShapeSelection"]] = relationship(back_populates="case")  # noqa: F821
     scan_body_selections: Mapped[list["ScanBodySelection"]] = relationship(back_populates="case")  # noqa: F821
     messages: Mapped[list["Message"]] = relationship(back_populates="case")  # noqa: F821
