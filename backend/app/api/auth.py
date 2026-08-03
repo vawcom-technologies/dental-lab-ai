@@ -37,6 +37,52 @@ def _is_duplicate_signup(user: Any) -> bool:
     return hasattr(user, "identities") and user.identities == []
 
 
+PENDING_VERIFICATION_SIGNIN = (
+    "Your account is pending admin verification. "
+    "Please wait for an administrator to approve your account."
+)
+ACCOUNT_DEACTIVATED = (
+    "Your account has been deactivated. Please contact support."
+)
+SIGNUP_PENDING_VERIFICATION = (
+    "Account created successfully. An administrator must verify your account "
+    "before you can sign in."
+)
+
+
+def _enforce_signin_access(profile: dict[str, Any] | None, *, user_id: str) -> None:
+    """Block soft-deleted / unverified users. Admins bypass the verified check."""
+    if profile is None:
+        logger.debug("signin blocked: no profile user_id=%s", user_id)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=PENDING_VERIFICATION_SIGNIN,
+        )
+
+    if profile.get("deleted") is True:
+        logger.debug("signin blocked: deleted user_id=%s", user_id)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ACCOUNT_DEACTIVATED,
+        )
+
+    role = (profile.get("role") or "").strip()
+    if role == "admin":
+        logger.debug("signin access allowed: admin bypass user_id=%s", user_id)
+        return
+
+    if profile.get("verified") is not True:
+        logger.debug(
+            "signin blocked: unverified user_id=%s verified=%s",
+            user_id,
+            profile.get("verified"),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=PENDING_VERIFICATION_SIGNIN,
+        )
+
+
 def _profile_fields(user: Any) -> dict[str, Any]:
     """Prefer public.profiles; fall back to Auth user_metadata / defaults."""
     auth_user = user_from_supabase(user)
@@ -82,19 +128,27 @@ def _profile_fields(user: Any) -> dict[str, Any]:
     }
 
 
-def _token_out(session: Any | None, user: Any, *, email_confirmation_required: bool = False) -> TokenOut:
+def _token_out(
+    session: Any | None,
+    user: Any,
+    *,
+    email_confirmation_required: bool = False,
+    message: str | None = None,
+    include_tokens: bool = True,
+) -> TokenOut:
     fields = _profile_fields(user)
+    if message is None and email_confirmation_required:
+        message = "Account created. Confirm your email before signing in."
+
+    use_session = session if include_tokens else None
     return TokenOut(
-        access_token=getattr(session, "access_token", None) if session else None,
-        refresh_token=getattr(session, "refresh_token", None) if session else None,
-        expires_in=getattr(session, "expires_in", None) if session else None,
-        token_type=(getattr(session, "token_type", None) if session else None) or "bearer",
+        access_token=getattr(use_session, "access_token", None) if use_session else None,
+        refresh_token=getattr(use_session, "refresh_token", None) if use_session else None,
+        expires_in=getattr(use_session, "expires_in", None) if use_session else None,
+        token_type=(getattr(use_session, "token_type", None) if use_session else None)
+        or "bearer",
         email_confirmation_required=email_confirmation_required,
-        message=(
-            "Account created. Confirm your email before signing in."
-            if email_confirmation_required
-            else None
-        ),
+        message=message,
         user_id=fields["user_id"],
         role=fields["role"],
         name=fields["name"],
@@ -117,7 +171,8 @@ def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
         )
 
     clinic_name = _clean_optional(payload.clinic_name)
-    phone = _clean_optional(payload.phone)
+    # Validated + normalized to +49XXXXXXXXXXX (11 digits) by SignUpRequest
+    phone = payload.phone
     metadata = {
         "name": name,
         "role": "clinic",
@@ -172,10 +227,14 @@ def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
         session is not None,
     )
 
-    if session is None:
-        return _token_out(None, user, email_confirmation_required=True)
-
-    return _token_out(session, user)
+    # Account is created, but access requires admin verification (no tokens yet)
+    return _token_out(
+        session,
+        user,
+        email_confirmation_required=session is None,
+        message=SIGNUP_PENDING_VERIFICATION,
+        include_tokens=False,
+    )
 
 
 @router.post("/signin", response_model=TokenOut)
@@ -201,6 +260,10 @@ def signin(payload: SignInRequest):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
         )
+
+    user_id = str(user.id)
+    profile = fetch_profile(user_id)
+    _enforce_signin_access(profile, user_id=user_id)
 
     token = _token_out(session, user)
     logger.debug("signin ok user_id=%s role=%s", token.user_id, token.role)

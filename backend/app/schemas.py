@@ -2,18 +2,53 @@
 
 from datetime import date, datetime
 from typing import Optional
+import re
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # ── Auth (Supabase) ───────────────────────────────────────────────────────────
 
+_PHONE_DIGITS_RE = re.compile(r"\D+")
+
+
+def normalize_german_phone(value: str) -> str:
+    """Require DE numbers as +49 followed by exactly 11 digits."""
+    raw = (value or "").strip()
+    if not raw:
+        raise ValueError("Phone number is required")
+
+    digits = _PHONE_DIGITS_RE.sub("", raw)
+
+    # Strip leading international / trunk prefixes down to national digits
+    if digits.startswith("0049"):
+        digits = digits[4:]
+    elif digits.startswith("49") and len(digits) > 11:
+        digits = digits[2:]
+    elif digits.startswith("0") and len(digits) == 12:
+        # national format 0XXXXXXXXXXX → drop leading 0
+        digits = digits[1:]
+
+    if len(digits) != 11 or not digits.isdigit():
+        raise ValueError(
+            "Phone must be a German number: +49 followed by exactly 11 digits "
+            "(e.g. +4917012345678 or 17012345678)"
+        )
+
+    return f"+49{digits}"
+
+
 class SignUpRequest(BaseModel):
     email: EmailStr
     name: str = Field(min_length=1, max_length=255)
     password: str = Field(min_length=6, max_length=128)
     clinic_name: str | None = Field(default=None, max_length=255)
-    phone: str | None = Field(default=None, max_length=64)
+    phone: str = Field(min_length=1, max_length=64)
+
+    @field_validator("phone")
+    @classmethod
+    def _phone_de(cls, v: str) -> str:
+        return normalize_german_phone(v)
 
 
 class SignInRequest(BaseModel):

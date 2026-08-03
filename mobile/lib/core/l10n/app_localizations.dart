@@ -71,6 +71,7 @@ class AppLocalizations {
   String get errAllFieldsRequired => _t('auth.errAllFieldsRequired');
   String get errPasswordShort => _t('auth.errPasswordShort');
   String get errPasswordMismatch => _t('auth.errPasswordMismatch');
+  String get errPhoneInvalid => _t('auth.errPhoneInvalid');
   String get errEmailRequired => _t('auth.errEmailRequired');
   String get forgotPassword => _t('auth.forgotPassword');
   String get forgotPasswordTitle => _t('auth.forgotPasswordTitle');
@@ -382,6 +383,8 @@ class AppLocalizations {
     'auth.errAllFieldsRequired': 'All fields are required',
     'auth.errPasswordShort': 'Password must be at least 6 characters',
     'auth.errPasswordMismatch': 'Passwords do not match',
+    'auth.errPhoneInvalid':
+        'Phone must start with +49 and have exactly 11 digits after',
     'auth.errEmailRequired': 'Email is required',
     'auth.forgotPassword': 'Forgot password?',
     'auth.forgotPasswordTitle': 'Reset password',
@@ -651,6 +654,8 @@ class AppLocalizations {
     'auth.errAllFieldsRequired': 'Alle Felder sind erforderlich',
     'auth.errPasswordShort': 'Passwort muss mindestens 6 Zeichen haben',
     'auth.errPasswordMismatch': 'Passwörter stimmen nicht überein',
+    'auth.errPhoneInvalid':
+        'Telefonnummer muss mit +49 beginnen und genau 11 Ziffern danach haben',
     'auth.errEmailRequired': 'E-Mail ist erforderlich',
     'auth.forgotPassword': 'Passwort vergessen?',
     'auth.forgotPasswordTitle': 'Passwort zurücksetzen',

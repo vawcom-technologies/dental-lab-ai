@@ -58,6 +58,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
       });
       return;
     }
+    final normalizedPhone = phone.replaceAll(RegExp(r'[\s\-]'), '');
+    if (!RegExp(r'^\+49\d{11}$').hasMatch(normalizedPhone)) {
+      setState(() {
+        _error = loc.errPhoneInvalid;
+        _info = null;
+      });
+      return;
+    }
     if (password.length < 6) {
       setState(() {
         _error = loc.errPasswordShort;
@@ -83,7 +91,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         name: name,
         password: password,
         clinicName: clinic,
-        phone: phone,
+        phone: normalizedPhone,
       );
       if (!mounted) return;
 
@@ -91,8 +99,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final accessToken = data['access_token'] as String?;
       if (needsConfirmation || accessToken == null || accessToken.isEmpty) {
         AppHaptics.success();
-        setState(() {
-          _info = data['message'] as String? ?? loc.emailConfirmationRequired;
+        final message = data['message'] as String? ??
+            loc.emailConfirmationRequired;
+        // Pending admin verification / email confirm — return to login
+        Navigator.of(context).pop(<String, String>{
+          'message': message,
+          'email': email,
         });
         return;
       }
@@ -104,8 +116,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             dentistName: data['name'] as String? ?? name,
           ),
         ),
-      );
-    } catch (e) {
+      );    } catch (e) {
       AppHaptics.warn();
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -165,7 +176,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 TextField(
                   controller: _phone,
                   keyboardType: TextInputType.phone,
-                  decoration: InputDecoration(labelText: loc.phone),
+                  decoration: InputDecoration(
+                    labelText: loc.phone,
+                    hintText: '+4917012345678',
+                  ),
                 ),
                 const SizedBox(height: 12),
                 TextField(

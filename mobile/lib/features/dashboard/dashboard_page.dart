@@ -244,6 +244,7 @@ class _DashboardPageState extends State<DashboardPage> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
       child: Column(
+
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           PageHeader(
@@ -265,7 +266,6 @@ class _DashboardPageState extends State<DashboardPage> {
                   foregroundColor: Colors.white,
                 ),
               ),
-
               OutlinedButton.icon(
                 onPressed: () => widget.onNavigate(AppNavItem.messages),
                 icon: const Icon(Icons.chat_bubble_outline, size: 18),
@@ -282,6 +282,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   icon: const Icon(Icons.biotech_outlined, size: 18),
                   label: Text(loc.navLaboratories),
                 ),
+
             ],
           ),
           const SizedBox(height: 20),
@@ -446,6 +447,7 @@ class _CaseRowData {
     required this.caseLabel,
     required this.patientName,
     required this.dentist,
+
     required this.status,
     required this.updated,
   });
