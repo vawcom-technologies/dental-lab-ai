@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../../features/laboratories/admin_user.dart';
 import '../haptics/app_haptics.dart';
 
 class ApiClient {
@@ -643,6 +644,84 @@ class ApiClient {
       headers: _jsonHeaders,
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
+  }
+
+  // ── Admin users ──────────────────────────────────────────────────────────
+
+  Future<AdminUsersListResult> listAdminUsers({
+    int skip = 0,
+    int limit = 50,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/admin/users').replace(
+      queryParameters: {
+        'skip': '$skip',
+        'limit': '$limit',
+      },
+    );
+    final res = await http.get(uri, headers: _jsonHeaders);
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    final data = jsonDecode(res.body) as Map<String, dynamic>;
+    final rawItems = data['items'];
+    final items = <AdminUser>[];
+    if (rawItems is List) {
+      for (final item in rawItems) {
+        if (item is Map<String, dynamic>) {
+          items.add(AdminUser.fromJson(item));
+        } else if (item is Map) {
+          items.add(AdminUser.fromJson(Map<String, dynamic>.from(item)));
+        }
+      }
+    }
+    return AdminUsersListResult(
+      items: items,
+      skip: (data['skip'] as num?)?.toInt() ?? skip,
+      limit: (data['limit'] as num?)?.toInt() ?? limit,
+      count: (data['count'] as num?)?.toInt() ?? items.length,
+    );
+  }
+
+  Future<AdminUserActionResult> verifyAdminUser(String userId) async {
+    final res = await http.patch(
+      Uri.parse('$baseUrl/api/admin/users/$userId/verify'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return _parseAdminUserAction(res.body);
+  }
+
+  Future<AdminUserActionResult> softDeleteAdminUser(String userId) async {
+    final res = await http.delete(
+      Uri.parse('$baseUrl/api/admin/users/$userId/soft-delete'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    AppHaptics.warn();
+    return _parseAdminUserAction(res.body);
+  }
+
+  Future<AdminUserActionResult> hardDeleteAdminUser(String userId) async {
+    final res = await http.delete(
+      Uri.parse('$baseUrl/api/admin/users/$userId/hard-delete'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    AppHaptics.warn();
+    return _parseAdminUserAction(res.body);
+  }
+
+  AdminUserActionResult _parseAdminUserAction(String body) {
+    final data = jsonDecode(body) as Map<String, dynamic>;
+    final userRaw = data['user'];
+    AdminUser? user;
+    if (userRaw is Map<String, dynamic>) {
+      user = AdminUser.fromJson(userRaw);
+    } else if (userRaw is Map) {
+      user = AdminUser.fromJson(Map<String, dynamic>.from(userRaw));
+    }
+    return AdminUserActionResult(
+      message: (data['message'] as String?) ?? 'Done',
+      user: user,
+    );
   }
 
   String _errorMessage(http.Response res) {

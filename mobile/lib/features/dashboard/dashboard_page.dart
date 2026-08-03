@@ -265,16 +265,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   foregroundColor: Colors.white,
                 ),
               ),
-              OutlinedButton.icon(
-                onPressed: () => widget.onNavigate(AppNavItem.camera),
-                icon: const Icon(Icons.photo_camera_outlined, size: 18),
-                label: Text(loc.navCamera),
-              ),
-              OutlinedButton.icon(
-                onPressed: () => widget.onNavigate(AppNavItem.scans),
-                icon: const Icon(Icons.view_in_ar_outlined, size: 18),
-                label: Text(loc.dashStartScan),
-              ),
+
               OutlinedButton.icon(
                 onPressed: () => widget.onNavigate(AppNavItem.messages),
                 icon: const Icon(Icons.chat_bubble_outline, size: 18),
@@ -284,6 +275,13 @@ class _DashboardPageState extends State<DashboardPage> {
                       : loc.navMessages,
                 ),
               ),
+              if (widget.api.role == 'admin')
+                OutlinedButton.icon(
+                  onPressed: () =>
+                      widget.onNavigate(AppNavItem.laboratories),
+                  icon: const Icon(Icons.biotech_outlined, size: 18),
+                  label: Text(loc.navLaboratories),
+                ),
             ],
           ),
           const SizedBox(height: 20),

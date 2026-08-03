@@ -6,6 +6,7 @@ import '../features/auth/login_screen.dart';
 import '../features/camera/camera_page.dart';
 import '../features/chat/messages_page.dart';
 import '../features/dashboard/dashboard_page.dart';
+import '../features/laboratories/laboratories_page.dart';
 import '../features/notifications/notifications_page.dart';
 import '../features/patients/new_patient_page.dart';
 import '../features/patients/patients_page.dart';
@@ -132,6 +133,7 @@ class _AppShellState extends State<AppShell> {
               onSelect: _go,
               messageBadge: _messageBadge,
               notificationBadge: _notificationBadge,
+              showLaboratories: widget.api.role == 'admin',
             ),
             Expanded(
               child: ClipRect(
@@ -199,6 +201,8 @@ class _AppShellState extends State<AppShell> {
         return ScanBodyPage(api: widget.api);
       case AppNavItem.messages:
         return MessagesPage(api: widget.api);
+      case AppNavItem.laboratories:
+        return LaboratoriesPage(api: widget.api);
       case AppNavItem.notifications:
         return NotificationsPage(
           api: widget.api,
