@@ -73,7 +73,7 @@ def list_active_users(
     limit: int = Query(default=50, ge=1, le=200),
     _: AuthUser = Depends(require_admin),
 ):
-    """Return non-deleted profiles, newest `updated_at` first."""
+    """Return non-deleted, non-admin profiles, newest `updated_at` first."""
     logger.debug("list_active_users skip=%s limit=%s", skip, limit)
     try:
         result = (
@@ -81,6 +81,7 @@ def list_active_users(
             .table("profiles")
             .select("*")
             .or_("deleted.eq.false,deleted.is.null")
+            .neq("role", "admin")  # <--- Excludes profiles with role='admin'
             .order("updated_at", desc=True)
             .range(skip, skip + limit - 1)
             .execute()
@@ -93,7 +94,6 @@ def list_active_users(
     items = [_row_to_profile(row) for row in rows]
     logger.debug("list_active_users ok count=%s", len(items))
     return ProfileListOut(items=items, skip=skip, limit=limit, count=len(items))
-
 
 @router.patch("/users/{user_id}/verify", response_model=ProfileActionOut)
 def verify_user(user_id: str, _: AuthUser = Depends(require_admin)):
