@@ -1,4 +1,5 @@
 from typing import Any
+import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
@@ -14,8 +15,10 @@ from app.schemas import (
     UserOut,
 )
 from app.services.email import send_welcome_email
+from app.services.profiles import fetch_profile
 
 router = APIRouter()
+logger = logging.getLogger("app.api.auth")
 
 
 def _supabase_error_detail(exc: Exception) -> str:
@@ -34,19 +37,70 @@ def _is_duplicate_signup(user: Any) -> bool:
     return hasattr(user, "identities") and user.identities == []
 
 
-def _token_out(session: Any, user: Any) -> TokenOut:
+def _profile_fields(user: Any) -> dict[str, Any]:
+    """Prefer public.profiles; fall back to Auth user_metadata / defaults."""
     auth_user = user_from_supabase(user)
+    profile = fetch_profile(auth_user.id)
+
+    if not profile:
+        logger.debug(
+            "profile missing — using metadata fallback user_id=%s role=%s",
+            auth_user.id,
+            auth_user.role,
+        )
+        return {
+            "user_id": auth_user.id,
+            "email": auth_user.email,
+            "name": auth_user.name,
+            "role": auth_user.role or "clinic",
+            "clinic_name": auth_user.clinic_name,
+            "phone": auth_user.phone,
+        }
+
+    role = (profile.get("role") or "").strip() or auth_user.role or "clinic"
+    name = (profile.get("name") or "").strip() or auth_user.name
+    email = (
+        (profile.get("email") or "").strip().lower()
+        or auth_user.email
+    )
+    clinic_name = _clean_optional(profile.get("clinic_name")) or auth_user.clinic_name
+    phone = _clean_optional(profile.get("phone")) or auth_user.phone
+
+    logger.debug(
+        "profile loaded user_id=%s role=%s verified=%s",
+        auth_user.id,
+        role,
+        profile.get("verified"),
+    )
+    return {
+        "user_id": auth_user.id,
+        "email": email,
+        "name": name,
+        "role": role,
+        "clinic_name": clinic_name,
+        "phone": phone,
+    }
+
+
+def _token_out(session: Any | None, user: Any, *, email_confirmation_required: bool = False) -> TokenOut:
+    fields = _profile_fields(user)
     return TokenOut(
-        access_token=session.access_token,
-        refresh_token=getattr(session, "refresh_token", None),
-        expires_in=getattr(session, "expires_in", None),
-        token_type=getattr(session, "token_type", None) or "bearer",
-        user_id=auth_user.id,
-        role=auth_user.role,
-        name=auth_user.name,
-        email=auth_user.email,
-        clinic_name=auth_user.clinic_name,
-        phone=auth_user.phone,
+        access_token=getattr(session, "access_token", None) if session else None,
+        refresh_token=getattr(session, "refresh_token", None) if session else None,
+        expires_in=getattr(session, "expires_in", None) if session else None,
+        token_type=(getattr(session, "token_type", None) if session else None) or "bearer",
+        email_confirmation_required=email_confirmation_required,
+        message=(
+            "Account created. Confirm your email before signing in."
+            if email_confirmation_required
+            else None
+        ),
+        user_id=fields["user_id"],
+        role=fields["role"],
+        name=fields["name"],
+        email=fields["email"],
+        clinic_name=fields["clinic_name"],
+        phone=fields["phone"],
     )
 
 
@@ -54,7 +108,9 @@ def _token_out(session: Any, user: Any) -> TokenOut:
 def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
     email = str(payload.email).lower().strip()
     name = (payload.name or "").strip()
+    logger.debug("signup start email=%s name=%s", email, name)
     if not name:
+        logger.debug("signup rejected: empty name email=%s", email)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Name is required",
@@ -78,6 +134,7 @@ def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
             }
         )
     except Exception as exc:
+        logger.debug("signup supabase error email=%s detail=%s", email, exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=_supabase_error_detail(exc),
@@ -87,12 +144,14 @@ def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
     session = getattr(result, "session", None)
 
     if user is None:
+        logger.debug("signup failed: no user returned email=%s", email)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Signup failed",
         )
 
     if _is_duplicate_signup(user):
+        logger.debug("signup duplicate email=%s", email)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="An account with this email address already exists.",
@@ -107,22 +166,14 @@ def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
         clinic_name,
         phone,
     )
+    logger.debug(
+        "signup ok user_id=%s session=%s email_queued=true",
+        getattr(user, "id", None),
+        session is not None,
+    )
 
     if session is None:
-        auth_user = user_from_supabase(user)
-        return TokenOut(
-            access_token=None,
-            refresh_token=None,
-            expires_in=None,
-            email_confirmation_required=True,
-            message="Account created. Confirm your email before signing in.",
-            user_id=auth_user.id,
-            role=auth_user.role,
-            name=auth_user.name,
-            email=auth_user.email,
-            clinic_name=auth_user.clinic_name,
-            phone=auth_user.phone,
-        )
+        return _token_out(None, user, email_confirmation_required=True)
 
     return _token_out(session, user)
 
@@ -130,11 +181,13 @@ def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
 @router.post("/signin", response_model=TokenOut)
 def signin(payload: SignInRequest):
     email = str(payload.email).lower().strip()
+    logger.debug("signin start email=%s", email)
     try:
         result = get_supabase().auth.sign_in_with_password(
             {"email": email, "password": payload.password}
         )
     except Exception as exc:
+        logger.debug("signin failed email=%s detail=%s", email, exc)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -143,17 +196,22 @@ def signin(payload: SignInRequest):
     user = getattr(result, "user", None)
     session = getattr(result, "session", None)
     if user is None or session is None:
+        logger.debug("signin failed: missing user/session email=%s", email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
         )
-    return _token_out(session, user)
+
+    token = _token_out(session, user)
+    logger.debug("signin ok user_id=%s role=%s", token.user_id, token.role)
+    return token
 
 
 @router.post("/forgot-password", response_model=AuthMessageOut)
 def forgot_password(payload: ForgotPasswordRequest):
     email = str(payload.email).lower().strip()
     redirect = _clean_optional(settings.password_reset_redirect_url)
+    logger.debug("forgot-password start email=%s redirect=%s", email, bool(redirect))
 
     try:
         if redirect:
@@ -163,11 +221,13 @@ def forgot_password(payload: ForgotPasswordRequest):
         else:
             get_supabase().auth.reset_password_email(email)
     except Exception as exc:
+        logger.debug("forgot-password error email=%s detail=%s", email, exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=_supabase_error_detail(exc),
         ) from exc
 
+    logger.debug("forgot-password ok email=%s", email)
     return AuthMessageOut(
         message="If an account exists for that email, a password reset link has been sent."
     )
@@ -175,6 +235,7 @@ def forgot_password(payload: ForgotPasswordRequest):
 
 @router.get("/me", response_model=UserOut)
 def me(user: AuthUser = Depends(get_current_user)):
+    logger.debug("me user_id=%s email=%s role=%s", user.id, user.email, user.role)
     return UserOut(
         id=user.id,
         email=user.email,

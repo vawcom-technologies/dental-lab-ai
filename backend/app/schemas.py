@@ -53,6 +53,32 @@ class UserOut(BaseModel):
     phone: str | None = None
 
 
+# ── Admin / profiles ───────────────────────────────────────────────────────────
+
+class ProfileOut(BaseModel):
+    id: str
+    name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    role: str | None = None
+    clinic_name: str | None = None
+    verified: bool = False
+    deleted: bool = False
+    updated_at: datetime | None = None
+
+
+class ProfileListOut(BaseModel):
+    items: list[ProfileOut]
+    skip: int
+    limit: int
+    count: int
+
+
+class ProfileActionOut(BaseModel):
+    message: str
+    user: ProfileOut | None = None
+
+
 # ── Patients ──────────────────────────────────────────────────────────────────
 
 class PatientCreate(BaseModel):
