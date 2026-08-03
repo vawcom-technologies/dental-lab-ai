@@ -67,6 +67,7 @@ class AppLocalizations {
   String get roleLab => _t('auth.roleLab');
   String get alreadyHaveAccount => _t('auth.alreadyHaveAccount');
   String get errNameEmailPassword => _t('auth.errNameEmailPassword');
+  String get errAllFieldsRequired => _t('auth.errAllFieldsRequired');
   String get errPasswordShort => _t('auth.errPasswordShort');
   String get errPasswordMismatch => _t('auth.errPasswordMismatch');
   String get errEmailRequired => _t('auth.errEmailRequired');
@@ -348,13 +349,14 @@ class AppLocalizations {
     'auth.registerTitle': 'Create profile',
     'auth.registerSubtitle': 'Register a dentist or lab account for Elite Dent',
     'auth.fullName': 'Full name *',
-    'auth.clinic': 'Clinic Name',
-    'auth.phone': 'Phone',
+    'auth.clinic': 'Clinic name *',
+    'auth.phone': 'Phone *',
     'auth.confirmPassword': 'Confirm password',
     'auth.roleDentist': 'Dentist',
     'auth.roleLab': 'Lab',
     'auth.alreadyHaveAccount': 'Already have an account? Sign in',
     'auth.errNameEmailPassword': 'Name, email, and password are required',
+    'auth.errAllFieldsRequired': 'All fields are required',
     'auth.errPasswordShort': 'Password must be at least 6 characters',
     'auth.errPasswordMismatch': 'Passwords do not match',
     'auth.errEmailRequired': 'Email is required',
@@ -598,13 +600,14 @@ class AppLocalizations {
     'auth.registerSubtitle':
         'Zahnarzt- oder Laborkonto für Elite Dent registrieren',
     'auth.fullName': 'Vollständiger Name *',
-    'auth.clinic': 'Praxis / Klinik',
-    'auth.phone': 'Telefon',
+    'auth.clinic': 'Praxisname *',
+    'auth.phone': 'Telefon *',
     'auth.confirmPassword': 'Passwort bestätigen',
     'auth.roleDentist': 'Zahnarzt',
     'auth.roleLab': 'Labor',
     'auth.alreadyHaveAccount': 'Bereits ein Konto? Anmelden',
     'auth.errNameEmailPassword': 'Name, E-Mail und Passwort sind erforderlich',
+    'auth.errAllFieldsRequired': 'Alle Felder sind erforderlich',
     'auth.errPasswordShort': 'Passwort muss mindestens 6 Zeichen haben',
     'auth.errPasswordMismatch': 'Passwörter stimmen nicht überein',
     'auth.errEmailRequired': 'E-Mail ist erforderlich',

@@ -24,7 +24,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _phone = TextEditingController();
   final _password = TextEditingController();
   final _confirm = TextEditingController();
-  String _role = 'dentist';
   bool _loading = false;
   String? _error;
   String? _info;
@@ -43,11 +42,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _submit() async {
     final name = _name.text.trim();
     final email = _email.text.trim();
+    final clinic = _clinic.text.trim();
+    final phone = _phone.text.trim();
     final password = _password.text;
     final loc = AppLocalizations.of(context);
-    if (name.isEmpty || email.isEmpty || password.isEmpty) {
+    if (name.isEmpty ||
+        email.isEmpty ||
+        clinic.isEmpty ||
+        phone.isEmpty ||
+        password.isEmpty ||
+        _confirm.text.isEmpty) {
       setState(() {
-        _error = loc.errNameEmailPassword;
+        _error = loc.errAllFieldsRequired;
         _info = null;
       });
       return;
@@ -76,8 +82,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
         email: email,
         name: name,
         password: password,
-        clinicName: _clinic.text.trim().isEmpty ? null : _clinic.text.trim(),
-        phone: _phone.text.trim().isEmpty ? null : _phone.text.trim(),
+        clinicName: clinic,
+        phone: phone,
       );
       if (!mounted) return;
 
@@ -171,7 +177,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 TextField(
                   controller: _confirm,
                   obscureText: true,
-                  decoration: InputDecoration(labelText: '${loc.confirmPassword} *'),
+                  decoration: InputDecoration(
+                    labelText: '${loc.confirmPassword} *',
+                  ),
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
