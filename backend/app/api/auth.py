@@ -5,10 +5,11 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
 from app.core.config import settings
 from app.core.security import AuthUser, get_current_user, user_from_supabase
-from app.core.supabase_client import get_supabase
+from app.core.supabase_client import get_supabase, get_supabase_admin
 from app.schemas import (
     AuthMessageOut,
     ForgotPasswordRequest,
+    PasswordChange,
     SignInRequest,
     SignUpRequest,
     TokenOut,
@@ -307,3 +308,59 @@ def me(user: AuthUser = Depends(get_current_user)):
         clinic_name=user.clinic_name,
         phone=user.phone,
     )
+
+
+@router.post("/me/password", response_model=AuthMessageOut)
+def change_password(
+    payload: PasswordChange,
+    user: AuthUser = Depends(get_current_user),
+):
+    """Change password for the authenticated user (requires current password)."""
+    logger.debug("change_password start user_id=%s email=%s", user.id, user.email)
+
+    if payload.current_password == payload.new_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from the current password",
+        )
+
+    # Verify current password against Supabase Auth
+    try:
+        verified = get_supabase().auth.sign_in_with_password(
+            {"email": user.email, "password": payload.current_password}
+        )
+    except Exception as exc:
+        logger.debug(
+            "change_password current password invalid user_id=%s detail=%s",
+            user.id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        ) from exc
+
+    if getattr(verified, "user", None) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+
+    try:
+        get_supabase_admin().auth.admin.update_user_by_id(
+            user.id,
+            {"password": payload.new_password},
+        )
+    except Exception as exc:
+        logger.debug(
+            "change_password update failed user_id=%s detail=%s",
+            user.id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_supabase_error_detail(exc),
+        ) from exc
+
+    logger.debug("change_password ok user_id=%s", user.id)
+    return AuthMessageOut(message="Password updated")

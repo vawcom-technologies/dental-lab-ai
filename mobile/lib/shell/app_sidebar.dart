@@ -20,7 +20,6 @@ enum AppNavItem {
   notifications,
   reports,
   settings,
-  profile,
 }
 
 class AppSidebar extends StatelessWidget {
@@ -129,7 +128,6 @@ class AppSidebar extends StatelessWidget {
                     color: AppColors.border.withValues(alpha: 0.6),
                   ),
                   _item(AppNavItem.settings, Icons.settings_outlined, s.navSettings),
-                  _item(AppNavItem.profile, Icons.person_outline, s.navProfile),
                 ],
               ),
             ),
