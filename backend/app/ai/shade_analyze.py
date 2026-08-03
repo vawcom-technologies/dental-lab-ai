@@ -18,8 +18,7 @@ from app.ai.shade_geometry import (
     simplify_normalized_outline,
     tooth_display_geometry,
 )
-from app.ai.shade_result import ZoneShadeState, apply_detection
-from app.ai.shade_segment import ToothMask, detect_teeth
+from app.ai.shade_segment import ToothMask, detect_teeth, mask_confidence
 from app.ai.shade_zones import ZONES, sample_zone_lab, split_tooth_zones
 
 # ASSUMPTION: Match legacy matcher resize — keeps chairside latency acceptable.
@@ -28,7 +27,7 @@ _MAX_SIDE = 800
 _MIN_ZONE_PIXELS_FOR_SPLIT = 12
 
 
-def analyze_shade_from_bytes(data: bytes) -> dict[str, Any]:
+def _load_rgb_from_bytes(data: bytes) -> np.ndarray:
     image = Image.open(io.BytesIO(data))
     try:
         image = ImageOps.exif_transpose(image)
@@ -42,8 +41,25 @@ def analyze_shade_from_bytes(data: bytes) -> dict[str, Any]:
             (max(1, int(w0 * scale)), max(1, int(h0 * scale))),
             Image.Resampling.BILINEAR,
         )
-    rgb = np.asarray(image, dtype=np.uint8)
-    return analyze_shade_from_rgb(rgb)
+    return np.asarray(image, dtype=np.uint8)
+
+
+def _maybe_downscale_rgb(arr: np.ndarray) -> np.ndarray:
+    h, w, _ = arr.shape
+    if max(h, w) <= _MAX_SIDE:
+        return arr
+    scale = _MAX_SIDE / max(h, w)
+    import cv2
+
+    return cv2.resize(
+        arr,
+        (max(1, int(w * scale)), max(1, int(h * scale))),
+        interpolation=cv2.INTER_AREA,
+    )
+
+
+def analyze_shade_from_bytes(data: bytes) -> dict[str, Any]:
+    return analyze_shade_from_rgb(_load_rgb_from_bytes(data))
 
 
 def analyze_shade_from_rgb(image_rgb: np.ndarray) -> dict[str, Any]:
@@ -52,18 +68,7 @@ def analyze_shade_from_rgb(image_rgb: np.ndarray) -> dict[str, Any]:
     if arr.ndim != 3 or arr.shape[2] != 3:
         raise ValueError("image_rgb must be HxWx3")
 
-    # Ensure in-memory callers also stay bounded
-    h, w, _ = arr.shape
-    if max(h, w) > _MAX_SIDE:
-        scale = _MAX_SIDE / max(h, w)
-        import cv2
-
-        arr = cv2.resize(
-            arr,
-            (max(1, int(w * scale)), max(1, int(h * scale))),
-            interpolation=cv2.INTER_AREA,
-        )
-
+    arr = _maybe_downscale_rgb(arr)
     teeth = detect_teeth(arr)
     # Only surface usable masks — fragments must not appear as T1..Tn in the UI.
     teeth = [t for t in teeth if not t.rejected]
@@ -101,21 +106,9 @@ def analyze_tooth_from_outline_bytes(
     Detection still owns auto-masks; this path lets the user nudge boundaries
     and refresh zone Lab / VITA matches without re-segmenting the whole arch.
     """
-    image = Image.open(io.BytesIO(data))
-    try:
-        image = ImageOps.exif_transpose(image)
-    except Exception:
-        pass
-    image = image.convert("RGB")
-    w0, h0 = image.size
-    if max(w0, h0) > _MAX_SIDE:
-        scale = _MAX_SIDE / max(w0, h0)
-        image = image.resize(
-            (max(1, int(w0 * scale)), max(1, int(h0 * scale))),
-            Image.Resampling.BILINEAR,
-        )
-    rgb = np.asarray(image, dtype=np.uint8)
-    return analyze_tooth_from_outline_rgb(rgb, outline, tooth_index=tooth_index)
+    return analyze_tooth_from_outline_rgb(
+        _load_rgb_from_bytes(data), outline, tooth_index=tooth_index
+    )
 
 
 def analyze_tooth_from_outline_rgb(
@@ -127,17 +120,8 @@ def analyze_tooth_from_outline_rgb(
     arr = np.asarray(image_rgb)
     if arr.ndim != 3 or arr.shape[2] != 3:
         raise ValueError("image_rgb must be HxWx3")
-    h, w, _ = arr.shape
-    if max(h, w) > _MAX_SIDE:
-        scale = _MAX_SIDE / max(h, w)
-        import cv2
-
-        arr = cv2.resize(
-            arr,
-            (max(1, int(w * scale)), max(1, int(h * scale))),
-            interpolation=cv2.INTER_AREA,
-        )
-        h, w = arr.shape[:2]
+    arr = _maybe_downscale_rgb(arr)
+    h, w = arr.shape[:2]
 
     # Keep the sparse edit skeleton (≈4–6 points); fillPoly does not need densify.
     handles = simplify_normalized_outline(outline, max_points=6, min_points=4)
@@ -148,7 +132,7 @@ def analyze_tooth_from_outline_rgb(
     tooth = ToothMask(
         tooth_index=tooth_index,
         mask=mask,
-        confidence=0.99,
+        confidence=mask_confidence(mask, h),
         rejected=False,
         reject_reason=None,
     )
@@ -219,17 +203,12 @@ def _match_zone(image_rgb: np.ndarray, zone_mask: np.ndarray) -> dict[str, Any]:
         return _empty_zone()
 
     matched = match_lab_nearest(lab, top_n=5)
-    # Fresh detection: override always null
-    state = apply_detection(
-        ZoneShadeState(),
-        detected_shade=matched["shade"],
-        delta_e_2000=matched["delta_e_2000"],
-    )
+    # Fresh detection: override always null → effective == detected
     return {
-        "detected_shade": state.detected_shade,
-        "delta_e_2000": round(float(state.delta_e_2000 or 0.0), 2),
-        "override_shade": state.override_shade,
-        "effective_shade": state.effective_shade,
+        "detected_shade": matched["shade"],
+        "delta_e_2000": round(float(matched["delta_e_2000"]), 2),
+        "override_shade": None,
+        "effective_shade": matched["shade"],
         "sampled_lab": [round(float(x), 2) for x in lab.tolist()],
         "top_matches": matched["top_matches"],
     }

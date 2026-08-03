@@ -1,4 +1,6 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui' show ImageFilter;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -30,7 +32,6 @@ class _ShadePageState extends State<ShadePage> {
   String _selected = '—';
   String _detected = '—';
   double _confidence = 0.0;
-  String? _note;
   String? _finalShade;
   bool _busy = false;
   bool _saving = false;
@@ -40,7 +41,9 @@ class _ShadePageState extends State<ShadePage> {
   Uint8List? _previewBytes;
   String _previewFilename = 'tooth.jpg';
   List<Map<String, dynamic>> _topMatches = [];
-  final List<Map<String, dynamic>> _history = [];
+  /// Aggregated across all teeth/zones for the Result card (not zone-similar).
+  List<Map<String, dynamic>> _overallTopMatches = [];
+  List<Map<String, dynamic>> _history = [];
 
   // Per-tooth / per-zone analysis (added onto existing UI)
   List<Map<String, dynamic>> _teeth = [];
@@ -48,12 +51,18 @@ class _ShadePageState extends State<ShadePage> {
   String _focusZone = 'middle';
   int? _analysisId;
   Size _analysisImageSize = Size.zero;
+  /// Shade picked in Manual Override but not yet committed via zone Override.
+  String? _pendingShade;
+  /// Result-card overall Top match pick — Save override without zone Override.
+  bool _overallShadePick = false;
 
   // Manual outline nudge (dentist adjusts auto edges slightly)
   bool _editOutlineMode = false;
   List<List<double>>? _editOutline;
   List<List<double>>? _editOutlineBackup;
   int? _activeHandleIndex;
+
+  final _manualOverrideKey = GlobalKey();
 
   final _vita = const [
     'A1', 'A2', 'A3', 'A3.5', 'A4',
@@ -109,6 +118,106 @@ class _ShadePageState extends State<ShadePage> {
   bool _zoneOverridden(Map<String, dynamic>? zone) =>
       zone != null && zone['override_shade'] != null;
 
+  int? _currentCaseId() {
+    final id = _case?['id'];
+    return id is num ? id.toInt() : null;
+  }
+
+  int _historyIndexForCase(int caseId) {
+    final byCase = _history.indexWhere(
+      (h) => (h['case_id'] as num?)?.toInt() == caseId,
+    );
+    if (byCase >= 0) return byCase;
+    // Fallback for older session rows / same client this visit.
+    final patientId = _patient == null ? null : _pid(_patient!);
+    if (patientId == null) return -1;
+    return _history.indexWhere(
+      (h) => (h['patient_id'] as num?)?.toInt() == patientId,
+    );
+  }
+
+  bool _teethHaveAnyOverride() {
+    for (final t in _teeth) {
+      for (final z in _zones) {
+        if (_zoneOverridden(_zoneOf(t, z))) return true;
+      }
+    }
+    return false;
+  }
+
+  Map<String, dynamic> _sessionEntryFromCurrent({
+    Object? savedId,
+    String? summaryShade,
+    bool? hasOverride,
+  }) {
+    final caseId = _currentCaseId();
+    final teethSnapshots = _teeth.map((t) {
+      final zones = <String, String?>{};
+      for (final z in _zones) {
+        zones[z] = _zoneEffective(_zoneOf(t, z));
+      }
+      return {
+        'tooth_index': t['tooth_index'],
+        'label': t['label'] ??
+            'Tooth ${((t['tooth_index'] as num?)?.toInt() ?? 0) + 1}',
+        'zones': zones,
+        'rejected': t['rejected'] == true,
+      };
+    }).toList();
+
+    String? shade = summaryShade;
+    if (shade == null || shade.isEmpty) {
+      final tooth =
+          _selectedTooth ?? (_teeth.isNotEmpty ? _teeth.first : null);
+      if (tooth != null) {
+        shade = _zoneEffective(_zoneOf(tooth, 'middle')) ??
+            _zoneEffective(_zoneOf(tooth, _focusZone));
+      }
+      shade ??= _selected == '—' ? null : _selected;
+    }
+
+    return {
+      'id': savedId,
+      'case_id': caseId,
+      'patient_id': _patient == null ? null : _pid(_patient!),
+      'name':
+          '${_patient?['first_name'] ?? ''} ${_patient?['last_name'] ?? ''}'
+              .trim(),
+      'shade': shade ?? '—',
+      'conf': _confidence,
+      'override': hasOverride ?? _teethHaveAnyOverride(),
+      'is_analysis': _teeth.isNotEmpty,
+      'tooth_count': _teeth.length,
+      'teeth': teethSnapshots,
+    };
+  }
+
+  /// Replace-or-insert the Session row for the active case.
+  /// When [onlyIfExists] is true, skip if this client was never saved this visit.
+  void _upsertSessionEntry({
+    Object? savedId,
+    String? summaryShade,
+    bool? hasOverride,
+    bool onlyIfExists = false,
+  }) {
+    final caseId = _currentCaseId();
+    if (caseId == null) return;
+    final existing = _historyIndexForCase(caseId);
+    if (onlyIfExists && existing < 0) return;
+
+    final prevId = existing >= 0 ? _history[existing]['id'] : null;
+    final entry = _sessionEntryFromCurrent(
+      savedId: savedId ?? prevId,
+      summaryShade: summaryShade,
+      hasOverride: hasOverride,
+    );
+    _history = [
+      entry,
+      for (var i = 0; i < _history.length; i++)
+        if (i != existing) _history[i],
+    ];
+  }
+
   List<Map<String, dynamic>> _parseTeeth(dynamic raw) {
     if (raw is! List) return [];
     return raw.map((e) {
@@ -124,7 +233,7 @@ class _ShadePageState extends State<ShadePage> {
     }).toList();
   }
 
-  /// Sync the existing Result / Top matches / swatch selection from the focused tooth+zone.
+  /// Sync Result / Similar shades / selection from the focused tooth+zone.
   void _syncUiFromSelection({bool resetSelectedToDetected = true}) {
     final tooth = _selectedTooth;
     if (tooth == null) {
@@ -132,13 +241,14 @@ class _ShadePageState extends State<ShadePage> {
       _confidence = 0;
       _topMatches = [];
       if (resetSelectedToDetected) _selected = '—';
+      _recomputeOverallTopMatches();
       return;
     }
     final zone = _zoneOf(tooth, _focusZone) ?? _zoneOf(tooth, 'middle');
     final detected = zone?['detected_shade'] as String?;
     final effective = _zoneEffective(zone);
     _detected = detected ?? '—';
-    _confidence = (tooth['confidence'] as num?)?.toDouble() ?? 0;
+    _confidence = _shadeMatchConfidence(zone, tooth);
     if (resetSelectedToDetected) {
       _selected = effective ?? detected ?? '—';
     }
@@ -152,16 +262,176 @@ class _ShadePageState extends State<ShadePage> {
     } else {
       _topMatches = [];
     }
+    _recomputeOverallTopMatches();
+  }
+
+  /// Shade-match confidence from CIEDE2000 (Result %), not segmentation fill.
+  double _shadeMatchConfidence(
+    Map<String, dynamic>? zone,
+    Map<String, dynamic>? tooth,
+  ) {
+    final de = (zone?['delta_e_2000'] as num?)?.toDouble();
+    if (de != null) {
+      // ΔE 0 → ~0.97, ΔE 1 → ~0.78, ΔE 2 → ~0.64, ΔE 3.5 → ~0.50, ΔE 7 → ~0.33
+      return (1.0 / (1.0 + de / 3.5)).clamp(0.05, 0.97);
+    }
+    return (tooth?['confidence'] as num?)?.toDouble() ?? 0;
+  }
+
+  /// Most prominent shades across the whole analysis (Result "Top matches").
+  void _recomputeOverallTopMatches() {
+    final weight = <String, double>{};
+    final bestDe = <String, double>{};
+
+    void bump(String shade, double w, double? de) {
+      if (shade.isEmpty || shade == '—') return;
+      weight[shade] = (weight[shade] ?? 0) + w;
+      if (de != null) {
+        final prev = bestDe[shade];
+        if (prev == null || de < prev) bestDe[shade] = de;
+      }
+    }
+
+    for (final t in _teeth) {
+      if (t['rejected'] == true) continue;
+      for (final zName in _zones) {
+        final z = _zoneOf(t, zName);
+        if (z == null) continue;
+        final zoneW = zName == 'middle' ? 3.0 : 1.0;
+        final detected = z['detected_shade'] as String?;
+        final de = (z['delta_e_2000'] as num?)?.toDouble();
+        if (detected != null) {
+          bump(detected, zoneW * 2.5, de);
+        }
+        final tops = z['top_matches'];
+        if (tops is! List) continue;
+        for (var i = 0; i < tops.length; i++) {
+          final m = tops[i];
+          if (m is! Map) continue;
+          final s = m['shade']?.toString();
+          if (s == null || s.isEmpty) continue;
+          final mde = (m['delta_e_2000'] as num?)?.toDouble() ?? de;
+          bump(s, zoneW * (1.0 / (1.0 + i)) * 0.45, mde);
+        }
+      }
+    }
+
+    final ranked = weight.keys.toList()
+      ..sort((a, b) {
+        final sa = (weight[a] ?? 0) / (1.0 + (bestDe[a] ?? 9));
+        final sb = (weight[b] ?? 0) / (1.0 + (bestDe[b] ?? 9));
+        final c = sb.compareTo(sa);
+        if (c != 0) return c;
+        return (bestDe[a] ?? 99).compareTo(bestDe[b] ?? 99);
+      });
+
+    _overallTopMatches = [
+      for (final s in ranked.take(5))
+        {
+          'shade': s,
+          if (bestDe[s] != null)
+            'delta_e_2000': double.parse(bestDe[s]!.toStringAsFixed(2)),
+        },
+    ];
+  }
+
+  void _ensureToothFocused() {
+    if (_selectedToothIndex != null || _teeth.isEmpty) return;
+    Map<String, dynamic>? first;
+    for (final t in _teeth) {
+      if (t['rejected'] != true) {
+        first = t;
+        break;
+      }
+    }
+    first ??= _teeth.first;
+    _selectedToothIndex = (first['tooth_index'] as num).toInt();
+    _focusZone = 'middle';
+    _syncUiFromSelection(resetSelectedToDetected: false);
   }
 
   void _selectTooth(int index, {String? zone}) {
     if (_editOutlineMode) return; // finish or cancel edit first
     setState(() {
+      final same =
+          _selectedToothIndex == index && (zone == null || zone == _focusZone);
       _selectedToothIndex = index;
       _focusZone = zone ?? 'middle';
-      _syncUiFromSelection();
+      if (!same) {
+        _pendingShade = null;
+        _overallShadePick = false;
+      }
+      _syncUiFromSelection(resetSelectedToDetected: _pendingShade == null);
+      if (_pendingShade != null) _selected = _pendingShade!;
       _saveStatus = null;
     });
+  }
+
+  void _commitPendingOverride({required int index, required String zone}) {
+    final shade = _pendingShade;
+    if (shade == null || shade == '—' || !_vita.contains(shade)) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Choose a shade first, then tap Override'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+    setState(() {
+      _selectedToothIndex = index;
+      _focusZone = zone;
+      final tooth = _selectedTooth;
+      final z = tooth == null ? null : _zoneOf(tooth, zone);
+      if (z != null) {
+        final detected = z['detected_shade'] as String?;
+        z['override_shade'] =
+            (detected != null && shade == detected) ? null : shade;
+      }
+      _selected = shade;
+      _pendingShade = null;
+      _overallShadePick = false;
+      _syncUiFromSelection(resetSelectedToDetected: false);
+      _selected = shade;
+      _saveStatus = null;
+      // Keep an already-saved Session row in sync without a re-save.
+      _upsertSessionEntry(onlyIfExists: true);
+    });
+    final zoneLabel = zone[0].toUpperCase() + zone.substring(1);
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Tooth ${index + 1} · $zoneLabel → $shade'),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+        backgroundColor: AppColors.success,
+      ),
+    );
+  }
+
+  void _beginZoneOverride(int index, String zone) {
+    if (_editOutlineMode || _busy) return;
+    if (_pendingShade != null) {
+      _commitPendingOverride(index: index, zone: zone);
+      return;
+    }
+    // No pending pick — focus the zone so Manual Override targets it.
+    _selectTooth(index, zone: zone);
+    if (!mounted) return;
+    final zoneLabel = zone[0].toUpperCase() + zone.substring(1);
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Tooth ${index + 1} · $zoneLabel — choose a shade, then tap Override',
+        ),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+        backgroundColor: AppColors.navy,
+      ),
+    );
   }
 
   void _deleteSelectedTooth() {
@@ -201,8 +471,92 @@ class _ShadePageState extends State<ShadePage> {
         _saveStatus =
             'Removed tooth. ${remaining.length} remaining (renumbered left → right).';
       }
+      _upsertSessionEntry(onlyIfExists: true);
     });
     AppHaptics.warn();
+  }
+
+  Map<String, dynamic> _emptyZone() => {
+        'detected_shade': null,
+        'delta_e_2000': null,
+        'override_shade': null,
+        'effective_shade': null,
+        'sampled_lab': null,
+        'top_matches': <Map<String, dynamic>>[],
+      };
+
+  void _addTooth() {
+    if (_editOutlineMode || _busy) return;
+    if (_previewBytes == null) {
+      setState(() => _error = 'Upload a photo before adding a tooth.');
+      return;
+    }
+    if (_teeth.length >= 12) {
+      setState(() => _error = 'Maximum of 12 teeth on this analysis.');
+      return;
+    }
+
+    // Place the new outline to the right of the current rightmost crown.
+    var cx = 0.50;
+    var cy = 0.48;
+    if (_teeth.isNotEmpty) {
+      var maxX = 0.0;
+      var sumY = 0.0;
+      var n = 0;
+      for (final t in _teeth) {
+        maxX = math.max(maxX, _toothSortX(t));
+        final geo = t['geometry'];
+        if (geo is Map && geo['label'] is Map && geo['label']['y'] is num) {
+          sumY += (geo['label']['y'] as num).toDouble();
+          n++;
+        }
+      }
+      cx = (maxX + 0.07).clamp(0.08, 0.92);
+      if (n > 0) cy = (sumY / n + 0.04).clamp(0.28, 0.72);
+    }
+    const hw = 0.035;
+    const hh = 0.07;
+    final outline = <List<double>>[
+      [cx - hw, cy - hh],
+      [cx + hw, cy - hh],
+      [cx + hw, cy + hh],
+      [cx - hw, cy + hh],
+    ];
+    final idx = _teeth.length;
+    final tooth = <String, dynamic>{
+      'tooth_index': idx,
+      'label': 'Tooth ${idx + 1}',
+      'confidence': 0.5,
+      'rejected': false,
+      'reject_reason': null,
+      'zones': {for (final z in _zones) z: _emptyZone()},
+      'geometry': {
+        'outline': outline,
+        'bbox': {
+          'x': cx - hw,
+          'y': cy - hh,
+          'w': hw * 2,
+          'h': hh * 2,
+        },
+        'label': {'x': cx, 'y': (cy - hh - 0.02).clamp(0.0, 1.0)},
+        'zone_lines': <List<List<double>>>[],
+        'zone_outlines': <String, dynamic>{},
+        'edited': true,
+      },
+    };
+
+    setState(() {
+      _teeth = [..._teeth, tooth];
+      _analysisId = null;
+      _selectedToothIndex = idx;
+      _focusZone = 'middle';
+      _error = null;
+      _syncUiFromSelection();
+      _saveStatus =
+          'Added Tooth ${idx + 1} — Adjust edges to map it, then set shades.';
+      _upsertSessionEntry(onlyIfExists: true);
+    });
+    AppHaptics.success();
   }
 
   double _toothSortX(Map<String, dynamic> tooth) {
@@ -305,19 +659,65 @@ class _ShadePageState extends State<ShadePage> {
   }
 
   void _applyShadeChoice(String shade) {
+    if (shade.isEmpty || shade == '—' || !_vita.contains(shade)) return;
+
+    // Zone-level preview only — Override on the zone chip commits this pick.
+    // Used by Manual Override similar shades + VITA grid.
     setState(() {
+      _ensureToothFocused();
       _selected = shade;
+      _pendingShade = shade;
+      _overallShadePick = false;
       _saveStatus = null;
-      final tooth = _selectedTooth;
-      if (tooth != null) {
-        final zone = _zoneOf(tooth, _focusZone);
-        if (zone != null) {
-          // Keep detected; store dentist choice as override when it differs
-          final detected = zone['detected_shade'] as String?;
-          zone['override_shade'] = (detected != null && shade == detected) ? null : shade;
-        }
-      }
+      _error = null;
     });
+    if (!mounted) return;
+    if (_selectedToothIndex == null) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Select a tooth zone first'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+    final zoneLabel = _focusZone[0].toUpperCase() + _focusZone.substring(1);
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '$shade selected — tap Override on Tooth ${_selectedToothIndex! + 1} · $zoneLabel to apply',
+        ),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+        backgroundColor: AppColors.navy,
+      ),
+    );
+  }
+
+  /// Case-level pick from Result "Top matches" — Save override works immediately.
+  void _applyOverallShadeChoice(String shade) {
+    if (shade.isEmpty || shade == '—' || !_vita.contains(shade)) return;
+    setState(() {
+      _ensureToothFocused();
+      _selected = shade;
+      _pendingShade = null;
+      _overallShadePick = true;
+      _saveStatus = null;
+      _error = null;
+    });
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$shade selected — tap Save override to apply'),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+        backgroundColor: AppColors.navy,
+      ),
+    );
   }
 
   List<Map<String, dynamic>> _teethPayloadForSave() {
@@ -538,8 +938,6 @@ class _ShadePageState extends State<ShadePage> {
         final iw = (result['image_width'] as num?)?.toDouble() ?? 0;
         final ih = (result['image_height'] as num?)?.toDouble() ?? 0;
         _analysisImageSize = (iw > 0 && ih > 0) ? Size(iw, ih) : Size.zero;
-        _note = result['note'] as String? ??
-            'Per-tooth zone shades detected. Confirm or override below.';
         _finalShade = null;
         _syncUiFromSelection();
       });
@@ -568,11 +966,28 @@ class _ShadePageState extends State<ShadePage> {
       setState(() => _error = 'Pick a VITA shade before saving.');
       return;
     }
+    if (!acceptAi &&
+        _pendingShade != null &&
+        _pendingShade != '—' &&
+        _selectedTooth != null) {
+      final zone = _zoneOf(_selectedTooth!, _focusZone);
+      final committed = zone?['override_shade'] as String?;
+      if (committed != _pendingShade) {
+        setState(
+          () => _error =
+              'Tap Override on the zone chip to confirm $_pendingShade first.',
+        );
+        return;
+      }
+    }
 
-    // Stamp Accept AI / override onto the focused zone before save
+    // Stamp Accept AI / override onto the target zone before save.
+    // Overall Top-match picks apply to the body (middle) zone of the focused tooth.
     final tooth = _selectedTooth;
     if (tooth != null) {
-      final zone = _zoneOf(tooth, _focusZone);
+      final zoneName =
+          (!acceptAi && _overallShadePick) ? 'middle' : _focusZone;
+      final zone = _zoneOf(tooth, zoneName);
       if (zone != null) {
         final detected = zone['detected_shade'] as String?;
         if (acceptAi) {
@@ -584,6 +999,9 @@ class _ShadePageState extends State<ShadePage> {
         } else {
           zone['override_shade'] = finalShade;
         }
+      }
+      if (!acceptAi && _overallShadePick) {
+        _focusZone = 'middle';
       }
     }
 
@@ -605,7 +1023,51 @@ class _ShadePageState extends State<ShadePage> {
         // Merge zone ids from server for later patches
         final serverTeeth = _parseTeeth(saved['teeth']);
         if (serverTeeth.isNotEmpty) {
-          _teeth = serverTeeth;
+          // Keep local outlines after save — API tooth serialize omits geometry.
+          final byIndex = {
+            for (final t in _teeth)
+              (t['tooth_index'] as num?)?.toInt(): t,
+          };
+          _teeth = [
+            for (final st in serverTeeth)
+              () {
+                final row = Map<String, dynamic>.from(st);
+                final idx = (st['tooth_index'] as num?)?.toInt();
+                final local = idx == null ? null : byIndex[idx];
+                if (local != null && local['geometry'] != null) {
+                  row['geometry'] = local['geometry'];
+                }
+                if (local != null && local['label'] != null) {
+                  row['label'] = local['label'];
+                }
+                // Keep top_matches / Lab samples — API serialize omits them.
+                final localZones = local?['zones'];
+                final serverZones = row['zones'];
+                if (localZones is Map && serverZones is Map) {
+                  final mergedZones = <String, dynamic>{};
+                  for (final name in _zones) {
+                    final sz = serverZones[name];
+                    final lz = localZones[name];
+                    if (sz is Map) {
+                      final z = Map<String, dynamic>.from(sz);
+                      if (lz is Map) {
+                        if (z['top_matches'] == null && lz['top_matches'] != null) {
+                          z['top_matches'] = lz['top_matches'];
+                        }
+                        if (z['sampled_lab'] == null && lz['sampled_lab'] != null) {
+                          z['sampled_lab'] = lz['sampled_lab'];
+                        }
+                      }
+                      mergedZones[name] = z;
+                    } else if (lz is Map) {
+                      mergedZones[name] = Map<String, dynamic>.from(lz);
+                    }
+                  }
+                  row['zones'] = mergedZones;
+                }
+                return row;
+              }(),
+          ];
           _syncUiFromSelection(resetSelectedToDetected: false);
           _selected = finalShade;
         }
@@ -626,19 +1088,16 @@ class _ShadePageState extends State<ShadePage> {
       setState(() {
         _finalShade = finalShade;
         _selected = finalShade;
+        _pendingShade = null;
+        _overallShadePick = false;
         _saveStatus = overridden
             ? 'Saved override $finalShade on case #${_case!['id']}'
             : 'Accepted AI $finalShade on case #${_case!['id']}';
-        _history.insert(0, {
-          'id': saved['id'],
-          'case_id': _case!['id'],
-          'name':
-              '${_patient?['first_name'] ?? ''} ${_patient?['last_name'] ?? ''}'.trim(),
-          'shade': finalShade,
-          'conf': _confidence,
-          'override': overridden || saved['has_override'] == true,
-          'is_analysis': _teeth.isNotEmpty,
-        });
+        _upsertSessionEntry(
+          savedId: saved['id'],
+          summaryShade: saved['summary_shade']?.toString() ?? finalShade,
+          hasOverride: overridden || saved['has_override'] == true,
+        );
       });
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
@@ -706,6 +1165,177 @@ class _ShadePageState extends State<ShadePage> {
     }
   }
 
+  static const _actionBtnText = TextStyle(
+    fontSize: 11,
+    fontWeight: FontWeight.w600,
+  );
+
+  ButtonStyle _compactActionFilled(Color bg, {double minH = 34, double fontSize = 11}) =>
+      FilledButton.styleFrom(
+        backgroundColor: bg,
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        minimumSize: Size(0, minH),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        textStyle: _actionBtnText.copyWith(fontSize: fontSize),
+      );
+
+  ButtonStyle _compactActionOutlined({
+    required Color fg,
+    required Color side,
+    double minH = 34,
+    double fontSize = 11,
+  }) =>
+      OutlinedButton.styleFrom(
+        foregroundColor: fg,
+        side: BorderSide(color: side),
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        minimumSize: Size(0, minH),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        textStyle: _actionBtnText.copyWith(fontSize: fontSize),
+      );
+
+  Widget _toothActionBar(double maxWidth) {
+    final wide = maxWidth >= 520;
+    final gap = wide ? 10.0 : 6.0;
+    final iconSize = wide ? 16.0 : 14.0;
+    final fontSize = wide ? 13.0 : 11.0;
+    final minH = wide ? 42.0 : 36.0;
+    final padH = wide ? 14.0 : 10.0;
+    final padV = wide ? 10.0 : 8.0;
+
+    Widget label(String text) => FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(text, maxLines: 1, softWrap: false),
+        );
+
+    final Row actions;
+    if (_editOutlineMode) {
+      actions = Row(
+        children: [
+          Expanded(
+            child: OutlinedButton(
+              onPressed: _cancelOutlineEdit,
+              style: _compactActionOutlined(
+                fg: AppColors.navy,
+                side: AppColors.border,
+                minH: minH,
+                fontSize: fontSize,
+              ),
+              child: label('Cancel'),
+            ),
+          ),
+          SizedBox(width: gap),
+          Expanded(
+            child: OutlinedButton(
+              onPressed: () {
+                final bak = _editOutlineBackup;
+                if (bak == null) return;
+                setState(() {
+                  _editOutline = bak.map((p) => [p[0], p[1]]).toList();
+                  _activeHandleIndex = null;
+                });
+              },
+              style: _compactActionOutlined(
+                fg: AppColors.muted,
+                side: AppColors.border,
+                minH: minH,
+                fontSize: fontSize,
+              ),
+              child: label('Reset'),
+            ),
+          ),
+          SizedBox(width: gap),
+          Expanded(
+            flex: 2,
+            child: FilledButton.icon(
+              onPressed: _applyOutlineEdit,
+              icon: Icon(Icons.check, size: iconSize),
+              label: label('Apply'),
+              style: _compactActionFilled(
+                AppColors.dentalBlue,
+                minH: minH,
+                fontSize: fontSize,
+              ),
+            ),
+          ),
+        ],
+      );
+    } else {
+      final canEditTooth = _selectedToothIndex != null;
+      actions = Row(
+        children: [
+          Expanded(
+            child: FilledButton.icon(
+              onPressed: canEditTooth ? _startOutlineEdit : null,
+              icon: Icon(Icons.open_with, size: iconSize),
+              label: label('Adjust edges'),
+              style: _compactActionFilled(
+                AppColors.navy,
+                minH: minH,
+                fontSize: fontSize,
+              ),
+            ),
+          ),
+          SizedBox(width: gap),
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: canEditTooth ? _deleteSelectedTooth : null,
+              icon: Icon(Icons.delete_outline, size: iconSize),
+              label: label('Delete'),
+              style: _compactActionOutlined(
+                fg: AppColors.danger,
+                side: AppColors.danger,
+                minH: minH,
+                fontSize: fontSize,
+              ),
+            ),
+          ),
+          SizedBox(width: gap),
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: _addTooth,
+              icon: Icon(Icons.add, size: iconSize),
+              label: label('Add tooth'),
+              style: _compactActionOutlined(
+                fg: AppColors.navy,
+                side: AppColors.navy,
+                minH: minH,
+                fontSize: fontSize,
+              ),
+            ),
+          ),
+          SizedBox(width: gap),
+          Expanded(
+            child: FilledButton.icon(
+              onPressed: _runAiFromGallery,
+              icon: Icon(Icons.upload_file, size: iconSize),
+              label: label(_previewBytes == null ? 'Upload' : 'Re-upload'),
+              style: _compactActionFilled(
+                AppColors.dentalBlue,
+                minH: minH,
+                fontSize: fontSize,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.neo,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
+        child: actions,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
@@ -760,31 +1390,47 @@ class _ShadePageState extends State<ShadePage> {
               ),
             ],
           ),
-          if (_saveStatus != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                _saveStatus!,
-                style: const TextStyle(color: AppColors.success),
-              ),
+          SizedBox(
+            height: 28,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: _error != null
+                  ? Text(
+                      _error!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: AppColors.danger),
+                    )
+                  : (_saveStatus != null
+                      ? Text(
+                          _saveStatus!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: AppColors.success),
+                        )
+                      : null),
             ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(_error!, style: const TextStyle(color: AppColors.danger)),
-            ),
-          const SizedBox(height: 16),
+          ),
+          const SizedBox(height: 8),
           Expanded(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Expanded(
                   flex: 5,
-                  child: Column(
-                    children: [
-                      Expanded(
-                        child: Row(
-                          children: [
+                  child: LayoutBuilder(
+                    builder: (context, colConstraints) {
+                      final actionSlotH = 66.0;
+                      final overrideH = (colConstraints.maxHeight * 0.34)
+                          .clamp(170.0, 300.0);
+                      // Keep action bar mounted whenever a photo is loaded so
+                      // the photo Expanded never resizes on select / add.
+                      final showActions = !_busy && _previewBytes != null;
+                      return Column(
+                        children: [
+                          Expanded(
+                            child: Row(
+                              children: [
                             Expanded(
                               flex: 3,
                               child: SectionCard(
@@ -800,6 +1446,8 @@ class _ShadePageState extends State<ShadePage> {
                                           Image.memory(
                                             _previewBytes!,
                                             fit: BoxFit.contain,
+                                            gaplessPlayback: true,
+                                            filterQuality: FilterQuality.low,
                                           )
                                         else
                                           const Center(
@@ -946,39 +1594,15 @@ class _ShadePageState extends State<ShadePage> {
                                               ),
                                             ),
                                           ),
-                                        if (_detected != '—' && !_busy)
-                                          Positioned(
-                                            left: 12,
-                                            top: 12,
-                                            child: Container(
-                                              padding: const EdgeInsets.symmetric(
-                                                horizontal: 12,
-                                                vertical: 8,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: AppColors.navy,
-                                                borderRadius: BorderRadius.circular(10),
-                                              ),
-                                              child: Text(
-                                                _selectedToothIndex == null
-                                                    ? 'AI: $_detected · ${(_confidence * 100).round()}%'
-                                                    : 'T${_selectedToothIndex! + 1} · $_focusZone · $_detected',
-                                                style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontWeight: FontWeight.w700,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
                                         if (_teeth.isNotEmpty && !_busy)
                                           Positioned(
                                             left: 12,
                                             right: 12,
-                                            bottom: 56,
+                                            bottom: 12,
                                             child: Text(
                                               _editOutlineMode
                                                   ? 'Drag a few corner/side handles to reshape the tooth, then Apply.'
-                                                  : 'Tap a tooth to select. Adjust edges, or Delete tooth if one crown was split into two.',
+                                                  : 'Tap a tooth to select. Adjust edges, add, or delete.',
                                               textAlign: TextAlign.center,
                                               style: TextStyle(
                                                 color: Colors.white.withValues(alpha: 0.85),
@@ -993,173 +1617,15 @@ class _ShadePageState extends State<ShadePage> {
                                               ),
                                             ),
                                           ),
-                                        if (_teeth.isNotEmpty &&
-                                            !_busy &&
-                                            _selectedToothIndex != null)
+                                        if (!_busy &&
+                                            (_teeth.isEmpty ||
+                                                _selectedToothIndex == null))
                                           Positioned(
                                             left: 12,
                                             right: 12,
-                                            bottom: 12,
-                                            child: _editOutlineMode
-                                                ? Row(
-                                                    children: [
-                                                      Expanded(
-                                                        child: OutlinedButton(
-                                                          onPressed:
-                                                              _cancelOutlineEdit,
-                                                          style: OutlinedButton
-                                                              .styleFrom(
-                                                            foregroundColor:
-                                                                Colors.white,
-                                                            side:
-                                                                const BorderSide(
-                                                              color:
-                                                                  Colors.white70,
-                                                            ),
-                                                          ),
-                                                          child: const Text(
-                                                            'Cancel',
-                                                          ),
-                                                        ),
-                                                      ),
-                                                      const SizedBox(width: 8),
-                                                      Expanded(
-                                                        child: OutlinedButton(
-                                                          onPressed: () {
-                                                            final bak =
-                                                                _editOutlineBackup;
-                                                            if (bak == null) {
-                                                              return;
-                                                            }
-                                                            setState(() {
-                                                              _editOutline = bak
-                                                                  .map(
-                                                                    (p) => [
-                                                                      p[0],
-                                                                      p[1],
-                                                                    ],
-                                                                  )
-                                                                  .toList();
-                                                              _activeHandleIndex =
-                                                                  null;
-                                                            });
-                                                          },
-                                                          style: OutlinedButton
-                                                              .styleFrom(
-                                                            foregroundColor:
-                                                                Colors.white,
-                                                            side:
-                                                                const BorderSide(
-                                                              color:
-                                                                  Colors.white54,
-                                                            ),
-                                                          ),
-                                                          child: const Text(
-                                                            'Reset',
-                                                          ),
-                                                        ),
-                                                      ),
-                                                      const SizedBox(width: 8),
-                                                      Expanded(
-                                                        flex: 2,
-                                                        child: FilledButton.icon(
-                                                          onPressed:
-                                                              _applyOutlineEdit,
-                                                          icon: const Icon(
-                                                            Icons.check,
-                                                            size: 18,
-                                                          ),
-                                                          label: const Text(
-                                                            'Apply',
-                                                          ),
-                                                          style: FilledButton
-                                                              .styleFrom(
-                                                            backgroundColor:
-                                                                AppColors
-                                                                    .dentalBlue,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  )
-                                                : Row(
-                                                    children: [
-                                                      Expanded(
-                                                        child: FilledButton.icon(
-                                                          onPressed:
-                                                              _startOutlineEdit,
-                                                          icon: const Icon(
-                                                            Icons.open_with,
-                                                            size: 18,
-                                                          ),
-                                                          label: const Text(
-                                                            'Adjust edges',
-                                                          ),
-                                                          style: FilledButton
-                                                              .styleFrom(
-                                                            backgroundColor:
-                                                                AppColors.navy,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                      const SizedBox(width: 8),
-                                                      Expanded(
-                                                        child: OutlinedButton.icon(
-                                                          onPressed:
-                                                              _deleteSelectedTooth,
-                                                          icon: const Icon(
-                                                            Icons.delete_outline,
-                                                            size: 18,
-                                                          ),
-                                                          label: const Text(
-                                                            'Delete',
-                                                          ),
-                                                          style: OutlinedButton
-                                                              .styleFrom(
-                                                            foregroundColor:
-                                                                Colors.white,
-                                                            side:
-                                                                const BorderSide(
-                                                              color: Color(
-                                                                0xFFFF8A80,
-                                                              ),
-                                                            ),
-                                                          ),
-                                                        ),
-                                                      ),
-                                                      const SizedBox(width: 8),
-                                                      Expanded(
-                                                        child: FilledButton.icon(
-                                                          onPressed:
-                                                              _runAiFromGallery,
-                                                          icon: const Icon(
-                                                            Icons.upload_file,
-                                                            size: 18,
-                                                          ),
-                                                          label: Text(
-                                                            _previewBytes == null
-                                                                ? 'Upload'
-                                                                : 'Re-upload',
-                                                          ),
-                                                          style: FilledButton
-                                                              .styleFrom(
-                                                            backgroundColor:
-                                                                AppColors
-                                                                    .dentalBlue,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                          )
-                                        else
-                                          Positioned(
-                                            left: 12,
-                                            right: 12,
-                                            bottom: 12,
+                                            bottom: 48,
                                             child: FilledButton.icon(
-                                              onPressed:
-                                                  _busy ? null : _runAiFromGallery,
+                                              onPressed: _runAiFromGallery,
                                               icon: const Icon(
                                                 Icons.upload_file,
                                                 size: 18,
@@ -1204,15 +1670,6 @@ class _ShadePageState extends State<ShadePage> {
                                               ),
                                             ),
                                             if (_teeth.isNotEmpty) ...[
-                                              const SizedBox(height: 8),
-                                              const Text(
-                                                'Teeth (left → right on photo)',
-                                                style: TextStyle(
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: AppColors.muted,
-                                                ),
-                                              ),
                                               const SizedBox(height: 8),
                                               ..._teeth.map((t) {
                                                 final idx =
@@ -1365,12 +1822,23 @@ class _ShadePageState extends State<ShadePage> {
                                                                           zName.substring(
                                                                             1,
                                                                           ),
-                                                                      shade: _zoneEffective(
-                                                                        _zoneOf(
-                                                                          t,
-                                                                          zName,
-                                                                        ),
-                                                                      ),
+                                                                      shade: () {
+                                                                        final focusedZone =
+                                                                            active &&
+                                                                                _focusZone ==
+                                                                                    zName;
+                                                                        if (focusedZone &&
+                                                                            _pendingShade !=
+                                                                                null) {
+                                                                          return _pendingShade;
+                                                                        }
+                                                                        return _zoneEffective(
+                                                                          _zoneOf(
+                                                                            t,
+                                                                            zName,
+                                                                          ),
+                                                                        );
+                                                                      }(),
                                                                       overridden:
                                                                           _zoneOverridden(
                                                                         _zoneOf(
@@ -1378,6 +1846,11 @@ class _ShadePageState extends State<ShadePage> {
                                                                           zName,
                                                                         ),
                                                                       ),
+                                                                      pending: active &&
+                                                                          _focusZone ==
+                                                                              zName &&
+                                                                          _pendingShade !=
+                                                                              null,
                                                                       focused: active &&
                                                                           _focusZone ==
                                                                               zName,
@@ -1388,6 +1861,12 @@ class _ShadePageState extends State<ShadePage> {
                                                                           idx,
                                                                           zone:
                                                                               zName,
+                                                                        );
+                                                                      },
+                                                                      onOverride: () {
+                                                                        _beginZoneOverride(
+                                                                          idx,
+                                                                          zName,
                                                                         );
                                                                       },
                                                                     ),
@@ -1443,7 +1922,7 @@ class _ShadePageState extends State<ShadePage> {
                                                         const SizedBox(height: 2),
                                                         Text(
                                                           _confidence > 0
-                                                              ? '${(_confidence * 100).round()}% · $_focusZone zone'
+                                                              ? '${(_confidence * 100).round()}% match · $_focusZone'
                                                               : 'Upload a photo to analyze',
                                                           style: const TextStyle(
                                                             fontSize: 12,
@@ -1466,7 +1945,24 @@ class _ShadePageState extends State<ShadePage> {
                                                 color: AppColors.aiPurple,
                                               ),
                                             ),
-                                            if (_selected != '—' && _selected != _detected) ...[
+                                            if (_pendingShade != null) ...[
+                                              const SizedBox(height: 10),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                                decoration: BoxDecoration(
+                                                  color: AppColors.warningSoft,
+                                                  borderRadius: BorderRadius.circular(8),
+                                                ),
+                                                child: Text(
+                                                  'Pending: $_pendingShade — tap Override on the zone chip to confirm',
+                                                  style: const TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: AppColors.warning,
+                                                  ),
+                                                ),
+                                              ),
+                                            ] else if (_selected != '—' && _selected != _detected) ...[
                                               const SizedBox(height: 10),
                                               Container(
                                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -1495,7 +1991,7 @@ class _ShadePageState extends State<ShadePage> {
                                                 ),
                                               ),
                                             ],
-                                            if (_topMatches.isNotEmpty) ...[
+                                            if (_overallTopMatches.isNotEmpty) ...[
                                               const SizedBox(height: 12),
                                               const Text(
                                                 'Top matches',
@@ -1505,16 +2001,28 @@ class _ShadePageState extends State<ShadePage> {
                                                   color: AppColors.muted,
                                                 ),
                                               ),
+                                              const SizedBox(height: 2),
+                                              const Text(
+                                                'Across all teeth',
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: AppColors.muted,
+                                                ),
+                                              ),
                                               const SizedBox(height: 6),
                                               Wrap(
                                                 spacing: 6,
                                                 runSpacing: 6,
-                                                children: _topMatches.take(5).map((m) {
+                                                children: _overallTopMatches.take(5).map((m) {
                                                   final s = m['shade']?.toString() ?? '';
-                                                  final active = _selected == s;
+                                                  if (s.isEmpty) {
+                                                    return const SizedBox.shrink();
+                                                  }
+                                                  final active = _selected == s &&
+                                                      _pendingShade == null;
                                                   final de = m['delta_e_2000'] ?? m['distance'];
                                                   return InkWell(
-                                                    onTap: () => _applyShadeChoice(s),
+                                                    onTap: () => _applyOverallShadeChoice(s),
                                                     borderRadius: BorderRadius.circular(8),
                                                     child: Container(
                                                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -1567,16 +2075,6 @@ class _ShadePageState extends State<ShadePage> {
                                                     : 'Save override ($_selected)',
                                               ),
                                             ),
-                                            const SizedBox(height: 10),
-                                            Text(
-                                              _note ??
-                                                  'Natural light, close-up tooth photos work best. Confirm or override below.',
-                                              style: const TextStyle(
-                                                fontSize: 11,
-                                                height: 1.35,
-                                                color: AppColors.muted,
-                                              ),
-                                            ),
                                           ],
                                         ),
                                       ),
@@ -1588,77 +2086,41 @@ class _ShadePageState extends State<ShadePage> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      SectionCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Manual Override — VITA Classical',
-                              style: TextStyle(fontWeight: FontWeight.w700),
-                            ),
-                            const SizedBox(height: 10),
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: Image.asset(
-                                'assets/clinical/vita-classical-a1-d4.png',
-                                height: 90,
-                                width: double.infinity,
-                                fit: BoxFit.contain,
-                                filterQuality: FilterQuality.high,
+                          // Fixed slots so selecting a tooth / override pulse
+                          // never steals height from the photo Expanded.
+                          SizedBox(
+                            height: actionSlotH,
+                            child: showActions
+                                ? Align(
+                                    alignment: Alignment.center,
+                                    child: LayoutBuilder(
+                                      builder: (context, constraints) {
+                                        return _toothActionBar(
+                                          constraints.maxWidth,
+                                        );
+                                      },
+                                    ),
+                                  )
+                                : null,
+                          ),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            height: overrideH,
+                            child: SingleChildScrollView(
+                              child: KeyedSubtree(
+                                key: _manualOverrideKey,
+                                child: _manualOverrideCard(),
                               ),
                             ),
-                            const SizedBox(height: 10),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
-                              children: _vita.map((s) {
-                                final selected = _selected == s;
-                                return InkWell(
-                                  onTap: () => _applyShadeChoice(s),
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Container(
-                                    width: 48,
-                                    padding: const EdgeInsets.all(4),
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(
-                                        color: selected ? AppColors.navy : AppColors.border,
-                                        width: selected ? 2 : 1,
-                                      ),
-                                    ),
-                                    child: Column(
-                                      children: [
-                                        Container(
-                                          height: 22,
-                                          decoration: BoxDecoration(
-                                            color: _swatch(s),
-                                            borderRadius: BorderRadius.circular(5),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 3),
-                                        Text(
-                                          s,
-                                          style: const TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ),
                 const SizedBox(width: 12),
                 SizedBox(
-                  width: 200,
+                  width: MediaQuery.sizeOf(context).width < 900 ? 160 : 200,
                   child: SectionCard(
                     padding: const EdgeInsets.all(12),
                     child: Column(
@@ -1682,12 +2144,28 @@ class _ShadePageState extends State<ShadePage> {
                                   itemCount: _history.length,
                                   itemBuilder: (context, i) {
                                     final h = _history[i];
+                                    final teethRaw = h['teeth'];
+                                    final toothSummaries = <Map<String, dynamic>>[];
+                                    if (teethRaw is List) {
+                                      for (final t in teethRaw) {
+                                        if (t is Map) {
+                                          toothSummaries.add(
+                                            Map<String, dynamic>.from(t),
+                                          );
+                                        }
+                                      }
+                                    }
+                                    final caseKey =
+                                        (h['case_id'] as num?)?.toInt() ?? i;
                                     return _Recent(
+                                      key: ValueKey('session-$caseKey'),
                                       name: h['name'] as String? ?? 'Patient',
                                       shade: h['shade'] as String,
                                       conf: (h['conf'] as num?)?.toDouble() ?? 0,
                                       color: _swatch(h['shade'] as String),
                                       isOverride: h['override'] == true,
+                                      teeth: toothSummaries,
+                                      swatch: _swatch,
                                       onDelete: () => _deleteHistoryAt(i),
                                     );
                                   },
@@ -1704,6 +2182,177 @@ class _ShadePageState extends State<ShadePage> {
       ),
     );
   }
+
+  Widget _manualOverrideCard() {
+    final zoneLabel = _focusZone[0].toUpperCase() + _focusZone.substring(1);
+    final toothLabel = _selectedToothIndex == null
+        ? null
+        : 'T${_selectedToothIndex! + 1} · $zoneLabel';
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 520;
+        final chipW = wide ? 48.0 : 42.0;
+
+        return SectionCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Manual Override — VITA Classical',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              if (toothLabel != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Editing $toothLabel',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.dentalBlue,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 10),
+              Builder(
+                builder: (context) {
+                  final guideW = wide ? 200.0 : 148.0;
+                  final guideH = wide ? 168.0 : 132.0;
+                  final guide = SizedBox(
+                    width: guideW,
+                    height: guideH,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.asset(
+                        'assets/clinical/vita-classical-a1-d4.png',
+                        fit: BoxFit.contain,
+                        filterQuality: FilterQuality.high,
+                      ),
+                    ),
+                  );
+
+                  final vitaWrap = Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: _vita.map((s) {
+                      final selected = _selected == s;
+                      return InkWell(
+                        onTap: () => _applyShadeChoice(s),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          width: chipW,
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: selected
+                                  ? AppColors.navy
+                                  : AppColors.border,
+                              width: selected ? 2 : 1,
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              Container(
+                                height: wide ? 22 : 18,
+                                decoration: BoxDecoration(
+                                  color: _swatch(s),
+                                  borderRadius: BorderRadius.circular(5),
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                s,
+                                style: TextStyle(
+                                  fontSize: wide ? 10 : 9,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  );
+
+                  if (_topMatches.isEmpty) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Align(alignment: Alignment.centerLeft, child: guide),
+                        const SizedBox(height: 10),
+                        vitaWrap,
+                      ],
+                    );
+                  }
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Similar shades',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.muted,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        toothLabel == null
+                            ? 'For the focused zone'
+                            : 'For $toothLabel',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppColors.muted,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Flexible(
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: [
+                                  for (final m in _topMatches.take(5)) ...[
+                                    _SimilarShadeChip(
+                                      shade: m['shade']?.toString() ?? '',
+                                      deltaE: m['delta_e_2000'] ??
+                                          m['distance'],
+                                      selected: _selected ==
+                                          m['shade']?.toString(),
+                                      swatch: _swatch,
+                                      onTap: () {
+                                        final s = m['shade']?.toString();
+                                        if (s != null && s.isNotEmpty) {
+                                          _applyShadeChoice(s);
+                                        }
+                                      },
+                                    ),
+                                    const SizedBox(width: 8),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: wide ? 12 : 8),
+                          guide,
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      vitaWrap,
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }
 
 class _MiniZoneChip extends StatelessWidget {
@@ -1714,55 +2363,190 @@ class _MiniZoneChip extends StatelessWidget {
     required this.focused,
     required this.swatch,
     required this.onTap,
+    required this.onOverride,
+    this.pending = false,
   });
 
   final String label;
   final String? shade;
   final bool overridden;
+  final bool pending;
   final bool focused;
+  final Color Function(String) swatch;
+  final VoidCallback onTap;
+  final VoidCallback onOverride;
+
+  @override
+  Widget build(BuildContext context) {
+    final swatchBox = Container(
+      height: 18,
+      decoration: BoxDecoration(
+        color: shade == null ? AppColors.border : swatch(shade!),
+        borderRadius: BorderRadius.circular(4),
+      ),
+    );
+
+    final borderColor = pending
+        ? AppColors.warning
+        : (overridden
+            ? AppColors.warning
+            : (focused ? AppColors.dentalBlue : AppColors.border));
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          decoration: BoxDecoration(
+            color: AppColors.neo,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: borderColor,
+              width: focused || overridden || pending ? 1.5 : 1,
+            ),
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Opacity(
+                opacity: focused ? 0.35 : 1,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (focused)
+                      ImageFiltered(
+                        imageFilter:
+                            ImageFilter.blur(sigmaX: 2.2, sigmaY: 2.2),
+                        child: swatchBox,
+                      )
+                    else
+                      swatchBox,
+                    const SizedBox(height: 4),
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      shade ?? '—',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: (overridden || pending)
+                            ? AppColors.warning
+                            : AppColors.navy,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (focused)
+                Positioned.fill(
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        maxWidth: 72,
+                        maxHeight: 28,
+                      ),
+                      child: Material(
+                        color: AppColors.navy.withValues(alpha: 0.92),
+                        borderRadius: BorderRadius.circular(7),
+                        child: InkWell(
+                          onTap: onOverride,
+                          borderRadius: BorderRadius.circular(7),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 5,
+                            ),
+                            child: Text(
+                              'Override',
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SimilarShadeChip extends StatelessWidget {
+  const _SimilarShadeChip({
+    required this.shade,
+    required this.deltaE,
+    required this.selected,
+    required this.swatch,
+    required this.onTap,
+  });
+
+  final String shade;
+  final Object? deltaE;
+  final bool selected;
   final Color Function(String) swatch;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    if (shade.isEmpty) return const SizedBox.shrink();
+    final deText = deltaE is num
+        ? 'ΔE ${(deltaE as num).toStringAsFixed(1)}'
+        : (deltaE?.toString() ?? '');
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        width: 72,
+        padding: const EdgeInsets.fromLTRB(6, 6, 6, 8),
         decoration: BoxDecoration(
-          color: AppColors.neo,
+          color: swatch(shade).withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: overridden
-                ? AppColors.warning
-                : (focused ? AppColors.dentalBlue : AppColors.border),
-            width: focused || overridden ? 1.5 : 1,
+            color: selected ? AppColors.navy : AppColors.border,
+            width: selected ? 1.8 : 1,
           ),
         ),
         child: Column(
           children: [
             Container(
-              height: 18,
+              height: 28,
               decoration: BoxDecoration(
-                color: shade == null ? AppColors.border : swatch(shade!),
-                borderRadius: BorderRadius.circular(4),
+                color: swatch(shade),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: AppColors.border),
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 5),
             Text(
-              label,
-              style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w600),
-              overflow: TextOverflow.ellipsis,
-            ),
-            Text(
-              shade ?? '—',
-              style: TextStyle(
-                fontSize: 11,
+              shade,
+              style: const TextStyle(
                 fontWeight: FontWeight.w800,
-                color: overridden ? AppColors.warning : AppColors.navy,
+                fontSize: 13,
+                color: AppColors.navy,
               ),
             ),
+            if (deText.isNotEmpty)
+              Text(
+                deText,
+                style: const TextStyle(fontSize: 10, color: AppColors.muted),
+              ),
           ],
         ),
       ),
@@ -1770,13 +2554,16 @@ class _MiniZoneChip extends StatelessWidget {
   }
 }
 
-class _Recent extends StatelessWidget {
+class _Recent extends StatefulWidget {
   const _Recent({
+    super.key,
     required this.name,
     required this.shade,
     required this.conf,
     required this.color,
     required this.onDelete,
+    required this.swatch,
+    this.teeth = const [],
     this.isOverride = false,
   });
 
@@ -1785,10 +2572,24 @@ class _Recent extends StatelessWidget {
   final double conf;
   final Color color;
   final bool isOverride;
+  final List<Map<String, dynamic>> teeth;
+  final Color Function(String) swatch;
   final VoidCallback onDelete;
 
   @override
+  State<_Recent> createState() => _RecentState();
+}
+
+class _RecentState extends State<_Recent> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
+    final teeth = widget.teeth;
+    final countLabel = teeth.isEmpty
+        ? null
+        : (teeth.length == 1 ? '1 tooth' : '${teeth.length} teeth');
+
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.fromLTRB(10, 8, 6, 10),
@@ -1806,28 +2607,63 @@ class _Recent extends StatelessWidget {
                 width: 26,
                 height: 26,
                 decoration: BoxDecoration(
-                  color: color,
+                  color: widget.color,
                   borderRadius: BorderRadius.circular(6),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(
-                  name,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12.5),
+                child: InkWell(
+                  onTap: teeth.isEmpty
+                      ? null
+                      : () => setState(() => _expanded = !_expanded),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                      if (countLabel != null) ...[
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            Text(
+                              countLabel,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.muted,
+                              ),
+                            ),
+                            Icon(
+                              _expanded
+                                  ? Icons.expand_less
+                                  : Icons.expand_more,
+                              size: 16,
+                              color: AppColors.muted,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
               ),
               Text(
-                shade,
+                widget.shade,
                 style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
               ),
               const SizedBox(width: 2),
               Tooltip(
                 message: 'Remove from session',
                 child: InkWell(
-                  onTap: onDelete,
+                  onTap: widget.onDelete,
                   borderRadius: BorderRadius.circular(8),
                   child: const Padding(
                     padding: EdgeInsets.all(6),
@@ -1841,7 +2677,7 @@ class _Recent extends StatelessWidget {
               ),
             ],
           ),
-          if (isOverride) ...[
+          if (widget.isOverride) ...[
             const SizedBox(height: 6),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -1859,22 +2695,95 @@ class _Recent extends StatelessWidget {
               ),
             ),
           ],
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: conf.clamp(0, 1),
-              minHeight: 5,
-              backgroundColor: AppColors.border,
-              color: AppColors.aiPurple,
+          if (_expanded && teeth.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            for (final t in teeth) ...[
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      t['label']?.toString() ??
+                          'Tooth ${((t['tooth_index'] as num?)?.toInt() ?? 0) + 1}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.navy,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Wrap(
+                      spacing: 4,
+                      runSpacing: 4,
+                      children: [
+                        for (final z in const ['cervical', 'middle', 'incisal'])
+                          _SessionZoneChip(
+                            zone: z[0].toUpperCase(),
+                            shade: (t['zones'] is Map)
+                                ? (t['zones'] as Map)[z]?.toString()
+                                : null,
+                            swatch: widget.swatch,
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ] else if (teeth.isEmpty) ...[
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: widget.conf.clamp(0, 1),
+                minHeight: 5,
+                backgroundColor: AppColors.border,
+                color: AppColors.aiPurple,
+              ),
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            conf > 0 ? '${(conf * 100).round()}% confidence' : 'Manual selection',
-            style: const TextStyle(fontSize: 11, color: AppColors.muted),
-          ),
+            const SizedBox(height: 4),
+            Text(
+              widget.conf > 0
+                  ? '${(widget.conf * 100).round()}% confidence'
+                  : 'Manual selection',
+              style: const TextStyle(fontSize: 11, color: AppColors.muted),
+            ),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+class _SessionZoneChip extends StatelessWidget {
+  const _SessionZoneChip({
+    required this.zone,
+    required this.shade,
+    required this.swatch,
+  });
+
+  final String zone;
+  final String? shade;
+  final Color Function(String) swatch;
+
+  @override
+  Widget build(BuildContext context) {
+    final has = shade != null && shade!.isNotEmpty && shade != '—';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+      decoration: BoxDecoration(
+        color: has ? swatch(shade!).withValues(alpha: 0.55) : AppColors.border,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Text(
+        '$zone ${has ? shade : '—'}',
+        style: const TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          color: AppColors.navy,
+        ),
       ),
     );
   }

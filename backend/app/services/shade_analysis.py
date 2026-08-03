@@ -117,13 +117,17 @@ def create_analysis(
         zones_in = tooth_in.get("zones") or {}
         # Accept either dict keyed by zone name or list of zone dicts
         if isinstance(zones_in, list):
-            zone_iter = ((z["zone"], z) for z in zones_in)
+            by_name = {z["zone"]: z for z in zones_in if isinstance(z, dict) and "zone" in z}
+        elif isinstance(zones_in, dict):
+            by_name = zones_in
         else:
-            zone_iter = ((name, zones_in[name]) for name in ZONES if name in zones_in)
+            by_name = {}
 
-        for zone_name, zone_data in zone_iter:
-            if zone_name not in ZONES:
-                continue
+        # Always persist all three zones so session records stay complete.
+        for zone_name in ZONES:
+            zone_data = by_name.get(zone_name) or {}
+            if not isinstance(zone_data, dict):
+                zone_data = {}
             detected = zone_data.get("detected_shade")
             override = zone_data.get("override_shade")
             _validate_optional_vita(detected)

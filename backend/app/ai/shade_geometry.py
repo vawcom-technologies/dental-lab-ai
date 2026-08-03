@@ -99,34 +99,6 @@ def _poly_norm(approx: np.ndarray, w: int, h: int) -> list[list[float]]:
     return out
 
 
-def densify_normalized_outline(
-    outline: list[list[float]], *, min_points: int = 12
-) -> list[list[float]]:
-    """Insert edge midpoints (legacy). Prefer simplify_normalized_outline for edits."""
-    if len(outline) < 3:
-        return outline
-    pts = [[float(p[0]), float(p[1])] for p in outline if len(p) >= 2]
-    if len(pts) < 3:
-        return outline
-    guard = 0
-    while len(pts) < min_points and guard < 8:
-        guard += 1
-        nxt: list[list[float]] = []
-        n = len(pts)
-        for i in range(n):
-            a = pts[i]
-            b = pts[(i + 1) % n]
-            nxt.append(a)
-            nxt.append(
-                [
-                    round(0.5 * (a[0] + b[0]), 5),
-                    round(0.5 * (a[1] + b[1]), 5),
-                ]
-            )
-        pts = nxt
-    return pts
-
-
 def simplify_normalized_outline(
     outline: list[list[float]],
     *,

@@ -135,15 +135,6 @@ class CaseOut(BaseModel):
 
 # ── AI POC ────────────────────────────────────────────────────────────────────
 
-class ShadeSuggestOut(BaseModel):
-    """Legacy single-shade response (kept for reference / older clients)."""
-
-    suggested_shade: str
-    confidence: float
-    top_matches: list[dict]
-    note: str
-
-
 class ShadeAnalyzeOut(BaseModel):
     """Per-tooth / per-zone shade analysis."""
 

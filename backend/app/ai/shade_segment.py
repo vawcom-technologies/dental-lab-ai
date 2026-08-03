@@ -26,7 +26,6 @@ _MAX_TEETH = 12
 _VALLEY_DEPTH_RATIO = 0.52
 _MIN_REL_AREA = 0.35
 _MIN_REL_HEIGHT = 0.40
-_MAX_WIDTH_VS_ROI = 0.45
 # Watershed: markers from DT ridge peaks; min sep scales with ROI.
 _WATERSHED_MIN_PEAK_FRAC = 0.28
 
@@ -36,7 +35,6 @@ class SegmentConfig:
     """Toggle each stage independently for A/B debugging."""
 
     preprocess: bool = True  # CLAHE for gray/topo only — never Lab enamel input
-    enamel_mask: bool = True
     watershed_split: bool = True
     valley_split: bool = False
     dt_local_max_markers: bool = True  # additive: 2D DT peaks as watershed seeds
@@ -109,11 +107,7 @@ def detect_teeth(
         lum = (
             gray_roi.astype(np.float64)
             if gray_roi is not None
-            else (
-                0.299 * band_raw[:, :, 0]
-                + 0.587 * band_raw[:, :, 1]
-                + 0.114 * band_raw[:, :, 2]
-            )
+            else _luma_rgb(band_raw)
         )
         components = _split_instances_watershed(
             u8,
@@ -170,12 +164,10 @@ def detect_teeth(
         refined_list = _filter_by_arch_curve(refined_list)
 
     if cfg.reconcile_contacts:
-        refined_list = _reconcile_contacts(refined_list, band_raw, enamel)
+        refined_list = _reconcile_contacts(refined_list, band_raw)
 
     if cfg.merge_halves:
-        refined_list = _merge_oversegmented_neighbors(
-            refined_list, max_width=max(8, int(_MAX_WIDTH_VS_ROI * bw))
-        )
+        refined_list = _merge_oversegmented_neighbors(refined_list)
     if cfg.relative_size_filter:
         refined_list = _filter_by_relative_size(refined_list)
 
@@ -209,22 +201,40 @@ def with_config(**kwargs: bool) -> SegmentConfig:
 
 
 # ---------------------------------------------------------------------------
-# 1) Preprocess
+# 1) Preprocess / shared mask helpers
 # ---------------------------------------------------------------------------
 
 
-def _preprocess_contrast(image: np.ndarray) -> np.ndarray:
-    """CLAHE on L* → RGB (legacy helper). Prefer _clahe_gray for topo cues."""
+def _luma_rgb(band: np.ndarray) -> np.ndarray:
+    return 0.299 * band[:, :, 0] + 0.587 * band[:, :, 1] + 0.114 * band[:, :, 2]
+
+
+def _largest_cc(mask: np.ndarray) -> np.ndarray | None:
+    """Largest 8-connected component, or None if empty."""
     import cv2
 
-    u8 = np.clip(image, 0, 255).astype(np.uint8)
-    lab = cv2.cvtColor(u8, cv2.COLOR_RGB2LAB)
-    l_ch, a_ch, b_ch = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    l_eq = clahe.apply(l_ch)
-    merged = cv2.merge([l_eq, a_ch, b_ch])
-    rgb = cv2.cvtColor(merged, cv2.COLOR_LAB2RGB)
-    return rgb.astype(np.float64)
+    u8 = (mask.astype(np.uint8)) * 255
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(u8, connectivity=8)
+    if n <= 1:
+        return None
+    best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    return labels == best
+
+
+def _mask_geom(mask: np.ndarray) -> dict:
+    ys, xs = np.nonzero(mask)
+    return {
+        "mask": mask,
+        "x0": int(xs.min()),
+        "x1": int(xs.max()),
+        "y0": int(ys.min()),
+        "y1": int(ys.max()),
+        "cx": float(xs.mean()),
+        "cy": float(ys.mean()),
+        "w": int(xs.max() - xs.min() + 1),
+        "h": int(ys.max() - ys.min() + 1),
+        "area": int(xs.size),
+    }
 
 
 def _clahe_gray(image_rgb: np.ndarray) -> np.ndarray:
@@ -293,11 +303,6 @@ def _adaptive_enamel_mask(image: np.ndarray) -> np.ndarray:
     return grown > 0
 
 
-def _enamel_only_mask(band: np.ndarray) -> np.ndarray:
-    """Tests import this name."""
-    return _adaptive_enamel_mask(band)
-
-
 # ---------------------------------------------------------------------------
 # 3) ROI
 # ---------------------------------------------------------------------------
@@ -353,6 +358,27 @@ def _components_from_binary(u8: np.ndarray) -> list[np.ndarray]:
             continue
         out.append(labels == i)
     return out
+
+
+def _cut_between_centers(
+    binary: np.ndarray,
+    cut_score: np.ndarray,
+    centers: list[tuple[int, int]],
+    *,
+    half_width: int,
+) -> list[np.ndarray]:
+    """Zero vertical seams at luminance/ridge valleys between marker centers."""
+    cut_bin = binary.copy()
+    for (_i, x_a), (_j, x_b) in zip(centers, centers[1:]):
+        if x_b - x_a < 3:
+            continue
+        seg = cut_score[x_a : x_b + 1]
+        cut = x_a + int(np.argmin(seg))
+        if half_width <= 0:
+            cut_bin[:, cut] = 0
+        else:
+            cut_bin[:, max(0, cut - half_width) : cut + half_width + 1] = 0
+    return _components_from_binary((cut_bin * 255).astype(np.uint8))
 
 
 def _ridge_peaks_with_prominence(
@@ -632,14 +658,7 @@ def _split_instances_watershed(
         cut_score = ridge
 
     if len(centers) >= 3:
-        cut_bin = binary.copy()
-        for (_i, x_a), (_j, x_b) in zip(centers, centers[1:]):
-            if x_b - x_a < 3:
-                continue
-            seg = cut_score[x_a : x_b + 1]
-            cut = x_a + int(np.argmin(seg))
-            cut_bin[:, max(0, cut - 1) : cut + 2] = 0
-        parts = _components_from_binary((cut_bin * 255).astype(np.uint8))
+        parts = _cut_between_centers(binary, cut_score, centers, half_width=1)
         if len(parts) >= max(2, len(centers) - 1):
             return parts
 
@@ -657,14 +676,7 @@ def _split_instances_watershed(
         use_cuts = shallow >= max(1, len(centers) // 2)
 
     if use_cuts:
-        cut_bin = binary.copy()
-        for (_i, x_a), (_j, x_b) in zip(centers, centers[1:]):
-            if x_b - x_a < 3:
-                continue
-            seg = cut_score[x_a : x_b + 1]
-            cut = x_a + int(np.argmin(seg))
-            cut_bin[:, cut] = 0
-        parts = _components_from_binary((cut_bin * 255).astype(np.uint8))
+        parts = _cut_between_centers(binary, cut_score, centers, half_width=0)
         if len(parts) >= 2:
             return parts
 
@@ -911,12 +923,8 @@ def _grabcut_one_tooth(
         return seed
     result[y0p:y1p, x0p:x1p] = fg
     # Keep largest component only
-    u8 = (result.astype(np.uint8)) * 255
-    n, labels, stats, _ = cv2.connectedComponentsWithStats(u8, connectivity=8)
-    if n <= 1:
-        return seed
-    best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-    return labels == best
+    kept = _largest_cc(result)
+    return seed if kept is None else kept
 
 
 def _contact_valley_strength(
@@ -940,9 +948,7 @@ def _contact_valley_strength(
     if dist < 4:
         return 0.0
 
-    lum = (
-        0.299 * band[:, :, 0] + 0.587 * band[:, :, 1] + 0.114 * band[:, :, 2]
-    )
+    lum = _luma_rgb(band)
     n_samples = max(8, int(dist))
     ts = np.linspace(0.15, 0.85, n_samples)
     vals = []
@@ -967,7 +973,6 @@ def _contact_valley_strength(
 def _reconcile_contacts(
     components: list[np.ndarray],
     band: np.ndarray,
-    _enamel: np.ndarray,
 ) -> list[np.ndarray]:
     """Prevent 1↔2 errors using contact valleys between neighbors.
 
@@ -975,8 +980,6 @@ def _reconcile_contacts(
     - One piece much wider than peers WITH an internal dark seam → split
     Seam direction follows centroids (crooked-tooth safe), not fixed columns.
     """
-    import cv2
-
     if len(components) == 0:
         return components
 
@@ -994,7 +997,7 @@ def _reconcile_contacts(
             continue
         ys, xs = np.nonzero(c)
         # Search for darkest vertical-ish cut inside this mask using luminance
-        lum = 0.299 * band[:, :, 0] + 0.587 * band[:, :, 1] + 0.114 * band[:, :, 2]
+        lum = _luma_rgb(band)
         x0, x1 = int(xs.min()), int(xs.max())
         best_x, best_score = None, -1.0
         for x in range(x0 + max(3, wd // 5), x1 - max(3, wd // 5)):
@@ -1034,23 +1037,7 @@ def _reconcile_contacts(
         return components
 
     # --- Pass 2: merge neighbors with no contact valley (over-split) ---
-    items = []
-    for comp in components:
-        ys, xs = np.nonzero(comp)
-        items.append(
-            {
-                "mask": comp,
-                "cx": float(xs.mean()),
-                "cy": float(ys.mean()),
-                "x0": int(xs.min()),
-                "x1": int(xs.max()),
-                "y0": int(ys.min()),
-                "y1": int(ys.max()),
-                "area": int(xs.size),
-                "w": int(xs.max() - xs.min() + 1),
-                "h": int(ys.max() - ys.min() + 1),
-            }
-        )
+    items = [_mask_geom(comp) for comp in components]
     items.sort(key=lambda d: d["cx"])
     merged = [items[0]]
     for item in items[1:]:
@@ -1064,18 +1051,7 @@ def _reconcile_contacts(
         looks_one = combined_w <= 1.35 * max(prev["w"], item["w"]) + 4
         if close and valley < 0.35 and looks_one and area_ratio > 0.25:
             prev["mask"] = prev["mask"] | item["mask"]
-            ys, xs = np.nonzero(prev["mask"])
-            prev.update(
-                cx=float(xs.mean()),
-                cy=float(ys.mean()),
-                x0=int(xs.min()),
-                x1=int(xs.max()),
-                y0=int(ys.min()),
-                y1=int(ys.max()),
-                area=int(xs.size),
-                w=int(xs.max() - xs.min() + 1),
-                h=int(ys.max() - ys.min() + 1),
-            )
+            prev.update(_mask_geom(prev["mask"]))
         else:
             merged.append(item)
     return [m["mask"] for m in merged]
@@ -1145,25 +1121,10 @@ def _morph_cleanup_mask(mask: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
-def _merge_oversegmented_neighbors(
-    components: list[np.ndarray], *, max_width: int
-) -> list[np.ndarray]:
+def _merge_oversegmented_neighbors(components: list[np.ndarray]) -> list[np.ndarray]:
     if len(components) <= 1:
         return components
-    items = []
-    for comp in components:
-        ys, xs = np.nonzero(comp)
-        items.append(
-            {
-                "mask": comp,
-                "x0": int(xs.min()),
-                "x1": int(xs.max()),
-                "y0": int(ys.min()),
-                "y1": int(ys.max()),
-                "cx": float(xs.mean()),
-                "area": int(xs.size),
-            }
-        )
+    items = [_mask_geom(comp) for comp in components]
     items.sort(key=lambda d: d["cx"])
     merged = [items[0]]
     for item in items[1:]:
@@ -1172,14 +1133,12 @@ def _merge_oversegmented_neighbors(
         oy0 = max(prev["y0"], item["y0"])
         oy1 = min(prev["y1"], item["y1"])
         overlap_h = max(0, oy1 - oy0 + 1)
-        min_h = max(1, min(prev["y1"] - prev["y0"] + 1, item["y1"] - item["y0"] + 1))
+        min_h = max(1, min(prev["h"], item["h"]))
         y_overlap = overlap_h / float(min_h)
         combined_w = item["x1"] - prev["x0"] + 1
         area_ratio = min(prev["area"], item["area"]) / max(prev["area"], item["area"])
-        prev_w = prev["x1"] - prev["x0"] + 1
-        item_w = item["x1"] - item["x0"] + 1
-        prev_h = prev["y1"] - prev["y0"] + 1
-        item_h = item["y1"] - item["y0"] + 1
+        prev_w, item_w = prev["w"], item["w"]
+        prev_h, item_h = prev["h"], item["h"]
         # Only reunite accidental halves — NEVER two similar-sized teeth.
         fragment = area_ratio < 0.35
         looks_one_crown = combined_w <= int(1.15 * max(prev_w, item_w)) + 4
@@ -1196,15 +1155,7 @@ def _merge_oversegmented_neighbors(
         )
         if should_merge:
             prev["mask"] = prev["mask"] | item["mask"]
-            ys, xs = np.nonzero(prev["mask"])
-            prev.update(
-                x0=int(xs.min()),
-                x1=int(xs.max()),
-                y0=int(ys.min()),
-                y1=int(ys.max()),
-                cx=float(xs.mean()),
-                area=int(xs.size),
-            )
+            prev.update(_mask_geom(prev["mask"]))
         else:
             merged.append(item)
     return [m["mask"] for m in merged]
@@ -1315,17 +1266,7 @@ def _filter_by_arch_curve(components: list[np.ndarray]) -> list[np.ndarray]:
     if len(components) < 3:
         return components
 
-    items = []
-    for c in components:
-        yy, xx = np.nonzero(c)
-        items.append(
-            {
-                "mask": c,
-                "cx": float(xx.mean()),
-                "cy": float(yy.mean()),
-                "area": int(xx.size),
-            }
-        )
+    items = [_mask_geom(c) for c in components]
     # Fit on the largest majority so one outlier doesn't warp the curve
     items_sorted = sorted(items, key=lambda d: d["area"], reverse=True)
     fit_n = max(3, (len(items_sorted) * 2 + 2) // 3)
@@ -1388,12 +1329,8 @@ def _active_contour_refine_one(
     if int(out.sum()) < 40:
         return mask
     # Keep largest blob
-    u8 = (out.astype(np.uint8)) * 255
-    n, labels, stats, _ = cv2.connectedComponentsWithStats(u8, connectivity=8)
-    if n <= 1:
-        return mask
-    best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-    return labels == best
+    kept = _largest_cc(out)
+    return mask if kept is None else kept
 
 
 # ---------------------------------------------------------------------------
@@ -1450,8 +1387,11 @@ def _sanity_check_instances(teeth: list[ToothMask]) -> list[ToothMask]:
     return out
 
 
-def _confidence(refined: np.ndarray, band_h: int) -> float:
+def mask_confidence(refined: np.ndarray, band_h: int) -> float:
+    """Segmentation quality from mask fill + height vs gum band (not shade ΔE)."""
     ys, xs = np.nonzero(refined)
+    if ys.size == 0:
+        return 0.0
     area = int(ys.size)
     bw_box = int(xs.max() - xs.min() + 1)
     bh_box = int(ys.max() - ys.min() + 1)
@@ -1467,3 +1407,7 @@ def _confidence(refined: np.ndarray, band_h: int) -> float:
             3,
         )
     )
+
+
+def _confidence(refined: np.ndarray, band_h: int) -> float:
+    return mask_confidence(refined, band_h)

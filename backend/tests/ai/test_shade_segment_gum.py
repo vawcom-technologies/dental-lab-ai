@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from app.ai.shade import VITA_SHADES
-from app.ai.shade_segment import _enamel_only_mask, _split_arch_by_deep_valleys, detect_teeth
+from app.ai.shade_segment import _adaptive_enamel_mask, _split_arch_by_deep_valleys, detect_teeth
 
 
 def _smile_with_gums(h: int = 400, w: int = 600) -> np.ndarray:
@@ -34,13 +34,13 @@ class TestGumExclusion:
     def test_enamel_mask_rejects_pink_gingiva_pixels(self):
         band = np.zeros((40, 40, 3), dtype=np.float64)
         band[:] = (185, 105, 115)
-        mask = _enamel_only_mask(band)
+        mask = _adaptive_enamel_mask(band)
         assert int(mask.sum()) == 0
 
     def test_enamel_mask_keeps_bright_enamel(self):
         band = np.zeros((40, 40, 3), dtype=np.float64)
         band[:] = VITA_SHADES["A2"]
-        mask = _enamel_only_mask(band)
+        mask = _adaptive_enamel_mask(band)
         assert int(mask.sum()) > 1000
 
     def test_detect_teeth_masks_do_not_cover_gum_shelf(self):
