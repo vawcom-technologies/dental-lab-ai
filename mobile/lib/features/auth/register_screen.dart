@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/brand_logo.dart';
@@ -26,6 +27,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String _role = 'dentist';
   bool _loading = false;
   String? _error;
+  String? _info;
 
   @override
   void dispose() {
@@ -44,31 +46,51 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final password = _password.text;
     final loc = AppLocalizations.of(context);
     if (name.isEmpty || email.isEmpty || password.isEmpty) {
-      setState(() => _error = loc.errNameEmailPassword);
+      setState(() {
+        _error = loc.errNameEmailPassword;
+        _info = null;
+      });
       return;
     }
     if (password.length < 6) {
-      setState(() => _error = loc.errPasswordShort);
+      setState(() {
+        _error = loc.errPasswordShort;
+        _info = null;
+      });
       return;
     }
     if (password != _confirm.text) {
-      setState(() => _error = loc.errPasswordMismatch);
+      setState(() {
+        _error = loc.errPasswordMismatch;
+        _info = null;
+      });
       return;
     }
     setState(() {
       _loading = true;
       _error = null;
+      _info = null;
     });
     try {
-      final data = await widget.api.register(
+      final data = await widget.api.signUp(
         email: email,
         name: name,
         password: password,
-        role: _role,
         clinicName: _clinic.text.trim().isEmpty ? null : _clinic.text.trim(),
         phone: _phone.text.trim().isEmpty ? null : _phone.text.trim(),
       );
       if (!mounted) return;
+
+      final needsConfirmation = data['email_confirmation_required'] == true;
+      final accessToken = data['access_token'] as String?;
+      if (needsConfirmation || accessToken == null || accessToken.isEmpty) {
+        AppHaptics.success();
+        setState(() {
+          _info = data['message'] as String? ?? loc.emailConfirmationRequired;
+        });
+        return;
+      }
+
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => AppShell(
@@ -78,6 +100,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
       );
     } catch (e) {
+      AppHaptics.warn();
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -139,18 +162,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   decoration: InputDecoration(labelText: loc.phone),
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: _role,
-                  decoration: InputDecoration(labelText: loc.role),
-                  items: [
-                    DropdownMenuItem(value: 'dentist', child: Text(loc.roleDentist)),
-                    DropdownMenuItem(value: 'lab', child: Text(loc.roleLab)),
-                  ],
-                  onChanged: (v) {
-                    if (v != null) setState(() => _role = v);
-                  },
-                ),
-                const SizedBox(height: 12),
                 TextField(
                   controller: _password,
                   obscureText: true,
@@ -166,9 +177,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   const SizedBox(height: 12),
                   Text(_error!, style: const TextStyle(color: AppColors.danger)),
                 ],
+                if (_info != null) ...[
+                  const SizedBox(height: 12),
+                  Text(_info!, style: const TextStyle(color: AppColors.navy)),
+                ],
                 const SizedBox(height: 20),
                 FilledButton(
-                  onPressed: _loading ? null : _submit,
+                  onPressed: _loading || _info != null ? null : _submit,
                   child: Text(_loading ? loc.saving : loc.createProfile),
                 ),
                 const SizedBox(height: 10),
@@ -176,7 +191,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   onPressed: _loading
                       ? null
                       : () => Navigator.of(context).pop(),
-                  child: Text(loc.alreadyHaveAccount),
+                  child: Text(
+                    _info != null ? loc.backToSignIn : loc.alreadyHaveAccount,
+                  ),
                 ),
               ],
             ),

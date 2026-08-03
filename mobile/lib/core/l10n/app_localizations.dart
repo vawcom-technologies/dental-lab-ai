@@ -69,6 +69,13 @@ class AppLocalizations {
   String get errNameEmailPassword => _t('auth.errNameEmailPassword');
   String get errPasswordShort => _t('auth.errPasswordShort');
   String get errPasswordMismatch => _t('auth.errPasswordMismatch');
+  String get errEmailRequired => _t('auth.errEmailRequired');
+  String get forgotPassword => _t('auth.forgotPassword');
+  String get forgotPasswordTitle => _t('auth.forgotPasswordTitle');
+  String get forgotPasswordSubtitle => _t('auth.forgotPasswordSubtitle');
+  String get sendResetLink => _t('auth.sendResetLink');
+  String get backToSignIn => _t('auth.backToSignIn');
+  String get emailConfirmationRequired => _t('auth.emailConfirmationRequired');
 
   // ── Settings ─────────────────────────────────────────────────────────────
   String get settingsTitle => _t('settings.title');
@@ -341,7 +348,7 @@ class AppLocalizations {
     'auth.registerTitle': 'Create profile',
     'auth.registerSubtitle': 'Register a dentist or lab account for Elite Dent',
     'auth.fullName': 'Full name *',
-    'auth.clinic': 'Clinic / practice',
+    'auth.clinic': 'Clinic Name',
     'auth.phone': 'Phone',
     'auth.confirmPassword': 'Confirm password',
     'auth.roleDentist': 'Dentist',
@@ -350,6 +357,15 @@ class AppLocalizations {
     'auth.errNameEmailPassword': 'Name, email, and password are required',
     'auth.errPasswordShort': 'Password must be at least 6 characters',
     'auth.errPasswordMismatch': 'Passwords do not match',
+    'auth.errEmailRequired': 'Email is required',
+    'auth.forgotPassword': 'Forgot password?',
+    'auth.forgotPasswordTitle': 'Reset password',
+    'auth.forgotPasswordSubtitle':
+        'Enter your email and we will send a password reset link if an account exists.',
+    'auth.sendResetLink': 'Send reset link',
+    'auth.backToSignIn': 'Back to sign in',
+    'auth.emailConfirmationRequired':
+        'Account created. Confirm your email before signing in.',
     'settings.title': 'Settings',
     'settings.subtitle':
         'Clinic preferences for this device — profile & password live under Profile',
@@ -591,6 +607,15 @@ class AppLocalizations {
     'auth.errNameEmailPassword': 'Name, E-Mail und Passwort sind erforderlich',
     'auth.errPasswordShort': 'Passwort muss mindestens 6 Zeichen haben',
     'auth.errPasswordMismatch': 'Passwörter stimmen nicht überein',
+    'auth.errEmailRequired': 'E-Mail ist erforderlich',
+    'auth.forgotPassword': 'Passwort vergessen?',
+    'auth.forgotPasswordTitle': 'Passwort zurücksetzen',
+    'auth.forgotPasswordSubtitle':
+        'Geben Sie Ihre E-Mail ein. Falls ein Konto existiert, senden wir einen Reset-Link.',
+    'auth.sendResetLink': 'Reset-Link senden',
+    'auth.backToSignIn': 'Zurück zur Anmeldung',
+    'auth.emailConfirmationRequired':
+        'Konto erstellt. Bitte bestätigen Sie Ihre E-Mail vor der Anmeldung.',
     'settings.title': 'Einstellungen',
     'settings.subtitle':
         'Praxis-Einstellungen für dieses Gerät — Profil & Passwort unter Profil',
