@@ -1,7 +1,7 @@
 """Shade / shape / scan-body selection persistence (Week 3)."""
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -10,10 +10,12 @@ from app.models import (
     User,
     Case,
     ShadeSelection,
+    ShadeAnalysis,
     ShapeSelection,
     ScanBodySelection,
     ActivityLog,
 )
+from app.services import shade_analysis as shade_svc
 
 router = APIRouter()
 
@@ -23,6 +25,29 @@ class ShadeSave(BaseModel):
     confidence_score: float | None = None
     final_shade: str
     overridden_by_dentist: bool = False
+
+
+class ShadeZoneIn(BaseModel):
+    detected_shade: str | None = None
+    delta_e_2000: float | None = None
+    override_shade: str | None = None
+
+
+class ShadeToothIn(BaseModel):
+    tooth_index: int
+    confidence: float | None = None
+    rejected: bool = False
+    reject_reason: str | None = None
+    zones: dict[str, ShadeZoneIn] = Field(default_factory=dict)
+
+
+class ShadeAnalysisSave(BaseModel):
+    teeth: list[ShadeToothIn]
+    selected_tooth_index: int = 0
+
+
+class ZoneOverridePatch(BaseModel):
+    override_shade: str | None = None
 
 
 class ShapeSave(BaseModel):
@@ -137,6 +162,139 @@ def delete_shade(
             action="shade.delete",
             target_type="shade_selection",
             target_id=shade_id,
+        )
+    )
+    db.commit()
+    return None
+
+
+@router.post("/{case_id}/shade/analysis")
+def save_shade_analysis(
+    case_id: int,
+    payload: ShadeAnalysisSave,
+    user: User = Depends(require_dentist),
+    db: Session = Depends(get_db),
+):
+    from sqlalchemy.orm import joinedload
+
+    from app.services.notify import notify_lab_users, patient_display_name
+
+    case = (
+        db.query(Case)
+        .options(joinedload(Case.patient))
+        .filter(Case.id == case_id)
+        .first()
+    )
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    try:
+        analysis = shade_svc.create_analysis(
+            db,
+            case_id=case_id,
+            teeth_payload=[t.model_dump() for t in payload.teeth],
+            selected_tooth_index=payload.selected_tooth_index,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    db.add(
+        ActivityLog(
+            user_id=user.id,
+            action="shade.analysis.save",
+            target_type="shade_analysis",
+            target_id=analysis.id,
+        )
+    )
+    name = patient_display_name(case.patient)
+    summary = analysis.summary_shade or "—"
+    if shade_svc.analysis_has_any_override(analysis):
+        msg = f"Shade analysis saved for {name}: {summary} (with zone override)."
+    else:
+        msg = f"Shade analysis saved for {name}: {summary}."
+    notify_lab_users(
+        db,
+        type="shade",
+        message=msg,
+        case_id=case_id,
+        exclude_user_id=user.id,
+    )
+    db.commit()
+    saved = shade_svc.get_analysis_for_case(db, case_id, analysis.id)
+    return shade_svc.serialize_analysis(saved)  # type: ignore[arg-type]
+
+
+@router.get("/{case_id}/shade/analysis")
+def latest_shade_analysis(
+    case_id: int,
+    user: User = Depends(require_dentist),
+    db: Session = Depends(get_db),
+):
+    row = shade_svc.get_latest_analysis(db, case_id)
+    if not row:
+        return None
+    return shade_svc.serialize_analysis(row)
+
+
+@router.patch("/{case_id}/shade/analysis/{analysis_id}/zones/{zone_id}")
+def patch_shade_zone_override(
+    case_id: int,
+    analysis_id: int,
+    zone_id: int,
+    payload: ZoneOverridePatch,
+    user: User = Depends(require_dentist),
+    db: Session = Depends(get_db),
+):
+    zone = shade_svc.get_zone_for_analysis(db, case_id, analysis_id, zone_id)
+    if not zone:
+        raise HTTPException(status_code=404, detail="Zone result not found")
+    detected_before = zone.detected_shade
+    delta_before = zone.delta_e_2000
+    try:
+        shade_svc.set_zone_override(db, zone, payload.override_shade)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    if zone.detected_shade != detected_before or zone.delta_e_2000 != delta_before:
+        raise HTTPException(
+            status_code=500,
+            detail="Invariant violated: detected shade must not change on override",
+        )
+
+    db.add(
+        ActivityLog(
+            user_id=user.id,
+            action="shade.zone.override",
+            target_type="shade_zone_result",
+            target_id=zone.id,
+        )
+    )
+    db.commit()
+    analysis = shade_svc.get_analysis_for_case(db, case_id, analysis_id)
+    return shade_svc.serialize_analysis(analysis)  # type: ignore[arg-type]
+
+
+@router.delete("/{case_id}/shade/analysis/{analysis_id}", status_code=204)
+def delete_shade_analysis(
+    case_id: int,
+    analysis_id: int,
+    user: User = Depends(require_dentist),
+    db: Session = Depends(get_db),
+):
+    row = (
+        db.query(ShadeAnalysis)
+        .filter(ShadeAnalysis.id == analysis_id, ShadeAnalysis.case_id == case_id)
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Shade analysis not found")
+    db.delete(row)
+    db.add(
+        ActivityLog(
+            user_id=user.id,
+            action="shade.analysis.delete",
+            target_type="shade_analysis",
+            target_id=analysis_id,
         )
     )
     db.commit()

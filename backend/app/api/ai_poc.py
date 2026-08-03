@@ -1,23 +1,48 @@
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+import json
 
 from app.ai.scan_body import detect_diameter_from_image, list_reference_table, match_scan_body
 from app.ai.scan_quality import validate_ply_bytes
-from app.ai.shade import suggest_shade_from_bytes
-from app.schemas import ScanValidateOut, ShadeSuggestOut
+from app.ai.shade_analyze import analyze_shade_from_bytes, analyze_tooth_from_outline_bytes
+from app.schemas import ScanValidateOut, ShadeAnalyzeOut
 
 router = APIRouter()
 
 
-@router.post("/shade/suggest", response_model=ShadeSuggestOut)
+@router.post("/shade/suggest", response_model=ShadeAnalyzeOut)
 async def shade_suggest(file: UploadFile = File(...)):
     data = await file.read()
-    result = suggest_shade_from_bytes(data)
-    return ShadeSuggestOut(
-        suggested_shade=result["suggested_shade"],
-        confidence=result["confidence"],
-        top_matches=result["top_matches"],
+    result = analyze_shade_from_bytes(data)
+    return ShadeAnalyzeOut(
+        teeth=result["teeth"],
+        tooth_count=result["tooth_count"],
+        accepted_count=result["accepted_count"],
         note=result["note"],
+        image_width=result.get("image_width"),
+        image_height=result.get("image_height"),
     )
+
+
+@router.post("/shade/resample-outline")
+async def shade_resample_outline(
+    file: UploadFile = File(...),
+    outline_json: str = Form(...),
+    tooth_index: int = Form(0),
+):
+    """Re-match zones after the dentist edits a tooth outline polygon."""
+    try:
+        outline = json.loads(outline_json)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="outline_json must be JSON") from exc
+    if not isinstance(outline, list) or len(outline) < 3:
+        raise HTTPException(status_code=400, detail="outline needs at least 3 points")
+    data = await file.read()
+    try:
+        return analyze_tooth_from_outline_bytes(
+            data, outline, tooth_index=int(tooth_index)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/scan/validate", response_model=ScanValidateOut)
