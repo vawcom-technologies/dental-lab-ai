@@ -212,16 +212,16 @@ class PageHeader extends StatelessWidget {
             ],
           ),
         ),
-        if (actions.isNotEmpty)
-          Flexible(
-            child: Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              alignment: WrapAlignment.end,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: actions,
-            ),
+        if (actions.isNotEmpty) ...[
+          const SizedBox(width: 12),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            alignment: WrapAlignment.end,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: actions,
           ),
+        ],
       ],
     );
   }

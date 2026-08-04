@@ -24,12 +24,14 @@ class _LoginScreenState extends State<LoginScreen> {
   final _password = TextEditingController();
   bool _loading = false;
   String? _error;
+  String? _info;
 
   Future<void> _submit() async {
     AppHaptics.light();
     setState(() {
       _loading = true;
       _error = null;
+      _info = null;
     });
     try {
       final data = await widget.api.signIn(_email.text.trim(), _password.text);
@@ -47,6 +49,35 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _openRegister() async {
+    final result = await Navigator.of(context).push<Object?>(
+      MaterialPageRoute(
+        builder: (_) => RegisterScreen(api: widget.api),
+      ),
+    );
+    if (!mounted || result == null) return;
+
+    if (result is Map) {
+      final message = result['message']?.toString();
+      final email = result['email']?.toString();
+      setState(() {
+        _error = null;
+        _info = message;
+        if (email != null && email.isNotEmpty) {
+          _email.text = email;
+        }
+      });
+      return;
+    }
+
+    if (result is String && result.isNotEmpty) {
+      setState(() {
+        _error = null;
+        _info = result;
+      });
     }
   }
 
@@ -187,6 +218,13 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 8),
                         ],
+                        if (_info != null) ...[
+                          Text(
+                            _info!,
+                            style: const TextStyle(color: AppColors.navy),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
                         const SizedBox(height: 8),
                         
                         FilledButton(
@@ -204,19 +242,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 10),
                         OutlinedButton(
-                          onPressed: _loading
-                              ? null
-                              : () {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          RegisterScreen(api: widget.api),
-                                    ),
-                                  );
-                                },
+                          onPressed: _loading ? null : _openRegister,
                           child: Text(loc.createProfile),
-                        ),
-                        const SizedBox(height: 14),
+                        ),                        const SizedBox(height: 14),
                         TextButton(
                           onPressed: _loading ? null : _fillDemo,
                           child: Text(

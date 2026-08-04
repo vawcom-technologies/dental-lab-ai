@@ -345,25 +345,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      SectionCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              loc.accountInfo,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.navy,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            _InfoRow(label: loc.role, value: _role),
-                            _InfoRow(label: loc.created, value: _createdAt ?? '—'),
-                            _InfoRow(label: loc.lastLogin, value: _lastLogin ?? '—'),
-                          ],
-                        ),
-                      ),
+
                     ],
                   ),
                 ),
@@ -375,6 +357,8 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 }
+
+
 
 class _InfoRow extends StatelessWidget {
   const _InfoRow({required this.label, required this.value});

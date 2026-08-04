@@ -5,11 +5,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, health
+from app.api import auth, health, admin
+from app.core.debug_middleware import DebugRequestMiddleware, configure_api_logging
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    configure_api_logging()
     yield
 
 
@@ -20,6 +22,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Outer middleware runs first on the way in — CORS should stay outermost.
+app.add_middleware(DebugRequestMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,6 +34,7 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 
 try:
     from app.api import ai_poc
