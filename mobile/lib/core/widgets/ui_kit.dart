@@ -85,14 +85,23 @@ class SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: padding ?? const EdgeInsets.all(18),
+    // Material owns the fill color so nested ListTiles can paint ink /
+    // selectedTileColor. A colored DecoratedBox between Material and ListTile
+    // asserts in debug and can lock the widget tree.
+    return DecoratedBox(
       decoration: BoxDecoration(
-        color: color ?? AppColors.card,
         borderRadius: AppRadii.border,
         boxShadow: NeoShadows.raised(depth: depth),
       ),
-      child: child,
+      child: Material(
+        color: color ?? AppColors.card,
+        borderRadius: AppRadii.border,
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: padding ?? const EdgeInsets.all(18),
+          child: child,
+        ),
+      ),
     );
   }
 }

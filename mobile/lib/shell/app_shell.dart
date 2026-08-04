@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/api/api_client.dart';
+import '../core/layout/adaptive.dart';
 import '../core/theme/app_theme.dart';
 import '../features/auth/login_screen.dart';
 import '../features/camera/camera_page.dart';
@@ -125,11 +126,13 @@ class _AppShellState extends State<AppShell> {
             ],
           ),
         ),
-        child: Row(
+        child: LayoutBuilder(
+          builder: (context, constraints) => Row(
           children: [
             AppSidebar(
               active: _active,
               onSelect: _go,
+              collapsed: constraints.maxWidth < AppBreakpoints.collapseSidebar,
               messageBadge: _messageBadge,
               notificationBadge: _notificationBadge,
             ),
@@ -158,6 +161,7 @@ class _AppShellState extends State<AppShell> {
               ),
             ),
           ],
+          ),
         ),
       ),
     );

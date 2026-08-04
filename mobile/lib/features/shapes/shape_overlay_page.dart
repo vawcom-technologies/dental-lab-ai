@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/layout/adaptive.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
@@ -465,13 +466,15 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
           ],
           const SizedBox(height: 12),
           Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(flex: 7, child: _buildStage()),
-                const SizedBox(width: 14),
-                SizedBox(width: 332, child: _buildRail()),
-              ],
+            child: AdaptiveSplit(
+              panelOnRight: true,
+              panelFraction: 0.3,
+              minPanelWidth: 300,
+              maxPanelWidth: 360,
+              gap: 14,
+              narrowPanelHeight: 480,
+              panel: _buildRail(),
+              content: _buildStage(),
             ),
           ),
         ],
