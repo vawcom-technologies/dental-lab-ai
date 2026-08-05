@@ -1,4 +1,4 @@
-"""User / contact discovery for starting new conversations."""
+"""User / contact discovery for starting conversations."""
 
 from __future__ import annotations
 
@@ -6,22 +6,36 @@ import logging
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, EmailStr
 
 from app.core.security import AuthUser, get_current_user
 from app.core.supabase_client import get_supabase_admin
-from app.schemas import UserProfileResponse
 
 router = APIRouter()
 logger = logging.getLogger("app.api.users")
 
-# Strip PostgREST filter metacharacters from free-text search
-_ILLEGAL_FILTER = re.compile(r"[,.()]")
+_ILIKE_SPECIAL = re.compile(r"([%_\\])")
 
 
-def _sanitize_search(value: str) -> str:
-    cleaned = _ILLEGAL_FILTER.sub(" ", value).strip()
-    # Collapse whitespace; wrap for ilike
-    return " ".join(cleaned.split())
+class UserProfileResponse(BaseModel):
+    id: str
+    name: str | None = None
+    email: EmailStr | str | None = None
+    role: str | None = None
+    clinic_name: str | None = None
+    phone: str | None = None
+
+
+def _escape_ilike(value: str) -> str:
+    """Escape %, _, and \\ so user input is treated literally in ilike patterns."""
+    return _ILIKE_SPECIAL.sub(r"\\\1", value)
+
+
+def _db_error(exc: Exception) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail=f"Database operation failed: {str(exc).strip() or 'unknown error'}",
+    )
 
 
 @router.get(
@@ -44,13 +58,12 @@ def list_available_contacts(
     user: AuthUser = Depends(get_current_user),
 ):
     """
-    Search `public.profiles` for other users to message.
+    Discover other profiles to start a 1-to-1 conversation with.
 
-    Always excludes the authenticated caller. Soft-deleted and unverified
-    profiles are omitted so contacts are actionable for conversations.
+    Excludes the authenticated user. Soft-deleted profiles are omitted.
     """
     logger.debug(
-        "list_contacts user_id=%s search=%r role=%r limit=%s offset=%s",
+        "list_users viewer=%s search=%r role=%r limit=%s offset=%s",
         user.id,
         search,
         role,
@@ -65,7 +78,6 @@ def list_available_contacts(
             .select("id,name,email,role,clinic_name,phone")
             .neq("id", user.id)
             .or_("deleted.eq.false,deleted.is.null")
-            .eq("verified", True)
             .order("name", desc=False)
             .range(offset, offset + limit - 1)
         )
@@ -74,21 +86,17 @@ def list_available_contacts(
             query = query.eq("role", role.strip())
 
         if search and search.strip():
-            term = _sanitize_search(search)
-            if term:
-                # PostgREST or_(name.ilike.*term*,clinic_name.ilike.*term*)
-                pattern = f"%{term}%"
-                query = query.or_(
-                    f"name.ilike.{pattern},clinic_name.ilike.{pattern}"
-                )
+            term = _escape_ilike(search.strip())
+            pattern = f"%{term}%"
+            # PostgREST or-filter: name ilike OR clinic_name ilike
+            query = query.or_(
+                f"name.ilike.{pattern},clinic_name.ilike.{pattern}"
+            )
 
         result = query.execute()
     except Exception as exc:
-        logger.warning("list_contacts failed user_id=%s detail=%s", user.id, exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Database operation failed: {str(exc).strip() or 'unknown error'}",
-        ) from exc
+        logger.warning("list_users failed viewer=%s detail=%s", user.id, exc)
+        raise _db_error(exc) from exc
 
     rows = getattr(result, "data", None) or []
     return [

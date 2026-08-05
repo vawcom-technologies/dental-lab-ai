@@ -104,35 +104,56 @@ class _ChatScreenState extends State<ChatScreen> {
                           style: TextStyle(color: AppColors.muted),
                         ),
                       )
-                    : ListView.builder(
-                        controller: _scroll,
-                        reverse: true,
-                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-                        itemCount:
-                            messages.length + (controller.loadingOlder ? 1 : 0),
-                        itemBuilder: (context, index) {
-                          if (controller.loadingOlder &&
-                              index == messages.length) {
-                            return const Padding(
-                              padding: EdgeInsets.all(12),
-                              child: Center(
-                                child: SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                ),
-                              ),
-                            );
+                    : Builder(
+                        builder: (context) {
+                          final me = controller.currentUserId;
+                          String? lastSeenMineId;
+                          if (me != null) {
+                            for (var i = messages.length - 1; i >= 0; i--) {
+                              final m = messages[i];
+                              if (m.senderId == me && m.isRead) {
+                                lastSeenMineId = m.id;
+                                break;
+                              }
+                            }
                           }
-                          // reverse list: index 0 = newest
-                          final message =
-                              messages[messages.length - 1 - index];
-                          final mine = controller.currentUserId != null &&
-                              message.senderId == controller.currentUserId;
-                          return _MessageBubble(
-                            message: message,
-                            mine: mine,
-                            onReply: () => controller.setReplyTo(message),
+                          return ListView.builder(
+                            controller: _scroll,
+                            reverse: true,
+                            padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+                            itemCount: messages.length +
+                                (controller.loadingOlder ? 1 : 0),
+                            itemBuilder: (context, index) {
+                              if (controller.loadingOlder &&
+                                  index == messages.length) {
+                                return const Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: Center(
+                                    child: SizedBox(
+                                      width: 22,
+                                      height: 22,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }
+                              // reverse list: index 0 = newest
+                              final message =
+                                  messages[messages.length - 1 - index];
+                              final mine = me != null &&
+                                  message.senderId == me;
+                              return _MessageBubble(
+                                message: message,
+                                mine: mine,
+                                showSeenEye: mine &&
+                                    lastSeenMineId != null &&
+                                    message.id == lastSeenMineId,
+                                onReply: () =>
+                                    controller.setReplyTo(message),
+                              );
+                            },
                           );
                         },
                       ),
@@ -247,11 +268,13 @@ class _MessageBubble extends StatelessWidget {
     required this.message,
     required this.mine,
     required this.onReply,
+    this.showSeenEye = false,
   });
 
   final Message message;
   final bool mine;
   final VoidCallback onReply;
+  final bool showSeenEye;
 
   @override
   Widget build(BuildContext context) {
@@ -273,60 +296,63 @@ class _MessageBubble extends StatelessWidget {
           constraints: BoxConstraints(
             maxWidth: MediaQuery.sizeOf(context).width * 0.72,
           ),
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-            decoration: BoxDecoration(
-              color: mine ? AppColors.dentalBlue : AppColors.neo,
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(16),
-                topRight: const Radius.circular(16),
-                bottomLeft: Radius.circular(mine ? 16 : 4),
-                bottomRight: Radius.circular(mine ? 4 : 16),
-              ),
-              boxShadow: NeoShadows.soft(depth: 0.35),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (message.replyTo != null) ...[
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(8),
-                    margin: const EdgeInsets.only(bottom: 8),
-                    decoration: BoxDecoration(
-                      color: (mine ? Colors.white : AppColors.navy)
-                          .withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border(
-                        left: BorderSide(
-                          color: mine ? Colors.white70 : AppColors.dentalBlue,
-                          width: 3,
+          child: Column(
+            crossAxisAlignment:
+                mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            children: [
+              Container(
+                margin: EdgeInsets.only(bottom: showSeenEye ? 2 : 8),
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+                decoration: BoxDecoration(
+                  color: mine ? AppColors.dentalBlue : AppColors.neo,
+                  borderRadius: BorderRadius.only(
+                    topLeft: const Radius.circular(16),
+                    topRight: const Radius.circular(16),
+                    bottomLeft: Radius.circular(mine ? 16 : 4),
+                    bottomRight: Radius.circular(mine ? 4 : 16),
+                  ),
+                  boxShadow: NeoShadows.soft(depth: 0.35),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (message.replyTo != null) ...[
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(8),
+                        margin: const EdgeInsets.only(bottom: 8),
+                        decoration: BoxDecoration(
+                          color: (mine ? Colors.white : AppColors.navy)
+                              .withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border(
+                            left: BorderSide(
+                              color: mine
+                                  ? Colors.white70
+                                  : AppColors.dentalBlue,
+                              width: 3,
+                            ),
+                          ),
+                        ),
+                        child: Text(
+                          message.replyTo!.content,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: mine ? Colors.white70 : AppColors.muted,
+                          ),
                         ),
                       ),
-                    ),
-                    child: Text(
-                      message.replyTo!.content,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                    ],
+                    Text(
+                      message.content,
                       style: TextStyle(
-                        fontSize: 12,
-                        color: mine ? Colors.white70 : AppColors.muted,
+                        color: mine ? Colors.white : AppColors.navy,
+                        height: 1.35,
                       ),
                     ),
-                  ),
-                ],
-                Text(
-                  message.content,
-                  style: TextStyle(
-                    color: mine ? Colors.white : AppColors.navy,
-                    height: 1.35,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
+                    const SizedBox(height: 4),
                     Text(
                       time,
                       style: TextStyle(
@@ -334,20 +360,19 @@ class _MessageBubble extends StatelessWidget {
                         color: mine ? Colors.white70 : AppColors.muted,
                       ),
                     ),
-                    if (mine) ...[
-                      const SizedBox(width: 4),
-                      Icon(
-                        message.isRead ? Icons.done_all : Icons.done,
-                        size: 14,
-                        color: message.isRead
-                            ? const Color(0xFFB8F0D4)
-                            : Colors.white70,
-                      ),
-                    ],
                   ],
                 ),
-              ],
-            ),
+              ),
+              if (showSeenEye)
+                const Padding(
+                  padding: EdgeInsets.only(right: 4, bottom: 8),
+                  child: Icon(
+                    Icons.remove_red_eye_outlined,
+                    size: 14,
+                    color: AppColors.muted,
+                  ),
+                ),
+            ],
           ),
         ),
       ),

@@ -39,9 +39,10 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
-app.include_router(users.router, prefix="/api", tags=["Users & Contacts"])
 # Chat REST: /api/conversations...
 app.include_router(chat.router, prefix="/api", tags=["chat"])
+# Contact discovery: GET /api/users
+app.include_router(users.router, prefix="/api", tags=["Users & Contacts"])
 # Chat WebSocket: /ws/chat?token=<access_token>
 app.include_router(chat.ws_router, tags=["chat"])
 

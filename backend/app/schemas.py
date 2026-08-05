@@ -93,17 +93,6 @@ class UserOut(BaseModel):
     phone: str | None = None
 
 
-class UserProfileResponse(BaseModel):
-    """Public contact card for messaging discovery (`GET /api/users`)."""
-
-    id: str
-    name: str | None = None
-    email: str | None = None
-    role: str | None = None
-    clinic_name: str | None = None
-    phone: str | None = None
-
-
 # ── Admin / profiles ───────────────────────────────────────────────────────────
 
 class ProfileOut(BaseModel):
