@@ -102,26 +102,8 @@ class _MessagesPageState extends State<MessagesPage> {
               listenable: _controller,
               builder: (context, _) {
                 return PageHeader(
-                  icon: Icons.chat_bubble_outline,
                   title: loc.messagesTitle,
-                  subtitle: _controller.socketConnected
-                      ? 'Live · ${_controller.totalUnread} unread'
-                      : 'Connecting to live chat…',
-                  actions: [
-                    IconButton(
-                      tooltip: 'New chat',
-                      onPressed: _openNewChat,
-                      icon: const Icon(Icons.edit_square, size: 20),
-                      color: AppColors.dentalBlue,
-                    ),
-                    IconButton(
-                      tooltip: loc.refresh,
-                      onPressed: _controller.loadingInbox
-                          ? null
-                          : _controller.loadInbox,
-                      icon: const Icon(Icons.refresh, size: 20),
-                    ),
-                  ],
+
                 );
               },
             ),
