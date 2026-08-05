@@ -53,19 +53,12 @@ class _AppShellState extends State<AppShell> {
     try {
       final results = await Future.wait([
         widget.api.notificationsUnreadCount(),
-        widget.api.listMessageThreads(),
+        fetchChatUnreadTotal(widget.api),
       ]);
       if (!mounted) return;
-      final unreadNotifs = results[0] as int;
-      final threads = results[1] as List<Map<String, dynamic>>;
-      var unreadMsgs = 0;
-      for (final t in threads) {
-        final u = t['unread'];
-        if (u is int) unreadMsgs += u;
-      }
       setState(() {
-        _notificationBadge = unreadNotifs;
-        _messageBadge = unreadMsgs;
+        _notificationBadge = results[0];
+        _messageBadge = results[1];
       });
     } catch (_) {
       // Badges are non-critical
@@ -194,7 +187,14 @@ class _AppShellState extends State<AppShell> {
       case AppNavItem.scanBody:
         return ScanBodyPage(api: widget.api);
       case AppNavItem.messages:
-        return MessagesPage(api: widget.api);
+        return MessagesPage(
+          api: widget.api,
+          onUnreadChanged: (n) {
+            if (_messageBadge != n) {
+              setState(() => _messageBadge = n);
+            }
+          },
+        );
       case AppNavItem.laboratories:
         return LaboratoriesPage(api: widget.api);
       case AppNavItem.notifications:

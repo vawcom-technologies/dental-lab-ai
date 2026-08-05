@@ -15,6 +15,10 @@ logger = logging.getLogger("app.api")
 
 class DebugRequestMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
+        # BaseHTTPMiddleware can break WebSocket upgrades — skip WS paths
+        if request.url.path.startswith("/ws/"):
+            return await call_next(request)
+
         request_id = uuid.uuid4().hex[:8]
         method = request.method
         path = request.url.path
