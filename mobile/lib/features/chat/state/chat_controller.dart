@@ -29,6 +29,8 @@ class ChatController extends ChangeNotifier {
   Conversation? _active;
   Message? _replyTo;
   String _inboxQuery = '';
+  /// True only while [ChatScreen] is mounted / visible.
+  bool _viewingThread = false;
 
   bool _loadingInbox = false;
   bool _loadingMessages = false;
@@ -49,6 +51,7 @@ class ChatController extends ChangeNotifier {
   Conversation? get activeConversation => _active;
   Message? get replyTo => _replyTo;
   String get inboxQuery => _inboxQuery;
+  bool get viewingThread => _viewingThread;
   bool get loadingInbox => _loadingInbox;
   bool get loadingMessages => _loadingMessages;
   bool get loadingOlder => _loadingOlder;
@@ -141,7 +144,7 @@ class ChatController extends ChangeNotifier {
 
   Future<void> openConversation(Conversation conversation) async {
     if (_active?.id == conversation.id && _messages.isNotEmpty) {
-      markActiveAsRead();
+      if (_viewingThread) markActiveAsRead();
       return;
     }
     _active = conversation;
@@ -157,13 +160,32 @@ class ChatController extends ChangeNotifier {
       // API returns newest-first → reverse for chronological list.
       _messages.addAll(page.items.reversed);
       _hasMore = page.hasMore;
-      markActiveAsRead();
+      if (_viewingThread) markActiveAsRead();
     } catch (e) {
       _threadError = e.toString().replaceFirst('Exception: ', '');
     } finally {
       _loadingMessages = false;
       notifyListeners();
     }
+  }
+
+  /// Call when ChatScreen is shown/hidden. Read receipts only while visible.
+  void setViewingThread(bool viewing) {
+    if (_viewingThread == viewing) return;
+    _viewingThread = viewing;
+    if (viewing) {
+      markActiveAsRead();
+    }
+    notifyListeners();
+  }
+
+  void clearActiveConversation() {
+    _active = null;
+    _messages.clear();
+    _replyTo = null;
+    _viewingThread = false;
+    _threadError = null;
+    notifyListeners();
   }
 
   Future<Conversation> openOrCreateWith(String targetUserId) async {
@@ -249,6 +271,7 @@ class ChatController extends ChangeNotifier {
   }
 
   void markActiveAsRead() {
+    if (!_viewingThread) return;
     final active = _active;
     if (active == null) return;
     _socket.markAsRead(active.id);
@@ -261,9 +284,11 @@ class ChatController extends ChangeNotifier {
   void _onSocketMessage(Message message) {
     final me = currentUserId;
     final isMine = me != null && message.senderId == me;
+    final isOpenAndViewing =
+        _viewingThread && _active?.id == message.conversationId;
 
-    // Upsert into open thread
-    if (_active?.id == message.conversationId) {
+    // Upsert into open thread only while the chat UI is visible
+    if (isOpenAndViewing) {
       final exists = _messages.any((m) => m.id == message.id);
       if (!exists) {
         _messages.add(message);
@@ -271,17 +296,27 @@ class ChatController extends ChangeNotifier {
       if (!isMine) {
         _socket.markAsRead(message.conversationId);
       }
+    } else if (_active?.id == message.conversationId && !isMine) {
+      // Thread selected but not viewing — still append locally if loaded,
+      // but do NOT mark as read.
+      final exists = _messages.any((m) => m.id == message.id);
+      if (!exists) {
+        _messages.add(message);
+      }
     }
 
     // Update inbox row
-    final idx = _conversations.indexWhere((c) => c.id == message.conversationId);
+    final idx =
+        _conversations.indexWhere((c) => c.id == message.conversationId);
     if (idx >= 0) {
       final existing = _conversations[idx];
       var unread = existing.unreadCount;
-      if (!isMine && _active?.id != message.conversationId) {
-        unread += 1;
-      } else if (!isMine && _active?.id == message.conversationId) {
-        unread = 0;
+      if (!isMine) {
+        if (isOpenAndViewing) {
+          unread = 0;
+        } else {
+          unread += 1;
+        }
       }
       final updated = existing.copyWith(
         lastMessage: message,

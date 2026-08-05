@@ -13,11 +13,13 @@ class DashboardPage extends StatefulWidget {
     required this.dentistName,
     required this.api,
     required this.onNavigate,
+    this.unreadMessages = 0,
   });
 
   final String dentistName;
   final ApiClient api;
   final ValueChanged<AppNavItem> onNavigate;
+  final int unreadMessages;
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
@@ -29,7 +31,6 @@ class _DashboardPageState extends State<DashboardPage> {
 
   List<Map<String, dynamic>> _patients = [];
   List<Map<String, dynamic>> _cases = [];
-  List<Map<String, dynamic>> _threads = [];
 
   @override
   void initState() {
@@ -46,13 +47,11 @@ class _DashboardPageState extends State<DashboardPage> {
       final results = await Future.wait([
         widget.api.listPatients(),
         widget.api.listCases(),
-        widget.api.listMessageThreads(),
       ]);
       if (!mounted) return;
       setState(() {
         _patients = results[0];
         _cases = results[1];
-        _threads = results[2];
         _loading = false;
       });
     } catch (e) {
@@ -98,14 +97,7 @@ class _DashboardPageState extends State<DashboardPage> {
       _cases.where((c) => CaseStatuses.normalize('${c['status']}') == CaseStatuses.rejected).length;
   int get _attention => _pending + _inProgress + _inReview + _rejected;
 
-  int get _unreadMessages {
-    var n = 0;
-    for (final t in _threads) {
-      final u = t['unread'];
-      if (u is int) n += u;
-    }
-    return n;
-  }
+  int get _unreadMessages => widget.unreadMessages;
 
   String get _avgProcessingLabel {
     final completed = _cases
@@ -174,23 +166,6 @@ class _DashboardPageState extends State<DashboardPage> {
         _ => 'Case updated for $name',
       };
       items.add(_ActivityItem(at: updated, text: label));
-    }
-
-    for (final t in _threads) {
-      if (t['has_messages'] != true) continue;
-      final at = DateTime.tryParse('${t['last_sent_at'] ?? ''}');
-      if (at == null) continue;
-      final name = '${t['patient_name'] ?? 'Patient'}';
-      final preview = '${t['preview'] ?? ''}'.trim();
-      final short = preview.length > 72 ? '${preview.substring(0, 72)}…' : preview;
-      items.add(
-        _ActivityItem(
-          at: at,
-          text: short.isEmpty
-              ? 'Message activity on $name'
-              : 'Message · $name — $short',
-        ),
-      );
     }
 
     items.sort((a, b) => b.at.compareTo(a.at));
@@ -269,12 +244,27 @@ class _DashboardPageState extends State<DashboardPage> {
               ),
               OutlinedButton.icon(
                 onPressed: () => widget.onNavigate(AppNavItem.messages),
-                icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                label: Text(
-                  _unreadMessages > 0
-                      ? '${loc.navMessages} ($_unreadMessages)'
-                      : loc.navMessages,
+                icon: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    const Icon(Icons.chat_bubble_outline, size: 18),
+                    if (_unreadMessages > 0)
+                      Positioned(
+                        right: -3,
+                        top: -3,
+                        child: Container(
+                          width: 9,
+                          height: 9,
+                          decoration: BoxDecoration(
+                            color: AppColors.danger,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 1.5),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
+                label: Text(loc.navMessages),
               ),
               if (widget.api.role == 'admin')
                 OutlinedButton.icon(

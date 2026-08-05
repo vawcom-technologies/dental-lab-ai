@@ -28,8 +28,8 @@ class AppSidebar extends StatelessWidget {
     required this.active,
     required this.onSelect,
     this.collapsed = false,
-    this.messageBadge = 3,
-    this.notificationBadge = 5,
+    this.messageBadge = 0,
+    this.notificationBadge = 0,
     this.showLaboratories = false,
   });
 
@@ -176,10 +176,29 @@ class AppSidebar extends StatelessWidget {
             mainAxisAlignment:
                 collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
             children: [
-              Icon(
-                icon,
-                size: 22,
-                color: selected ? AppColors.dentalBlue : AppColors.muted,
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Icon(
+                    icon,
+                    size: 22,
+                    color: selected ? AppColors.dentalBlue : AppColors.muted,
+                  ),
+                  if (badge != null && badge > 0)
+                    Positioned(
+                      right: -2,
+                      top: -2,
+                      child: Container(
+                        width: 9,
+                        height: 9,
+                        decoration: BoxDecoration(
+                          color: badgeColor ?? AppColors.danger,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 1.5),
+                        ),
+                      ),
+                    ),
+                ],
               ),
               if (!collapsed) ...[
                 const SizedBox(width: 12),
@@ -193,25 +212,6 @@ class AppSidebar extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (badge != null && badge > 0)
-                  Container(
-                    constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: badgeColor ?? AppColors.danger,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      '$badge',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
               ],
             ],
           ),

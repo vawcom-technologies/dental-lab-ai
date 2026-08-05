@@ -24,15 +24,22 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _compose = TextEditingController();
   final _scroll = ScrollController();
+  ChatController? _chat;
 
   @override
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _chat = context.read<ChatController>();
+      _chat?.setViewingThread(true);
+    });
   }
 
   @override
   void dispose() {
+    _chat?.setViewingThread(false);
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
     _compose.dispose();

@@ -9,18 +9,21 @@ import '../../core/widgets/ui_kit.dart';
 import 'screens/chat_screen.dart';
 import 'screens/inbox_screen.dart';
 import 'screens/select_contact_screen.dart';
-import 'services/chat_api_service.dart';
 import 'state/chat_controller.dart';
 
 /// Messages hub: real-time inbox + 1-to-1 chat (`/api/conversations` + `/ws/chat`).
+///
+/// Pass [chatController] from [AppShell] so inbox/WS stay warm after login.
 class MessagesPage extends StatefulWidget {
   const MessagesPage({
     super.key,
     required this.api,
+    this.chatController,
     this.onUnreadChanged,
   });
 
   final ApiClient api;
+  final ChatController? chatController;
   final ValueChanged<int>? onUnreadChanged;
 
   @override
@@ -29,14 +32,23 @@ class MessagesPage extends StatefulWidget {
 
 class _MessagesPageState extends State<MessagesPage> {
   late final ChatController _controller;
+  late final bool _ownsController;
   bool _showThread = false;
 
   @override
   void initState() {
     super.initState();
-    _controller = ChatController(api: widget.api);
+    if (widget.chatController != null) {
+      _controller = widget.chatController!;
+      _ownsController = false;
+    } else {
+      _controller = ChatController(api: widget.api);
+      _ownsController = true;
+      _controller.start();
+    }
     _controller.addListener(_onControllerChanged);
-    _controller.start();
+    // Ensure latest inbox when opening the page.
+    _controller.loadInbox();
   }
 
   void _onControllerChanged() {
@@ -45,8 +57,11 @@ class _MessagesPageState extends State<MessagesPage> {
 
   @override
   void dispose() {
+    _controller.setViewingThread(false);
     _controller.removeListener(_onControllerChanged);
-    _controller.dispose();
+    if (_ownsController) {
+      _controller.dispose();
+    }
     super.dispose();
   }
 
@@ -116,7 +131,10 @@ class _MessagesPageState extends State<MessagesPage> {
                   ? (_showThread
                       ? ChatScreen(
                           showBack: true,
-                          onBack: () => setState(() => _showThread = false),
+                          onBack: () {
+                            _controller.setViewingThread(false);
+                            setState(() => _showThread = false);
+                          },
                         )
                       : InboxScreen(
                           embedded: true,
@@ -142,15 +160,5 @@ class _MessagesPageState extends State<MessagesPage> {
         ),
       ),
     );
-  }
-}
-
-/// Convenience for shell badge without opening Messages.
-Future<int> fetchChatUnreadTotal(ApiClient api) async {
-  try {
-    final list = await ChatApiService(api).fetchConversations();
-    return list.fold<int>(0, (sum, c) => sum + c.unreadCount);
-  } catch (_) {
-    return 0;
   }
 }
