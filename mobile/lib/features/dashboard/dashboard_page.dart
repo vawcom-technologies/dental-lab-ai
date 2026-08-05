@@ -266,7 +266,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
                 label: Text(loc.navMessages),
               ),
-              if (widget.api.role == 'admin')
+              if (widget.api.isDentist)
                 OutlinedButton.icon(
                   onPressed: () =>
                       widget.onNavigate(AppNavItem.laboratories),

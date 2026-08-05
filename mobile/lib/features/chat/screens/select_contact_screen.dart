@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/auth/app_roles.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/ui_kit.dart';
 import '../models/chat_models.dart';
@@ -27,6 +28,7 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
   final _search = TextEditingController();
   Timer? _debounce;
 
+  List<UserProfile> _allUsers = [];
   List<UserProfile> _users = [];
   bool _loading = true;
   bool _creating = false;
@@ -36,10 +38,8 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
 
   static const _roleChips = <(String? value, String label)>[
     (null, 'All'),
-    ('clinic', 'Clinics'),
-    ('dentist', 'Dentists'),
-    ('lab', 'Labs'),
-    ('admin', 'Admins'),
+    (AppRoles.dentist, 'Dentists'),
+    (AppRoles.laboratory, 'Laboratories'),
   ];
 
   ChatApiService get _apiService {
@@ -65,14 +65,13 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
       _error = null;
     });
     try {
-      final users = await _apiService.fetchUsers(
-        search: _query.isEmpty ? null : _query,
-        role: _roleFilter,
-        limit: 50,
-      );
+      // Fetch a broad page, then filter locally so search/role work even when
+      // DB still has legacy role values (admin/clinic) or PostgREST ilike is picky.
+      final users = await _apiService.fetchUsers(limit: 100);
       if (!mounted) return;
       setState(() {
-        _users = users;
+        _allUsers = users;
+        _users = _applyFilters(users);
         _loading = false;
       });
     } catch (e) {
@@ -84,11 +83,40 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
     }
   }
 
+  void _refilter() {
+    setState(() => _users = _applyFilters(_allUsers));
+  }
+
+  List<UserProfile> _applyFilters(List<UserProfile> source) {
+    var rows = source;
+    final q = _query.trim().toLowerCase();
+    if (q.isNotEmpty) {
+      rows = rows.where((u) {
+        final blob = [
+          u.displayName,
+          u.email,
+          u.clinicName,
+          u.phone,
+          u.role,
+          AppRoles.label(u.role),
+        ].whereType<String>().join(' ').toLowerCase();
+        return blob.contains(q);
+      }).toList();
+    }
+    if (_roleFilter == AppRoles.dentist) {
+      rows = rows.where((u) => AppRoles.isDentist(u.role)).toList();
+    } else if (_roleFilter == AppRoles.laboratory) {
+      rows = rows.where((u) => AppRoles.isLaboratory(u.role)).toList();
+    }
+    return rows;
+  }
+
   void _onSearchChanged(String value) {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
       _query = value.trim();
-      _load();
+      _refilter();
     });
   }
 
@@ -171,8 +199,10 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
                     selected: _roleFilter == chip.$1,
                     onTap: () {
                       if (_roleFilter == chip.$1) return;
-                      setState(() => _roleFilter = chip.$1);
-                      _load();
+                      setState(() {
+                        _roleFilter = chip.$1;
+                        _users = _applyFilters(_allUsers);
+                      });
                     },
                   ),
               ],
@@ -280,7 +310,7 @@ class _ContactTile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                user.role!,
+                AppRoles.label(user.role),
                 style: const TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,

@@ -1,6 +1,8 @@
 /// Immutable chat domain models for 1-to-1 messaging.
 library;
 
+import '../../../core/auth/app_roles.dart';
+
 class UserProfile {
   const UserProfile({
     required this.id,
@@ -29,7 +31,7 @@ class UserProfile {
   String get subtitle {
     final parts = <String>[
       if (clinicName != null && clinicName!.trim().isNotEmpty) clinicName!.trim(),
-      if (role != null && role!.trim().isNotEmpty) role!.trim(),
+      if (role != null && role!.trim().isNotEmpty) AppRoles.label(role),
     ];
     return parts.join(' · ');
   }

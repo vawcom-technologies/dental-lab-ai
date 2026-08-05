@@ -137,7 +137,7 @@ class _AppShellState extends State<AppShell> {
                     constraints.maxWidth < AppBreakpoints.collapseSidebar,
                 messageBadge: _messageBadge,
                 notificationBadge: _notificationBadge,
-                showLaboratories: widget.api.role == 'admin',
+                showLaboratories: widget.api.isDentist,
               ),
               Expanded(
                 child: ClipRect(

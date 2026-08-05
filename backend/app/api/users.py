@@ -83,14 +83,23 @@ def list_available_contacts(
         )
 
         if role and role.strip():
-            query = query.eq("role", role.strip())
+            # Accept current + legacy role names (dentist↔admin, laboratory↔clinic/lab).
+            r = role.strip().lower()
+            aliases = {
+                "dentist": ["dentist", "admin"],
+                "admin": ["dentist", "admin"],
+                "laboratory": ["laboratory", "clinic", "lab"],
+                "clinic": ["laboratory", "clinic", "lab"],
+                "lab": ["laboratory", "clinic", "lab"],
+            }.get(r, [role.strip()])
+            query = query.in_("role", aliases)
 
         if search and search.strip():
             term = _escape_ilike(search.strip())
             pattern = f"%{term}%"
-            # PostgREST or-filter: name ilike OR clinic_name ilike
+            # Wrap in and_() so this or-group doesn't collide with the deleted or-filter.
             query = query.or_(
-                f"name.ilike.{pattern},clinic_name.ilike.{pattern}"
+                f"name.ilike.{pattern},clinic_name.ilike.{pattern},email.ilike.{pattern}"
             )
 
         result = query.execute()

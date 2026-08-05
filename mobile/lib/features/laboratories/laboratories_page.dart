@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/auth/app_roles.dart';
 import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
@@ -272,8 +273,8 @@ class _UserTile extends StatelessWidget {
               [
                 if (user.clinicName != null) user.clinicName!,
                 if (user.phone != null) user.phone!,
-                user.role,
-              ].join(' · '),
+                AppRoles.label(user.role),
+              ].where((s) => s.isNotEmpty).join(' · '),
               style: const TextStyle(color: AppColors.muted, fontSize: 12),
             ),
             const SizedBox(height: 6),

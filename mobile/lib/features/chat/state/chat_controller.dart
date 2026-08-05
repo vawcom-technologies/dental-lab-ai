@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/api/api_client.dart';
+import '../../../core/auth/app_roles.dart';
 import '../models/chat_models.dart';
 import '../services/chat_api_service.dart';
 import '../services/chat_socket_service.dart';
@@ -70,9 +71,17 @@ class ChatController extends ChangeNotifier {
     var rows = [..._conversations];
     if (q.isNotEmpty) {
       rows = rows.where((c) {
-        final blob =
-            '${c.partner.displayName} ${c.partner.subtitle} ${c.lastMessage?.content ?? ''}'
-                .toLowerCase();
+        final p = c.partner;
+        final blob = [
+          p.displayName,
+          p.email,
+          p.clinicName,
+          p.phone,
+          p.role,
+          AppRoles.label(p.role),
+          p.subtitle,
+          c.lastMessage?.content,
+        ].whereType<String>().join(' ').toLowerCase();
         return blob.contains(q);
       }).toList();
     }

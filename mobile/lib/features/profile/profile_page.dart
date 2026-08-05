@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/auth/app_roles.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
@@ -76,7 +77,8 @@ class _ProfilePageState extends State<ProfilePage> {
       _email.text = me['email']?.toString() ?? '';
       _clinic.text = me['clinic_name']?.toString() ?? '';
       _phone.text = me['phone']?.toString() ?? '';
-      _role = me['role']?.toString() ?? '—';
+      _role = AppRoles.label(me['role']?.toString());
+      if (_role.isEmpty) _role = '—';
       _createdAt = _fmt(me['created_at']);
       _lastLogin = _fmt(me['last_login']);
     } catch (e) {
