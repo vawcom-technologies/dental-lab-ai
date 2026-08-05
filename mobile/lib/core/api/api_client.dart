@@ -323,35 +323,80 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
-  Future<String> exportDatevXml(int patientId) async {
-    final res = await http.get(
-      Uri.parse('$baseUrl/api/exports/$patientId/datev.xml'),
-      headers: _authHeaders,
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return res.body;
-  }
-
-  /// Clinic analytics. Pass [days] = 0 for all-time.
-  Future<Map<String, dynamic>> fetchReportsSummary({int days = 30}) async {
-    final uri = Uri.parse('$baseUrl/api/reports/summary').replace(
-      queryParameters: {'days': '$days'},
-    );
-    final res = await http.get(uri, headers: _jsonHeaders);
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  Future<Map<String, dynamic>> validateScan(List<int> bytes, String filename) async {
+  /// Re-match zones after the dentist edits a tooth outline polygon.
+  Future<Map<String, dynamic>> resampleShadeOutline({
+    required List<int> bytes,
+    required String filename,
+    required List<List<double>> outline,
+    required int toothIndex,
+  }) async {
+    final name = filename.trim().isEmpty ? 'tooth.jpg' : filename;
     final req = http.MultipartRequest(
       'POST',
-      Uri.parse('$baseUrl/api/ai/scan/validate'),
+      Uri.parse('$baseUrl/api/ai/shade/resample-outline'),
     );
-    req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
+    req.headers.addAll(_authHeaders);
+    req.files.add(
+      http.MultipartFile.fromBytes('file', bytes, filename: name),
+    );
+    req.fields['outline_json'] = jsonEncode(outline);
+    req.fields['tooth_index'] = '$toothIndex';
     final streamed = await req.send();
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> saveShadeAnalysis({
+    required int caseId,
+    required List<Map<String, dynamic>> teeth,
+    int selectedToothIndex = 0,
+  }) async {
+    final res = await http.post(
+      Uri.parse('$baseUrl/api/cases/$caseId/shade/analysis'),
+      headers: _jsonHeaders,
+      body: jsonEncode({
+        'teeth': teeth,
+        'selected_tooth_index': selectedToothIndex,
+      }),
+    );
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(_errorMessage(res));
+    }
+    AppHaptics.success();
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> patchShadeZoneOverride({
+    required int caseId,
+    required int analysisId,
+    required int zoneId,
+    String? overrideShade,
+  }) async {
+    final res = await http.patch(
+      Uri.parse(
+        '$baseUrl/api/cases/$caseId/shade/analysis/$analysisId/zones/$zoneId',
+      ),
+      headers: _jsonHeaders,
+      body: jsonEncode({'override_shade': overrideShade}),
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    AppHaptics.success();
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  Future<void> deleteShadeAnalysis({
+    required int caseId,
+    required int analysisId,
+  }) async {
+    final res = await http.delete(
+      Uri.parse('$baseUrl/api/cases/$caseId/shade/analysis/$analysisId'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 204 && res.statusCode != 200) {
+      throw Exception(_errorMessage(res));
+    }
+    AppHaptics.warn();
   }
 
   Future<Map<String, dynamic>> saveShade({
@@ -387,6 +432,37 @@ class ApiClient {
       throw Exception(_errorMessage(res));
     }
     AppHaptics.warn();
+  }
+
+  Future<String> exportDatevXml(int patientId) async {
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/exports/$patientId/datev.xml'),
+      headers: _authHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return res.body;
+  }
+
+  /// Clinic analytics. Pass [days] = 0 for all-time.
+  Future<Map<String, dynamic>> fetchReportsSummary({int days = 30}) async {
+    final uri = Uri.parse('$baseUrl/api/reports/summary').replace(
+      queryParameters: {'days': '$days'},
+    );
+    final res = await http.get(uri, headers: _jsonHeaders);
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> validateScan(List<int> bytes, String filename) async {
+    final req = http.MultipartRequest(
+      'POST',
+      Uri.parse('$baseUrl/api/ai/scan/validate'),
+    );
+    req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
+    final streamed = await req.send();
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
   Future<Map<String, dynamic>> saveShape({

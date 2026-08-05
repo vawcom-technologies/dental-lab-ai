@@ -41,6 +41,7 @@ class _AppShellState extends State<AppShell> {
   late String _dentistName;
   int _notificationBadge = 0;
   int _messageBadge = 0;
+  bool _sidebarCollapsed = false;
 
   @override
   void initState() {
@@ -130,6 +131,10 @@ class _AppShellState extends State<AppShell> {
             AppSidebar(
               active: _active,
               onSelect: _go,
+              collapsed: _sidebarCollapsed,
+              onToggle: () {
+                setState(() => _sidebarCollapsed = !_sidebarCollapsed);
+              },
               messageBadge: _messageBadge,
               notificationBadge: _notificationBadge,
             ),

@@ -4,6 +4,7 @@ backend/**/__pycache__/
 backend/**/*.pyc
 backend/dental_lab.db
 backend/data/
+backend/debug/
 backend/.env
 
 # Flutter

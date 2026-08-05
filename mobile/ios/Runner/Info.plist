@@ -6,6 +6,14 @@
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- ponytail: dev-only cleartext to the LAN backend; drop this when the API is HTTPS -->
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Elite Dent connects to the lab server on your local network.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Elite Dent needs the camera to capture chairside patient photos for lab cases.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
