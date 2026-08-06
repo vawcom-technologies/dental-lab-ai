@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -23,8 +25,10 @@ class ChatProfileOut(BaseModel):
 class ReplyPreviewOut(BaseModel):
     id: str
     sender_id: str
-    content: str
+    content: str | None = None
     media_url: str | None = None
+    media_type: str | None = None
+    duration_seconds: float | None = None
     created_at: datetime | None = None
 
 
@@ -32,12 +36,18 @@ class MessageOut(BaseModel):
     id: str
     conversation_id: str
     sender_id: str
-    content: str
+    content: str | None = None
     media_url: str | None = None
+    media_type: str | None = None
+    duration_seconds: float | None = None
     reply_to_message_id: str | None = None
     reply_to: ReplyPreviewOut | None = None
     read_at: datetime | None = None
     created_at: datetime | None = None
+
+
+# Alias matching the product naming in the media-upload spec
+MessageResponse = MessageOut
 
 
 class ConversationOut(BaseModel):
@@ -71,9 +81,9 @@ class WSMessageSend(BaseModel):
         description="UUID of the conversation room",
         examples=["3fa85f64-5717-4562-b3fc-2c963f66afa6"],
     )
-    content: str = Field(
-        ...,
-        description="Message text body",
+    content: str | None = Field(
+        default=None,
+        description="Optional message text (required if no media_url)",
         examples=["Hello — can you confirm the shade?"],
     )
     reply_to_message_id: str | None = Field(
@@ -82,7 +92,15 @@ class WSMessageSend(BaseModel):
     )
     media_url: str | None = Field(
         default=None,
-        description="Optional media URL attachment",
+        description="Optional media CDN URL (usually set via POST /api/media/chat-upload)",
+    )
+    media_type: Literal["voice", "image", "document"] | None = Field(
+        default=None,
+        description="Media kind when media_url is present",
+    )
+    duration_seconds: float | None = Field(
+        default=None,
+        description="Voice note duration in seconds",
     )
 
 
@@ -123,3 +141,7 @@ class WSMessagesReadEvent(BaseModel):
     reader_id: str
     message_ids: list[str] = Field(default_factory=list)
     read_at: datetime | None = None
+
+
+# Silence unused UUID import reserved for documentation / future typed IDs
+_ = UUID

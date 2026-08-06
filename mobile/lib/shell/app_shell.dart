@@ -138,7 +138,7 @@ class _AppShellState extends State<AppShell> {
               },
               messageBadge: _messageBadge,
               notificationBadge: _notificationBadge,
-              showLaboratories: widget.api.role == 'admin',
+              showLaboratories: widget.api.isDentist,
             ),
             Expanded(
               child: ClipRect(
@@ -165,44 +165,6 @@ class _AppShellState extends State<AppShell> {
               ),
             ),
           ],
-        child: LayoutBuilder(
-          builder: (context, constraints) => Row(
-            children: [
-              AppSidebar(
-                active: _active,
-                onSelect: _go,
-                collapsed:
-                    constraints.maxWidth < AppBreakpoints.collapseSidebar,
-                messageBadge: _messageBadge,
-                notificationBadge: _notificationBadge,
-                showLaboratories: widget.api.isDentist,
-              ),
-              Expanded(
-                child: ClipRect(
-                  child: AnimatedSwitcher(
-                    duration: _pageIn,
-                    reverseDuration: _pageOut,
-                    switchInCurve: Curves.easeOutCubic,
-                    switchOutCurve: Curves.easeInCubic,
-                    layoutBuilder: (currentChild, previousChildren) {
-                      return Stack(
-                        fit: StackFit.expand,
-                        children: <Widget>[
-                          ...previousChildren,
-                          ?currentChild,
-                        ],
-                      );
-                    },
-                    transitionBuilder: _transition,
-                    child: KeyedSubtree(
-                      key: ValueKey<AppNavItem>(_active),
-                      child: RepaintBoundary(child: _page()),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );

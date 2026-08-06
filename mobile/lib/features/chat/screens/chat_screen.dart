@@ -1,11 +1,17 @@
+import 'dart:async';
+
+import 'package:audio_waveforms/audio_waveforms.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/ui_kit.dart';
 import '../models/chat_models.dart';
 import '../state/chat_controller.dart';
+import '../widgets/chat_bubble.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({
@@ -48,7 +54,6 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _onScroll() {
     if (!_scroll.hasClients) return;
-    // reverse:true → maxScrollExtent is older history
     if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 80) {
       context.read<ChatController>().loadOlderMessages();
     }
@@ -59,6 +64,22 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.trim().isEmpty) return;
     context.read<ChatController>().sendText(text);
     _compose.clear();
+  }
+
+  Future<void> _sendMedia({
+    required Uint8List fileBytes,
+    required String fileName,
+    required String mediaType,
+    double? durationSeconds,
+    String? content,
+  }) async {
+    await context.read<ChatController>().sendMedia(
+          fileBytes: fileBytes,
+          fileName: fileName,
+          mediaType: mediaType,
+          durationSeconds: durationSeconds,
+          content: content,
+        );
   }
 
   @override
@@ -146,12 +167,11 @@ class _ChatScreenState extends State<ChatScreen> {
                                   ),
                                 );
                               }
-                              // reverse list: index 0 = newest
                               final message =
                                   messages[messages.length - 1 - index];
-                              final mine = me != null &&
-                                  message.senderId == me;
-                              return _MessageBubble(
+                              final mine =
+                                  me != null && message.senderId == me;
+                              return ChatMessageBubble(
                                 message: message,
                                 mine: mine,
                                 showSeenEye: mine &&
@@ -174,6 +194,7 @@ class _ChatScreenState extends State<ChatScreen> {
             controller: _compose,
             sending: controller.sending,
             onSend: _send,
+            onSendMedia: _sendMedia,
           ),
         ],
       ),
@@ -270,123 +291,6 @@ class _ChatHeader extends StatelessWidget {
   }
 }
 
-class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({
-    required this.message,
-    required this.mine,
-    required this.onReply,
-    this.showSeenEye = false,
-  });
-
-  final Message message;
-  final bool mine;
-  final VoidCallback onReply;
-  final bool showSeenEye;
-
-  @override
-  Widget build(BuildContext context) {
-    final time = message.createdAt != null
-        ? DateFormat.Hm().format(message.createdAt!.toLocal())
-        : '';
-
-    return Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
-        onLongPress: onReply,
-        onHorizontalDragEnd: (details) {
-          if (details.primaryVelocity != null &&
-              details.primaryVelocity!.abs() > 200) {
-            onReply();
-          }
-        },
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.sizeOf(context).width * 0.72,
-          ),
-          child: Column(
-            crossAxisAlignment:
-                mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-            children: [
-              Container(
-                margin: EdgeInsets.only(bottom: showSeenEye ? 2 : 8),
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-                decoration: BoxDecoration(
-                  color: mine ? AppColors.dentalBlue : AppColors.neo,
-                  borderRadius: BorderRadius.only(
-                    topLeft: const Radius.circular(16),
-                    topRight: const Radius.circular(16),
-                    bottomLeft: Radius.circular(mine ? 16 : 4),
-                    bottomRight: Radius.circular(mine ? 4 : 16),
-                  ),
-                  boxShadow: NeoShadows.soft(depth: 0.35),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (message.replyTo != null) ...[
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(8),
-                        margin: const EdgeInsets.only(bottom: 8),
-                        decoration: BoxDecoration(
-                          color: (mine ? Colors.white : AppColors.navy)
-                              .withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border(
-                            left: BorderSide(
-                              color: mine
-                                  ? Colors.white70
-                                  : AppColors.dentalBlue,
-                              width: 3,
-                            ),
-                          ),
-                        ),
-                        child: Text(
-                          message.replyTo!.content,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: mine ? Colors.white70 : AppColors.muted,
-                          ),
-                        ),
-                      ),
-                    ],
-                    Text(
-                      message.content,
-                      style: TextStyle(
-                        color: mine ? Colors.white : AppColors.navy,
-                        height: 1.35,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      time,
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: mine ? Colors.white70 : AppColors.muted,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (showSeenEye)
-                const Padding(
-                  padding: EdgeInsets.only(right: 4, bottom: 8),
-                  child: Icon(
-                    Icons.remove_red_eye_outlined,
-                    size: 14,
-                    color: AppColors.muted,
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _ReplyPreviewBar extends StatelessWidget {
   const _ReplyPreviewBar({
     required this.message,
@@ -431,7 +335,7 @@ class _ReplyPreviewBar extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  message.content,
+                  message.previewText,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 12, color: AppColors.muted),
@@ -450,53 +354,378 @@ class _ReplyPreviewBar extends StatelessWidget {
   }
 }
 
-class _Composer extends StatelessWidget {
+typedef _SendMediaFn = Future<void> Function({
+  required Uint8List fileBytes,
+  required String fileName,
+  required String mediaType,
+  double? durationSeconds,
+  String? content,
+});
+
+class _Composer extends StatefulWidget {
   const _Composer({
     required this.controller,
     required this.sending,
     required this.onSend,
+    required this.onSendMedia,
   });
 
   final TextEditingController controller;
   final bool sending;
   final VoidCallback onSend;
+  final _SendMediaFn onSendMedia;
+
+  @override
+  State<_Composer> createState() => _ComposerState();
+}
+
+class _ComposerState extends State<_Composer> {
+  late final RecorderController _recorder;
+  StreamSubscription<Duration>? _durationSub;
+  bool _recording = false;
+  double _elapsedSeconds = 0;
+  DateTime? _recordStartedAt;
+
+  bool get _voiceSupported =>
+      !kIsWeb && (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.android);
+
+  @override
+  void initState() {
+    super.initState();
+    _recorder = RecorderController();
+    _durationSub = _recorder.onCurrentDuration.listen((d) {
+      if (mounted) setState(() => _elapsedSeconds = d.inMilliseconds / 1000.0);
+    });
+  }
+
+  @override
+  void dispose() {
+    _durationSub?.cancel();
+    if (_recording) {
+      unawaited(_recorder.stop());
+    }
+    _recorder.dispose();
+    super.dispose();
+  }
+
+  Future<void> _showAttachSheet() async {
+    if (widget.sending) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'Attach',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.navy,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  leading: const Icon(Icons.photo_library_outlined,
+                      color: AppColors.dentalBlue),
+                  title: const Text('Photo library'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _pickImage(ImageSource.gallery);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.photo_camera_outlined,
+                      color: AppColors.dentalBlue),
+                  title: const Text('Camera'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _pickImage(ImageSource.camera);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.attach_file_rounded,
+                      color: AppColors.dentalBlue),
+                  title: const Text('Document'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _pickDocument();
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final shot = await picker.pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 2048,
+      );
+      if (shot == null) return;
+      final bytes = await shot.readAsBytes();
+      if (bytes.isEmpty) {
+        _toast('Could not read the selected image.');
+        return;
+      }
+      final name = shot.name.trim().isNotEmpty
+          ? shot.name
+          : 'image_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      await widget.onSendMedia(
+        fileBytes: bytes,
+        fileName: name,
+        mediaType: 'image',
+      );
+    } catch (e) {
+      _toast(e.toString());
+    }
+  }
+
+  Future<void> _pickDocument() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.any,
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final picked = result.files.single;
+      Uint8List? bytes = picked.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        final path = picked.path;
+        if (path == null || path.isEmpty) {
+          _toast('Could not read the selected file.');
+          return;
+        }
+        // Native platforms may omit in-memory bytes; XFile works without dart:io.
+        bytes = await XFile(path).readAsBytes();
+      }
+      if (bytes.isEmpty) {
+        _toast('Could not read the selected file.');
+        return;
+      }
+      final name = picked.name.trim().isNotEmpty
+          ? picked.name
+          : 'document_${DateTime.now().millisecondsSinceEpoch}.bin';
+      await widget.onSendMedia(
+        fileBytes: bytes,
+        fileName: name,
+        mediaType: 'document',
+      );
+    } catch (e) {
+      _toast(e.toString());
+    }
+  }
+
+  Future<void> _startRecording() async {
+    if (widget.sending || _recording) return;
+    if (!_voiceSupported) {
+      _toast('Voice notes are supported on iOS and Android.');
+      return;
+    }
+    try {
+      final hasPermission = await _recorder.checkPermission();
+      if (!hasPermission) {
+        _toast('Microphone permission is required for voice notes.');
+        return;
+      }
+      // Let the plugin choose a temp path — avoid dart:io / path_provider.
+      await _recorder.record(recorderSettings: const RecorderSettings());
+      if (!mounted) return;
+      setState(() {
+        _recording = true;
+        _elapsedSeconds = 0;
+        _recordStartedAt = DateTime.now();
+      });
+    } catch (e) {
+      _toast('Could not start recording: $e');
+    }
+  }
+
+  Future<void> _stopRecordingAndSend({bool cancel = false}) async {
+    if (!_recording) return;
+    try {
+      final path = await _recorder.stop();
+      final started = _recordStartedAt;
+      final duration = started == null
+          ? _elapsedSeconds
+          : DateTime.now().difference(started).inMilliseconds / 1000.0;
+      if (!mounted) return;
+      setState(() {
+        _recording = false;
+        _elapsedSeconds = 0;
+        _recordStartedAt = null;
+      });
+      if (cancel || path == null || path.isEmpty) return;
+      if (duration < 0.4) {
+        _toast('Hold a bit longer to record a voice note.');
+        return;
+      }
+      final bytes = await XFile(path).readAsBytes();
+      if (bytes.isEmpty) {
+        _toast('Could not read the recorded audio.');
+        return;
+      }
+      final lower = path.toLowerCase();
+      final ext = lower.endsWith('.wav')
+          ? 'wav'
+          : lower.endsWith('.aac')
+              ? 'aac'
+              : 'm4a';
+      await widget.onSendMedia(
+        fileBytes: bytes,
+        fileName: 'voice_${DateTime.now().millisecondsSinceEpoch}.$ext',
+        mediaType: 'voice',
+        durationSeconds: duration,
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _recording = false;
+          _elapsedSeconds = 0;
+          _recordStartedAt = null;
+        });
+      }
+      _toast('Could not send voice note: $e');
+    }
+  }
+
+  void _toast(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message.replaceFirst('Exception: ', ''))),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
+          IconButton(
+            tooltip: 'Attach',
+            onPressed: widget.sending || _recording ? null : _showAttachSheet,
+            icon: const Icon(Icons.attach_file_rounded),
+            color: AppColors.navy,
+          ),
           Expanded(
-            child: TextField(
-              controller: controller,
-              minLines: 1,
-              maxLines: 4,
-              textInputAction: TextInputAction.send,
-              onSubmitted: (_) => onSend(),
-              decoration: InputDecoration(
-                hintText: 'Type a message…',
-                filled: true,
-                fillColor: AppColors.neo,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
-                ),
+            child: _recording
+                ? Container(
+                    height: 48,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: AppColors.dangerSoft,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.mic, color: AppColors.danger, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: AudioWaveforms(
+                            size: const Size(double.infinity, 36),
+                            recorderController: _recorder,
+                            waveStyle: const WaveStyle(
+                              waveColor: AppColors.danger,
+                              extendWaveform: true,
+                              showMiddleLine: false,
+                              spacing: 4,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          formatVoiceDuration(_elapsedSeconds),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.danger,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : TextField(
+                    controller: widget.controller,
+                    minLines: 1,
+                    maxLines: 4,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => widget.onSend(),
+                    decoration: InputDecoration(
+                      hintText: 'Type a message…',
+                      filled: true,
+                      fillColor: AppColors.neo,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                    ),
+                  ),
+          ),
+          const SizedBox(width: 4),
+          if (_recording)
+            IconButton(
+              tooltip: 'Cancel',
+              onPressed: () => _stopRecordingAndSend(cancel: true),
+              icon: const Icon(Icons.close_rounded),
+              color: AppColors.muted,
+            ),
+          GestureDetector(
+            onLongPressStart: (_) => _startRecording(),
+            onLongPressEnd: (_) => _stopRecordingAndSend(),
+            onLongPressCancel: () => _stopRecordingAndSend(cancel: true),
+            child: IconButton(
+              tooltip: _recording ? 'Release to send' : 'Hold to record',
+              onPressed: _recording
+                  ? () => _stopRecordingAndSend()
+                  : () {
+                      if (!_voiceSupported) {
+                        _toast(
+                          'Voice notes are supported on iOS and Android.',
+                        );
+                      }
+                    },
+              icon: Icon(
+                _recording ? Icons.send_rounded : Icons.mic_none_rounded,
+                color: _recording ? AppColors.dentalBlue : AppColors.navy,
               ),
             ),
           ),
-          const SizedBox(width: 8),
           FilledButton(
-            onPressed: sending ? null : onSend,
+            onPressed: widget.sending || _recording ? null : widget.onSend,
             style: FilledButton.styleFrom(
               shape: const CircleBorder(),
               padding: const EdgeInsets.all(14),
             ),
-            child: sending
+            child: widget.sending
                 ? const SizedBox(
                     width: 18,
                     height: 18,

@@ -169,8 +169,8 @@ class _ConversationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final partner = conversation.partner;
-    final preview = conversation.lastMessage?.content.trim().isNotEmpty == true
-        ? conversation.lastMessage!.content
+    final preview = conversation.lastMessage?.previewText.isNotEmpty == true
+        ? conversation.lastMessage!.previewText
         : 'No messages yet';
     final time = conversation.lastMessage?.createdAt ??
         conversation.updatedAt ??
