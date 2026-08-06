@@ -27,6 +27,7 @@ class AppSidebar extends StatelessWidget {
     super.key,
     required this.active,
     required this.onSelect,
+    required this.onToggle,
     this.collapsed = false,
     this.messageBadge = 0,
     this.notificationBadge = 0,
@@ -35,6 +36,7 @@ class AppSidebar extends StatelessWidget {
 
   final AppNavItem active;
   final ValueChanged<AppNavItem> onSelect;
+  final VoidCallback onToggle;
   final bool collapsed;
   final int messageBadge;
   final int notificationBadge;
@@ -44,94 +46,139 @@ class AppSidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = AppLocalizations.of(context);
     final width = collapsed ? 72.0 : 248.0;
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      width: width,
-      margin: const EdgeInsets.fromLTRB(12, 12, 0, 12),
-      decoration: BoxDecoration(
-        color: AppColors.sidebarBg,
-        borderRadius: AppRadii.border,
-        boxShadow: NeoShadows.raised(depth: 0.85),
-      ),
-      child: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: EdgeInsets.fromLTRB(collapsed ? 10 : 16, 18, 14, 10),
-              child: collapsed
-                  ? const Center(child: BrandLogo(height: 40, scale: 1.2))
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const BrandLogo(height: 56, scale: 1.15),
-                        const SizedBox(height: 8),
-                        Text(
-                          s.proEdition,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: AppColors.muted,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.4,
-                          ),
-                        ),
-                      ],
-                    ),
-            ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                children: [
-                  _item(AppNavItem.dashboard, Icons.grid_view_rounded, s.navDashboard),
-                  _item(
-                    AppNavItem.patients,
-                    Icons.people_outline,
-                    s.navPatients,
-                    // New Patient is opened from Patients — keep Patients highlighted there.
-                    selectedOverride: active == AppNavItem.newPatient,
-                  ),
-                  _item(AppNavItem.camera, Icons.photo_camera_outlined, s.navCamera),
-                  _item(AppNavItem.scans, Icons.view_in_ar_outlined, s.navScans),
-                  _item(AppNavItem.shade, Icons.palette_outlined, s.navShade),
-                  _item(AppNavItem.smilePreview, Icons.sentiment_satisfied_alt_outlined, s.navSmilePreview),
-                  _item(AppNavItem.scanBody, Icons.radio_button_checked_outlined, s.navScanBody),
-                  _item(
-                    AppNavItem.messages,
-                    Icons.chat_bubble_outline,
-                    s.navMessages,
-                    badge: messageBadge,
-                    badgeColor: AppColors.danger,
-                  ),
-                  if (showLaboratories)
-                    _item(
-                      AppNavItem.laboratories,
-                      Icons.biotech_outlined,
-                      s.navLaboratories,
-                    ),
-                  _item(
-                    AppNavItem.notifications,
-                    Icons.notifications_none_rounded,
-                    s.navNotifications,
-                    badge: notificationBadge,
-                    badgeColor: AppColors.warning,
-                  ),
-                  _item(AppNavItem.reports, Icons.bar_chart_rounded, s.navReports),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 4, 10, 14),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onHorizontalDragEnd: (details) {
+        final v = details.primaryVelocity ?? 0;
+        if (collapsed && v > 250) {
+          onToggle();
+        } else if (!collapsed && v < -250) {
+          onToggle();
+        }
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        width: width,
+        margin: const EdgeInsets.fromLTRB(12, 12, 0, 12),
+        decoration: BoxDecoration(
+          color: AppColors.sidebarBg,
+          borderRadius: AppRadii.border,
+          boxShadow: NeoShadows.raised(depth: 0.85),
+        ),
+        // Keep content at the target width while the sidebar animates,
+        // otherwise the logo row overflows mid-tween.
+        child: ClipRect(
+          child: OverflowBox(
+            alignment: Alignment.centerLeft,
+            minWidth: width,
+            maxWidth: width,
+            child: SafeArea(
               child: Column(
                 children: [
-                  Container(
-                    height: 1,
-                    margin: const EdgeInsets.only(bottom: 10),
-                    color: AppColors.border.withValues(alpha: 0.6),
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(collapsed ? 10 : 16, 18, 14, 10),
+                    child: collapsed
+                        ? Column(
+                            children: [
+                              const BrandLogo(height: 40, scale: 1.2),
+                              IconButton(
+                                onPressed: onToggle,
+                                tooltip: 'Expand sidebar',
+                                icon: const Icon(Icons.chevron_right_rounded),
+                                color: AppColors.muted,
+                              ),
+                            ],
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Expanded(
+                                    child: Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: BrandLogo(height: 56, scale: 1.15),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    onPressed: onToggle,
+                                    tooltip: 'Collapse sidebar',
+                                    icon: const Icon(Icons.chevron_left_rounded),
+                                    color: AppColors.muted,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                s.proEdition,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.muted,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 0.4,
+                                ),
+                              ),
+                            ],
+                          ),
                   ),
-                  _item(AppNavItem.settings, Icons.settings_outlined, s.navSettings),
+                  Expanded(
+                    child: ListView(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      children: [
+                        _item(AppNavItem.dashboard, Icons.grid_view_rounded, s.navDashboard),
+                        _item(
+                          AppNavItem.patients,
+                          Icons.people_outline,
+                          s.navPatients,
+                          // New Patient is opened from Patients — keep Patients highlighted there.
+                          selectedOverride: active == AppNavItem.newPatient,
+                        ),
+                        _item(AppNavItem.camera, Icons.photo_camera_outlined, s.navCamera),
+                        _item(AppNavItem.scans, Icons.view_in_ar_outlined, s.navScans),
+                        _item(AppNavItem.shade, Icons.palette_outlined, s.navShade),
+                        _item(AppNavItem.smilePreview, Icons.sentiment_satisfied_alt_outlined, s.navSmilePreview),
+                        _item(AppNavItem.scanBody, Icons.radio_button_checked_outlined, s.navScanBody),
+                        _item(
+                          AppNavItem.messages,
+                          Icons.chat_bubble_outline,
+                          s.navMessages,
+                          badge: messageBadge,
+                          badgeColor: AppColors.danger,
+                        ),
+                        if (showLaboratories)
+                          _item(
+                            AppNavItem.laboratories,
+                            Icons.biotech_outlined,
+                            s.navLaboratories,
+                          ),
+                        _item(
+                          AppNavItem.notifications,
+                          Icons.notifications_none_rounded,
+                          s.navNotifications,
+                          badge: notificationBadge,
+                          badgeColor: AppColors.warning,
+                        ),
+                        _item(AppNavItem.reports, Icons.bar_chart_rounded, s.navReports),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 4, 10, 14),
+                    child: Column(
+                      children: [
+                        Container(
+                          height: 1,
+                          margin: const EdgeInsets.only(bottom: 10),
+                          color: AppColors.border.withValues(alpha: 0.6),
+                        ),
+                        _item(AppNavItem.settings, Icons.settings_outlined, s.navSettings),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );

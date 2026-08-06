@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../core/api/api_client.dart';
-import '../core/layout/adaptive.dart';
 import '../core/theme/app_theme.dart';
 import '../features/camera/camera_page.dart';
 import '../features/chat/messages_page.dart';
@@ -42,6 +41,7 @@ class _AppShellState extends State<AppShell> {
   late String _dentistName;
   int _notificationBadge = 0;
   int _messageBadge = 0;
+  bool _sidebarCollapsed = false;
   late final ChatController _chat;
 
   @override
@@ -127,6 +127,44 @@ class _AppShellState extends State<AppShell> {
             ],
           ),
         ),
+        child: Row(
+          children: [
+            AppSidebar(
+              active: _active,
+              onSelect: _go,
+              collapsed: _sidebarCollapsed,
+              onToggle: () {
+                setState(() => _sidebarCollapsed = !_sidebarCollapsed);
+              },
+              messageBadge: _messageBadge,
+              notificationBadge: _notificationBadge,
+              showLaboratories: widget.api.role == 'admin',
+            ),
+            Expanded(
+              child: ClipRect(
+                child: AnimatedSwitcher(
+                  duration: _pageIn,
+                  reverseDuration: _pageOut,
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  layoutBuilder: (currentChild, previousChildren) {
+                    return Stack(
+                      fit: StackFit.expand,
+                      children: <Widget>[
+                        ...previousChildren,
+                        ?currentChild,
+                      ],
+                    );
+                  },
+                  transitionBuilder: _transition,
+                  child: KeyedSubtree(
+                    key: ValueKey<AppNavItem>(_active),
+                    child: RepaintBoundary(child: _page()),
+                  ),
+                ),
+              ),
+            ),
+          ],
         child: LayoutBuilder(
           builder: (context, constraints) => Row(
             children: [

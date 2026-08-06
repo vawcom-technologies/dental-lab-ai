@@ -28,6 +28,48 @@ List<double> localToNorm(Offset local, Rect dest) {
   return [x, y];
 }
 
+/// Undo/redo stack for tooth-outline handle edits.
+class OutlineEditHistory {
+  final List<List<List<double>>> _undo = [];
+  final List<List<List<double>>> _redo = [];
+
+  bool get canUndo => _undo.isNotEmpty;
+  bool get canRedo => _redo.isNotEmpty;
+
+  static List<List<double>> clone(List<List<double>> outline) =>
+      outline.map((p) => [p[0], p[1]]).toList();
+
+  static bool same(List<List<double>> a, List<List<double>> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i][0] != b[i][0] || a[i][1] != b[i][1]) return false;
+    }
+    return true;
+  }
+
+  void clear() {
+    _undo.clear();
+    _redo.clear();
+  }
+
+  void record(List<List<double>> before) {
+    _undo.add(clone(before));
+    _redo.clear();
+  }
+
+  List<List<double>>? undo(List<List<double>> current) {
+    if (_undo.isEmpty) return null;
+    _redo.add(clone(current));
+    return _undo.removeLast();
+  }
+
+  List<List<double>>? redo(List<List<double>> current) {
+    if (_redo.isEmpty) return null;
+    _undo.add(clone(current));
+    return _redo.removeLast();
+  }
+}
+
 /// Simplify a dense outline to ~4–6 control points for edge editing.
 ///
 /// Douglas–Peucker style reduction, then midpoints on longest edges if too few.
@@ -192,7 +234,10 @@ int? hitTestOutlineHandle({
 }
 
 class ToothOverlayPainter extends CustomPainter {
+  /// [repaint] drives handle drags: the outline list is mutated in place, so
+  /// there is no new painter to compare against while a handle moves.
   ToothOverlayPainter({
+    super.repaint,
     required this.teeth,
     required this.selectedToothIndex,
     required this.imageSize,
@@ -200,6 +245,7 @@ class ToothOverlayPainter extends CustomPainter {
     this.editMode = false,
     this.editOutline,
     this.activeHandleIndex,
+    this.transformationController,
   });
 
   final List<Map<String, dynamic>> teeth;
@@ -209,12 +255,29 @@ class ToothOverlayPainter extends CustomPainter {
   final bool editMode;
   final List<List<double>>? editOutline;
   final int? activeHandleIndex;
+  final TransformationController? transformationController;
 
   static const _zoneColors = {
     'cervical': Color(0xFFE09B2D),
     'middle': Color(0xFF4A90E2),
     'incisal': Color(0xFF1F9D63),
   };
+
+  Path _pathFromNorm(List outline, Rect dest) {
+    final path = Path();
+    for (var i = 0; i < outline.length; i++) {
+      final p = outline[i];
+      if (p is! List || p.length < 2) continue;
+      final o = normToLocal(p, dest);
+      if (i == 0) {
+        path.moveTo(o.dx, o.dy);
+      } else {
+        path.lineTo(o.dx, o.dy);
+      }
+    }
+    path.close();
+    return path;
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -234,18 +297,7 @@ class ToothOverlayPainter extends CustomPainter {
           ? editOutline!
           : geo['outline'];
       if (outline is List && outline.length >= 3) {
-        final path = Path();
-        for (var i = 0; i < outline.length; i++) {
-          final p = outline[i];
-          if (p is! List || p.length < 2) continue;
-          final o = normToLocal(p, dest);
-          if (i == 0) {
-            path.moveTo(o.dx, o.dy);
-          } else {
-            path.lineTo(o.dx, o.dy);
-          }
-        }
-        path.close();
+        final path = _pathFromNorm(outline, dest);
 
         final fill = Paint()
           ..style = PaintingStyle.fill
@@ -272,18 +324,7 @@ class ToothOverlayPainter extends CustomPainter {
             final name = entry.key.toString();
             final pts = entry.value;
             if (pts is! List || pts.length < 3) continue;
-            final path = Path();
-            for (var i = 0; i < pts.length; i++) {
-              final p = pts[i];
-              if (p is! List || p.length < 2) continue;
-              final o = normToLocal(p, dest);
-              if (i == 0) {
-                path.moveTo(o.dx, o.dy);
-              } else {
-                path.lineTo(o.dx, o.dy);
-              }
-            }
-            path.close();
+            final path = _pathFromNorm(pts, dest);
             final c = _zoneColors[name] ?? Colors.white;
             canvas.drawPath(
               path,
@@ -352,25 +393,27 @@ class ToothOverlayPainter extends CustomPainter {
       }
     }
 
-    // Drag handles for the tooth being edited (sized for finger, not mouse).
+    // Small visible handles; hit testing stays generous for iPad fingers.
     if (editMode && editOutline != null) {
+      final scale =
+          transformationController?.value.getMaxScaleOnAxis().clamp(1.0, 4.0) ??
+              1.0;
       for (var i = 0; i < editOutline!.length; i++) {
         final o = normToLocal(editOutline![i], dest);
         final active = i == activeHandleIndex;
-        // Soft outer ring = larger visible/affordance target on iPad
         canvas.drawCircle(
           o,
-          active ? 18 : 15,
+          (active ? 8 : 7) / scale,
           Paint()..color = Colors.white.withValues(alpha: 0.35),
         );
         canvas.drawCircle(
           o,
-          active ? 11 : 9,
+          (active ? 5 : 4.5) / scale,
           Paint()..color = Colors.white,
         );
         canvas.drawCircle(
           o,
-          active ? 8 : 6,
+          (active ? 3 : 2.5) / scale,
           Paint()..color = AppColors.dentalBlue,
         );
       }
@@ -379,12 +422,11 @@ class ToothOverlayPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant ToothOverlayPainter oldDelegate) {
+    // Edit mode mutates editOutline in place, so it never compares unequal.
+    if (editMode || oldDelegate.editMode) return true;
     return oldDelegate.selectedToothIndex != selectedToothIndex ||
         oldDelegate.focusZone != focusZone ||
         oldDelegate.teeth != teeth ||
-        oldDelegate.imageSize != imageSize ||
-        oldDelegate.editMode != editMode ||
-        oldDelegate.editOutline != editOutline ||
-        oldDelegate.activeHandleIndex != activeHandleIndex;
+        oldDelegate.imageSize != imageSize;
   }
 }

@@ -27,6 +27,17 @@ flutter pub get
 flutter run -d chrome --dart-define=API_BASE=http://127.0.0.1:8000
 ```
 
+On a physical iPad, `127.0.0.1` is the iPad itself (errno 61 = connection refused).
+Start the backend with `--host 0.0.0.0` and point the app at the Mac's LAN IP:
+
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+```bash
+flutter run -d <ipad> --dart-define=API_BASE=http://$(ipconfig getifaddr en0):8000
+```
+
 ## Layout
 
 | Path | Purpose |

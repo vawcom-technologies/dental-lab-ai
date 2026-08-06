@@ -76,12 +76,14 @@ class SectionCard extends StatelessWidget {
     this.padding,
     this.depth = 1,
     this.color,
+    this.boxShadow,
   });
 
   final Widget child;
   final EdgeInsetsGeometry? padding;
   final double depth;
   final Color? color;
+  final List<BoxShadow>? boxShadow;
 
   @override
   Widget build(BuildContext context) {
@@ -91,7 +93,9 @@ class SectionCard extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: AppRadii.border,
-        boxShadow: NeoShadows.raised(depth: depth),
+        border: depth <= 0 ? Border.all(color: AppColors.border) : null,
+        boxShadow:
+            boxShadow ?? (depth <= 0 ? null : NeoShadows.raised(depth: depth)),
       ),
       child: Material(
         color: color ?? AppColors.card,
