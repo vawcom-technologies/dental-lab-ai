@@ -5,8 +5,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, health, admin
+from app.api import auth, health, admin, chat, users
 from app.core.debug_middleware import DebugRequestMiddleware, configure_api_logging
+from app.openapi_docs import attach_custom_openapi
 
 
 @asynccontextmanager
@@ -18,9 +19,12 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="Dental Lab AI API",
     version="0.3.0",
-    description="Elite Dent API — Supabase authentication",
+    description="Elite Dent API — Supabase authentication + real-time chat",
     lifespan=lifespan,
 )
+
+# Document /ws/chat in Swagger (/docs) via custom OpenAPI injection
+attach_custom_openapi(app)
 
 # Outer middleware runs first on the way in — CORS should stay outermost.
 app.add_middleware(DebugRequestMiddleware)
@@ -35,6 +39,12 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+# Chat REST: /api/conversations...
+app.include_router(chat.router, prefix="/api", tags=["chat"])
+# Contact discovery: GET /api/users
+app.include_router(users.router, prefix="/api", tags=["Users & Contacts"])
+# Chat WebSocket: /ws/chat?token=<access_token>
+app.include_router(chat.ws_router, tags=["chat"])
 
 try:
     from app.api import ai_poc

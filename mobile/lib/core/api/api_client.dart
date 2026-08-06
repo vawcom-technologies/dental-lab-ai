@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../features/laboratories/admin_user.dart';
+import '../auth/app_roles.dart';
 import '../haptics/app_haptics.dart';
 
 class ApiClient {
@@ -27,6 +28,8 @@ class ApiClient {
   String? get refreshToken => _refreshToken;
   String? get userId => _userId;
   String? get role => _role;
+  bool get isDentist => AppRoles.isDentist(_role);
+  bool get isLaboratory => AppRoles.isLaboratory(_role);
   String? get userName => _name;
   String? get email => _email;
   String? get clinicName => _clinicName;
@@ -137,7 +140,6 @@ class ApiClient {
     required String email,
     required String name,
     required String password,
-    String role = 'dentist',
     String? clinicName,
     String? phone,
   }) =>

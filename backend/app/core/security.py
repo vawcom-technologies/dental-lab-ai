@@ -63,15 +63,18 @@ def user_from_supabase(user: Any) -> AuthUser:
     return auth_user
 
 
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-) -> AuthUser:
-    token = credentials.credentials
-    logger.debug("get_current_user validating bearer token")
+def get_user_from_token(token: str) -> AuthUser:
+    """Validate a JWT string (HTTP Bearer or WebSocket ?token=). Raises HTTPException."""
+    if not token or not token.strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     try:
-        response = get_supabase().auth.get_user(token)
+        response = get_supabase().auth.get_user(token.strip())
     except Exception as exc:
-        logger.debug("get_current_user invalid token detail=%s", exc)
+        logger.debug("get_user_from_token invalid detail=%s", exc)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
@@ -80,13 +83,20 @@ def get_current_user(
 
     user = getattr(response, "user", None)
     if user is None:
-        logger.debug("get_current_user no user on token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    auth_user = user_from_supabase(user)
+    return user_from_supabase(user)
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> AuthUser:
+    token = credentials.credentials
+    logger.debug("get_current_user validating bearer token")
+    auth_user = get_user_from_token(token)
     logger.debug(
         "get_current_user ok user_id=%s role=%s",
         auth_user.id,

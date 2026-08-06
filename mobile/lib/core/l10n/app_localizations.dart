@@ -66,7 +66,9 @@ class AppLocalizations {
   String get phone => _t('auth.phone');
   String get confirmPassword => _t('auth.confirmPassword');
   String get roleDentist => _t('auth.roleDentist');
-  String get roleLab => _t('auth.roleLab');
+  String get roleLaboratory => _t('auth.roleLaboratory');
+  @Deprecated('Use roleLaboratory')
+  String get roleLab => roleLaboratory;
   String get alreadyHaveAccount => _t('auth.alreadyHaveAccount');
   String get errNameEmailPassword => _t('auth.errNameEmailPassword');
   String get errAllFieldsRequired => _t('auth.errAllFieldsRequired');
@@ -374,13 +376,15 @@ class AppLocalizations {
     'auth.hero':
         'Chairside scan validation, shade AI, and lab collaboration — designed for iPad.',
     'auth.registerTitle': 'Create profile',
-    'auth.registerSubtitle': 'Register a dentist or lab account for Elite Dent',
+    'auth.registerSubtitle':
+        'Register a dentist or laboratory account for Elite Dent',
     'auth.fullName': 'Full name *',
     'auth.clinic': 'Clinic name *',
     'auth.phone': 'Phone *',
     'auth.confirmPassword': 'Confirm password',
     'auth.roleDentist': 'Dentist',
-    'auth.roleLab': 'Lab',
+    'auth.roleLaboratory': 'Laboratory',
+    'auth.roleLab': 'Laboratory',
     'auth.alreadyHaveAccount': 'Already have an account? Sign in',
     'auth.errNameEmailPassword': 'Name, email, and password are required',
     'auth.errAllFieldsRequired': 'All fields are required',
@@ -508,7 +512,7 @@ class AppLocalizations {
     'patients.create': 'Create patient',
     'patients.filterAll': 'All',
     'labs.title': 'Laboratories',
-    'labs.subtitle': 'Manage clinic profiles — verify or remove users',
+    'labs.subtitle': 'Manage laboratory profiles — verify or remove users',
     'labs.searchHint': 'Search by name, email, clinic…',
     'labs.filterUnverified': 'Unverified',
     'labs.filterVerified': 'Verified',
@@ -654,6 +658,7 @@ class AppLocalizations {
     'auth.phone': 'Telefon *',
     'auth.confirmPassword': 'Passwort bestätigen',
     'auth.roleDentist': 'Zahnarzt',
+    'auth.roleLaboratory': 'Labor',
     'auth.roleLab': 'Labor',
     'auth.alreadyHaveAccount': 'Bereits ein Konto? Anmelden',
     'auth.errNameEmailPassword': 'Name, E-Mail und Passwort sind erforderlich',
@@ -790,7 +795,7 @@ class AppLocalizations {
     'patients.create': 'Patient anlegen',
     'patients.filterAll': 'Alle',
     'labs.title': 'Labore',
-    'labs.subtitle': 'Klinikprofile verwalten — prüfen oder entfernen',
+    'labs.subtitle': 'Laborprofile verwalten — prüfen oder entfernen',
     'labs.searchHint': 'Suche nach Name, E-Mail, Praxis…',
     'labs.filterUnverified': 'Ungeprüft',
     'labs.filterVerified': 'Geprüft',
