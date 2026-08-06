@@ -263,6 +263,22 @@ class ToothOverlayPainter extends CustomPainter {
     'incisal': Color(0xFF1F9D63),
   };
 
+  Path _pathFromNorm(List outline, Rect dest) {
+    final path = Path();
+    for (var i = 0; i < outline.length; i++) {
+      final p = outline[i];
+      if (p is! List || p.length < 2) continue;
+      final o = normToLocal(p, dest);
+      if (i == 0) {
+        path.moveTo(o.dx, o.dy);
+      } else {
+        path.lineTo(o.dx, o.dy);
+      }
+    }
+    path.close();
+    return path;
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     if (teeth.isEmpty || imageSize.width <= 0) return;
@@ -281,18 +297,7 @@ class ToothOverlayPainter extends CustomPainter {
           ? editOutline!
           : geo['outline'];
       if (outline is List && outline.length >= 3) {
-        final path = Path();
-        for (var i = 0; i < outline.length; i++) {
-          final p = outline[i];
-          if (p is! List || p.length < 2) continue;
-          final o = normToLocal(p, dest);
-          if (i == 0) {
-            path.moveTo(o.dx, o.dy);
-          } else {
-            path.lineTo(o.dx, o.dy);
-          }
-        }
-        path.close();
+        final path = _pathFromNorm(outline, dest);
 
         final fill = Paint()
           ..style = PaintingStyle.fill
@@ -319,18 +324,7 @@ class ToothOverlayPainter extends CustomPainter {
             final name = entry.key.toString();
             final pts = entry.value;
             if (pts is! List || pts.length < 3) continue;
-            final path = Path();
-            for (var i = 0; i < pts.length; i++) {
-              final p = pts[i];
-              if (p is! List || p.length < 2) continue;
-              final o = normToLocal(p, dest);
-              if (i == 0) {
-                path.moveTo(o.dx, o.dy);
-              } else {
-                path.lineTo(o.dx, o.dy);
-              }
-            }
-            path.close();
+            final path = _pathFromNorm(pts, dest);
             final c = _zoneColors[name] ?? Colors.white;
             canvas.drawPath(
               path,
@@ -433,9 +427,6 @@ class ToothOverlayPainter extends CustomPainter {
     return oldDelegate.selectedToothIndex != selectedToothIndex ||
         oldDelegate.focusZone != focusZone ||
         oldDelegate.teeth != teeth ||
-        oldDelegate.imageSize != imageSize ||
-        oldDelegate.editMode != editMode ||
-        oldDelegate.editOutline != editOutline ||
-        oldDelegate.activeHandleIndex != activeHandleIndex;
+        oldDelegate.imageSize != imageSize;
   }
 }
