@@ -10,25 +10,29 @@ from typing import Any
 
 import numpy as np
 
-# Mid-body enamel sRGB centroids (tuned for Lab/CIEDE2000 separation).
+# ponytail: mid-body mean from vita_teeth PNGs
 VITA_SHADES: dict[str, tuple[float, float, float]] = {
-    "B1": (246, 234, 216),
-    "A1": (242, 222, 198),
-    "B2": (238, 220, 190),
-    "D2": (228, 210, 194),
-    "A2": (234, 204, 170),
-    "C1": (224, 212, 200),
-    "C2": (210, 196, 180),
-    "D4": (208, 188, 170),
-    "A3": (224, 186, 146),
-    "D3": (212, 186, 166),
-    "B3": (222, 196, 154),
-    "A3.5": (212, 170, 128),
-    "B4": (208, 176, 134),
-    "C3": (192, 174, 156),
-    "A4": (196, 150, 112),
-    "C4": (170, 150, 134),
+    "A1": (210, 199, 169),
+    "A2": (206, 188, 143),
+    "A3": (208, 192, 154),
+    "A3.5": (203, 181, 131),
+    "A4": (191, 166, 119),
+    "B1": (210, 202, 174),
+    "B2": (206, 193, 154),
+    "B3": (205, 185, 136),
+    "B4": (201, 180, 128),
+    "C1": (198, 187, 155),
+    "C2": (192, 177, 137),
+    "C3": (190, 175, 134),
+    "C4": (181, 157, 112),
+    "D2": (200, 188, 157),
+    "D3": (200, 183, 143),
+    "D4": (197, 182, 136),
 }
+
+# Override-only Target guide tabs (not used for CIEDE2000 matching).
+TARGET_SHADES = frozenset({"M1", "M2", "M3"})
+ALLOWED_SHADES = frozenset(VITA_SHADES) | TARGET_SHADES
 
 
 def _rgb_to_lab(rgb: np.ndarray) -> np.ndarray:

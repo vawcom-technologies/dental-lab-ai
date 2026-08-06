@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
+import 'shade_override_pane.dart' show SimilarShadeChip;
 import 'shade_shared.dart';
 import 'tooth_overlay.dart';
 
@@ -37,7 +38,9 @@ class ShadeResultPane extends StatelessWidget {
     required this.analysisImageSize,
     required this.dragTick,
     required this.editOutline,
+    required this.editBulges,
     required this.activeHandleIndex,
+    required this.activeEdgeIndex,
   });
 
   final List<Map<String, dynamic>> teeth;
@@ -66,7 +69,9 @@ class ShadeResultPane extends StatelessWidget {
   final Size analysisImageSize;
   final ValueNotifier<int> dragTick;
   final List<List<double>>? editOutline;
+  final List<double>? editBulges;
   final int? activeHandleIndex;
+  final int? activeEdgeIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -75,6 +80,7 @@ class ShadeResultPane extends StatelessWidget {
       children: [
         SectionCard(
           depth: 0,
+          color: Colors.white,
           boxShadow: kShadeCardGlow,
           padding: const EdgeInsets.all(14),
           child: LayoutBuilder(
@@ -259,19 +265,20 @@ class ShadeResultPane extends StatelessWidget {
                                 width: 52,
                                 height: 52,
                                 decoration: BoxDecoration(
-                                  color: detected == '—'
-                                      ? AppColors.border
-                                      : swatch(detected),
                                   borderRadius: BorderRadius.circular(10),
                                   border: Border.all(color: AppColors.border),
                                 ),
+                                clipBehavior: Clip.antiAlias,
                                 child: detected == '—'
-                                    ? const Icon(
-                                        Icons.image_search_outlined,
-                                        color: AppColors.muted,
-                                        size: 26,
+                                    ? const ColoredBox(
+                                        color: AppColors.border,
+                                        child: Icon(
+                                          Icons.image_search_outlined,
+                                          color: AppColors.muted,
+                                          size: 26,
+                                        ),
                                       )
-                                    : null,
+                                    : shadeEnamelFill(detected),
                               ),
                               const SizedBox(width: 12),
                               Expanded(
@@ -317,27 +324,8 @@ class ShadeResultPane extends StatelessWidget {
                             ),
                           ),
                         ],
-                        if (pendingShade != null) ...[
-                          const SizedBox(height: 10),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppColors.warningSoft,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              'Pending: $pendingShade — tap Override on the zone chip to confirm',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.warning,
-                              ),
-                            ),
-                          ),
-                        ] else if (selected != '—' &&
+                        if (pendingShade == null &&
+                            selected != '—' &&
                             selected != detected) ...[
                           const SizedBox(height: 10),
                           Container(
@@ -400,34 +388,12 @@ class ShadeResultPane extends StatelessWidget {
                               final active =
                                   selected == s && pendingShade == null;
                               final de = m['delta_e_2000'];
-                              return InkWell(
+                              return SimilarShadeChip(
+                                shade: s,
+                                deltaE: de,
+                                selected: active,
+                                swatch: swatch,
                                 onTap: () => onOverallShade(s),
-                                borderRadius: BorderRadius.circular(8),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: swatch(s).withValues(alpha: 0.45),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: active
-                                          ? AppColors.navy
-                                          : AppColors.border,
-                                      width: active ? 1.5 : 1,
-                                    ),
-                                  ),
-                                  child: Text(
-                                    de == null
-                                        ? s
-                                        : '$s · ΔE ${de is num ? de.toStringAsFixed(1) : de}',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ),
                               );
                             }).toList(),
                           ),
@@ -491,7 +457,9 @@ class ShadeResultPane extends StatelessWidget {
               selectedToothIndex: selectedToothIndex,
               focusZone: focusZone,
               editOutline: editOutline,
+              editBulges: editBulges,
               activeHandleIndex: activeHandleIndex,
+              activeEdgeIndex: activeEdgeIndex,
             );
           },
         ),
@@ -512,7 +480,9 @@ class ShadeOutlineLoupe extends StatelessWidget {
     required this.selectedToothIndex,
     required this.focusZone,
     required this.editOutline,
+    required this.editBulges,
     required this.activeHandleIndex,
+    required this.activeEdgeIndex,
   });
 
   final Offset focal;
@@ -524,7 +494,9 @@ class ShadeOutlineLoupe extends StatelessWidget {
   final int? selectedToothIndex;
   final String focusZone;
   final List<List<double>>? editOutline;
+  final List<double>? editBulges;
   final int? activeHandleIndex;
+  final int? activeEdgeIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -578,7 +550,9 @@ class ShadeOutlineLoupe extends StatelessWidget {
                                       focusZone: focusZone,
                                       editMode: true,
                                       editOutline: editOutline,
+                                      editBulges: editBulges,
                                       activeHandleIndex: activeHandleIndex,
+                                      activeEdgeIndex: activeEdgeIndex,
                                     ),
                                   ),
                                 ],
@@ -652,11 +626,14 @@ class MiniZoneChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final swatchBox = Container(
-      height: 18,
-      decoration: BoxDecoration(
-        color: shade == null ? AppColors.border : swatch(shade!),
-        borderRadius: BorderRadius.circular(4),
+    final swatchBox = ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: SizedBox(
+        height: 18,
+        width: double.infinity,
+        child: shade == null
+            ? const ColoredBox(color: AppColors.border)
+            : shadeEnamelFill(shade!),
       ),
     );
 

@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -148,16 +149,21 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
   int _shapeIndex = 0;
   Offset _offset = Offset.zero;
   double _scale = 1.0;
+  double _width = 1.0; // ponytail: session-only; persist when API gets scale_x/y
+  double _height = 1.0;
   double _rotation = 0;
   double _opacity = 0.88;
   bool _showOverlay = true;
   bool _comparing = false;
   bool _showGuides = true;
+  bool _fullscreen = false;
+  bool _placementOpen = true;
 
   double _baseScale = 1.0;
   double _baseRotation = 0;
   bool _centeredOnce = false;
   Size? _lastCanvas;
+  Size? _imageSize; // photo px — remap placement when stage size changes
 
   bool _loading = true;
   bool _saving = false;
@@ -325,6 +331,50 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
     } catch (_) {}
   }
 
+  Future<void> _readImageSize(Uint8List bytes) async {
+    try {
+      final codec = await ui.instantiateImageCodec(bytes);
+      final frame = await codec.getNextFrame();
+      final img = frame.image;
+      if (!mounted) return;
+      setState(() {
+        _imageSize = Size(img.width.toDouble(), img.height.toDouble());
+      });
+      img.dispose();
+    } catch (_) {
+      if (mounted) setState(() => _imageSize = null);
+    }
+  }
+
+  /// BoxFit.contain destination for the patient photo in [canvas].
+  Rect _photoRect(Size canvas) {
+    final img = _imageSize;
+    if (img == null || img.width <= 0 || img.height <= 0) {
+      return Offset.zero & canvas;
+    }
+    final s = math.min(canvas.width / img.width, canvas.height / img.height);
+    final w = img.width * s;
+    final h = img.height * s;
+    return Rect.fromLTWH(
+      (canvas.width - w) / 2,
+      (canvas.height - h) / 2,
+      w,
+      h,
+    );
+  }
+
+  void _remapPlacement(Size from, Size to) {
+    final a = _photoRect(from);
+    final b = _photoRect(to);
+    if (a.width < 1 || a.height < 1) return;
+    final sx = b.width / a.width;
+    _offset = Offset(
+      b.left + (_offset.dx - a.left) * sx,
+      b.top + (_offset.dy - a.top) * sx,
+    );
+    _scale = (_scale * sx).clamp(0.15, 8.0);
+  }
+
   Future<void> _pickPhoto() async {
     setState(() => _error = null);
     try {
@@ -339,9 +389,13 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
         setState(() => _error = 'Could not read image bytes.');
         return;
       }
+      final data = Uint8List.fromList(bytes);
       setState(() {
-        _photoBytes = Uint8List.fromList(bytes);
+        _photoBytes = data;
+        _imageSize = null;
         _scale = 1.05;
+        _width = 1.0;
+        _height = 1.0;
         _rotation = 0;
         _opacity = 0.88;
         _showOverlay = true;
@@ -349,6 +403,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
         _dirty = true;
         _status = 'Photo loaded — select a shape from the library.';
       });
+      await _readImageSize(data);
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     }
@@ -366,9 +421,12 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
 
   void _centerIn(Size canvas) {
     setState(() {
+      final w = ShapeOverlayPage.cellW * _scale * _width;
+      final h = ShapeOverlayPage.cellH * _scale * _height;
+      final photo = _photoRect(canvas);
       _offset = Offset(
-        (canvas.width - ShapeOverlayPage.cellW) / 2,
-        (canvas.height - ShapeOverlayPage.cellH) / 2 - 12,
+        photo.left + (photo.width - w) / 2,
+        photo.top + (photo.height - h) / 2,
       );
       _centeredOnce = true;
     });
@@ -377,11 +435,16 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
   void _resetTransform(Size canvas) {
     setState(() {
       _scale = 1.05;
+      _width = 1.0;
+      _height = 1.0;
       _rotation = 0;
       _opacity = 0.88;
+      final w = ShapeOverlayPage.cellW * _scale * _width;
+      final h = ShapeOverlayPage.cellH * _scale * _height;
+      final photo = _photoRect(canvas);
       _offset = Offset(
-        (canvas.width - ShapeOverlayPage.cellW) / 2,
-        (canvas.height - ShapeOverlayPage.cellH) / 2 - 12,
+        photo.left + (photo.width - w) / 2,
+        photo.top + (photo.height - h) / 2,
       );
       _dirty = true;
     });
@@ -392,6 +455,16 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
       _offset += Offset(dx, dy);
       _dirty = true;
     });
+  }
+
+  Offset _localDragDelta(Offset screenDelta) {
+    final rad = _rotation * math.pi / 180;
+    final c = math.cos(rad);
+    final s = math.sin(rad);
+    return Offset(
+      screenDelta.dx * c + screenDelta.dy * s,
+      -screenDelta.dx * s + screenDelta.dy * c,
+    );
   }
 
   Future<void> _save() async {
@@ -442,6 +515,13 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
+
+    if (_fullscreen) {
+      return ColoredBox(
+        color: const Color(0xFF0F1724),
+        child: _photoBytes == null ? _emptyStage() : _photoStage(),
+      );
+    }
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
@@ -592,60 +672,73 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
   }
 
   Widget _emptyStage() {
-    return Container(
-      color: const Color(0xFF0F1724),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 72,
-                height: 72,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: AppColors.dentalBlue.withValues(alpha: 0.15),
-                  border: Border.all(
-                    color: AppColors.dentalBlue.withValues(alpha: 0.35),
+    return Stack(
+      children: [
+        Container(
+          color: const Color(0xFF0F1724),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: AppColors.dentalBlue.withValues(alpha: 0.15),
+                      border: Border.all(
+                        color: AppColors.dentalBlue.withValues(alpha: 0.35),
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.sentiment_satisfied_alt_outlined,
+                      size: 34,
+                      color: AppColors.dentalBlue,
+                    ),
                   ),
-                ),
-                child: const Icon(
-                  Icons.sentiment_satisfied_alt_outlined,
-                  size: 34,
-                  color: AppColors.dentalBlue,
-                ),
+                  const SizedBox(height: 18),
+                  const Text(
+                    'Load a patient smile photo',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 18,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Then tap a shape in the library on the right and place it over the teeth.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.65),
+                      height: 1.4,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  FilledButton.icon(
+                    onPressed: _pickPhoto,
+                    icon: const Icon(Icons.upload_file, size: 18),
+                    label: const Text('Load patient photo'),
+                  ),
+                ],
               ),
-              const SizedBox(height: 18),
-              const Text(
-                'Load a patient smile photo',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 18,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Then tap a shape in the library on the right and place it over the teeth.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.65),
-                  height: 1.4,
-                  fontSize: 13,
-                ),
-              ),
-              const SizedBox(height: 20),
-              FilledButton.icon(
-                onPressed: _pickPhoto,
-                icon: const Icon(Icons.upload_file, size: 18),
-                label: const Text('Load patient photo'),
-              ),
-            ],
+            ),
           ),
         ),
-      ),
+        Positioned(
+          right: 12,
+          bottom: 12,
+          child: _StageIconBtn(
+            icon: _fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+            tip: _fullscreen ? 'Exit fullscreen' : 'Fullscreen',
+            onTap: () => setState(() => _fullscreen = !_fullscreen),
+          ),
+        ),
+      ],
     );
   }
 
@@ -653,6 +746,12 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final canvas = Size(constraints.maxWidth, constraints.maxHeight);
+        final prev = _lastCanvas;
+        if (prev != null &&
+            _centeredOnce &&
+            (prev.width != canvas.width || prev.height != canvas.height)) {
+          _remapPlacement(prev, canvas);
+        }
         _lastCanvas = canvas;
         if (!_centeredOnce) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -677,29 +776,75 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
               Positioned(
                 left: _offset.dx,
                 top: _offset.dy,
-                child: GestureDetector(
-                  onScaleStart: (_) {
-                    _baseScale = _scale;
-                    _baseRotation = _rotation;
-                  },
-                  onScaleUpdate: (d) {
-                    setState(() {
-                      _offset += d.focalPointDelta;
-                      _scale = (_baseScale * d.scale).clamp(0.4, 2.4);
-                      _rotation = (_baseRotation + d.rotation * 180 / math.pi)
-                          .clamp(-35.0, 35.0);
-                      _dirty = true;
-                    });
-                  },
-                  child: Transform.rotate(
-                    angle: _rotation * math.pi / 180,
-                    child: Transform.scale(
-                      scale: _scale,
-                      child: _OverlayTooth(
-                        item: _selected,
-                        opacity: _opacity,
-                        showChrome: _showGuides,
-                      ),
+                child: Transform.rotate(
+                  angle: _rotation * math.pi / 180,
+                  child: SizedBox(
+                    width: ShapeOverlayPage.cellW * _scale * _width,
+                    height: ShapeOverlayPage.cellH * _scale * _height,
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Positioned.fill(
+                          child: GestureDetector(
+                            onScaleStart: (_) {
+                              _baseScale = _scale;
+                              _baseRotation = _rotation;
+                            },
+                            onScaleUpdate: (d) {
+                              setState(() {
+                                _offset += d.focalPointDelta;
+                                _scale =
+                                    (_baseScale * d.scale).clamp(0.15, 8.0);
+                                _rotation = (_baseRotation +
+                                        d.rotation * 180 / math.pi)
+                                    .clamp(-35.0, 35.0);
+                                _dirty = true;
+                              });
+                            },
+                            child: _OverlayTooth(
+                              item: _selected,
+                              opacity: _opacity,
+                              showChrome: _showGuides,
+                            ),
+                          ),
+                        ),
+                        if (_showGuides) ...[
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: _AxisResizeHandle(
+                              horizontal: true,
+                              onDragUpdate: (delta) {
+                                final local = _localDragDelta(delta);
+                                setState(() {
+                                  _width = (_width +
+                                          local.dx /
+                                              (ShapeOverlayPage.cellW *
+                                                  _scale))
+                                      .clamp(0.4, 2.4);
+                                  _dirty = true;
+                                });
+                              },
+                            ),
+                          ),
+                          Align(
+                            alignment: Alignment.bottomCenter,
+                            child: _AxisResizeHandle(
+                              horizontal: false,
+                              onDragUpdate: (delta) {
+                                final local = _localDragDelta(delta);
+                                setState(() {
+                                  _height = (_height +
+                                          local.dy /
+                                              (ShapeOverlayPage.cellH *
+                                                  _scale))
+                                      .clamp(0.4, 2.4);
+                                  _dirty = true;
+                                });
+                              },
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ),
@@ -769,7 +914,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
             ),
             Positioned(
               left: 12,
-              right: 12,
+              right: 56,
               bottom: 12,
               child: _StageChip(
                 child: Text(
@@ -779,6 +924,17 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.white, fontSize: 12),
                 ),
+              ),
+            ),
+            Positioned(
+              right: 12,
+              bottom: 12,
+              child: _StageIconBtn(
+                icon: _fullscreen
+                    ? Icons.fullscreen_exit
+                    : Icons.fullscreen,
+                tip: _fullscreen ? 'Exit fullscreen' : 'Fullscreen',
+                onTap: () => setState(() => _fullscreen = !_fullscreen),
               ),
             ),
           ],
@@ -841,7 +997,16 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
           ),
           const SizedBox(height: 12),
           Expanded(
-            child: GridView.builder(
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (n) {
+                if (_placementOpen &&
+                    n is ScrollUpdateNotification &&
+                    (n.scrollDelta ?? 0).abs() > 0) {
+                  setState(() => _placementOpen = false);
+                }
+                return false;
+              },
+              child: GridView.builder(
               itemCount: ShapeLibrary.total,
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
@@ -922,22 +1087,68 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
                 );
               },
             ),
+            ),
           ),
           const SizedBox(height: 8),
           const Divider(height: 1),
-          const SizedBox(height: 8),
-          const Text(
-            'Placement',
-            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+          InkWell(
+            onTap: () => setState(() => _placementOpen = !_placementOpen),
+            borderRadius: BorderRadius.circular(6),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Placement',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    _placementOpen
+                        ? Icons.expand_more
+                        : Icons.expand_less,
+                    size: 20,
+                    color: AppColors.muted,
+                  ),
+                ],
+              ),
+            ),
           ),
+          if (_placementOpen) ...[
           _SliderRow(
             label: 'Size',
             value: _scale,
-            min: 0.4,
-            max: 2.4,
+            min: 0.15,
+            max: 8.0,
             display: '×${_scale.toStringAsFixed(2)}',
             onChanged: (v) => setState(() {
               _scale = v;
+              _dirty = true;
+            }),
+          ),
+          _SliderRow(
+            label: 'Width',
+            value: _width,
+            min: 0.4,
+            max: 2.4,
+            display: '×${_width.toStringAsFixed(2)}',
+            onChanged: (v) => setState(() {
+              _width = v;
+              _dirty = true;
+            }),
+          ),
+          _SliderRow(
+            label: 'Height',
+            value: _height,
+            min: 0.4,
+            max: 2.4,
+            display: '×${_height.toStringAsFixed(2)}',
+            onChanged: (v) => setState(() {
+              _height = v;
               _dirty = true;
             }),
           ),
@@ -1014,6 +1225,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
             _patientName,
             style: const TextStyle(fontSize: 11, color: AppColors.muted),
           ),
+          ],
         ],
       ),
     );
@@ -1053,41 +1265,85 @@ class _OverlayTooth extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: ShapeOverlayPage.cellW,
-      height: ShapeOverlayPage.cellH,
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: Opacity(
-              opacity: opacity,
-              child: ColorFiltered(
-                // Soften near-black backdrop so teeth blend onto the patient photo
-                colorFilter: const ColorFilter.matrix(<double>[
-                  1, 0, 0, 0, 0,
-                  0, 1, 0, 0, 0,
-                  0, 0, 1, 0, 0,
-                  0.45, 0.45, 0.45, 0, -12,
-                ]),
-                child: ShapeToothImage(item: item, fit: BoxFit.contain),
-              ),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned.fill(
+          child: Opacity(
+            opacity: opacity,
+            child: ColorFiltered(
+              // Soften near-black backdrop so teeth blend onto the patient photo
+              colorFilter: const ColorFilter.matrix(<double>[
+                1, 0, 0, 0, 0,
+                0, 1, 0, 0, 0,
+                0, 0, 1, 0, 0,
+                0.45, 0.45, 0.45, 0, -12,
+              ]),
+              child: ShapeToothImage(item: item, fit: BoxFit.fill),
             ),
           ),
-          if (showChrome)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: AppColors.dentalBlue.withValues(alpha: 0.55),
-                      width: 1.25,
-                    ),
-                    borderRadius: BorderRadius.circular(4),
+        ),
+        if (showChrome)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: AppColors.dentalBlue.withValues(alpha: 0.55),
+                    width: 1.25,
                   ),
+                  borderRadius: BorderRadius.circular(4),
                 ),
               ),
             ),
-        ],
+          ),
+      ],
+    );
+  }
+}
+
+class _AxisResizeHandle extends StatelessWidget {
+  const _AxisResizeHandle({
+    required this.horizontal,
+    required this.onDragUpdate,
+  });
+
+  final bool horizontal;
+  final ValueChanged<Offset> onDragUpdate;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: horizontal
+          ? SystemMouseCursors.resizeLeftRight
+          : SystemMouseCursors.resizeUpDown,
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        onPointerMove: (e) {
+          if (e.down) onDragUpdate(e.delta);
+        },
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: Center(
+            child: Container(
+              width: horizontal ? 14 : 8,
+              height: horizontal ? 8 : 14,
+              decoration: BoxDecoration(
+                color: AppColors.dentalBlue,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: Colors.white, width: 1.5),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x66000000),
+                    blurRadius: 4,
+                    offset: Offset(0, 1),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
