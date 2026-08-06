@@ -1208,7 +1208,7 @@ class _ShadePageState extends State<ShadePage> {
   }
 
   Future<void> _deleteHistoryAt(int index) async {
-    if (index < 0 || index >= _history.length) return;
+    if (_busy || index < 0 || index >= _history.length) return;
     final entry = _history[index];
     final shade = entry['shade']?.toString() ?? 'shade';
     final ok = await showDialog<bool>(
@@ -1233,6 +1233,7 @@ class _ShadePageState extends State<ShadePage> {
 
     final shadeId = entry['id'];
     final caseId = entry['case_id'] ?? _case?['id'];
+    setState(() => _busy = true);
     try {
       if (shadeId is num && caseId is num) {
         if (entry['is_analysis'] == true) {
@@ -1258,6 +1259,8 @@ class _ShadePageState extends State<ShadePage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 

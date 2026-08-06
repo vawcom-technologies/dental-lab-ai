@@ -45,6 +45,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       });
       return;
     }
+    if (_loading) return;
 
     AppHaptics.light();
     setState(() {

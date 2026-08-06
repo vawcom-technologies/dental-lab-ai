@@ -89,6 +89,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _saveProfile() async {
+    if (_saving) return;
     final name = _name.text.trim();
     final email = _email.text.trim();
     if (name.isEmpty || email.isEmpty) {
@@ -117,6 +118,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _savePassword() async {
+    if (_changingPassword) return;
     final current = _currentPassword.text;
     final next = _newPassword.text;
     final confirm = _confirmPassword.text;

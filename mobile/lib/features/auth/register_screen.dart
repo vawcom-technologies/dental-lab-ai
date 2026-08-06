@@ -80,6 +80,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       });
       return;
     }
+    if (_loading) return;
     setState(() {
       _loading = true;
       _error = null;

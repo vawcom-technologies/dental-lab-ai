@@ -42,6 +42,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
   }
 
   Future<void> _save() async {
+    if (_loading) return;
     if (!_formKey.currentState!.validate()) return;
     setState(() {
       _loading = true;

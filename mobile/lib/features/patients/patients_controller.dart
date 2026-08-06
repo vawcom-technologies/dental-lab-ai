@@ -53,6 +53,7 @@ class PatientsController extends ChangeNotifier {
   bool isOwner(GdprPatient p) => p.isOwnedBy(currentUserId);
 
   Future<void> load() async {
+    if (_loading) return;
     _loading = true;
     _error = null;
     notifyListeners();
@@ -79,7 +80,8 @@ class PatientsController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<GdprPatient> openPatient(String patientId) async {
+  Future<GdprPatient?> openPatient(String patientId) async {
+    if (_loadingDetail) return null;
     _loadingDetail = true;
     _error = null;
     notifyListeners();
@@ -114,6 +116,9 @@ class PatientsController extends ChangeNotifier {
     required String phone,
     required String healthInsurance,
   }) async {
+    if (_mutating) {
+      throw StateError('Another patient change is already in progress');
+    }
     _mutating = true;
     notifyListeners();
     try {
@@ -137,6 +142,9 @@ class PatientsController extends ChangeNotifier {
     String patientId,
     Map<String, dynamic> fields,
   ) async {
+    if (_mutating) {
+      throw StateError('Another patient change is already in progress');
+    }
     _mutating = true;
     notifyListeners();
     try {
@@ -152,6 +160,7 @@ class PatientsController extends ChangeNotifier {
   }
 
   Future<void> deletePatient(String patientId, {required bool hard}) async {
+    if (_mutating) return;
     _mutating = true;
     notifyListeners();
     try {
@@ -171,23 +180,40 @@ class PatientsController extends ChangeNotifier {
     required String patientId,
     required String targetUserId,
   }) async {
-    await _service.grantAccess(
-      patientId: patientId,
-      targetUserId: targetUserId,
-    );
+    if (_mutating) return;
+    _mutating = true;
+    notifyListeners();
+    try {
+      await _service.grantAccess(
+        patientId: patientId,
+        targetUserId: targetUserId,
+      );
+    } finally {
+      _mutating = false;
+      notifyListeners();
+    }
   }
 
   Future<void> revokeAccess({
     required String patientId,
     required String targetUserId,
   }) async {
-    await _service.revokeAccess(
-      patientId: patientId,
-      targetUserId: targetUserId,
-    );
+    if (_mutating) return;
+    _mutating = true;
+    notifyListeners();
+    try {
+      await _service.revokeAccess(
+        patientId: patientId,
+        targetUserId: targetUserId,
+      );
+    } finally {
+      _mutating = false;
+      notifyListeners();
+    }
   }
 
   Future<void> loadNotes(String patientId) async {
+    if (_loadingNotes) return;
     _loadingNotes = true;
     notifyListeners();
     try {
@@ -205,32 +231,57 @@ class PatientsController extends ChangeNotifier {
     required String patientId,
     required String content,
   }) async {
-    final note = await _service.uploadNote(
-      patientId: patientId,
-      noteContent: content,
-    );
-    _notes.insert(0, note);
+    if (_mutating) {
+      throw StateError('Another patient change is already in progress');
+    }
+    _mutating = true;
     notifyListeners();
-    return note;
+    try {
+      final note = await _service.uploadNote(
+        patientId: patientId,
+        noteContent: content,
+      );
+      _notes.insert(0, note);
+      return note;
+    } finally {
+      _mutating = false;
+      notifyListeners();
+    }
   }
 
   Future<PatientNote> editNote({
     required String noteId,
     required String content,
   }) async {
-    final note = await _service.editNote(
-      noteId: noteId,
-      newNoteContent: content,
-    );
-    final i = _notes.indexWhere((n) => n.id == noteId);
-    if (i >= 0) _notes[i] = note;
+    if (_mutating) {
+      throw StateError('Another patient change is already in progress');
+    }
+    _mutating = true;
     notifyListeners();
-    return note;
+    try {
+      final note = await _service.editNote(
+        noteId: noteId,
+        newNoteContent: content,
+      );
+      final i = _notes.indexWhere((n) => n.id == noteId);
+      if (i >= 0) _notes[i] = note;
+      return note;
+    } finally {
+      _mutating = false;
+      notifyListeners();
+    }
   }
 
   Future<void> deleteNote(String noteId) async {
-    await _service.deleteNote(noteId);
-    _notes.removeWhere((n) => n.id == noteId);
+    if (_mutating) return;
+    _mutating = true;
     notifyListeners();
+    try {
+      await _service.deleteNote(noteId);
+      _notes.removeWhere((n) => n.id == noteId);
+    } finally {
+      _mutating = false;
+      notifyListeners();
+    }
   }
 }

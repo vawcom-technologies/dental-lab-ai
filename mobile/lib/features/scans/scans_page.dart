@@ -181,7 +181,7 @@ class _ScansPageState extends State<ScansPage> {
   }
 
   Future<void> _upload() async {
-    if (_case == null || _patient == null) return;
+    if (_busy || _case == null || _patient == null) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -225,6 +225,7 @@ class _ScansPageState extends State<ScansPage> {
   }
 
   Future<void> _deleteScan(Map<String, dynamic> scan) async {
+    if (_busy) return;
     final caseId = scan['case_id'] as int? ?? _case?['id'] as int?;
     final scanId = scan['id'];
     if (caseId is! int || scanId is! int) return;

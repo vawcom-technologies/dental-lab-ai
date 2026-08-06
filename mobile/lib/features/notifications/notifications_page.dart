@@ -28,6 +28,7 @@ class NotificationsPage extends StatefulWidget {
 class _NotificationsPageState extends State<NotificationsPage> {
   bool _loading = true;
   bool _markingAll = false;
+  int? _markingId;
   String? _error;
   String _filter = 'all';
   List<Map<String, dynamic>> _items = [];
@@ -100,17 +101,23 @@ class _NotificationsPageState extends State<NotificationsPage> {
   Future<void> _markOne(Map<String, dynamic> n) async {
     final id = n['id'];
     if (id is! int || n['read'] == true) return;
+    if (_markingAll || _markingId != null) return;
+    setState(() => _markingId = id);
     try {
       await widget.api.markNotificationRead(id);
+      if (!mounted) return;
       setState(() => n['read'] = true);
       _emitUnread();
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _markingId = null);
     }
   }
 
   Future<void> _markAll() async {
+    if (_markingAll || _markingId != null) return;
     setState(() {
       _markingAll = true;
       _error = null;
@@ -276,6 +283,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
                             final n = visible[i];
                             return _NotificationTile(
                               item: n,
+                              marking: _markingId == n['id'],
+                              enabled: !_markingAll && _markingId == null,
                               onTap: () => _open(n),
                               onMarkRead: () {
                                 AppHaptics.selection();
@@ -297,11 +306,15 @@ class _NotificationTile extends StatelessWidget {
     required this.item,
     required this.onTap,
     required this.onMarkRead,
+    this.marking = false,
+    this.enabled = true,
   });
 
   final Map<String, dynamic> item;
   final VoidCallback onTap;
   final VoidCallback onMarkRead;
+  final bool marking;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -319,6 +332,7 @@ class _NotificationTile extends StatelessWidget {
 
     return Touchable(
       onTap: onTap,
+      enabled: enabled,
       borderRadius: BorderRadius.zero,
       minHeight: 0,
       scale: 0.995,
@@ -372,12 +386,21 @@ class _NotificationTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            if (unread)
+            if (marking)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(8, 4, 4, 8),
+                child: SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            else if (unread)
               Tooltip(
                 message: loc.notificationsMarkRead,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: onMarkRead,
+                  onTap: enabled ? onMarkRead : null,
                   child: const Padding(
                     padding: EdgeInsets.fromLTRB(8, 4, 4, 8),
                     child: SizedBox(

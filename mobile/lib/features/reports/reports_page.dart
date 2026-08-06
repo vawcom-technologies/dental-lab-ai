@@ -35,6 +35,7 @@ class _ReportsPageState extends State<ReportsPage> {
   }
 
   Future<void> _load() async {
+    if (_loading) return;
     setState(() {
       _loading = true;
       _error = null;
@@ -217,21 +218,25 @@ class _ReportsPageState extends State<ReportsPage> {
               SoftFilterChip(
                 label: loc.reportsPeriod7,
                 selected: _days == 7,
+                enabled: !_loading,
                 onTap: () => _setPeriod(7),
               ),
               SoftFilterChip(
                 label: loc.reportsPeriod30,
                 selected: _days == 30,
+                enabled: !_loading,
                 onTap: () => _setPeriod(30),
               ),
               SoftFilterChip(
                 label: loc.reportsPeriod90,
                 selected: _days == 90,
+                enabled: !_loading,
                 onTap: () => _setPeriod(90),
               ),
               SoftFilterChip(
                 label: loc.reportsPeriodAll,
                 selected: _days == 0,
+                enabled: !_loading,
                 onTap: () => _setPeriod(0),
               ),
             ],

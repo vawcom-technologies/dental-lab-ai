@@ -64,6 +64,7 @@ class _PatientsPageState extends State<PatientsPage> {
   }
 
   Future<void> _openCreate() async {
+    if (_controller.mutating) return;
     final created = await showDialog<GdprPatient>(
       context: context,
       barrierDismissible: false,
@@ -87,6 +88,7 @@ class _PatientsPageState extends State<PatientsPage> {
   }
 
   Future<void> _openEdit(GdprPatient patient) async {
+    if (_controller.mutating) return;
     if (!_controller.isOwner(patient)) {
       _toast(
         'Permission Denied: Only the creator of this record can modify patient details.',
@@ -121,6 +123,7 @@ class _PatientsPageState extends State<PatientsPage> {
   }
 
   Future<void> _confirmDelete(GdprPatient patient) async {
+    if (_controller.mutating) return;
     if (!_controller.isOwner(patient)) {
       _toast(
         'Permission Denied: Only the creator of this record can modify patient details.',
@@ -143,6 +146,7 @@ class _PatientsPageState extends State<PatientsPage> {
   }
 
   Future<void> _openShare(GdprPatient patient) async {
+    if (_controller.mutating || _controller.loadingDetail) return;
     if (!_controller.isOwner(patient)) {
       _toast(
         'Permission Denied: Only the creator of this record can manage access.',
@@ -166,9 +170,10 @@ class _PatientsPageState extends State<PatientsPage> {
   }
 
   Future<void> _openDetails(GdprPatient patient) async {
+    if (_controller.loadingDetail || _controller.mutating) return;
     try {
       final detailed = await _controller.openPatient(patient.id);
-      if (!mounted) return;
+      if (detailed == null || !mounted) return;
       await showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
@@ -208,101 +213,115 @@ class _PatientsPageState extends State<PatientsPage> {
       listenable: _controller,
       builder: (context, _) {
         final rows = _controller.visiblePatients;
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              PageHeader(
-                icon: Icons.people_alt_outlined,
-                title: loc.patientsTitle,
-                subtitle: loc.patientsSubtitle,
-                actions: [
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: AppColors.sidebarActive,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      '${_controller.shownCount} shown · ${_controller.totalCount} total',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.navy,
+        final blocked = _controller.loadingDetail || _controller.mutating;
+        return BusyBarrier(
+          busy: blocked,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                PageHeader(
+                  icon: Icons.people_alt_outlined,
+                  title: loc.patientsTitle,
+                  subtitle: loc.patientsSubtitle,
+                  actions: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppColors.sidebarActive,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '${_controller.shownCount} shown · ${_controller.totalCount} total',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.navy,
+                        ),
                       ),
                     ),
+                    IconButton(
+                      tooltip: loc.refresh,
+                      onPressed: _controller.loading || blocked
+                          ? null
+                          : () => _controller.load(),
+                      icon: _controller.loading
+                          ? const BusySpinner(size: 18)
+                          : const Icon(Icons.refresh, size: 20),
+                    ),
+                    FilledButton.icon(
+                      onPressed: blocked ? null : _openCreate,
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('New Patient'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                SectionCard(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  depth: 0.7,
+                  child: TextField(
+                    controller: _search,
+                    onChanged: _controller.setQuery,
+                    enabled: !blocked,
+                    decoration: const InputDecoration(
+                      hintText: 'Search patients…',
+                      prefixIcon: Icon(Icons.search, color: AppColors.muted),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      filled: false,
+                    ),
                   ),
-                  IconButton(
-                    tooltip: loc.refresh,
-                    onPressed:
-                        _controller.loading ? null : () => _controller.load(),
-                    icon: const Icon(Icons.refresh, size: 20),
-                  ),
-                  FilledButton.icon(
-                    onPressed: _openCreate,
-                    icon: const Icon(Icons.add, size: 18),
-                    label: const Text('New Patient'),
+                ),
+                if (_controller.error != null) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    _controller.error!,
+                    style:
+                        const TextStyle(color: AppColors.danger, fontSize: 13),
                   ),
                 ],
-              ),
-              const SizedBox(height: 14),
-              SectionCard(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                depth: 0.7,
-                child: TextField(
-                  controller: _search,
-                  onChanged: _controller.setQuery,
-                  decoration: const InputDecoration(
-                    hintText: 'Search patients…',
-                    prefixIcon: Icon(Icons.search, color: AppColors.muted),
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    filled: false,
+                const SizedBox(height: 14),
+                Expanded(
+                  child: SectionCard(
+                    padding: EdgeInsets.zero,
+                    child: _controller.loading && rows.isEmpty
+                        ? const Center(child: CircularProgressIndicator())
+                        : rows.isEmpty
+                            ? const _EmptyPatients()
+                            : ListView.separated(
+                                itemCount: rows.length,
+                                separatorBuilder: (_, _) => Divider(
+                                  height: 1,
+                                  color:
+                                      AppColors.border.withValues(alpha: 0.7),
+                                ),
+                                itemBuilder: (context, i) {
+                                  final p = rows[i];
+                                  final owner = _controller.isOwner(p);
+                                  return _PatientTile(
+                                    patient: p,
+                                    isOwner: owner,
+                                    enabled: !blocked,
+                                    onOpen: () => _openDetails(p),
+                                    onEdit:
+                                        owner ? () => _openEdit(p) : null,
+                                    onShare:
+                                        owner ? () => _openShare(p) : null,
+                                    onDelete: owner
+                                        ? () => _confirmDelete(p)
+                                        : null,
+                                  );
+                                },
+                              ),
                   ),
                 ),
-              ),
-              if (_controller.error != null) ...[
-                const SizedBox(height: 10),
-                Text(
-                  _controller.error!,
-                  style: const TextStyle(color: AppColors.danger, fontSize: 13),
-                ),
               ],
-              const SizedBox(height: 14),
-              Expanded(
-                child: SectionCard(
-                  padding: EdgeInsets.zero,
-                  child: _controller.loading && rows.isEmpty
-                      ? const Center(child: CircularProgressIndicator())
-                      : rows.isEmpty
-                          ? const _EmptyPatients()
-                          : ListView.separated(
-                              itemCount: rows.length,
-                              separatorBuilder: (_, _) => Divider(
-                                height: 1,
-                                color: AppColors.border.withValues(alpha: 0.7),
-                              ),
-                              itemBuilder: (context, i) {
-                                final p = rows[i];
-                                final owner = _controller.isOwner(p);
-                                return _PatientTile(
-                                  patient: p,
-                                  isOwner: owner,
-                                  onOpen: () => _openDetails(p),
-                                  onEdit: owner ? () => _openEdit(p) : null,
-                                  onShare: owner ? () => _openShare(p) : null,
-                                  onDelete:
-                                      owner ? () => _confirmDelete(p) : null,
-                                );
-                              },
-                            ),
-                ),
-              ),
-            ],
+            ),
           ),
         );
       },
@@ -341,6 +360,7 @@ class _PatientTile extends StatelessWidget {
     required this.patient,
     required this.isOwner,
     required this.onOpen,
+    this.enabled = true,
     this.onEdit,
     this.onShare,
     this.onDelete,
@@ -348,6 +368,7 @@ class _PatientTile extends StatelessWidget {
 
   final GdprPatient patient;
   final bool isOwner;
+  final bool enabled;
   final VoidCallback onOpen;
   final VoidCallback? onEdit;
   final VoidCallback? onShare;
@@ -357,7 +378,7 @@ class _PatientTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      onTap: onOpen,
+      onTap: enabled ? onOpen : null,
       leading: CircleAvatar(
         backgroundColor: AppColors.dentalBlue.withValues(alpha: 0.15),
         child: Text(
@@ -398,34 +419,40 @@ class _PatientTile extends StatelessWidget {
         children: [
           IconButton(
             tooltip: 'View details / notes',
-            onPressed: onOpen,
+            onPressed: enabled ? onOpen : null,
             icon: const Icon(Icons.notes_outlined, size: 20),
           ),
           IconButton(
             tooltip: 'Edit',
-            onPressed: onEdit,
+            onPressed: enabled ? onEdit : null,
             icon: Icon(
               Icons.edit_outlined,
               size: 20,
-              color: onEdit == null ? AppColors.border : AppColors.navy,
+              color: (!enabled || onEdit == null)
+                  ? AppColors.border
+                  : AppColors.navy,
             ),
           ),
           IconButton(
             tooltip: 'Share access',
-            onPressed: onShare,
+            onPressed: enabled ? onShare : null,
             icon: Icon(
               Icons.share_outlined,
               size: 20,
-              color: onShare == null ? AppColors.border : AppColors.navy,
+              color: (!enabled || onShare == null)
+                  ? AppColors.border
+                  : AppColors.navy,
             ),
           ),
           IconButton(
             tooltip: 'Delete',
-            onPressed: onDelete,
+            onPressed: enabled ? onDelete : null,
             icon: Icon(
               Icons.delete_outline,
               size: 20,
-              color: onDelete == null ? AppColors.border : AppColors.danger,
+              color: (!enabled || onDelete == null)
+                  ? AppColors.border
+                  : AppColors.danger,
             ),
           ),
         ],
@@ -794,6 +821,7 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
   }
 
   Future<void> _grant(String userId) async {
+    if (_busyId != null) return;
     setState(() => _busyId = userId);
     try {
       await widget.controller.grantAccess(
@@ -809,6 +837,7 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
   }
 
   Future<void> _revoke(String userId) async {
+    if (_busyId != null) return;
     setState(() => _busyId = userId);
     try {
       await widget.controller.revokeAccess(
@@ -897,11 +926,15 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
                                       spacing: 6,
                                       children: [
                                         TextButton(
-                                          onPressed: () => _grant(id),
+                                          onPressed: _busyId != null
+                                              ? null
+                                              : () => _grant(id),
                                           child: const Text('Grant'),
                                         ),
                                         TextButton(
-                                          onPressed: () => _revoke(id),
+                                          onPressed: _busyId != null
+                                              ? null
+                                              : () => _revoke(id),
                                           child: const Text(
                                             'Revoke',
                                             style: TextStyle(
@@ -967,7 +1000,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
 
   Future<void> _addNote() async {
     final text = _note.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || _adding || widget.controller.mutating) return;
     setState(() => _adding = true);
     try {
       await widget.controller.addNote(
@@ -984,6 +1017,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
   }
 
   Future<void> _editNote(PatientNote note) async {
+    if (widget.controller.mutating) return;
     final controller = TextEditingController(text: note.noteContent);
     final next = await showDialog<String>(
       context: context,
@@ -1018,6 +1052,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
   }
 
   Future<void> _deleteNote(PatientNote note) async {
+    if (widget.controller.mutating) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1057,7 +1092,10 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
         listenable: widget.controller,
         builder: (context, _) {
           final notes = widget.controller.notes;
-          return Padding(
+          final blocked = widget.controller.mutating;
+          return BusyBarrier(
+            busy: blocked,
+            child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1106,19 +1144,19 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                   children: [
                     if (owner)
                       OutlinedButton.icon(
-                        onPressed: widget.onEdit,
+                        onPressed: blocked ? null : widget.onEdit,
                         icon: const Icon(Icons.edit_outlined, size: 16),
                         label: const Text('Edit'),
                       ),
                     if (owner)
                       OutlinedButton.icon(
-                        onPressed: widget.onShare,
+                        onPressed: blocked ? null : widget.onShare,
                         icon: const Icon(Icons.share_outlined, size: 16),
                         label: const Text('Manage Access'),
                       ),
                     if (owner)
                       OutlinedButton.icon(
-                        onPressed: widget.onDelete,
+                        onPressed: blocked ? null : widget.onDelete,
                         icon: const Icon(Icons.delete_outline,
                             size: 16, color: AppColors.danger),
                         label: const Text(
@@ -1158,6 +1196,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                               Expanded(
                                 child: TextField(
                                   controller: _note,
+                                  enabled: !blocked && !_adding,
                                   minLines: 1,
                                   maxLines: 3,
                                   decoration: const InputDecoration(
@@ -1167,16 +1206,11 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                               ),
                               const SizedBox(width: 8),
                               FilledButton(
-                                onPressed: _adding ? null : _addNote,
+                                onPressed:
+                                    blocked || _adding ? null : _addNote,
                                 child: _adding
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
+                                    ? const BusySpinner(
+                                        size: 16, color: Colors.white)
                                     : const Text('Add Note'),
                               ),
                             ],
@@ -1234,8 +1268,9 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                                                     const Spacer(),
                                                     IconButton(
                                                       tooltip: 'Edit note',
-                                                      onPressed: () =>
-                                                          _editNote(n),
+                                                      onPressed: blocked
+                                                          ? null
+                                                          : () => _editNote(n),
                                                       icon: const Icon(
                                                         Icons.edit_outlined,
                                                         size: 18,
@@ -1243,8 +1278,10 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                                                     ),
                                                     IconButton(
                                                       tooltip: 'Delete note',
-                                                      onPressed: () =>
-                                                          _deleteNote(n),
+                                                      onPressed: blocked
+                                                          ? null
+                                                          : () =>
+                                                              _deleteNote(n),
                                                       icon: const Icon(
                                                         Icons.delete_outline,
                                                         size: 18,
@@ -1266,6 +1303,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                 ),
               ],
             ),
+          ),
           );
         },
       ),

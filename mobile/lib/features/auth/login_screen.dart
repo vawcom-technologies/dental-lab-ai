@@ -27,6 +27,7 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _info;
 
   Future<void> _submit() async {
+    if (_loading) return;
     AppHaptics.light();
     setState(() {
       _loading = true;
