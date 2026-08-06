@@ -328,6 +328,8 @@ class ChatController extends ChangeNotifier {
       if (!exists) {
         _messages.add(message);
       }
+      // Auto mark-as-read for any inbound type (text / voice / image / document)
+      // while the thread is visibly open.
       if (isOpenAndViewing && !isMine) {
         _socket.markAsRead(message.conversationId);
       }
@@ -384,9 +386,18 @@ class ChatController extends ChangeNotifier {
     if (_active?.id == event.conversationId) {
       for (var i = 0; i < _messages.length; i++) {
         final m = _messages[i];
-        final match = event.messageIds.isEmpty
-            ? (me != null && m.senderId == me && m.readAt == null)
-            : event.messageIds.contains(m.id);
+        final bool match;
+        if (event.messageIds.isNotEmpty) {
+          match = event.messageIds.contains(m.id);
+        } else if (me != null && event.readerId == me) {
+          // I read their inbound messages (incl. media / documents).
+          match = m.senderId != me && m.readAt == null;
+        } else if (me != null) {
+          // Partner read my outbound messages (incl. media / documents).
+          match = m.senderId == me && m.readAt == null;
+        } else {
+          match = false;
+        }
         if (match) {
           _messages[i] = m.copyWith(readAt: readAt);
         }

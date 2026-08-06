@@ -106,6 +106,27 @@ def upload_chat_file(
     content_type = file.content_type or mimetypes.guess_type(file.filename or "")[0] or (
         "application/octet-stream"
     )
+    # Browsers often send application/octet-stream; force sensible types for CDN.
+    if content_type in ("application/octet-stream", "binary/octet-stream", ""):
+        guessed = mimetypes.guess_type(file.filename or "")[0]
+        if guessed:
+            content_type = guessed
+        elif media_type == "image":
+            content_type = "image/jpeg"
+        elif media_type == "voice":
+            name = (file.filename or "").lower()
+            if name.endswith(".wav"):
+                content_type = "audio/wav"
+            elif name.endswith(".webm"):
+                content_type = "audio/webm"
+            elif name.endswith(".ogg") or name.endswith(".opus"):
+                content_type = "audio/ogg"
+            else:
+                content_type = "audio/mp4"
+        else:
+            content_type = "application/octet-stream"
+    elif media_type == "image" and not content_type.startswith("image/"):
+        content_type = mimetypes.guess_type(file.filename or "")[0] or "image/jpeg"
 
     client = get_r2_client()
     try:

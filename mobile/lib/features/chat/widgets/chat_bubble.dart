@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:audio_waveforms/audio_waveforms.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
 
@@ -29,6 +29,12 @@ String _fileName(String? url) {
   if (url == null || url.isEmpty) return 'Document';
   final name = p.basename(Uri.tryParse(url)?.path ?? url);
   return name.isEmpty ? 'Document' : name;
+}
+
+Future<void> _openMediaUrl(String url) async {
+  final uri = Uri.tryParse(url);
+  if (uri == null) return;
+  await launchUrl(uri, mode: LaunchMode.externalApplication);
 }
 
 /// Chat bubble that renders text and/or media (voice / image / document).
@@ -182,7 +188,7 @@ class _ReplyQuote extends StatelessWidget {
   }
 }
 
-/// Playable voice note with waveform bars.
+/// Cross-platform voice playback via [just_audio] (Web / Android / iOS).
 class VoiceNoteBubble extends StatefulWidget {
   const VoiceNoteBubble({
     super.key,
@@ -200,42 +206,44 @@ class VoiceNoteBubble extends StatefulWidget {
 }
 
 class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
-  late final PlayerController _player;
+  late final AudioPlayer _player;
   StreamSubscription<PlayerState>? _stateSub;
-  StreamSubscription<int>? _posSub;
+  StreamSubscription<Duration>? _posSub;
+  StreamSubscription<Duration?>? _durSub;
   bool _ready = false;
   bool _failed = false;
-  int _positionMs = 0;
-  int _maxMs = 0;
+  Duration _position = Duration.zero;
+  Duration _duration = Duration.zero;
 
   @override
   void initState() {
     super.initState();
-    _player = PlayerController();
-    _stateSub = _player.onPlayerStateChanged.listen((_) {
+    _player = AudioPlayer();
+    _stateSub = _player.playerStateStream.listen((_) {
       if (mounted) setState(() {});
     });
-    _posSub = _player.onCurrentDurationChanged.listen((ms) {
-      if (mounted) setState(() => _positionMs = ms);
+    _posSub = _player.positionStream.listen((pos) {
+      if (mounted) setState(() => _position = pos);
+    });
+    _durSub = _player.durationStream.listen((d) {
+      if (!mounted || d == null) return;
+      setState(() => _duration = d);
     });
     _prepare();
   }
 
   Future<void> _prepare() async {
     try {
-      await _player.preparePlayer(
-        path: widget.url,
-        shouldExtractWaveform: true,
-        noOfSamples: 48,
-      );
-      await _player.setFinishMode(finishMode: FinishMode.stop);
+      final d = await _player.setUrl(widget.url);
       if (!mounted) return;
       setState(() {
         _ready = true;
-        _maxMs = _player.maxDuration;
-        if (_maxMs <= 0 && widget.durationSeconds != null) {
-          _maxMs = (widget.durationSeconds! * 1000).round();
-        }
+        _duration = d ??
+            Duration(
+              milliseconds:
+                  ((widget.durationSeconds ?? 0) * 1000).round().clamp(0, 36000000),
+            );
+        _failed = false;
       });
     } catch (_) {
       if (mounted) setState(() => _failed = true);
@@ -246,50 +254,66 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
   void dispose() {
     _stateSub?.cancel();
     _posSub?.cancel();
+    _durSub?.cancel();
     _player.dispose();
     super.dispose();
   }
 
   Future<void> _toggle() async {
     if (!_ready) return;
-    if (_player.playerState.isPlaying) {
-      await _player.pausePlayer();
+    if (_player.playing) {
+      await _player.pause();
     } else {
-      await _player.startPlayer();
+      if (_duration.inMilliseconds > 0 &&
+          _position >= _duration - const Duration(milliseconds: 200)) {
+        await _player.seek(Duration.zero);
+      }
+      await _player.play();
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final accent = widget.mine ? Colors.white : AppColors.dentalBlue;
-    final waveFixed = widget.mine ? Colors.white38 : AppColors.border;
-    final waveLive = widget.mine ? Colors.white : AppColors.dentalBlue;
-    final labelSeconds = _maxMs > 0
-        ? _maxMs / 1000.0
+    final track = widget.mine ? Colors.white38 : AppColors.border;
+    final labelSeconds = _duration.inMilliseconds > 0
+        ? _duration.inMilliseconds / 1000.0
         : widget.durationSeconds;
-    final progressLabel = _player.playerState.isPlaying
-        ? formatVoiceDuration(_positionMs / 1000.0)
+    final progressLabel = _player.playing
+        ? formatVoiceDuration(_position.inMilliseconds / 1000.0)
         : formatVoiceDuration(labelSeconds);
 
     if (_failed) {
       return Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.mic_off_rounded, color: accent, size: 20),
-          const SizedBox(width: 8),
-          Text(
-            'Voice note · ${formatVoiceDuration(widget.durationSeconds)}',
-            style: TextStyle(
-              color: widget.mine ? Colors.white : AppColors.navy,
-              fontSize: 13,
+          IconButton(
+            onPressed: () => _openMediaUrl(widget.url),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            tooltip: 'Open audio',
+            icon: Icon(Icons.open_in_new_rounded, color: accent, size: 20),
+          ),
+          Expanded(
+            child: Text(
+              'Voice note · ${formatVoiceDuration(widget.durationSeconds)}',
+              style: TextStyle(
+                color: widget.mine ? Colors.white : AppColors.navy,
+                fontSize: 13,
+              ),
             ),
           ),
         ],
       );
     }
 
+    final maxMs = _duration.inMilliseconds <= 0
+        ? 1.0
+        : _duration.inMilliseconds.toDouble();
+    final value = (_position.inMilliseconds.toDouble()).clamp(0.0, maxMs);
+
     return SizedBox(
-      width: 220,
+      width: 240,
       child: Row(
         children: [
           IconButton(
@@ -298,9 +322,7 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
             icon: Icon(
-              _player.playerState.isPlaying
-                  ? Icons.pause_rounded
-                  : Icons.play_arrow_rounded,
+              _player.playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
               color: accent,
             ),
           ),
@@ -308,23 +330,9 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (_ready)
-                  AudioFileWaveforms(
-                    size: const Size(160, 36),
-                    playerController: _player,
-                    waveformType: WaveformType.fitWidth,
-                    continuousWaveform: true,
-                    playerWaveStyle: PlayerWaveStyle(
-                      fixedWaveColor: waveFixed,
-                      liveWaveColor: waveLive,
-                      spacing: 4,
-                      waveThickness: 2.5,
-                      showSeekLine: false,
-                    ),
-                  )
-                else
+                if (!_ready)
                   SizedBox(
-                    height: 36,
+                    height: 28,
                     child: Center(
                       child: SizedBox(
                         width: 16,
@@ -335,8 +343,33 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
                         ),
                       ),
                     ),
+                  )
+                else
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 3,
+                      thumbShape:
+                          const RoundSliderThumbShape(enabledThumbRadius: 6),
+                      overlayShape:
+                          const RoundSliderOverlayShape(overlayRadius: 12),
+                      activeTrackColor: accent,
+                      inactiveTrackColor: track,
+                      thumbColor: accent,
+                    ),
+                    child: Slider(
+                      min: 0,
+                      max: maxMs,
+                      value: value,
+                      onChanged: (v) {
+                        setState(
+                          () => _position = Duration(milliseconds: v.round()),
+                        );
+                      },
+                      onChangeEnd: (v) async {
+                        await _player.seek(Duration(milliseconds: v.round()));
+                      },
+                    ),
                   ),
-                const SizedBox(height: 2),
                 Text(
                   progressLabel,
                   style: TextStyle(
@@ -354,6 +387,8 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
   }
 }
 
+/// Image bubble: web uses HTML `<img>` to avoid CanvasKit EncodingError;
+/// tap opens lightbox with download/open actions.
 class ImageMessageBubble extends StatelessWidget {
   const ImageMessageBubble({
     super.key,
@@ -376,46 +411,158 @@ class ImageMessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => _openLightbox(context),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            maxWidth: 260,
-            maxHeight: 280,
-            minWidth: 140,
-            minHeight: 100,
-          ),
-          child: CachedNetworkImage(
-            imageUrl: url,
-            fit: BoxFit.cover,
-            placeholder: (_, _) => Container(
-              height: 160,
-              color: (mine ? Colors.white : AppColors.navy)
-                  .withValues(alpha: 0.08),
-              child: Center(
-                child: SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: mine ? Colors.white70 : AppColors.dentalBlue,
-                  ),
-                ),
+    final placeholderColor =
+        (mine ? Colors.white : AppColors.navy).withValues(alpha: 0.08);
+    final iconColor = mine ? Colors.white70 : AppColors.muted;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        GestureDetector(
+          onTap: () => _openLightbox(context),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: 260,
+                maxHeight: 280,
+                minWidth: 140,
+                minHeight: 100,
               ),
-            ),
-            errorWidget: (_, _, _) => Container(
-              height: 100,
-              alignment: Alignment.center,
-              child: Icon(
-                Icons.broken_image_outlined,
-                color: mine ? Colors.white70 : AppColors.muted,
+              child: _ChatNetworkImage(
+                url: url,
+                fit: BoxFit.cover,
+                placeholderColor: placeholderColor,
+                iconColor: iconColor,
+                height: 160,
               ),
             ),
           ),
         ),
-      ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            TextButton.icon(
+              onPressed: () => _openLightbox(context),
+              icon: Icon(
+                Icons.fullscreen_rounded,
+                size: 16,
+                color: mine ? Colors.white70 : AppColors.dentalBlue,
+              ),
+              label: Text(
+                'View',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: mine ? Colors.white70 : AppColors.dentalBlue,
+                ),
+              ),
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(0, 28),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+            const SizedBox(width: 8),
+            TextButton.icon(
+              onPressed: () => _openMediaUrl(url),
+              icon: Icon(
+                Icons.download_rounded,
+                size: 16,
+                color: mine ? Colors.white70 : AppColors.dentalBlue,
+              ),
+              label: Text(
+                'Download',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: mine ? Colors.white70 : AppColors.dentalBlue,
+                ),
+              ),
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(0, 28),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _ChatNetworkImage extends StatelessWidget {
+  const _ChatNetworkImage({
+    required this.url,
+    required this.fit,
+    required this.placeholderColor,
+    required this.iconColor,
+    this.height,
+  });
+
+  final String url;
+  final BoxFit fit;
+  final Color placeholderColor;
+  final Color iconColor;
+  final double? height;
+
+  @override
+  Widget build(BuildContext context) {
+    // On web, prefer HTML <img> so browsers can paint cross-origin images
+    // without CanvasKit decode (avoids EncodingError).
+    return Image.network(
+      url,
+      fit: fit,
+      height: height,
+      width: double.infinity,
+      webHtmlElementStrategy: kIsWeb
+          ? WebHtmlElementStrategy.prefer
+          : WebHtmlElementStrategy.never,
+      loadingBuilder: (context, child, progress) {
+        if (progress == null) return child;
+        return Container(
+          height: height ?? 160,
+          color: placeholderColor,
+          alignment: Alignment.center,
+          child: SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: iconColor,
+              value: progress.expectedTotalBytes != null
+                  ? progress.cumulativeBytesLoaded /
+                      progress.expectedTotalBytes!
+                  : null,
+            ),
+          ),
+        );
+      },
+      errorBuilder: (context, error, stack) {
+        return Container(
+          height: height ?? 120,
+          color: placeholderColor,
+          alignment: Alignment.center,
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.broken_image_outlined, color: iconColor, size: 28),
+              const SizedBox(height: 8),
+              Text(
+                'Could not preview',
+                style: TextStyle(color: iconColor, fontSize: 12),
+              ),
+              TextButton(
+                onPressed: () => _openMediaUrl(url),
+                child: Text(
+                  'Open / download',
+                  style: TextStyle(color: iconColor, fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -437,21 +584,30 @@ class _ImageLightbox extends StatelessWidget {
           ),
           Center(
             child: InteractiveViewer(
-              child: CachedNetworkImage(
-                imageUrl: url,
+              child: _ChatNetworkImage(
+                url: url,
                 fit: BoxFit.contain,
-                placeholder: (_, _) => const CircularProgressIndicator(
-                  color: Colors.white,
-                ),
+                placeholderColor: Colors.black26,
+                iconColor: Colors.white70,
               ),
             ),
           ),
           SafeArea(
             child: Align(
               alignment: Alignment.topRight,
-              child: IconButton(
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close, color: Colors.white),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: 'Download / open',
+                    onPressed: () => _openMediaUrl(url),
+                    icon: const Icon(Icons.download_rounded, color: Colors.white),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close, color: Colors.white),
+                  ),
+                ],
               ),
             ),
           ),
@@ -471,12 +627,6 @@ class DocumentMessageBubble extends StatelessWidget {
   final String url;
   final bool mine;
 
-  Future<void> _open() async {
-    final uri = Uri.tryParse(url);
-    if (uri == null) return;
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
-
   @override
   Widget build(BuildContext context) {
     final fg = mine ? Colors.white : AppColors.navy;
@@ -487,7 +637,7 @@ class DocumentMessageBubble extends StatelessWidget {
       color: (mine ? Colors.white : AppColors.navy).withValues(alpha: 0.12),
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
-        onTap: _open,
+        onTap: () => _openMediaUrl(url),
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
@@ -536,7 +686,7 @@ class DocumentMessageBubble extends StatelessWidget {
                 ),
               ),
               Icon(
-                Icons.open_in_new_rounded,
+                Icons.download_rounded,
                 size: 18,
                 color: mine ? Colors.white70 : AppColors.muted,
               ),

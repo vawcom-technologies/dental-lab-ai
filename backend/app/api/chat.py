@@ -433,6 +433,7 @@ async def _ws_mark_as_read(user: AuthUser, data: dict[str, Any]) -> None:
             .eq("conversation_id", conversation_id)
             .neq("sender_id", user.id)
             .is_("read_at", "null")
+            .select("id")
             .execute()
         )
     except Exception as exc:
