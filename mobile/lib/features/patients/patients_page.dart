@@ -201,38 +201,6 @@ class _PatientsPageState extends State<PatientsPage> {
     }
   }
 
-  Future<void> _exportDatev() async {
-    final rows = _controller.visiblePatients;
-    if (rows.isEmpty) {
-      _toast('No patients to export', error: true);
-      return;
-    }
-    try {
-      final xml = await widget.api.exportDatevXml(rows.first.id);
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('DATEV export'),
-          content: SizedBox(
-            width: 480,
-            child: SingleChildScrollView(
-              child: SelectableText(xml, style: const TextStyle(fontSize: 12)),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Close'),
-            ),
-          ],
-        ),
-      );
-    } catch (e) {
-      _toast(_friendlyError(e), error: true);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
@@ -276,11 +244,6 @@ class _PatientsPageState extends State<PatientsPage> {
                     onPressed: _openCreate,
                     icon: const Icon(Icons.add, size: 18),
                     label: const Text('New Patient'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: _exportDatev,
-                    icon: const Icon(Icons.code, size: 16),
-                    label: const Text('DATEV export'),
                   ),
                 ],
               ),

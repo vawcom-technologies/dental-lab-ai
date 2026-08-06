@@ -566,15 +566,6 @@ class ApiClient {
     AppHaptics.warn();
   }
 
-  Future<String> exportDatevXml(Object patientId) async {
-    final res = await http.get(
-      Uri.parse('$baseUrl/api/exports/$patientId/datev.xml'),
-      headers: _authHeaders,
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return res.body;
-  }
-
   /// Clinic analytics. Pass [days] = 0 for all-time.
   Future<Map<String, dynamic>> fetchReportsSummary({int days = 30}) async {
     final uri = Uri.parse('$baseUrl/api/reports/summary').replace(
