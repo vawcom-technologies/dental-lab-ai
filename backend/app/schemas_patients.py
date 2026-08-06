@@ -32,8 +32,36 @@ class GrantAccessRequest(BaseModel):
     target_user_id: str = Field(min_length=1)
 
 
+class AccessRequestDecision(BaseModel):
+    action: Literal["approve", "reject"]
+
+
 class RevokeAccessRequest(BaseModel):
     target_user_id: str = Field(min_length=1)
+
+
+class PendingAccessRequestOut(BaseModel):
+    request_id: str
+    patient_id: str
+    patient_name: str
+    target_user_id: str
+    target_user_name: str
+    requested_by_user_id: str
+    requested_by_user_name: str
+    status: Literal["pending", "approved", "rejected"]
+    created_at: datetime | str | None = None
+
+
+class PatientAccessEntryOut(BaseModel):
+    id: str
+    patient_id: str
+    user_id: str
+    user_name: str
+    status: Literal["pending", "approved", "rejected"]
+    requested_by: str | None = None
+    granted_by: str | None = None
+    approved_by: str | None = None
+    created_at: datetime | str | None = None
 
 
 class UploadNoteRequest(BaseModel):

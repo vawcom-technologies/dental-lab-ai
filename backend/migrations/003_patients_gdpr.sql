@@ -24,13 +24,17 @@ CREATE INDEX IF NOT EXISTS idx_patients_created_by
 CREATE INDEX IF NOT EXISTS idx_patients_name
   ON public.patients (last_name, first_name);
 
--- ── patient_access (delegation / sharing) ────────────────────────────────────
+-- ── patient_access (delegation / sharing + owner approval) ───────────────────
 CREATE TABLE IF NOT EXISTS public.patient_access (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  patient_id UUID NOT NULL REFERENCES public.patients (id) ON DELETE CASCADE,
-  user_id    UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
-  granted_by UUID NOT NULL REFERENCES public.profiles (id) ON DELETE RESTRICT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  patient_id   UUID NOT NULL REFERENCES public.patients (id) ON DELETE CASCADE,
+  user_id      UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
+  granted_by   UUID NOT NULL REFERENCES public.profiles (id) ON DELETE RESTRICT,
+  requested_by UUID REFERENCES public.profiles (id) ON DELETE RESTRICT,
+  approved_by  UUID REFERENCES public.profiles (id) ON DELETE RESTRICT,
+  status       TEXT NOT NULL DEFAULT 'approved'
+               CHECK (status IN ('pending', 'approved', 'rejected')),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT patient_access_unique UNIQUE (patient_id, user_id)
 );
 
@@ -84,7 +88,9 @@ CREATE POLICY patients_select_own_or_shared
     created_by = auth.uid()
     OR EXISTS (
       SELECT 1 FROM public.patient_access a
-      WHERE a.patient_id = patients.id AND a.user_id = auth.uid()
+      WHERE a.patient_id = patients.id
+        AND a.user_id = auth.uid()
+        AND a.status = 'approved'
     )
   );
 

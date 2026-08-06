@@ -17,10 +17,14 @@ class PatientsController extends ChangeNotifier {
 
   final List<GdprPatient> _patients = [];
   final List<PatientNote> _notes = [];
+  final List<PendingAccessRequest> _pendingRequests = [];
+  final List<PatientAccessEntry> _accessEntries = [];
   String _query = '';
   bool _loading = false;
   bool _loadingDetail = false;
   bool _loadingNotes = false;
+  bool _loadingPending = false;
+  bool _loadingAccess = false;
   bool _mutating = false;
   String? _error;
   GdprPatient? _selected;
@@ -29,13 +33,20 @@ class PatientsController extends ChangeNotifier {
   String? get currentUserId => _api.userId;
   List<GdprPatient> get patients => List.unmodifiable(_patients);
   List<PatientNote> get notes => List.unmodifiable(_notes);
+  List<PendingAccessRequest> get pendingRequests =>
+      List.unmodifiable(_pendingRequests);
+  List<PatientAccessEntry> get accessEntries =>
+      List.unmodifiable(_accessEntries);
   String get query => _query;
   bool get loading => _loading;
   bool get loadingDetail => _loadingDetail;
   bool get loadingNotes => _loadingNotes;
+  bool get loadingPending => _loadingPending;
+  bool get loadingAccess => _loadingAccess;
   bool get mutating => _mutating;
   String? get error => _error;
   GdprPatient? get selected => _selected;
+  int get pendingCount => _pendingRequests.length;
 
   int get totalCount => _patients.length;
 
@@ -66,10 +77,31 @@ class PatientsController extends ChangeNotifier {
         final match = _patients.where((p) => p.id == _selected!.id);
         _selected = match.isEmpty ? null : match.first;
       }
+      await loadPendingRequests(silent: true);
     } catch (e) {
       _error = e.toString().replaceFirst('Exception: ', '');
     } finally {
       _loading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadPendingRequests({bool silent = false}) async {
+    if (_loadingPending) return;
+    if (!silent) {
+      _loadingPending = true;
+      notifyListeners();
+    }
+    try {
+      final rows = await _service.listPendingAccessRequests();
+      _pendingRequests
+        ..clear()
+        ..addAll(rows);
+    } catch (_) {
+      // Pending badge is primarily for owners; ignore soft failures on refresh.
+      if (!silent) rethrow;
+    } finally {
+      if (!silent) _loadingPending = false;
       notifyListeners();
     }
   }
@@ -92,6 +124,7 @@ class PatientsController extends ChangeNotifier {
       if (i >= 0) {
         _patients[i] = patient;
       }
+      await loadAccess(patientId, silent: true);
       return patient;
     } catch (e) {
       _error = e.toString().replaceFirst('Exception: ', '');
@@ -105,6 +138,7 @@ class PatientsController extends ChangeNotifier {
   void clearSelected() {
     _selected = null;
     _notes.clear();
+    _accessEntries.clear();
     notifyListeners();
   }
 
@@ -169,6 +203,7 @@ class PatientsController extends ChangeNotifier {
       if (_selected?.id == patientId) {
         _selected = null;
         _notes.clear();
+        _accessEntries.clear();
       }
     } finally {
       _mutating = false;
@@ -176,18 +211,34 @@ class PatientsController extends ChangeNotifier {
     }
   }
 
-  Future<void> grantAccess({
+  Future<AccessMutationResult> shareAccess({
     required String patientId,
     required String targetUserId,
   }) async {
-    if (_mutating) return;
+    if (_mutating) {
+      throw StateError('Another patient change is already in progress');
+    }
+    GdprPatient? patient;
+    for (final p in _patients) {
+      if (p.id == patientId) {
+        patient = p;
+        break;
+      }
+    }
+    patient ??= _selected?.id == patientId ? _selected : null;
+    final asOwner = patient != null && isOwner(patient);
     _mutating = true;
     notifyListeners();
     try {
-      await _service.grantAccess(
+      final result = await _service.grantOrRequestAccess(
         patientId: patientId,
         targetUserId: targetUserId,
+        asOwner: asOwner,
       );
+      if (_selected?.id == patientId) {
+        await loadAccess(patientId, silent: true);
+      }
+      return result;
     } finally {
       _mutating = false;
       notifyListeners();
@@ -206,8 +257,68 @@ class PatientsController extends ChangeNotifier {
         patientId: patientId,
         targetUserId: targetUserId,
       );
+      _accessEntries.removeWhere((e) => e.userId == targetUserId);
+      if (_selected?.id == patientId) {
+        await loadAccess(patientId, silent: true);
+      }
     } finally {
       _mutating = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> approveAccessRequest(String requestId) async {
+    if (_mutating) return;
+    _mutating = true;
+    notifyListeners();
+    try {
+      await _service.resolveAccessRequest(
+        requestId: requestId,
+        action: 'approve',
+      );
+      _pendingRequests.removeWhere((r) => r.id == requestId);
+      // Refresh roster so newly approved staff visibility stays consistent.
+      final rows = await _service.listPatients();
+      _patients
+        ..clear()
+        ..addAll(rows);
+      await loadPendingRequests(silent: true);
+    } finally {
+      _mutating = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> rejectAccessRequest(String requestId) async {
+    if (_mutating) return;
+    _mutating = true;
+    notifyListeners();
+    try {
+      await _service.resolveAccessRequest(
+        requestId: requestId,
+        action: 'reject',
+      );
+      _pendingRequests.removeWhere((r) => r.id == requestId);
+      await loadPendingRequests(silent: true);
+    } finally {
+      _mutating = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadAccess(String patientId, {bool silent = false}) async {
+    if (_loadingAccess) return;
+    if (!silent) {
+      _loadingAccess = true;
+      notifyListeners();
+    }
+    try {
+      final rows = await _service.listPatientAccess(patientId);
+      _accessEntries
+        ..clear()
+        ..addAll(rows);
+    } finally {
+      if (!silent) _loadingAccess = false;
       notifyListeners();
     }
   }

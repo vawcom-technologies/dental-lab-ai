@@ -56,6 +56,13 @@ class _PatientsPageState extends State<PatientsPage> {
   String _friendlyError(Object e) {
     if (e is AgentApiException) {
       if (e.isForbidden) {
+        final lower = e.message.toLowerCase();
+        if (lower.contains('approve') || lower.contains('reject')) {
+          return 'Permission Denied: Only the patient owner can approve or reject access requests.';
+        }
+        if (lower.contains('access')) {
+          return e.message;
+        }
         return 'Permission Denied: Only the creator of this record can modify patient details.';
       }
       return e.message;
@@ -147,13 +154,6 @@ class _PatientsPageState extends State<PatientsPage> {
 
   Future<void> _openShare(GdprPatient patient) async {
     if (_controller.mutating || _controller.loadingDetail) return;
-    if (!_controller.isOwner(patient)) {
-      _toast(
-        'Permission Denied: Only the creator of this record can manage access.',
-        error: true,
-      );
-      return;
-    }
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -165,6 +165,25 @@ class _PatientsPageState extends State<PatientsPage> {
         patient: patient,
         controller: _controller,
         onToast: _toast,
+        friendlyError: _friendlyError,
+      ),
+    );
+  }
+
+  Future<void> _openPendingRequests() async {
+    await _controller.loadPendingRequests();
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) => _PendingAccessDrawer(
+        controller: _controller,
+        onToast: _toast,
+        friendlyError: _friendlyError,
       ),
     );
   }
@@ -251,6 +270,42 @@ class _PatientsPageState extends State<PatientsPage> {
                           ? const BusySpinner(size: 18)
                           : const Icon(Icons.refresh, size: 20),
                     ),
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        IconButton(
+                          tooltip: 'Pending access requests',
+                          onPressed: blocked ? null : _openPendingRequests,
+                          icon: const Icon(
+                            Icons.mark_email_unread_outlined,
+                            size: 22,
+                          ),
+                        ),
+                        if (_controller.pendingCount > 0)
+                          Positioned(
+                            right: 6,
+                            top: 6,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 5,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.danger,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                '${_controller.pendingCount}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                     FilledButton.icon(
                       onPressed: blocked ? null : _openCreate,
                       icon: const Icon(Icons.add, size: 18),
@@ -310,8 +365,7 @@ class _PatientsPageState extends State<PatientsPage> {
                                     onOpen: () => _openDetails(p),
                                     onEdit:
                                         owner ? () => _openEdit(p) : null,
-                                    onShare:
-                                        owner ? () => _openShare(p) : null,
+                                    onShare: () => _openShare(p),
                                     onDelete: owner
                                         ? () => _confirmDelete(p)
                                         : null,
@@ -782,11 +836,13 @@ class _ShareAccessSheet extends StatefulWidget {
     required this.patient,
     required this.controller,
     required this.onToast,
+    required this.friendlyError,
   });
 
   final GdprPatient patient;
   final PatientsController controller;
   final void Function(String message, {bool error}) onToast;
+  final String Function(Object e) friendlyError;
 
   @override
   State<_ShareAccessSheet> createState() => _ShareAccessSheetState();
@@ -796,6 +852,8 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
   List<Map<String, dynamic>> _users = [];
   bool _loading = true;
   String? _busyId;
+
+  bool get _isOwner => widget.controller.isOwner(widget.patient);
 
   @override
   void initState() {
@@ -810,43 +868,34 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
       setState(() {
         _users = users
             .where((u) => '${u['id']}' != widget.controller.currentUserId)
+            .where((u) => '${u['id']}' != widget.patient.createdBy)
             .toList();
         _loading = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-      widget.onToast(e.toString().replaceFirst('Exception: ', ''), error: true);
+      widget.onToast(widget.friendlyError(e), error: true);
     }
   }
 
-  Future<void> _grant(String userId) async {
+  Future<void> _share(String userId) async {
     if (_busyId != null) return;
     setState(() => _busyId = userId);
     try {
-      await widget.controller.grantAccess(
+      final result = await widget.controller.shareAccess(
         patientId: widget.patient.id,
         targetUserId: userId,
       );
-      widget.onToast('Access granted to staff member');
+      if (result.immediate) {
+        widget.onToast('Access successfully granted to staff member.');
+      } else {
+        widget.onToast(
+          'Access request submitted to patient owner for review.',
+        );
+      }
     } catch (e) {
-      widget.onToast(e.toString().replaceFirst('Exception: ', ''), error: true);
-    } finally {
-      if (mounted) setState(() => _busyId = null);
-    }
-  }
-
-  Future<void> _revoke(String userId) async {
-    if (_busyId != null) return;
-    setState(() => _busyId = userId);
-    try {
-      await widget.controller.revokeAccess(
-        patientId: widget.patient.id,
-        targetUserId: userId,
-      );
-      widget.onToast('Access revoked');
-    } catch (e) {
-      widget.onToast(e.toString().replaceFirst('Exception: ', ''), error: true);
+      widget.onToast(widget.friendlyError(e), error: true);
     } finally {
       if (mounted) setState(() => _busyId = null);
     }
@@ -855,6 +904,12 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
   @override
   Widget build(BuildContext context) {
     final height = MediaQuery.sizeOf(context).height * 0.7;
+    final actionLabel =
+        _isOwner ? 'Grant Immediate Access' : 'Submit Access Request';
+    final subtext = _isOwner
+        ? 'As owner, your invitation will immediately allow access.'
+        : 'This request will be sent to the patient owner for approval.';
+
     return SizedBox(
       height: height,
       child: Padding(
@@ -882,9 +937,9 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
               ),
             ),
             const SizedBox(height: 6),
-            const Text(
-              'Grant or revoke access for practice staff.',
-              style: TextStyle(color: AppColors.muted, fontSize: 13),
+            Text(
+              subtext,
+              style: const TextStyle(color: AppColors.muted, fontSize: 13),
             ),
             const SizedBox(height: 12),
             Expanded(
@@ -915,40 +970,245 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
                                   ? Text(email)
                                   : null,
                               trailing: busy
-                                  ? const SizedBox(
-                                      width: 22,
-                                      height: 22,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
+                                  ? const BusySpinner(size: 20)
+                                  : FilledButton(
+                                      onPressed: _busyId != null
+                                          ? null
+                                          : () => _share(id),
+                                      child: Text(
+                                        actionLabel,
+                                        style: const TextStyle(fontSize: 12),
                                       ),
-                                    )
-                                  : Wrap(
-                                      spacing: 6,
-                                      children: [
-                                        TextButton(
-                                          onPressed: _busyId != null
-                                              ? null
-                                              : () => _grant(id),
-                                          child: const Text('Grant'),
-                                        ),
-                                        TextButton(
-                                          onPressed: _busyId != null
-                                              ? null
-                                              : () => _revoke(id),
-                                          child: const Text(
-                                            'Revoke',
-                                            style: TextStyle(
-                                              color: AppColors.danger,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
                                     ),
                             );
                           },
                         ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PendingAccessDrawer extends StatelessWidget {
+  const _PendingAccessDrawer({
+    required this.controller,
+    required this.onToast,
+    required this.friendlyError,
+  });
+
+  final PatientsController controller;
+  final void Function(String message, {bool error}) onToast;
+  final String Function(Object e) friendlyError;
+
+  Future<void> _approve(BuildContext context, PendingAccessRequest req) async {
+    try {
+      await controller.approveAccessRequest(req.id);
+      onToast(
+        'Access approved. Staff member can now access this patient record.',
+      );
+    } catch (e) {
+      onToast(friendlyError(e), error: true);
+    }
+  }
+
+  Future<void> _reject(BuildContext context, PendingAccessRequest req) async {
+    try {
+      await controller.rejectAccessRequest(req.id);
+      onToast('Access request rejected.');
+    } catch (e) {
+      onToast(friendlyError(e), error: true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final height = MediaQuery.sizeOf(context).height * 0.75;
+    return SizedBox(
+      height: height,
+      child: ListenableBuilder(
+        listenable: controller,
+        builder: (context, _) {
+          final rows = controller.pendingRequests;
+          final blocked = controller.mutating;
+          return BusyBarrier(
+            busy: blocked || controller.loadingPending,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.border,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'Pending access requests',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 18,
+                      color: AppColors.navy,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    rows.isEmpty
+                        ? 'No pending requests right now.'
+                        : '${rows.length} request${rows.length == 1 ? '' : 's'} awaiting your decision.',
+                    style: const TextStyle(color: AppColors.muted, fontSize: 13),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: controller.loadingPending && rows.isEmpty
+                        ? const Center(child: CircularProgressIndicator())
+                        : rows.isEmpty
+                            ? const Center(
+                                child: Text(
+                                  'All caught up.',
+                                  style: TextStyle(color: AppColors.muted),
+                                ),
+                              )
+                            : ListView.separated(
+                                itemCount: rows.length,
+                                separatorBuilder: (_, _) =>
+                                    const SizedBox(height: 10),
+                                itemBuilder: (context, i) {
+                                  final r = rows[i];
+                                  final when = r.createdAt == null
+                                      ? ''
+                                      : DateFormat.yMMMd()
+                                          .add_Hm()
+                                          .format(r.createdAt!.toLocal());
+                                  return SectionCard(
+                                    padding: const EdgeInsets.all(14),
+                                    depth: 0.45,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          r.patientName,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            color: AppColors.navy,
+                                            fontSize: 15,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          'Target: ${r.targetUserName}',
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            color: AppColors.text,
+                                          ),
+                                        ),
+                                        Text(
+                                          'Requested by: ${r.requestingUserName}',
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            color: AppColors.text,
+                                          ),
+                                        ),
+                                        if (when.isNotEmpty) ...[
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            when,
+                                            style: const TextStyle(
+                                              fontSize: 11.5,
+                                              color: AppColors.muted,
+                                            ),
+                                          ),
+                                        ],
+                                        const SizedBox(height: 12),
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: FilledButton(
+                                                style: FilledButton.styleFrom(
+                                                  backgroundColor:
+                                                      AppColors.success,
+                                                ),
+                                                onPressed: blocked
+                                                    ? null
+                                                    : () =>
+                                                        _approve(context, r),
+                                                child: const Text('Approve'),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: OutlinedButton(
+                                                style: OutlinedButton.styleFrom(
+                                                  foregroundColor:
+                                                      AppColors.danger,
+                                                  side: const BorderSide(
+                                                    color: AppColors.danger,
+                                                  ),
+                                                ),
+                                                onPressed: blocked
+                                                    ? null
+                                                    : () => _reject(context, r),
+                                                child: const Text('Reject'),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _AccessStatusBadge extends StatelessWidget {
+  const _AccessStatusBadge({required this.status});
+
+  final PatientAccessStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color bg;
+    final Color fg;
+    switch (status) {
+      case PatientAccessStatus.approved:
+        bg = AppColors.successSoft;
+        fg = AppColors.success;
+      case PatientAccessStatus.pending:
+        bg = AppColors.warningSoft;
+        fg = AppColors.warning;
+      case PatientAccessStatus.rejected:
+        bg = const Color(0xFFE8EDF4);
+        fg = AppColors.muted;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        status.label,
+        style: TextStyle(
+          color: fg,
+          fontSize: 11.5,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -987,8 +1247,9 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 2, vsync: this);
+    _tabs = TabController(length: 3, vsync: this);
     widget.controller.loadNotes(widget.patient.id);
+    widget.controller.loadAccess(widget.patient.id);
   }
 
   @override
@@ -1051,6 +1312,19 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     }
   }
 
+  Future<void> _revokeAccess(PatientAccessEntry entry) async {
+    if (widget.controller.mutating) return;
+    try {
+      await widget.controller.revokeAccess(
+        patientId: widget.patient.id,
+        targetUserId: entry.userId,
+      );
+      widget.onToast('Access revoked');
+    } catch (e) {
+      widget.onToast(widget.friendlyError(e), error: true);
+    }
+  }
+
   Future<void> _deleteNote(PatientNote note) async {
     if (widget.controller.mutating) return;
     final ok = await showDialog<bool>(
@@ -1092,6 +1366,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
         listenable: widget.controller,
         builder: (context, _) {
           final notes = widget.controller.notes;
+          final access = widget.controller.accessEntries;
           final blocked = widget.controller.mutating;
           return BusyBarrier(
             busy: blocked,
@@ -1148,12 +1423,11 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                         icon: const Icon(Icons.edit_outlined, size: 16),
                         label: const Text('Edit'),
                       ),
-                    if (owner)
-                      OutlinedButton.icon(
-                        onPressed: blocked ? null : widget.onShare,
-                        icon: const Icon(Icons.share_outlined, size: 16),
-                        label: const Text('Manage Access'),
-                      ),
+                    OutlinedButton.icon(
+                      onPressed: blocked ? null : widget.onShare,
+                      icon: const Icon(Icons.share_outlined, size: 16),
+                      label: Text(owner ? 'Share Patient' : 'Request Access'),
+                    ),
                     if (owner)
                       OutlinedButton.icon(
                         onPressed: blocked ? null : widget.onDelete,
@@ -1173,6 +1447,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                   tabs: const [
                     Tab(text: 'Demographics'),
                     Tab(text: 'Clinical Notes'),
+                    Tab(text: 'Access'),
                   ],
                 ),
                 Expanded(
@@ -1298,6 +1573,80 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                           ),
                         ],
                       ),
+                      widget.controller.loadingAccess && access.isEmpty
+                          ? const Center(child: CircularProgressIndicator())
+                          : access.isEmpty
+                              ? const Center(
+                                  child: Text(
+                                    'No shared access yet.',
+                                    style: TextStyle(color: AppColors.muted),
+                                  ),
+                                )
+                              : ListView.separated(
+                                  padding: const EdgeInsets.only(top: 12),
+                                  itemCount: access.length,
+                                  separatorBuilder: (_, _) =>
+                                      const SizedBox(height: 8),
+                                  itemBuilder: (context, i) {
+                                    final entry = access[i];
+                                    final when = entry.createdAt == null
+                                        ? ''
+                                        : DateFormat.yMMMd()
+                                            .add_Hm()
+                                            .format(
+                                                entry.createdAt!.toLocal());
+                                    return SectionCard(
+                                      padding: const EdgeInsets.all(12),
+                                      depth: 0.4,
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  entry.userName,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.w700,
+                                                    color: AppColors.navy,
+                                                  ),
+                                                ),
+                                                if (when.isNotEmpty) ...[
+                                                  const SizedBox(height: 4),
+                                                  Text(
+                                                    when,
+                                                    style: const TextStyle(
+                                                      fontSize: 11.5,
+                                                      color: AppColors.muted,
+                                                    ),
+                                                  ),
+                                                ],
+                                                const SizedBox(height: 8),
+                                                _AccessStatusBadge(
+                                                  status: entry.status,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          if (owner)
+                                            TextButton(
+                                              onPressed: blocked
+                                                  ? null
+                                                  : () =>
+                                                      _revokeAccess(entry),
+                                              child: const Text(
+                                                'Revoke',
+                                                style: TextStyle(
+                                                  color: AppColors.danger,
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
                     ],
                   ),
                 ),

@@ -211,6 +211,136 @@ class PatientNote {
   }
 }
 
+enum PatientAccessStatus { pending, approved, rejected }
+
+PatientAccessStatus parsePatientAccessStatus(dynamic raw) {
+  switch ('$raw'.trim().toLowerCase()) {
+    case 'pending':
+      return PatientAccessStatus.pending;
+    case 'rejected':
+      return PatientAccessStatus.rejected;
+    default:
+      return PatientAccessStatus.approved;
+  }
+}
+
+extension PatientAccessStatusX on PatientAccessStatus {
+  String get apiValue => switch (this) {
+        PatientAccessStatus.pending => 'pending',
+        PatientAccessStatus.approved => 'approved',
+        PatientAccessStatus.rejected => 'rejected',
+      };
+
+  String get label => switch (this) {
+        PatientAccessStatus.pending => 'Pending Owner Approval',
+        PatientAccessStatus.approved => 'Approved',
+        PatientAccessStatus.rejected => 'Rejected',
+      };
+}
+
+/// One row from GET /api/patients/{id}/access.
+class PatientAccessEntry {
+  const PatientAccessEntry({
+    required this.id,
+    required this.patientId,
+    required this.userId,
+    required this.userName,
+    required this.status,
+    this.requestedBy,
+    this.grantedBy,
+    this.approvedBy,
+    this.createdAt,
+  });
+
+  final String id;
+  final String patientId;
+  final String userId;
+  final String userName;
+  final PatientAccessStatus status;
+  final String? requestedBy;
+  final String? grantedBy;
+  final String? approvedBy;
+  final DateTime? createdAt;
+
+  factory PatientAccessEntry.fromJson(Map<String, dynamic> json) {
+    return PatientAccessEntry(
+      id: '${json['id'] ?? ''}',
+      patientId: '${json['patient_id'] ?? ''}',
+      userId: '${json['user_id'] ?? ''}',
+      userName: (json['user_name'] as String?)?.trim().isNotEmpty == true
+          ? (json['user_name'] as String).trim()
+          : '${json['user_id'] ?? 'Staff'}',
+      status: parsePatientAccessStatus(json['status']),
+      requestedBy: _optString(json['requested_by']),
+      grantedBy: _optString(json['granted_by']),
+      approvedBy: _optString(json['approved_by']),
+      createdAt: _parseDate(json['created_at']),
+    );
+  }
+}
+
+/// One row from GET /api/patients/access/pending.
+class PendingAccessRequest {
+  const PendingAccessRequest({
+    required this.id,
+    required this.patientId,
+    required this.patientName,
+    required this.targetUserId,
+    required this.targetUserName,
+    required this.requestingUserId,
+    required this.requestingUserName,
+    required this.status,
+    this.createdAt,
+  });
+
+  final String id;
+  final String patientId;
+  final String patientName;
+  final String targetUserId;
+  final String targetUserName;
+  final String requestingUserId;
+  final String requestingUserName;
+  final PatientAccessStatus status;
+  final DateTime? createdAt;
+
+  factory PendingAccessRequest.fromJson(Map<String, dynamic> json) {
+    final id = _optString(json['id']) ?? _optString(json['request_id']) ?? '';
+    final requestingId = _optString(json['requesting_user_id']) ??
+        _optString(json['requested_by_user_id']) ??
+        '';
+    final requestingName = (json['requesting_user_name'] as String?)?.trim() ??
+        (json['requested_by_user_name'] as String?)?.trim() ??
+        '';
+    return PendingAccessRequest(
+      id: id,
+      patientId: '${json['patient_id'] ?? ''}',
+      patientName: (json['patient_name'] as String?)?.trim().isNotEmpty == true
+          ? (json['patient_name'] as String).trim()
+          : 'Patient',
+      targetUserId: '${json['target_user_id'] ?? ''}',
+      targetUserName:
+          (json['target_user_name'] as String?)?.trim().isNotEmpty == true
+              ? (json['target_user_name'] as String).trim()
+              : '${json['target_user_id'] ?? 'Staff'}',
+      requestingUserId: requestingId,
+      requestingUserName: requestingName.isNotEmpty ? requestingName : requestingId,
+      status: parsePatientAccessStatus(json['status']),
+      createdAt: _parseDate(json['created_at']),
+    );
+  }
+}
+
+/// Result of POST /api/patients/{id}/access.
+class AccessMutationResult {
+  const AccessMutationResult({
+    required this.immediate,
+    this.access,
+  });
+
+  final bool immediate;
+  final PatientAccessEntry? access;
+}
+
 String? _optString(dynamic value) {
   if (value == null) return null;
   final s = value.toString().trim();

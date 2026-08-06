@@ -311,7 +311,7 @@ class AppLocalizations {
   String get reportsClinicalHint => _t('reports.clinicalHint');
 
   String get reportsNoData => _t('reports.noData');
-  
+
   String get reportsCasesCol => _t('reports.casesCol');
   String get reportsArtifacts => _t('reports.artifacts');
 

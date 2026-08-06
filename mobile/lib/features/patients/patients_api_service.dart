@@ -155,17 +155,28 @@ class PatientsApiService {
     );
   }
 
-  Future<void> grantAccess({
+  /// Owner → immediate grant; approved shared user → pending request.
+  Future<AccessMutationResult> grantOrRequestAccess({
     required String patientId,
     required String targetUserId,
+    required bool asOwner,
   }) async {
-    await _send(
+    final env = await _send(
       () => http.post(
         Uri.parse('$_base/api/patients/$patientId/access'),
         headers: _headers,
         body: jsonEncode({'target_user_id': targetUserId}),
       ),
     );
+    final raw = env.payload['access'];
+    PatientAccessEntry? entry;
+    if (raw is Map) {
+      entry = PatientAccessEntry.fromJson(Map<String, dynamic>.from(raw));
+    }
+    final immediate = asOwner ||
+        entry?.status == PatientAccessStatus.approved ||
+        env.action == 'grant_patient_access';
+    return AccessMutationResult(immediate: immediate, access: entry);
   }
 
   Future<void> revokeAccess({
@@ -178,6 +189,58 @@ class PatientsApiService {
         headers: _headers,
       ),
     );
+  }
+
+  Future<List<PendingAccessRequest>> listPendingAccessRequests() async {
+    final env = await _send(
+      () => http.get(
+        Uri.parse('$_base/api/patients/access/pending'),
+        headers: _headers,
+      ),
+    );
+    final raw = env.payload['pending_requests'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => PendingAccessRequest.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
+
+  Future<PatientAccessEntry> resolveAccessRequest({
+    required String requestId,
+    required String action,
+  }) async {
+    final env = await _send(
+      () => http.patch(
+        Uri.parse('$_base/api/patients/access/requests/$requestId'),
+        headers: _headers,
+        body: jsonEncode({'action': action}),
+      ),
+    );
+    final raw = env.payload['access'] ?? env.payload['request'];
+    if (raw is! Map) {
+      throw AgentApiException(
+        httpCode: 502,
+        code: 'MISSING_ACCESS',
+        message: 'Access decision payload missing.',
+      );
+    }
+    return PatientAccessEntry.fromJson(Map<String, dynamic>.from(raw));
+  }
+
+  Future<List<PatientAccessEntry>> listPatientAccess(String patientId) async {
+    final env = await _send(
+      () => http.get(
+        Uri.parse('$_base/api/patients/$patientId/access'),
+        headers: _headers,
+      ),
+    );
+    final raw = env.payload['access'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => PatientAccessEntry.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
   }
 
   Future<List<PatientNote>> listNotes(String patientId) async {

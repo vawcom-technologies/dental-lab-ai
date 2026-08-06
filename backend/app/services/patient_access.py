@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import HTTPException, status
 
@@ -23,6 +23,12 @@ OWNER_ONLY_DENIED = (
 ACCESS_DENIED = (
     "ERROR_403_FORBIDDEN: Permission denied. You do not have access to this patient."
 )
+GRANT_DENIED = (
+    "ERROR_403_FORBIDDEN: Permission denied. Only the patient owner or an "
+    "approved shared user may grant or request access."
+)
+
+AccessStatus = Literal["pending", "approved", "rejected"]
 
 
 def utc_now_iso() -> str:
@@ -58,12 +64,12 @@ def is_owner(patient: dict[str, Any], user_id: str) -> bool:
     return str(patient.get("created_by")) == str(user_id)
 
 
-def has_shared_access(patient_id: str, user_id: str) -> bool:
+def fetch_access_row(patient_id: str, user_id: str) -> dict[str, Any] | None:
     try:
         result = (
             get_supabase_admin()
             .table("patient_access")
-            .select("id")
+            .select("*")
             .eq("patient_id", patient_id)
             .eq("user_id", user_id)
             .limit(1)
@@ -71,7 +77,43 @@ def has_shared_access(patient_id: str, user_id: str) -> bool:
         )
     except Exception as exc:
         raise db_error(exc) from exc
+    rows = getattr(result, "data", None) or []
+    return rows[0] if rows else None
+
+
+def has_shared_access(patient_id: str, user_id: str) -> bool:
+    """True only when the user has an *approved* share on the patient."""
+    try:
+        result = (
+            get_supabase_admin()
+            .table("patient_access")
+            .select("id")
+            .eq("patient_id", patient_id)
+            .eq("user_id", user_id)
+            .eq("status", "approved")
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        raise db_error(exc) from exc
     return bool(getattr(result, "data", None))
+
+
+def profile_display_name(profile: dict[str, Any] | None, *, fallback: str = "Unknown") -> str:
+    if not profile:
+        return fallback
+    name = str(profile.get("name") or "").strip()
+    if name:
+        return name
+    email = str(profile.get("email") or "").strip()
+    return email or fallback
+
+
+def patient_display_name(patient: dict[str, Any]) -> str:
+    first = str(patient.get("first_name") or "").strip()
+    last = str(patient.get("last_name") or "").strip()
+    full = f"{first} {last}".strip()
+    return full or "Unnamed patient"
 
 
 def has_patient_access(patient_id: str, user_id: str) -> bool:
@@ -98,6 +140,17 @@ def require_patient_access(patient_id: str, user_id: str) -> dict[str, Any]:
     if is_owner(patient, user_id) or has_shared_access(patient_id, user_id):
         return patient
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ACCESS_DENIED)
+
+
+def require_owner_or_approved_share(
+    patient: dict[str, Any], patient_id: str, user_id: str
+) -> Literal["owner", "shared"]:
+    """Authorize grant/request-access callers. Raises 403 if unauthorized."""
+    if is_owner(patient, user_id):
+        return "owner"
+    if has_shared_access(patient_id, user_id):
+        return "shared"
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=GRANT_DENIED)
 
 
 def write_audit_log(
