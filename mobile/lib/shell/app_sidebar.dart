@@ -16,10 +16,10 @@ enum AppNavItem {
   smilePreview,
   scanBody,
   messages,
+  laboratories,
   notifications,
   reports,
   settings,
-  profile,
 }
 
 class AppSidebar extends StatelessWidget {
@@ -31,6 +31,7 @@ class AppSidebar extends StatelessWidget {
     this.collapsed = false,
     this.messageBadge = 3,
     this.notificationBadge = 5,
+    this.showLaboratories = false,
   });
 
   final AppNavItem active;
@@ -39,6 +40,7 @@ class AppSidebar extends StatelessWidget {
   final bool collapsed;
   final int messageBadge;
   final int notificationBadge;
+  final bool showLaboratories;
 
   @override
   Widget build(BuildContext context) {
@@ -143,6 +145,12 @@ class AppSidebar extends StatelessWidget {
                           badge: messageBadge,
                           badgeColor: AppColors.danger,
                         ),
+                        if (showLaboratories)
+                          _item(
+                            AppNavItem.laboratories,
+                            Icons.biotech_outlined,
+                            s.navLaboratories,
+                          ),
                         _item(
                           AppNavItem.notifications,
                           Icons.notifications_none_rounded,
@@ -164,7 +172,6 @@ class AppSidebar extends StatelessWidget {
                           color: AppColors.border.withValues(alpha: 0.6),
                         ),
                         _item(AppNavItem.settings, Icons.settings_outlined, s.navSettings),
-                        _item(AppNavItem.profile, Icons.person_outline, s.navProfile),
                       ],
                     ),
                   ),

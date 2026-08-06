@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../../features/laboratories/admin_user.dart';
 import '../haptics/app_haptics.dart';
 
 class ApiClient {
@@ -14,7 +15,8 @@ class ApiClient {
 
   final String baseUrl;
   String? _token;
-  int? _userId;
+  String? _refreshToken;
+  String? _userId;
   String? _role;
   String? _name;
   String? _email;
@@ -22,7 +24,8 @@ class ApiClient {
   String? _phone;
 
   String? get token => _token;
-  int? get userId => _userId;
+  String? get refreshToken => _refreshToken;
+  String? get userId => _userId;
   String? get role => _role;
   String? get userName => _name;
   String? get email => _email;
@@ -31,9 +34,19 @@ class ApiClient {
 
   void setToken(String? token) => _token = token;
 
+  String? _asString(dynamic value) {
+    if (value == null) return null;
+    if (value is String) return value;
+    return value.toString();
+  }
+
   void _applyAuth(Map<String, dynamic> data) {
-    _token = data['access_token'] as String?;
-    _userId = (data['user_id'] as num?)?.toInt();
+    final access = data['access_token'] as String?;
+    if (access != null && access.isNotEmpty) {
+      _token = access;
+    }
+    _refreshToken = data['refresh_token'] as String? ?? _refreshToken;
+    _userId = _asString(data['user_id']) ?? _userId;
     _role = data['role'] as String?;
     _name = data['name'] as String?;
     _email = data['email'] as String?;
@@ -42,7 +55,7 @@ class ApiClient {
   }
 
   void _applyProfile(Map<String, dynamic> data) {
-    _userId = (data['id'] as num?)?.toInt() ?? _userId;
+    _userId = _asString(data['id']) ?? _userId;
     _role = data['role'] as String? ?? _role;
     _name = data['name'] as String? ?? _name;
     _email = data['email'] as String? ?? _email;
@@ -52,6 +65,7 @@ class ApiClient {
 
   void logout() {
     _token = null;
+    _refreshToken = null;
     _userId = null;
     _role = null;
     _name = null;
@@ -69,11 +83,14 @@ class ApiClient {
         if (_token != null) 'Authorization': 'Bearer $_token',
       };
 
-  Future<Map<String, dynamic>> login(String email, String password) async {
+  Future<Map<String, dynamic>> signIn(String email, String password) async {
     final res = await http.post(
-      Uri.parse('$baseUrl/api/auth/login'),
-      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-      body: {'username': email, 'password': password},
+      Uri.parse('$baseUrl/api/auth/signin'),
+      headers: const {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'email': email,
+        'password': password,
+      }),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -82,22 +99,24 @@ class ApiClient {
     return data;
   }
 
-  Future<Map<String, dynamic>> register({
+  /// Backward-compatible alias for [signIn].
+  Future<Map<String, dynamic>> login(String email, String password) =>
+      signIn(email, password);
+
+  Future<Map<String, dynamic>> signUp({
     required String email,
     required String name,
     required String password,
-    String role = 'dentist',
     String? clinicName,
     String? phone,
   }) async {
     final res = await http.post(
-      Uri.parse('$baseUrl/api/auth/register'),
-      headers: {'Content-Type': 'application/json'},
+      Uri.parse('$baseUrl/api/auth/signup'),
+      headers: const {'Content-Type': 'application/json'},
       body: jsonEncode({
         'email': email,
         'name': name,
         'password': password,
-        'role': role,
         'clinic_name': clinicName,
         'phone': phone,
       }),
@@ -107,8 +126,37 @@ class ApiClient {
     }
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     _applyAuth(data);
-    AppHaptics.success();
+    if (data['email_confirmation_required'] != true) {
+      AppHaptics.success();
+    }
     return data;
+  }
+
+  /// Backward-compatible alias for [signUp].
+  Future<Map<String, dynamic>> register({
+    required String email,
+    required String name,
+    required String password,
+    String role = 'dentist',
+    String? clinicName,
+    String? phone,
+  }) =>
+      signUp(
+        email: email,
+        name: name,
+        password: password,
+        clinicName: clinicName,
+        phone: phone,
+      );
+
+  Future<Map<String, dynamic>> forgotPassword(String email) async {
+    final res = await http.post(
+      Uri.parse('$baseUrl/api/auth/forgot-password'),
+      headers: const {'Content-Type': 'application/json'},
+      body: jsonEncode({'email': email}),
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
   Future<Map<String, dynamic>> fetchMe() async {
@@ -145,7 +193,7 @@ class ApiClient {
     return data;
   }
 
-  Future<void> changePassword({
+  Future<String> changePassword({
     required String currentPassword,
     required String newPassword,
   }) async {
@@ -159,6 +207,13 @@ class ApiClient {
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     AppHaptics.success();
+    try {
+      final body = jsonDecode(res.body);
+      if (body is Map && body['message'] is String) {
+        return body['message'] as String;
+      }
+    } catch (_) {}
+    return 'Password updated';
   }
 
   Future<List<Map<String, dynamic>>> listPatients() async {
@@ -674,11 +729,124 @@ class ApiClient {
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
   }
 
+  // ── Admin users ──────────────────────────────────────────────────────────
+
+  Future<AdminUsersListResult> listAdminUsers({
+    int skip = 0,
+    int limit = 50,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/admin/users').replace(
+      queryParameters: {
+        'skip': '$skip',
+        'limit': '$limit',
+      },
+    );
+    final res = await http.get(uri, headers: _jsonHeaders);
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    final data = jsonDecode(res.body) as Map<String, dynamic>;
+    final rawItems = data['items'];
+    final items = <AdminUser>[];
+    if (rawItems is List) {
+      for (final item in rawItems) {
+        if (item is Map<String, dynamic>) {
+          items.add(AdminUser.fromJson(item));
+        } else if (item is Map) {
+          items.add(AdminUser.fromJson(Map<String, dynamic>.from(item)));
+        }
+      }
+    }
+    return AdminUsersListResult(
+      items: items,
+      skip: (data['skip'] as num?)?.toInt() ?? skip,
+      limit: (data['limit'] as num?)?.toInt() ?? limit,
+      count: (data['count'] as num?)?.toInt() ?? items.length,
+    );
+  }
+
+  Future<AdminUserActionResult> verifyAdminUser(String userId) async {
+    final res = await http.patch(
+      Uri.parse('$baseUrl/api/admin/users/$userId/verify'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return _parseAdminUserAction(res.body);
+  }
+
+  Future<AdminUserActionResult> softDeleteAdminUser(String userId) async {
+    final res = await http.delete(
+      Uri.parse('$baseUrl/api/admin/users/$userId/soft-delete'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    AppHaptics.warn();
+    return _parseAdminUserAction(res.body);
+  }
+
+  Future<AdminUserActionResult> hardDeleteAdminUser(String userId) async {
+    final res = await http.delete(
+      Uri.parse('$baseUrl/api/admin/users/$userId/hard-delete'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    AppHaptics.warn();
+    return _parseAdminUserAction(res.body);
+  }
+
+  AdminUserActionResult _parseAdminUserAction(String body) {
+    final data = jsonDecode(body) as Map<String, dynamic>;
+    final userRaw = data['user'];
+    AdminUser? user;
+    if (userRaw is Map<String, dynamic>) {
+      user = AdminUser.fromJson(userRaw);
+    } else if (userRaw is Map) {
+      user = AdminUser.fromJson(Map<String, dynamic>.from(userRaw));
+    }
+    return AdminUserActionResult(
+      message: (data['message'] as String?) ?? 'Done',
+      user: user,
+    );
+  }
+
   String _errorMessage(http.Response res) {
     try {
       final body = jsonDecode(res.body);
-      if (body is Map && body['detail'] != null) return body['detail'].toString();
+      if (body is Map && body['detail'] != null) {
+        return _formatDetail(body['detail']);
+      }
+      if (body is Map && body['message'] is String) {
+        return body['message'] as String;
+      }
     } catch (_) {}
     return 'Request failed (${res.statusCode})';
+  }
+
+  String _formatDetail(dynamic detail) {
+    if (detail is String) return detail;
+    if (detail is List) {
+      final messages = <String>[];
+      for (final item in detail) {
+        if (item is Map) {
+          final msg = item['msg']?.toString();
+          if (msg == null || msg.isEmpty) continue;
+          final loc = item['loc'];
+          String? field;
+          if (loc is List && loc.isNotEmpty) {
+            final last = loc.last?.toString();
+            if (last != null && last != 'body' && int.tryParse(last) == null) {
+              field = last;
+            }
+          }
+          messages.add(field != null ? '$field: $msg' : msg);
+        } else if (item != null) {
+          messages.add(item.toString());
+        }
+      }
+      if (messages.isNotEmpty) return messages.join('\n');
+    }
+    if (detail is Map) {
+      final msg = detail['msg']?.toString();
+      if (msg != null && msg.isNotEmpty) return msg;
+    }
+    return detail.toString();
   }
 }

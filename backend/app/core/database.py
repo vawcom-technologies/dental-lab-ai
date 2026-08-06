@@ -1,20 +1,11 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+"""Local SQLAlchemy database removed — auth and data now go through Supabase.
 
-from app.core.config import settings
-
-connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, connect_args=connect_args)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
-class Base(DeclarativeBase):
-    pass
+This module is kept as a stub so older imports fail with a clear message
+until remaining domain APIs are migrated.
+"""
 
 
 def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    raise RuntimeError(
+        "Local database removed. Use Supabase Auth / Supabase client instead."
+    )

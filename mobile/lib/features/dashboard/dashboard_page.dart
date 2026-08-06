@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/layout/adaptive.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../../shell/app_sidebar.dart';
@@ -244,6 +245,7 @@ class _DashboardPageState extends State<DashboardPage> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
       child: Column(
+
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           PageHeader(
@@ -266,16 +268,6 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
               ),
               OutlinedButton.icon(
-                onPressed: () => widget.onNavigate(AppNavItem.camera),
-                icon: const Icon(Icons.photo_camera_outlined, size: 18),
-                label: Text(loc.navCamera),
-              ),
-              OutlinedButton.icon(
-                onPressed: () => widget.onNavigate(AppNavItem.scans),
-                icon: const Icon(Icons.view_in_ar_outlined, size: 18),
-                label: Text(loc.dashStartScan),
-              ),
-              OutlinedButton.icon(
                 onPressed: () => widget.onNavigate(AppNavItem.messages),
                 icon: const Icon(Icons.chat_bubble_outline, size: 18),
                 label: Text(
@@ -284,6 +276,14 @@ class _DashboardPageState extends State<DashboardPage> {
                       : loc.navMessages,
                 ),
               ),
+              if (widget.api.role == 'admin')
+                OutlinedButton.icon(
+                  onPressed: () =>
+                      widget.onNavigate(AppNavItem.laboratories),
+                  icon: const Icon(Icons.biotech_outlined, size: 18),
+                  label: Text(loc.navLaboratories),
+                ),
+
             ],
           ),
           const SizedBox(height: 20),
@@ -295,10 +295,10 @@ class _DashboardPageState extends State<DashboardPage> {
                 style: const TextStyle(color: AppColors.danger, fontSize: 13),
               ),
             ),
-          Row(
-            children: [
-              Expanded(
-                child: _KpiCard(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final kpis = <Widget>[
+                _KpiCard(
                   title: loc.dashCompletedCases,
                   value: _loading ? '…' : '$_completed',
                   hint: _patients.isEmpty
@@ -306,10 +306,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       : '${_patients.length} patients on file',
                   hintColor: AppColors.success,
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _KpiCard(
+                _KpiCard(
                   title: loc.dashAvgProcessing,
                   value: _loading ? '…' : _avgProcessingLabel,
                   hint: _completed == 0
@@ -317,10 +314,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       : 'Across $_completed completed',
                   hintColor: AppColors.muted,
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _KpiCard(
+                _KpiCard(
                   title: loc.dashPendingScans,
                   value: _loading ? '…' : '$_pending',
                   hint: _inProgress == 0 && _inReview == 0
@@ -330,10 +324,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       ? AppColors.warning
                       : AppColors.success,
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _KpiCard(
+                _KpiCard(
                   title: loc.dashRejectedScans,
                   value: _loading ? '…' : '$_rejected',
                   hint: _rejected == 0
@@ -341,17 +332,41 @@ class _DashboardPageState extends State<DashboardPage> {
                       : loc.dashNeedRescan,
                   hintColor: _rejected > 0 ? AppColors.danger : AppColors.success,
                 ),
-              ),
-            ],
+              ];
+              // Portrait / narrow: two KPI cards per row instead of four.
+              if (constraints.maxWidth < AppBreakpoints.stack) {
+                return Column(
+                  children: [
+                    Row(children: [
+                      Expanded(child: kpis[0]),
+                      const SizedBox(width: 12),
+                      Expanded(child: kpis[1]),
+                    ]),
+                    const SizedBox(height: 12),
+                    Row(children: [
+                      Expanded(child: kpis[2]),
+                      const SizedBox(width: 12),
+                      Expanded(child: kpis[3]),
+                    ]),
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  for (var i = 0; i < kpis.length; i++) ...[
+                    if (i > 0) const SizedBox(width: 12),
+                    Expanded(child: kpis[i]),
+                  ],
+                ],
+              );
+            },
           ),
           const SizedBox(height: 16),
           Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: SectionCard(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final stacked = constraints.maxWidth < AppBreakpoints.stack;
+                final recentCases = SectionCard(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -393,12 +408,8 @@ class _DashboardPageState extends State<DashboardPage> {
                         ),
                       ],
                     ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: SectionCard(
+                  );
+                final activityCard = SectionCard(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -432,9 +443,26 @@ class _DashboardPageState extends State<DashboardPage> {
                         ),
                       ],
                     ),
-                  ),
-                ),
-              ],
+                  );
+                if (stacked) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(flex: 3, child: recentCases),
+                      const SizedBox(height: 12),
+                      Expanded(flex: 2, child: activityCard),
+                    ],
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(flex: 3, child: recentCases),
+                    const SizedBox(width: 12),
+                    Expanded(flex: 2, child: activityCard),
+                  ],
+                );
+              },
             ),
           ),
         ],
@@ -448,6 +476,7 @@ class _CaseRowData {
     required this.caseLabel,
     required this.patientName,
     required this.dentist,
+
     required this.status,
     required this.updated,
   });

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/haptics/app_haptics.dart';
+import '../../core/layout/adaptive.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/offline/sync_service.dart';
 import '../../core/theme/app_theme.dart';
@@ -363,12 +364,9 @@ class _ScansPageState extends State<ScansPage> {
               child: Text(_error!, style: const TextStyle(color: AppColors.danger)),
             ),
           Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SizedBox(
-                  width: 300,
-                  child: Column(
+            child: AdaptiveSplit(
+              narrowPanelHeight: 280,
+              panel: Column(
                     children: [
                       InkWell(
                         onTap: _busy || _case == null ? null : _upload,
@@ -476,10 +474,7 @@ class _ScansPageState extends State<ScansPage> {
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: SectionCard(
+              content: SectionCard(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -650,8 +645,6 @@ class _ScansPageState extends State<ScansPage> {
                       ],
                     ),
                   ),
-                ),
-              ],
             ),
           ),
         ],

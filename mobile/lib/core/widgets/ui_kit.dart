@@ -87,16 +87,25 @@ class SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: padding ?? const EdgeInsets.all(18),
+    // Material owns the fill color so nested ListTiles can paint ink /
+    // selectedTileColor. A colored DecoratedBox between Material and ListTile
+    // asserts in debug and can lock the widget tree.
+    return DecoratedBox(
       decoration: BoxDecoration(
-        color: color ?? AppColors.card,
         borderRadius: AppRadii.border,
         border: depth <= 0 ? Border.all(color: AppColors.border) : null,
         boxShadow:
             boxShadow ?? (depth <= 0 ? null : NeoShadows.raised(depth: depth)),
       ),
-      child: child,
+      child: Material(
+        color: color ?? AppColors.card,
+        borderRadius: AppRadii.border,
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: padding ?? const EdgeInsets.all(18),
+          child: child,
+        ),
+      ),
     );
   }
 }
@@ -207,16 +216,16 @@ class PageHeader extends StatelessWidget {
             ],
           ),
         ),
-        if (actions.isNotEmpty)
-          Flexible(
-            child: Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              alignment: WrapAlignment.end,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: actions,
-            ),
+        if (actions.isNotEmpty) ...[
+          const SizedBox(width: 12),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            alignment: WrapAlignment.end,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: actions,
           ),
+        ],
       ],
     );
   }

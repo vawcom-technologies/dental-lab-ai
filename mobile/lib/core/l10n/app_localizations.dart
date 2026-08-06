@@ -29,6 +29,7 @@ class AppLocalizations {
   String get navSmilePreview => _t('nav.smilePreview');
   String get navScanBody => _t('nav.scanBody');
   String get navMessages => _t('nav.messages');
+  String get navLaboratories => _t('nav.laboratories');
   String get navNotifications => _t('nav.notifications');
   String get navReports => _t('nav.reports');
   String get navSettings => _t('nav.settings');
@@ -39,6 +40,7 @@ class AppLocalizations {
   String get refresh => _t('common.refresh');
   String get save => _t('common.save');
   String get cancel => _t('common.cancel');
+  String get ok => _t('common.ok');
   String get comingSoon => _t('common.comingSoon');
   String get comingSoonBody => _t('common.comingSoonBody');
   String get loading => _t('common.loading');
@@ -67,8 +69,17 @@ class AppLocalizations {
   String get roleLab => _t('auth.roleLab');
   String get alreadyHaveAccount => _t('auth.alreadyHaveAccount');
   String get errNameEmailPassword => _t('auth.errNameEmailPassword');
+  String get errAllFieldsRequired => _t('auth.errAllFieldsRequired');
   String get errPasswordShort => _t('auth.errPasswordShort');
   String get errPasswordMismatch => _t('auth.errPasswordMismatch');
+  String get errPhoneInvalid => _t('auth.errPhoneInvalid');
+  String get errEmailRequired => _t('auth.errEmailRequired');
+  String get forgotPassword => _t('auth.forgotPassword');
+  String get forgotPasswordTitle => _t('auth.forgotPasswordTitle');
+  String get forgotPasswordSubtitle => _t('auth.forgotPasswordSubtitle');
+  String get sendResetLink => _t('auth.sendResetLink');
+  String get backToSignIn => _t('auth.backToSignIn');
+  String get emailConfirmationRequired => _t('auth.emailConfirmationRequired');
 
   // ── Settings ─────────────────────────────────────────────────────────────
   String get settingsTitle => _t('settings.title');
@@ -139,6 +150,7 @@ class AppLocalizations {
   String get lastLogin => _t('profile.lastLogin');
   String get profileSaved => _t('profile.saved');
   String get passwordUpdated => _t('profile.passwordUpdated');
+  String get changePasswordSuccessBody => _t('profile.changePasswordSuccessBody');
   String get errNameEmailRequired => _t('profile.errNameEmail');
   String get errEnterPasswords => _t('profile.errEnterPasswords');
   String get errNewPasswordShort => _t('profile.errNewPasswordShort');
@@ -187,6 +199,27 @@ class AppLocalizations {
   String get healthInsurance => _t('patients.insurance');
   String get createPatient => _t('patients.create');
   String get filterAll => _t('patients.filterAll');
+
+  // ── Laboratories (admin) ─────────────────────────────────────────────────
+  String get labsTitle => _t('labs.title');
+  String get labsSubtitle => _t('labs.subtitle');
+  String get labsSearchHint => _t('labs.searchHint');
+  String get labsFilterUnverified => _t('labs.filterUnverified');
+  String get labsFilterVerified => _t('labs.filterVerified');
+  String get labsEmpty => _t('labs.empty');
+  String get labsEmptyFilter => _t('labs.emptyFilter');
+  String get labsVerified => _t('labs.verified');
+  String get labsUnverified => _t('labs.unverified');
+  String get labsVerify => _t('labs.verify');
+  String get labsDelete => _t('labs.delete');
+  String get labsDeleteTitle => _t('labs.deleteTitle');
+  String labsDeleteBody(String name) =>
+      _t('labs.deleteBody').replaceAll('{name}', name);
+  String get labsSoftDelete => _t('labs.softDelete');
+  String get labsHardDelete => _t('labs.hardDelete');
+  String labsCount(int shown, int total) => _t('labs.count')
+      .replaceAll('{shown}', '$shown')
+      .replaceAll('{total}', '$total');
 
   // ── Feature pages ────────────────────────────────────────────────────────
   String get cameraTitle => _t('features.camera');
@@ -312,6 +345,7 @@ class AppLocalizations {
     'nav.smilePreview': 'Smile Preview',
     'nav.scanBody': 'Scan Body',
     'nav.messages': 'Messages',
+    'nav.laboratories': 'Laboratories',
     'nav.notifications': 'Notifications',
     'nav.reports': 'Reports',
     'nav.settings': 'Settings',
@@ -320,6 +354,7 @@ class AppLocalizations {
     'common.refresh': 'Refresh',
     'common.save': 'Save',
     'common.cancel': 'Cancel',
+    'common.ok': 'OK',
     'common.comingSoon': 'Coming soon',
     'common.comingSoonBody':
         'This section is coming soon. Navigate using the sidebar to explore available features.',
@@ -341,15 +376,27 @@ class AppLocalizations {
     'auth.registerTitle': 'Create profile',
     'auth.registerSubtitle': 'Register a dentist or lab account for Elite Dent',
     'auth.fullName': 'Full name *',
-    'auth.clinic': 'Clinic / practice',
-    'auth.phone': 'Phone',
+    'auth.clinic': 'Clinic name *',
+    'auth.phone': 'Phone *',
     'auth.confirmPassword': 'Confirm password',
     'auth.roleDentist': 'Dentist',
     'auth.roleLab': 'Lab',
     'auth.alreadyHaveAccount': 'Already have an account? Sign in',
     'auth.errNameEmailPassword': 'Name, email, and password are required',
+    'auth.errAllFieldsRequired': 'All fields are required',
     'auth.errPasswordShort': 'Password must be at least 6 characters',
     'auth.errPasswordMismatch': 'Passwords do not match',
+    'auth.errPhoneInvalid':
+        'Phone must start with +49 and have exactly 11 digits after',
+    'auth.errEmailRequired': 'Email is required',
+    'auth.forgotPassword': 'Forgot password?',
+    'auth.forgotPasswordTitle': 'Reset password',
+    'auth.forgotPasswordSubtitle':
+        'Enter your email and we will send a password reset link if an account exists.',
+    'auth.sendResetLink': 'Send reset link',
+    'auth.backToSignIn': 'Back to sign in',
+    'auth.emailConfirmationRequired':
+        'Account created. Confirm your email before signing in.',
     'settings.title': 'Settings',
     'settings.subtitle':
         'Clinic preferences for this device — profile & password live under Profile',
@@ -417,6 +464,8 @@ class AppLocalizations {
     'profile.lastLogin': 'Last login',
     'profile.saved': 'Profile saved',
     'profile.passwordUpdated': 'Password updated',
+    'profile.changePasswordSuccessBody':
+        'Your password was changed successfully. Please sign in again.',
     'profile.errNameEmail': 'Name and email are required',
     'profile.errEnterPasswords': 'Enter current and new password',
     'profile.errNewPasswordShort': 'New password must be at least 6 characters',
@@ -458,6 +507,23 @@ class AppLocalizations {
     'patients.insurance': 'Health insurance',
     'patients.create': 'Create patient',
     'patients.filterAll': 'All',
+    'labs.title': 'Laboratories',
+    'labs.subtitle': 'Manage clinic profiles — verify or remove users',
+    'labs.searchHint': 'Search by name, email, clinic…',
+    'labs.filterUnverified': 'Unverified',
+    'labs.filterVerified': 'Verified',
+    'labs.empty': 'No Laboratries found.',
+    'labs.emptyFilter': 'No Laboratries match this filter.',
+    'labs.verified': 'Verified',
+    'labs.unverified': 'Unverified',
+    'labs.verify': 'Verify user',
+    'labs.delete': 'Delete user',
+    'labs.deleteTitle': 'Delete user?',
+    'labs.deleteBody':
+        'Choose how to remove {name}. Soft delete keeps their data; hard delete permanently removes the account.',
+    'labs.softDelete': 'Keep data (soft)',
+    'labs.hardDelete': 'Delete forever',
+    'labs.count': '{shown} shown · {total} total',
     'features.camera': 'Camera Capture',
     'features.scans': 'Scans',
     'features.shade': 'Shade Detection',
@@ -552,6 +618,7 @@ class AppLocalizations {
     'nav.smilePreview': 'Lächeln-Vorschau',
     'nav.scanBody': 'Scanbody',
     'nav.messages': 'Nachrichten',
+    'nav.laboratories': 'Labore',
     'nav.notifications': 'Benachrichtigungen',
     'nav.reports': 'Berichte',
     'nav.settings': 'Einstellungen',
@@ -560,6 +627,7 @@ class AppLocalizations {
     'common.refresh': 'Aktualisieren',
     'common.save': 'Speichern',
     'common.cancel': 'Abbrechen',
+    'common.ok': 'OK',
     'common.comingSoon': 'Demnächst verfügbar',
     'common.comingSoonBody':
         'Dieser Bereich kommt bald. Nutzen Sie die Seitenleiste für verfügbare Funktionen.',
@@ -582,15 +650,27 @@ class AppLocalizations {
     'auth.registerSubtitle':
         'Zahnarzt- oder Laborkonto für Elite Dent registrieren',
     'auth.fullName': 'Vollständiger Name *',
-    'auth.clinic': 'Praxis / Klinik',
-    'auth.phone': 'Telefon',
+    'auth.clinic': 'Praxisname *',
+    'auth.phone': 'Telefon *',
     'auth.confirmPassword': 'Passwort bestätigen',
     'auth.roleDentist': 'Zahnarzt',
     'auth.roleLab': 'Labor',
     'auth.alreadyHaveAccount': 'Bereits ein Konto? Anmelden',
     'auth.errNameEmailPassword': 'Name, E-Mail und Passwort sind erforderlich',
+    'auth.errAllFieldsRequired': 'Alle Felder sind erforderlich',
     'auth.errPasswordShort': 'Passwort muss mindestens 6 Zeichen haben',
     'auth.errPasswordMismatch': 'Passwörter stimmen nicht überein',
+    'auth.errPhoneInvalid':
+        'Telefonnummer muss mit +49 beginnen und genau 11 Ziffern danach haben',
+    'auth.errEmailRequired': 'E-Mail ist erforderlich',
+    'auth.forgotPassword': 'Passwort vergessen?',
+    'auth.forgotPasswordTitle': 'Passwort zurücksetzen',
+    'auth.forgotPasswordSubtitle':
+        'Geben Sie Ihre E-Mail ein. Falls ein Konto existiert, senden wir einen Reset-Link.',
+    'auth.sendResetLink': 'Reset-Link senden',
+    'auth.backToSignIn': 'Zurück zur Anmeldung',
+    'auth.emailConfirmationRequired':
+        'Konto erstellt. Bitte bestätigen Sie Ihre E-Mail vor der Anmeldung.',
     'settings.title': 'Einstellungen',
     'settings.subtitle':
         'Praxis-Einstellungen für dieses Gerät — Profil & Passwort unter Profil',
@@ -663,6 +743,8 @@ class AppLocalizations {
     'profile.lastLogin': 'Letzte Anmeldung',
     'profile.saved': 'Profil gespeichert',
     'profile.passwordUpdated': 'Passwort aktualisiert',
+    'profile.changePasswordSuccessBody':
+        'Ihr Passwort wurde geändert. Bitte melden Sie sich erneut an.',
     'profile.errNameEmail': 'Name und E-Mail sind erforderlich',
     'profile.errEnterPasswords': 'Aktuelles und neues Passwort eingeben',
     'profile.errNewPasswordShort':
@@ -707,6 +789,23 @@ class AppLocalizations {
     'patients.insurance': 'Krankenversicherung',
     'patients.create': 'Patient anlegen',
     'patients.filterAll': 'Alle',
+    'labs.title': 'Labore',
+    'labs.subtitle': 'Klinikprofile verwalten — prüfen oder entfernen',
+    'labs.searchHint': 'Suche nach Name, E-Mail, Praxis…',
+    'labs.filterUnverified': 'Ungeprüft',
+    'labs.filterVerified': 'Geprüft',
+    'labs.empty': 'Keine Nutzer gefunden.',
+    'labs.emptyFilter': 'Keine Nutzer entsprechen diesem Filter.',
+    'labs.verified': 'Geprüft',
+    'labs.unverified': 'Ungeprüft',
+    'labs.verify': 'Nutzer prüfen',
+    'labs.delete': 'Nutzer löschen',
+    'labs.deleteTitle': 'Nutzer löschen?',
+    'labs.deleteBody':
+        'Wie möchten Sie {name} entfernen? Soft-Delete behält die Daten; Hard-Delete löscht das Konto dauerhaft.',
+    'labs.softDelete': 'Daten behalten (soft)',
+    'labs.hardDelete': 'Endgültig löschen',
+    'labs.count': '{shown} angezeigt · {total} gesamt',
     'features.camera': 'Kameraaufnahme',
     'features.scans': 'Scans',
     'features.shade': 'Farbbestimmung',

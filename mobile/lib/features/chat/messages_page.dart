@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/layout/adaptive.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 
@@ -176,11 +177,9 @@ class _MessagesPageState extends State<MessagesPage> {
               child: Text(_error!, style: const TextStyle(color: AppColors.danger)),
             ),
           Expanded(
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 300,
-                  child: SectionCard(
+            child: AdaptiveSplit(
+              narrowPanelHeight: 300,
+              panel: SectionCard(
                     padding: const EdgeInsets.all(12),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -263,10 +262,7 @@ class _MessagesPageState extends State<MessagesPage> {
                       ],
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: SectionCard(
+              content: SectionCard(
                     padding: EdgeInsets.zero,
                     child: active == null
                         ? const Center(
@@ -404,8 +400,6 @@ class _MessagesPageState extends State<MessagesPage> {
                             ],
                           ),
                   ),
-                ),
-              ],
             ),
           ),
         ],

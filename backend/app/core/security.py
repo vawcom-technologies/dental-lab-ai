@@ -1,58 +1,114 @@
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from dataclasses import dataclass
+from typing import Any
+import logging
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-from sqlalchemy.orm import Session
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.core.config import settings
-from app.core.database import get_db
-from app.models.user import User
+from app.core.supabase_client import get_supabase
+from app.services.profiles import fetch_profile
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+bearer_scheme = HTTPBearer(auto_error=True)
+logger = logging.getLogger("app.api.security")
 
 
-def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+@dataclass
+class AuthUser:
+    id: str
+    email: str
+    name: str
+    role: str
+    clinic_name: str | None = None
+    phone: str | None = None
+    raw: Any | None = None
 
 
-def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+def _meta(user: Any) -> dict:
+    return dict(getattr(user, "user_metadata", None) or {})
 
 
-def create_access_token(subject: str, role: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
-    payload = {"sub": subject, "role": role, "exp": expire}
-    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+def user_from_supabase(user: Any) -> AuthUser:
+    """Build AuthUser from Auth metadata, then overlay public.profiles when available."""
+    meta = _meta(user)
+    email = (getattr(user, "email", None) or meta.get("email") or "").strip().lower()
+    auth_user = AuthUser(
+        id=str(user.id),
+        email=email,
+        name=str(meta.get("name") or email.split("@")[0] or "User"),
+        role=str(meta.get("role") or "clinic"),
+        clinic_name=meta.get("clinic_name") or None,
+        phone=meta.get("phone") or None,
+        raw=user,
+    )
+
+    profile = fetch_profile(auth_user.id)
+    if not profile:
+        return auth_user
+
+    role = (profile.get("role") or "").strip()
+    if role:
+        auth_user.role = role
+    name = (profile.get("name") or "").strip()
+    if name:
+        auth_user.name = name
+    profile_email = (profile.get("email") or "").strip().lower()
+    if profile_email:
+        auth_user.email = profile_email
+    if profile.get("clinic_name") is not None:
+        clinic = str(profile.get("clinic_name") or "").strip()
+        auth_user.clinic_name = clinic or None
+    if profile.get("phone") is not None:
+        phone = str(profile.get("phone") or "").strip()
+        auth_user.phone = phone or None
+    return auth_user
 
 
 def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
-) -> User:
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> AuthUser:
+    token = credentials.credentials
+    logger.debug("get_current_user validating bearer token")
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-        email: Optional[str] = payload.get("sub")
-        if email is None:
-            raise credentials_exception
-    except JWTError as exc:
-        raise credentials_exception from exc
+        response = get_supabase().auth.get_user(token)
+    except Exception as exc:
+        logger.debug("get_current_user invalid token detail=%s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
 
-    user = db.query(User).filter(User.email == email).first()
+    user = getattr(response, "user", None)
     if user is None:
-        raise credentials_exception
+        logger.debug("get_current_user no user on token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    auth_user = user_from_supabase(user)
+    logger.debug(
+        "get_current_user ok user_id=%s role=%s",
+        auth_user.id,
+        auth_user.role,
+    )
+    return auth_user
+
+
+def require_dentist(user: AuthUser = Depends(get_current_user)) -> AuthUser:
+    if user.role not in ("clinic", "dentist", "lab"):
+        raise HTTPException(status_code=403, detail="Clinic, dentist, or lab access required")
     return user
 
 
-def require_dentist(user: User = Depends(get_current_user)) -> User:
-    if user.role not in ("dentist", "lab"):
-        raise HTTPException(status_code=403, detail="Dentist or lab access required")
+def require_admin(user: AuthUser = Depends(get_current_user)) -> AuthUser:
+    if user.role != "admin":
+        logger.debug(
+            "require_admin denied user_id=%s role=%s email=%s",
+            user.id,
+            user.role,
+            user.email,
+        )
+        raise HTTPException(status_code=403, detail="Admin access required")
+    logger.debug("require_admin ok user_id=%s email=%s", user.id, user.email)
     return user

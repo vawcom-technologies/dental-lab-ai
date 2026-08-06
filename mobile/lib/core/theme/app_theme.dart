@@ -129,7 +129,7 @@ class AppTheme {
           foregroundColor: Colors.white,
           elevation: 0,
           shadowColor: Colors.transparent,
-          minimumSize: const Size(40, 40),
+          minimumSize: const Size(44, 44),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
           shape: RoundedRectangleBorder(borderRadius: AppRadii.borderSm),
@@ -145,7 +145,7 @@ class AppTheme {
           backgroundColor: AppColors.neo,
           side: BorderSide.none,
           elevation: 0,
-          minimumSize: const Size(40, 40),
+          minimumSize: const Size(44, 44),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
           shape: RoundedRectangleBorder(borderRadius: AppRadii.borderSm),
@@ -158,7 +158,7 @@ class AppTheme {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: AppColors.dentalBlue,
-          minimumSize: const Size(36, 36),
+          minimumSize: const Size(44, 40),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           textStyle: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600),
@@ -166,9 +166,9 @@ class AppTheme {
       ),
       iconButtonTheme: IconButtonThemeData(
         style: IconButton.styleFrom(
-          minimumSize: const Size(36, 36),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          visualDensity: VisualDensity.compact,
+          // 44pt minimum tap target for finger use on iPad.
+          minimumSize: const Size(44, 44),
+          tapTargetSize: MaterialTapTargetSize.padded,
           foregroundColor: AppColors.navy,
         ),
       ),

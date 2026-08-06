@@ -33,6 +33,10 @@ void main() {
   });
 
   testWidgets('Login screen shows Elite Dent logo', (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
     await tester.pumpWidget(DentalLabApp(localeController: LocaleController()));
     expect(find.byType(Image), findsWidgets);
     expect(find.text('Sign in'), findsWidgets);

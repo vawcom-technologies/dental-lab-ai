@@ -7,6 +7,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/brand_logo.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../../shell/app_shell.dart';
+import 'forgot_password_screen.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -23,15 +24,17 @@ class _LoginScreenState extends State<LoginScreen> {
   final _password = TextEditingController();
   bool _loading = false;
   String? _error;
+  String? _info;
 
   Future<void> _submit() async {
     AppHaptics.light();
     setState(() {
       _loading = true;
       _error = null;
+      _info = null;
     });
     try {
-      final data = await widget.api.login(_email.text.trim(), _password.text);
+      final data = await widget.api.signIn(_email.text.trim(), _password.text);
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
@@ -46,6 +49,35 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _openRegister() async {
+    final result = await Navigator.of(context).push<Object?>(
+      MaterialPageRoute(
+        builder: (_) => RegisterScreen(api: widget.api),
+      ),
+    );
+    if (!mounted || result == null) return;
+
+    if (result is Map) {
+      final message = result['message']?.toString();
+      final email = result['email']?.toString();
+      setState(() {
+        _error = null;
+        _info = message;
+        if (email != null && email.isNotEmpty) {
+          _email.text = email;
+        }
+      });
+      return;
+    }
+
+    if (result is String && result.isNotEmpty) {
+      setState(() {
+        _error = null;
+        _info = result;
+      });
     }
   }
 
@@ -158,14 +190,43 @@ class _LoginScreenState extends State<LoginScreen> {
                           decoration: InputDecoration(labelText: loc.password),
                           onSubmitted: (_) => _submit(),
                         ),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: _loading
+                                ? null
+                                : () {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => ForgotPasswordScreen(
+                                          api: widget.api,
+                                          initialEmail: _email.text.trim(),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                            child: Text(
+                              loc.forgotPassword,
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ),
+                        ),
                         if (_error != null) ...[
-                          const SizedBox(height: 12),
                           Text(
                             _error!,
                             style: const TextStyle(color: AppColors.danger),
                           ),
+                          const SizedBox(height: 8),
                         ],
-                        const SizedBox(height: 20),
+                        if (_info != null) ...[
+                          Text(
+                            _info!,
+                            style: const TextStyle(color: AppColors.navy),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                        const SizedBox(height: 8),
+                        
                         FilledButton(
                           onPressed: _loading ? null : _submit,
                           child: _loading
@@ -181,19 +242,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 10),
                         OutlinedButton(
-                          onPressed: _loading
-                              ? null
-                              : () {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          RegisterScreen(api: widget.api),
-                                    ),
-                                  );
-                                },
+                          onPressed: _loading ? null : _openRegister,
                           child: Text(loc.createProfile),
-                        ),
-                        const SizedBox(height: 14),
+                        ),                        const SizedBox(height: 14),
                         TextButton(
                           onPressed: _loading ? null : _fillDemo,
                           child: Text(

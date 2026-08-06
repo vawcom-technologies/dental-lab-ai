@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/brand_logo.dart';
@@ -23,9 +24,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _phone = TextEditingController();
   final _password = TextEditingController();
   final _confirm = TextEditingController();
-  String _role = 'dentist';
   bool _loading = false;
   String? _error;
+  String? _info;
 
   @override
   void dispose() {
@@ -41,34 +42,73 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _submit() async {
     final name = _name.text.trim();
     final email = _email.text.trim();
+    final clinic = _clinic.text.trim();
+    final phone = _phone.text.trim();
     final password = _password.text;
     final loc = AppLocalizations.of(context);
-    if (name.isEmpty || email.isEmpty || password.isEmpty) {
-      setState(() => _error = loc.errNameEmailPassword);
+    if (name.isEmpty ||
+        email.isEmpty ||
+        clinic.isEmpty ||
+        phone.isEmpty ||
+        password.isEmpty ||
+        _confirm.text.isEmpty) {
+      setState(() {
+        _error = loc.errAllFieldsRequired;
+        _info = null;
+      });
+      return;
+    }
+    final normalizedPhone = phone.replaceAll(RegExp(r'[\s\-]'), '');
+    if (!RegExp(r'^\+49\d{11}$').hasMatch(normalizedPhone)) {
+      setState(() {
+        _error = loc.errPhoneInvalid;
+        _info = null;
+      });
       return;
     }
     if (password.length < 6) {
-      setState(() => _error = loc.errPasswordShort);
+      setState(() {
+        _error = loc.errPasswordShort;
+        _info = null;
+      });
       return;
     }
     if (password != _confirm.text) {
-      setState(() => _error = loc.errPasswordMismatch);
+      setState(() {
+        _error = loc.errPasswordMismatch;
+        _info = null;
+      });
       return;
     }
     setState(() {
       _loading = true;
       _error = null;
+      _info = null;
     });
     try {
-      final data = await widget.api.register(
+      final data = await widget.api.signUp(
         email: email,
         name: name,
         password: password,
-        role: _role,
-        clinicName: _clinic.text.trim().isEmpty ? null : _clinic.text.trim(),
-        phone: _phone.text.trim().isEmpty ? null : _phone.text.trim(),
+        clinicName: clinic,
+        phone: normalizedPhone,
       );
       if (!mounted) return;
+
+      final needsConfirmation = data['email_confirmation_required'] == true;
+      final accessToken = data['access_token'] as String?;
+      if (needsConfirmation || accessToken == null || accessToken.isEmpty) {
+        AppHaptics.success();
+        final message = data['message'] as String? ??
+            loc.emailConfirmationRequired;
+        // Pending admin verification / email confirm — return to login
+        Navigator.of(context).pop(<String, String>{
+          'message': message,
+          'email': email,
+        });
+        return;
+      }
+
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => AppShell(
@@ -76,8 +116,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
             dentistName: data['name'] as String? ?? name,
           ),
         ),
-      );
-    } catch (e) {
+      );    } catch (e) {
+      AppHaptics.warn();
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -136,19 +176,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 TextField(
                   controller: _phone,
                   keyboardType: TextInputType.phone,
-                  decoration: InputDecoration(labelText: loc.phone),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: _role,
-                  decoration: InputDecoration(labelText: loc.role),
-                  items: [
-                    DropdownMenuItem(value: 'dentist', child: Text(loc.roleDentist)),
-                    DropdownMenuItem(value: 'lab', child: Text(loc.roleLab)),
-                  ],
-                  onChanged: (v) {
-                    if (v != null) setState(() => _role = v);
-                  },
+                  decoration: InputDecoration(
+                    labelText: loc.phone,
+                    hintText: '+4917012345678',
+                  ),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -160,15 +191,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 TextField(
                   controller: _confirm,
                   obscureText: true,
-                  decoration: InputDecoration(labelText: '${loc.confirmPassword} *'),
+                  decoration: InputDecoration(
+                    labelText: '${loc.confirmPassword} *',
+                  ),
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
                   Text(_error!, style: const TextStyle(color: AppColors.danger)),
                 ],
+                if (_info != null) ...[
+                  const SizedBox(height: 12),
+                  Text(_info!, style: const TextStyle(color: AppColors.navy)),
+                ],
                 const SizedBox(height: 20),
                 FilledButton(
-                  onPressed: _loading ? null : _submit,
+                  onPressed: _loading || _info != null ? null : _submit,
                   child: Text(_loading ? loc.saving : loc.createProfile),
                 ),
                 const SizedBox(height: 10),
@@ -176,7 +213,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   onPressed: _loading
                       ? null
                       : () => Navigator.of(context).pop(),
-                  child: Text(loc.alreadyHaveAccount),
+                  child: Text(
+                    _info != null ? loc.backToSignIn : loc.alreadyHaveAccount,
+                  ),
                 ),
               ],
             ),

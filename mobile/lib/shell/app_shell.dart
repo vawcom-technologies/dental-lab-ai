@@ -2,14 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../core/api/api_client.dart';
 import '../core/theme/app_theme.dart';
-import '../features/auth/login_screen.dart';
 import '../features/camera/camera_page.dart';
 import '../features/chat/messages_page.dart';
 import '../features/dashboard/dashboard_page.dart';
+import '../features/laboratories/laboratories_page.dart';
 import '../features/notifications/notifications_page.dart';
 import '../features/patients/new_patient_page.dart';
 import '../features/patients/patients_page.dart';
-import '../features/profile/profile_page.dart';
 import '../features/reports/reports_page.dart';
 import '../features/scan_body/scan_body_page.dart';
 import '../features/scans/scans_page.dart';
@@ -81,14 +80,6 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
-  void _signOut() {
-    widget.api.logout();
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => LoginScreen(api: widget.api)),
-      (_) => false,
-    );
-  }
-
   Widget _transition(Widget child, Animation<double> animation) {
     final fade = CurvedAnimation(
       parent: animation,
@@ -137,6 +128,7 @@ class _AppShellState extends State<AppShell> {
               },
               messageBadge: _messageBadge,
               notificationBadge: _notificationBadge,
+              showLaboratories: widget.api.role == 'admin',
             ),
             Expanded(
               child: ClipRect(
@@ -204,6 +196,8 @@ class _AppShellState extends State<AppShell> {
         return ScanBodyPage(api: widget.api);
       case AppNavItem.messages:
         return MessagesPage(api: widget.api);
+      case AppNavItem.laboratories:
+        return LaboratoriesPage(api: widget.api);
       case AppNavItem.notifications:
         return NotificationsPage(
           api: widget.api,
@@ -221,12 +215,6 @@ class _AppShellState extends State<AppShell> {
         );
       case AppNavItem.settings:
         return SettingsPage(api: widget.api);
-      case AppNavItem.profile:
-        return ProfilePage(
-          api: widget.api,
-          onProfileUpdated: (name) => setState(() => _dentistName = name),
-          onSignOut: _signOut,
-        );
     }
   }
 }

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/layout/adaptive.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
@@ -541,12 +542,12 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
             ),
           const SizedBox(height: 12),
           Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  flex: 5,
-                  child: SectionCard(
+            child: AdaptiveSplit(
+              panelFraction: 0.42,
+              minPanelWidth: 320,
+              maxPanelWidth: 460,
+              narrowPanelHeight: 300,
+              panel: SectionCard(
                     child: SingleChildScrollView(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -801,11 +802,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 6,
-                  child: Column(
+              content: Column(
                     children: [
                       Expanded(
                         flex: 5,
@@ -985,8 +982,6 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                       ),
                     ],
                   ),
-                ),
-              ],
             ),
           ),
         ],
