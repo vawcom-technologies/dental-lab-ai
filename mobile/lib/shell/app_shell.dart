@@ -5,6 +5,7 @@ import '../core/layout/adaptive.dart';
 import '../core/theme/app_theme.dart';
 import '../features/camera/camera_page.dart';
 import '../features/chat/messages_page.dart';
+import '../features/chat/state/chat_controller.dart';
 import '../features/dashboard/dashboard_page.dart';
 import '../features/laboratories/laboratories_page.dart';
 import '../features/notifications/notifications_page.dart';
@@ -41,42 +42,52 @@ class _AppShellState extends State<AppShell> {
   late String _dentistName;
   int _notificationBadge = 0;
   int _messageBadge = 0;
+  late final ChatController _chat;
 
   @override
   void initState() {
     super.initState();
     _dentistName = widget.dentistName;
-    _refreshBadges();
+    _chat = ChatController(api: widget.api);
+    _chat.addListener(_onChatChanged);
+    // Load conversations + open WebSocket immediately after login.
+    _chat.start();
+    _refreshNotificationBadge();
   }
 
-  Future<void> _refreshBadges() async {
+  void _onChatChanged() {
+    final unread = _chat.totalUnread;
+    if (_messageBadge != unread && mounted) {
+      setState(() => _messageBadge = unread);
+    }
+  }
+
+  @override
+  void dispose() {
+    _chat.removeListener(_onChatChanged);
+    _chat.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refreshNotificationBadge() async {
     try {
-      final results = await Future.wait([
-        widget.api.notificationsUnreadCount(),
-        widget.api.listMessageThreads(),
-      ]);
+      final unreadNotifs = await widget.api.notificationsUnreadCount();
       if (!mounted) return;
-      final unreadNotifs = results[0] as int;
-      final threads = results[1] as List<Map<String, dynamic>>;
-      var unreadMsgs = 0;
-      for (final t in threads) {
-        final u = t['unread'];
-        if (u is int) unreadMsgs += u;
-      }
-      setState(() {
-        _notificationBadge = unreadNotifs;
-        _messageBadge = unreadMsgs;
-      });
+      setState(() => _notificationBadge = unreadNotifs);
     } catch (_) {
-      // Badges are non-critical
+      // Badge is non-critical
     }
   }
 
   void _go(AppNavItem item) {
     if (item == _active) return;
     setState(() => _active = item);
-    if (item == AppNavItem.notifications || item == AppNavItem.messages) {
-      _refreshBadges();
+    if (item == AppNavItem.notifications) {
+      _refreshNotificationBadge();
+    }
+    if (item == AppNavItem.messages) {
+      // Refresh inbox when opening Messages (WS already running).
+      _chat.loadInbox();
     }
   }
 
@@ -91,7 +102,6 @@ class _AppShellState extends State<AppShell> {
       end: Offset.zero,
     ).animate(fade);
 
-    // Fade + micro-slide only — avoid scale (expensive on full-page layers).
     return FadeTransition(
       opacity: fade,
       child: SlideTransition(
@@ -119,40 +129,41 @@ class _AppShellState extends State<AppShell> {
         ),
         child: LayoutBuilder(
           builder: (context, constraints) => Row(
-          children: [
-            AppSidebar(
-              active: _active,
-              onSelect: _go,
-              collapsed: constraints.maxWidth < AppBreakpoints.collapseSidebar,
-              messageBadge: _messageBadge,
-              notificationBadge: _notificationBadge,
-              showLaboratories: widget.api.role == 'admin',
-            ),
-            Expanded(
-              child: ClipRect(
-                child: AnimatedSwitcher(
-                  duration: _pageIn,
-                  reverseDuration: _pageOut,
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
-                  layoutBuilder: (currentChild, previousChildren) {
-                    return Stack(
-                      fit: StackFit.expand,
-                      children: <Widget>[
-                        ...previousChildren,
-                        ?currentChild,
-                      ],
-                    );
-                  },
-                  transitionBuilder: _transition,
-                  child: KeyedSubtree(
-                    key: ValueKey<AppNavItem>(_active),
-                    child: RepaintBoundary(child: _page()),
+            children: [
+              AppSidebar(
+                active: _active,
+                onSelect: _go,
+                collapsed:
+                    constraints.maxWidth < AppBreakpoints.collapseSidebar,
+                messageBadge: _messageBadge,
+                notificationBadge: _notificationBadge,
+                showLaboratories: widget.api.isDentist,
+              ),
+              Expanded(
+                child: ClipRect(
+                  child: AnimatedSwitcher(
+                    duration: _pageIn,
+                    reverseDuration: _pageOut,
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    layoutBuilder: (currentChild, previousChildren) {
+                      return Stack(
+                        fit: StackFit.expand,
+                        children: <Widget>[
+                          ...previousChildren,
+                          ?currentChild,
+                        ],
+                      );
+                    },
+                    transitionBuilder: _transition,
+                    child: KeyedSubtree(
+                      key: ValueKey<AppNavItem>(_active),
+                      child: RepaintBoundary(child: _page()),
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
           ),
         ),
       ),
@@ -166,6 +177,7 @@ class _AppShellState extends State<AppShell> {
           dentistName: _dentistName,
           api: widget.api,
           onNavigate: _go,
+          unreadMessages: _messageBadge,
         );
       case AppNavItem.patients:
         return PatientsPage(
@@ -180,7 +192,7 @@ class _AppShellState extends State<AppShell> {
           onCreated: () {
             _patientRefresh++;
             _go(AppNavItem.patients);
-            _refreshBadges();
+            _refreshNotificationBadge();
           },
         );
       case AppNavItem.camera:
@@ -194,7 +206,10 @@ class _AppShellState extends State<AppShell> {
       case AppNavItem.scanBody:
         return ScanBodyPage(api: widget.api);
       case AppNavItem.messages:
-        return MessagesPage(api: widget.api);
+        return MessagesPage(
+          api: widget.api,
+          chatController: _chat,
+        );
       case AppNavItem.laboratories:
         return LaboratoriesPage(api: widget.api);
       case AppNavItem.notifications:

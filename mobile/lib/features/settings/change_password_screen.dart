@@ -164,6 +164,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   ],
                   
                   const SizedBox(height: 20),
+                  
                   FilledButton(
                     onPressed: _loading ? null : _submit,
                     child: _loading

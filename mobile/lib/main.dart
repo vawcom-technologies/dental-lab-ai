@@ -34,7 +34,7 @@ class _DentalLabAppState extends State<DentalLabApp> {
         listenable: widget.localeController,
         builder: (context, _) {
           return MaterialApp(
-            title: 'Elite Dent Pro',
+            title: 'Elite Dentist Pro',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.light(),
             scrollBehavior: const EliteScrollBehavior(),
