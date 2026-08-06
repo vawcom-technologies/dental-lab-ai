@@ -206,6 +206,21 @@ class PatientsApiService {
         .toList();
   }
 
+  Future<List<EligibleAccessUser>> listEligibleUsers(String patientId) async {
+    final env = await _send(
+      () => http.get(
+        Uri.parse('$_base/api/patients/$patientId/eligible-users'),
+        headers: _headers,
+      ),
+    );
+    final raw = env.payload['eligible_users'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => EligibleAccessUser.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
+
   Future<PatientAccessEntry> resolveAccessRequest({
     required String requestId,
     required String action,
@@ -228,19 +243,37 @@ class PatientsApiService {
     return PatientAccessEntry.fromJson(Map<String, dynamic>.from(raw));
   }
 
-  Future<List<PatientAccessEntry>> listPatientAccess(String patientId) async {
+  Future<PatientAccessSnapshot> listPatientAccess(String patientId) async {
     final env = await _send(
       () => http.get(
         Uri.parse('$_base/api/patients/$patientId/access'),
         headers: _headers,
       ),
     );
-    final raw = env.payload['access'];
-    if (raw is! List) return const [];
-    return raw
-        .whereType<Map>()
-        .map((e) => PatientAccessEntry.fromJson(Map<String, dynamic>.from(e)))
-        .toList();
+    final ownerRaw = env.payload['owner'];
+    final listRaw = env.payload['access_list'] ?? env.payload['access'];
+    final isOwner = env.payload['is_owner'] == true;
+    final owner = ownerRaw is Map
+        ? PatientAccessOwner.fromJson(Map<String, dynamic>.from(ownerRaw))
+        : null;
+    final accessList = listRaw is List
+        ? listRaw
+            .whereType<Map>()
+            .map(
+              (e) => PatientAccessEntry.fromJson(
+                Map<String, dynamic>.from({
+                  ...Map<String, dynamic>.from(e),
+                  'patient_id': e['patient_id'] ?? patientId,
+                }),
+              ),
+            )
+            .toList()
+        : const <PatientAccessEntry>[];
+    return PatientAccessSnapshot(
+      isOwner: isOwner,
+      owner: owner,
+      accessList: accessList,
+    );
   }
 
   Future<List<PatientNote>> listNotes(String patientId) async {

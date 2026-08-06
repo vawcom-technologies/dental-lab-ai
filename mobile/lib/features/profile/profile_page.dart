@@ -93,7 +93,9 @@ class _ProfilePageState extends State<ProfilePage> {
     final name = _name.text.trim();
     final email = _email.text.trim();
     if (name.isEmpty || email.isEmpty) {
-      setState(() => _error = AppLocalizations.of(context).errNameEmailRequired);
+      final msg = AppLocalizations.of(context).errNameEmailRequired;
+      setState(() => _error = msg);
+      AppSnackBars.error(context, msg);
       return;
     }
     setState(() {
@@ -108,10 +110,16 @@ class _ProfilePageState extends State<ProfilePage> {
         clinicName: _clinic.text.trim(),
         phone: _phone.text.trim(),
       );
+      if (!mounted) return;
       widget.onProfileUpdated(updated['name']?.toString() ?? name);
-      setState(() => _status = AppLocalizations.of(context).profileSaved);
+      final msg = AppLocalizations.of(context).profileSaved;
+      setState(() => _status = msg);
+      AppSnackBars.success(context, msg);
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (!mounted) return;
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() => _error = msg);
+      AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -123,15 +131,21 @@ class _ProfilePageState extends State<ProfilePage> {
     final next = _newPassword.text;
     final confirm = _confirmPassword.text;
     if (current.isEmpty || next.isEmpty) {
-      setState(() => _error = AppLocalizations.of(context).errEnterPasswords);
+      final msg = AppLocalizations.of(context).errEnterPasswords;
+      setState(() => _error = msg);
+      AppSnackBars.error(context, msg);
       return;
     }
     if (next.length < 6) {
-      setState(() => _error = AppLocalizations.of(context).errNewPasswordShort);
+      final msg = AppLocalizations.of(context).errNewPasswordShort;
+      setState(() => _error = msg);
+      AppSnackBars.error(context, msg);
       return;
     }
     if (next != confirm) {
-      setState(() => _error = AppLocalizations.of(context).errNewPasswordMismatch);
+      final msg = AppLocalizations.of(context).errNewPasswordMismatch;
+      setState(() => _error = msg);
+      AppSnackBars.error(context, msg);
       return;
     }
     setState(() {
@@ -144,12 +158,18 @@ class _ProfilePageState extends State<ProfilePage> {
         currentPassword: current,
         newPassword: next,
       );
+      if (!mounted) return;
       _currentPassword.clear();
       _newPassword.clear();
       _confirmPassword.clear();
-      setState(() => _status = AppLocalizations.of(context).passwordUpdated);
+      final msg = AppLocalizations.of(context).passwordUpdated;
+      setState(() => _status = msg);
+      AppSnackBars.success(context, msg);
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (!mounted) return;
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() => _error = msg);
+      AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _changingPassword = false);
     }

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/auth/app_roles.dart';
-import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
@@ -40,13 +39,12 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
     try {
       final message = await _controller.verifyUser(user.id);
       if (!mounted) return;
-      AppHaptics.success();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      AppSnackBars.success(context, message);
     } catch (e) {
       if (!mounted) return;
-      AppHaptics.warn();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      AppSnackBars.error(
+        context,
+        e.toString().replaceFirst('Exception: ', ''),
       );
     }
   }
@@ -84,11 +82,12 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
           ? await _controller.softDeleteUser(user.id)
           : await _controller.hardDeleteUser(user.id);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      AppSnackBars.success(context, message);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      AppSnackBars.error(
+        context,
+        e.toString().replaceFirst('Exception: ', ''),
       );
     }
   }

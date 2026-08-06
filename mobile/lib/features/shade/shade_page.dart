@@ -8,6 +8,7 @@ import '../../core/api/api_client.dart';
 import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_snackbar.dart';
 import '../../core/widgets/patient_picker.dart';
 import 'shade_action_bar.dart';
 import 'shade_override_pane.dart';
@@ -475,15 +476,14 @@ class _ShadePageState extends State<ShadePage> {
 
 
   void _toast(String msg, {Color? bg}) {
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-        backgroundColor: bg,
-      ),
-    );
+    if (!mounted) return;
+    if (bg == AppColors.success) {
+      AppSnackBars.success(context, msg);
+    } else if (bg == AppColors.danger) {
+      AppSnackBars.error(context, msg);
+    } else {
+      AppSnackBars.info(context, msg);
+    }
   }
 
   void _commitPendingOverride({required int index, required String zone}) {
@@ -1200,8 +1200,18 @@ class _ShadePageState extends State<ShadePage> {
           hasOverride: overridden || saved['has_override'] == true,
         );
       });
+      if (mounted) {
+        AppSnackBars.success(
+          context,
+          overridden
+              ? 'Saved override $finalShade on case #${_case!['id']}'
+              : 'Accepted AI $finalShade on case #${_case!['id']}',
+        );
+      }
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() => _error = msg);
+      if (mounted) AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -1256,9 +1266,12 @@ class _ShadePageState extends State<ShadePage> {
         _saveStatus = 'Removed $shade from session';
         _error = null;
       });
+      if (mounted) AppSnackBars.success(context, 'Removed $shade from session');
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() => _error = msg);
+      AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _busy = false);
     }

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/api/api_client.dart';
-import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
@@ -45,12 +44,11 @@ class _PatientsPageState extends State<PatientsPage> {
 
   void _toast(String message, {bool error = false}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: error ? AppColors.danger : null,
-      ),
-    );
+    if (error) {
+      AppSnackBars.error(context, message);
+    } else {
+      AppSnackBars.success(context, message);
+    }
   }
 
   String _friendlyError(Object e) {
@@ -90,7 +88,6 @@ class _PatientsPageState extends State<PatientsPage> {
       ),
     );
     if (created == null || !mounted) return;
-    AppHaptics.success();
     _toast('Patient created successfully');
   }
 
@@ -122,7 +119,6 @@ class _PatientsPageState extends State<PatientsPage> {
         ),
       );
       if (updated == null || !mounted) return;
-      AppHaptics.success();
       _toast('Patient updated');
     } catch (e) {
       _toast(_friendlyError(e), error: true);
@@ -145,7 +141,6 @@ class _PatientsPageState extends State<PatientsPage> {
     if (hard == null || !mounted) return;
     try {
       await _controller.deletePatient(patient.id, hard: hard);
-      AppHaptics.warn();
       _toast(hard ? 'Patient permanently deleted' : 'Patient archived');
     } catch (e) {
       _toast(_friendlyError(e), error: true);
@@ -849,7 +844,7 @@ class _ShareAccessSheet extends StatefulWidget {
 }
 
 class _ShareAccessSheetState extends State<_ShareAccessSheet> {
-  List<Map<String, dynamic>> _users = [];
+  List<EligibleAccessUser> _users = [];
   bool _loading = true;
   String? _busyId;
 
@@ -863,13 +858,11 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
 
   Future<void> _loadUsers() async {
     try {
-      final users = await widget.controller.api.listChatContacts();
+      final users =
+          await widget.controller.listEligibleUsers(widget.patient.id);
       if (!mounted) return;
       setState(() {
-        _users = users
-            .where((u) => '${u['id']}' != widget.controller.currentUserId)
-            .where((u) => '${u['id']}' != widget.patient.createdBy)
-            .toList();
+        _users = users;
         _loading = false;
       });
     } catch (e) {
@@ -880,7 +873,7 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
   }
 
   Future<void> _share(String userId) async {
-    if (_busyId != null) return;
+    if (_busyId != null || _users.isEmpty) return;
     setState(() => _busyId = userId);
     try {
       final result = await widget.controller.shareAccess(
@@ -894,6 +887,10 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
           'Access request submitted to patient owner for review.',
         );
       }
+      // Refresh eligible list so granted/requested users disappear.
+      final users =
+          await widget.controller.listEligibleUsers(widget.patient.id);
+      if (mounted) setState(() => _users = users);
     } catch (e) {
       widget.onToast(widget.friendlyError(e), error: true);
     } finally {
@@ -906,9 +903,11 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
     final height = MediaQuery.sizeOf(context).height * 0.7;
     final actionLabel =
         _isOwner ? 'Grant Immediate Access' : 'Submit Access Request';
-    final subtext = _isOwner
-        ? 'As owner, your invitation will immediately allow access.'
-        : 'This request will be sent to the patient owner for approval.';
+    final subtext = _users.isEmpty && !_loading
+        ? 'All practice staff members already have access or pending requests for this patient.'
+        : (_isOwner
+            ? 'As owner, your invitation will immediately allow access.'
+            : 'This request will be sent to the patient owner for approval.');
 
     return SizedBox(
       height: height,
@@ -948,7 +947,8 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
                   : _users.isEmpty
                       ? const Center(
                           child: Text(
-                            'No staff contacts found.',
+                            'No eligible staff available to invite.',
+                            textAlign: TextAlign.center,
                             style: TextStyle(color: AppColors.muted),
                           ),
                         )
@@ -957,24 +957,17 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
                           separatorBuilder: (_, _) => const Divider(height: 1),
                           itemBuilder: (context, i) {
                             final u = _users[i];
-                            final id = '${u['id']}';
-                            final name = (u['name'] as String?)?.trim();
-                            final email = (u['email'] as String?)?.trim() ?? '';
-                            final label = (name != null && name.isNotEmpty)
-                                ? name
-                                : email;
-                            final busy = _busyId == id;
+                            final busy = _busyId == u.userId;
                             return ListTile(
-                              title: Text(label),
-                              subtitle: name != null && name.isNotEmpty
-                                  ? Text(email)
-                                  : null,
+                              title: Text(u.fullName),
+                              subtitle: u.email != null ? Text(u.email!) : null,
                               trailing: busy
                                   ? const BusySpinner(size: 20)
                                   : FilledButton(
-                                      onPressed: _busyId != null
+                                      onPressed: _busyId != null ||
+                                              _users.isEmpty
                                           ? null
-                                          : () => _share(id),
+                                          : () => _share(u.userId),
                                       child: Text(
                                         actionLabel,
                                         style: const TextStyle(fontSize: 12),
@@ -1178,24 +1171,41 @@ class _PendingAccessDrawer extends StatelessWidget {
 }
 
 class _AccessStatusBadge extends StatelessWidget {
-  const _AccessStatusBadge({required this.status});
+  const _AccessStatusBadge.status(this.status) : label = null, owner = false;
 
-  final PatientAccessStatus status;
+  const _AccessStatusBadge.owner()
+      : status = null,
+        label = 'Owner',
+        owner = true;
+
+  final PatientAccessStatus? status;
+  final String? label;
+  final bool owner;
 
   @override
   Widget build(BuildContext context) {
     final Color bg;
     final Color fg;
-    switch (status) {
-      case PatientAccessStatus.approved:
-        bg = AppColors.successSoft;
-        fg = AppColors.success;
-      case PatientAccessStatus.pending:
-        bg = AppColors.warningSoft;
-        fg = AppColors.warning;
-      case PatientAccessStatus.rejected:
-        bg = const Color(0xFFE8EDF4);
-        fg = AppColors.muted;
+    final String text;
+    if (owner) {
+      bg = const Color(0xFFE3F0FF);
+      fg = AppColors.dentalBlue;
+      text = label ?? 'Owner';
+    } else {
+      switch (status!) {
+        case PatientAccessStatus.approved:
+          bg = AppColors.successSoft;
+          fg = AppColors.success;
+          text = status!.label;
+        case PatientAccessStatus.pending:
+          bg = AppColors.warningSoft;
+          fg = AppColors.warning;
+          text = status!.label;
+        case PatientAccessStatus.rejected:
+          bg = const Color(0xFFE8EDF4);
+          fg = AppColors.muted;
+          text = status!.label;
+      }
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -1204,7 +1214,7 @@ class _AccessStatusBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
-        status.label,
+        text,
         style: TextStyle(
           color: fg,
           fontSize: 11.5,
@@ -1325,6 +1335,43 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     }
   }
 
+  Future<void> _approveAccess(PatientAccessEntry entry) async {
+    if (widget.controller.mutating) return;
+    try {
+      await widget.controller.approveAccessEntry(entry);
+      widget.onToast('Access approved');
+    } catch (e) {
+      widget.onToast(widget.friendlyError(e), error: true);
+    }
+  }
+
+  Future<void> _rejectAccess(PatientAccessEntry entry) async {
+    if (widget.controller.mutating) return;
+    try {
+      await widget.controller.rejectAccessEntry(entry);
+      widget.onToast('Access request rejected');
+    } catch (e) {
+      widget.onToast(widget.friendlyError(e), error: true);
+    }
+  }
+
+  Future<void> _regrantAccess(PatientAccessEntry entry) async {
+    if (widget.controller.mutating) return;
+    try {
+      final result = await widget.controller.shareAccess(
+        patientId: widget.patient.id,
+        targetUserId: entry.userId,
+      );
+      widget.onToast(
+        result.immediate
+            ? 'Access successfully re-granted.'
+            : 'Access request submitted to patient owner for review.',
+      );
+    } catch (e) {
+      widget.onToast(widget.friendlyError(e), error: true);
+    }
+  }
+
   Future<void> _deleteNote(PatientNote note) async {
     if (widget.controller.mutating) return;
     final ok = await showDialog<bool>(
@@ -1367,6 +1414,8 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
         builder: (context, _) {
           final notes = widget.controller.notes;
           final access = widget.controller.accessEntries;
+          final accessOwner = widget.controller.accessOwner;
+          final accessViewerIsOwner = widget.controller.accessViewerIsOwner;
           final blocked = widget.controller.mutating;
           return BusyBarrier(
             busy: blocked,
@@ -1573,79 +1622,45 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                           ),
                         ],
                       ),
-                      widget.controller.loadingAccess && access.isEmpty
+                      widget.controller.loadingAccess && accessOwner == null
                           ? const Center(child: CircularProgressIndicator())
-                          : access.isEmpty
+                          : accessOwner == null
                               ? const Center(
                                   child: Text(
-                                    'No shared access yet.',
+                                    'No access information available.',
                                     style: TextStyle(color: AppColors.muted),
                                   ),
                                 )
-                              : ListView.separated(
+                              : ListView(
                                   padding: const EdgeInsets.only(top: 12),
-                                  itemCount: access.length,
-                                  separatorBuilder: (_, _) =>
-                                      const SizedBox(height: 8),
-                                  itemBuilder: (context, i) {
-                                    final entry = access[i];
-                                    final when = entry.createdAt == null
-                                        ? ''
-                                        : DateFormat.yMMMd()
-                                            .add_Hm()
-                                            .format(
-                                                entry.createdAt!.toLocal());
-                                    return SectionCard(
-                                      padding: const EdgeInsets.all(12),
-                                      depth: 0.4,
-                                      child: Row(
-                                        children: [
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  entry.userName,
-                                                  style: const TextStyle(
-                                                    fontWeight: FontWeight.w700,
-                                                    color: AppColors.navy,
-                                                  ),
-                                                ),
-                                                if (when.isNotEmpty) ...[
-                                                  const SizedBox(height: 4),
-                                                  Text(
-                                                    when,
-                                                    style: const TextStyle(
-                                                      fontSize: 11.5,
-                                                      color: AppColors.muted,
-                                                    ),
-                                                  ),
-                                                ],
-                                                const SizedBox(height: 8),
-                                                _AccessStatusBadge(
-                                                  status: entry.status,
-                                                ),
-                                              ],
-                                            ),
+                                  children: [
+                                    _buildOwnerAccessCard(accessOwner),
+                                    if (!accessViewerIsOwner) ...[
+                                      const SizedBox(height: 12),
+                                      const Padding(
+                                        padding: EdgeInsets.symmetric(
+                                          horizontal: 4,
+                                        ),
+                                        child: Text(
+                                          'Only the patient owner can view and manage full staff access permissions.',
+                                          style: TextStyle(
+                                            color: AppColors.muted,
+                                            fontSize: 13,
+                                            height: 1.35,
                                           ),
-                                          if (owner)
-                                            TextButton(
-                                              onPressed: blocked
-                                                  ? null
-                                                  : () =>
-                                                      _revokeAccess(entry),
-                                              child: const Text(
-                                                'Revoke',
-                                                style: TextStyle(
-                                                  color: AppColors.danger,
-                                                ),
-                                              ),
-                                            ),
-                                        ],
+                                        ),
                                       ),
-                                    );
-                                  },
+                                    ] else ...[
+                                      for (final entry in access) ...[
+                                        const SizedBox(height: 8),
+                                        _buildAccessListCard(
+                                          entry: entry,
+                                          isOwner: true,
+                                          blocked: blocked,
+                                        ),
+                                      ],
+                                    ],
+                                  ],
                                 ),
                     ],
                   ),
@@ -1655,6 +1670,151 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
           ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildOwnerAccessCard(PatientAccessOwner owner) {
+    return SectionCard(
+      padding: const EdgeInsets.all(12),
+      depth: 0.4,
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  owner.fullName,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.navy,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const _AccessStatusBadge.owner(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAccessListCard({
+    required PatientAccessEntry entry,
+    required bool isOwner,
+    required bool blocked,
+  }) {
+    final when = entry.createdAt == null
+        ? ''
+        : DateFormat.yMMMd().add_Hm().format(entry.createdAt!.toLocal());
+
+    String? subtext;
+    Widget? actions;
+
+    switch (entry.status) {
+      case PatientAccessStatus.approved:
+        if (isOwner) {
+          actions = TextButton(
+            onPressed: blocked ? null : () => _revokeAccess(entry),
+            child: const Text(
+              'Revoke Access',
+              style: TextStyle(color: AppColors.danger),
+            ),
+          );
+        }
+      case PatientAccessStatus.pending:
+        final requester = entry.requestedByName?.trim();
+        final requestedBy = (requester != null && requester.isNotEmpty)
+            ? 'Requested by $requester'
+            : null;
+        if (isOwner) {
+          subtext = requestedBy;
+          actions = Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.success,
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: blocked ? null : () => _approveAccess(entry),
+                child: const Text('Approve'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.danger,
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: blocked ? null : () => _rejectAccess(entry),
+                child: const Text('Reject'),
+              ),
+            ],
+          );
+        } else {
+          subtext = [
+            ?requestedBy,
+            'Waiting for owner review',
+          ].join('\n');
+        }
+      case PatientAccessStatus.rejected:
+        if (isOwner) {
+          actions = OutlinedButton(
+            onPressed: blocked ? null : () => _regrantAccess(entry),
+            child: const Text('Re-grant Access'),
+          );
+        }
+    }
+
+    return SectionCard(
+      padding: const EdgeInsets.all(12),
+      depth: 0.4,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  entry.userName,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.navy,
+                  ),
+                ),
+                if (when.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    when,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                ],
+                if (subtext != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    subtext,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                _AccessStatusBadge.status(entry.status),
+              ],
+            ),
+          ),
+          if (actions != null) ...[
+            const SizedBox(width: 8),
+            actions,
+          ],
+        ],
       ),
     );
   }

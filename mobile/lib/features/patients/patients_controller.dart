@@ -19,6 +19,8 @@ class PatientsController extends ChangeNotifier {
   final List<PatientNote> _notes = [];
   final List<PendingAccessRequest> _pendingRequests = [];
   final List<PatientAccessEntry> _accessEntries = [];
+  PatientAccessOwner? _accessOwner;
+  bool _accessViewerIsOwner = false;
   String _query = '';
   bool _loading = false;
   bool _loadingDetail = false;
@@ -37,6 +39,8 @@ class PatientsController extends ChangeNotifier {
       List.unmodifiable(_pendingRequests);
   List<PatientAccessEntry> get accessEntries =>
       List.unmodifiable(_accessEntries);
+  PatientAccessOwner? get accessOwner => _accessOwner;
+  bool get accessViewerIsOwner => _accessViewerIsOwner;
   String get query => _query;
   bool get loading => _loading;
   bool get loadingDetail => _loadingDetail;
@@ -139,6 +143,8 @@ class PatientsController extends ChangeNotifier {
     _selected = null;
     _notes.clear();
     _accessEntries.clear();
+    _accessOwner = null;
+    _accessViewerIsOwner = false;
     notifyListeners();
   }
 
@@ -204,6 +210,8 @@ class PatientsController extends ChangeNotifier {
         _selected = null;
         _notes.clear();
         _accessEntries.clear();
+        _accessOwner = null;
+        _accessViewerIsOwner = false;
       }
     } finally {
       _mutating = false;
@@ -306,6 +314,52 @@ class PatientsController extends ChangeNotifier {
     }
   }
 
+  Future<void> approveAccessEntry(PatientAccessEntry entry) async {
+    if (_mutating) return;
+    _mutating = true;
+    notifyListeners();
+    try {
+      await _service.resolveAccessRequest(
+        requestId: entry.id,
+        action: 'approve',
+      );
+      await loadPendingRequests(silent: true);
+      if (_selected != null) {
+        await loadAccess(_selected!.id, silent: true);
+      }
+      final rows = await _service.listPatients();
+      _patients
+        ..clear()
+        ..addAll(rows);
+    } finally {
+      _mutating = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> rejectAccessEntry(PatientAccessEntry entry) async {
+    if (_mutating) return;
+    _mutating = true;
+    notifyListeners();
+    try {
+      await _service.resolveAccessRequest(
+        requestId: entry.id,
+        action: 'reject',
+      );
+      await loadPendingRequests(silent: true);
+      if (_selected != null) {
+        await loadAccess(_selected!.id, silent: true);
+      }
+    } finally {
+      _mutating = false;
+      notifyListeners();
+    }
+  }
+
+  Future<List<EligibleAccessUser>> listEligibleUsers(String patientId) {
+    return _service.listEligibleUsers(patientId);
+  }
+
   Future<void> loadAccess(String patientId, {bool silent = false}) async {
     if (_loadingAccess) return;
     if (!silent) {
@@ -313,10 +367,12 @@ class PatientsController extends ChangeNotifier {
       notifyListeners();
     }
     try {
-      final rows = await _service.listPatientAccess(patientId);
+      final snapshot = await _service.listPatientAccess(patientId);
+      _accessOwner = snapshot.owner;
+      _accessViewerIsOwner = snapshot.isOwner;
       _accessEntries
         ..clear()
-        ..addAll(rows);
+        ..addAll(snapshot.isOwner ? snapshot.accessList : const []);
     } finally {
       if (!silent) _loadingAccess = false;
       notifyListeners();

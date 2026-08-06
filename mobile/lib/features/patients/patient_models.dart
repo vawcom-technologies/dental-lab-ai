@@ -232,13 +232,70 @@ extension PatientAccessStatusX on PatientAccessStatus {
       };
 
   String get label => switch (this) {
-        PatientAccessStatus.pending => 'Pending Owner Approval',
-        PatientAccessStatus.approved => 'Approved',
-        PatientAccessStatus.rejected => 'Rejected',
+        PatientAccessStatus.pending => 'Pending Approval',
+        PatientAccessStatus.approved => 'Active Access',
+        PatientAccessStatus.rejected => 'Denied',
       };
 }
 
-/// One row from GET /api/patients/{id}/access.
+class EligibleAccessUser {
+  const EligibleAccessUser({
+    required this.userId,
+    required this.fullName,
+    this.email,
+  });
+
+  final String userId;
+  final String fullName;
+  final String? email;
+
+  factory EligibleAccessUser.fromJson(Map<String, dynamic> json) {
+    final id = _optString(json['user_id']) ?? _optString(json['id']) ?? '';
+    final name = (json['full_name'] as String?)?.trim() ??
+        (json['name'] as String?)?.trim() ??
+        '';
+    final email = (json['email'] as String?)?.trim();
+    return EligibleAccessUser(
+      userId: id,
+      fullName: name.isNotEmpty ? name : (email ?? id),
+      email: (email == null || email.isEmpty) ? null : email,
+    );
+  }
+}
+
+class PatientAccessOwner {
+  const PatientAccessOwner({
+    required this.userId,
+    required this.fullName,
+  });
+
+  final String userId;
+  final String fullName;
+
+  factory PatientAccessOwner.fromJson(Map<String, dynamic> json) {
+    final id = _optString(json['user_id']) ?? '';
+    final name = (json['full_name'] as String?)?.trim() ?? '';
+    return PatientAccessOwner(
+      userId: id,
+      fullName: name.isNotEmpty ? name : 'Owner',
+    );
+  }
+}
+
+/// Snapshot from GET /api/patients/{id}/access.
+class PatientAccessSnapshot {
+  const PatientAccessSnapshot({
+    required this.isOwner,
+    required this.owner,
+    required this.accessList,
+  });
+
+  final bool isOwner;
+  final PatientAccessOwner? owner;
+  final List<PatientAccessEntry> accessList;
+}
+
+/// One row from GET /api/patients/{id}/access `access_list`.
 class PatientAccessEntry {
   const PatientAccessEntry({
     required this.id,
@@ -247,6 +304,7 @@ class PatientAccessEntry {
     required this.userName,
     required this.status,
     this.requestedBy,
+    this.requestedByName,
     this.grantedBy,
     this.approvedBy,
     this.createdAt,
@@ -258,20 +316,24 @@ class PatientAccessEntry {
   final String userName;
   final PatientAccessStatus status;
   final String? requestedBy;
+  final String? requestedByName;
   final String? grantedBy;
   final String? approvedBy;
   final DateTime? createdAt;
 
   factory PatientAccessEntry.fromJson(Map<String, dynamic> json) {
+    final id = _optString(json['access_id']) ?? _optString(json['id']) ?? '';
+    final name = (json['full_name'] as String?)?.trim() ??
+        (json['user_name'] as String?)?.trim() ??
+        '';
     return PatientAccessEntry(
-      id: '${json['id'] ?? ''}',
+      id: id,
       patientId: '${json['patient_id'] ?? ''}',
       userId: '${json['user_id'] ?? ''}',
-      userName: (json['user_name'] as String?)?.trim().isNotEmpty == true
-          ? (json['user_name'] as String).trim()
-          : '${json['user_id'] ?? 'Staff'}',
+      userName: name.isNotEmpty ? name : '${json['user_id'] ?? 'Staff'}',
       status: parsePatientAccessStatus(json['status']),
       requestedBy: _optString(json['requested_by']),
+      requestedByName: _optString(json['requested_by_name']),
       grantedBy: _optString(json['granted_by']),
       approvedBy: _optString(json['approved_by']),
       createdAt: _parseDate(json['created_at']),

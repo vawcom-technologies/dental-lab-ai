@@ -446,8 +446,17 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
             'Saved ${_match!['matched_manufacturer']} · '
             'tooth ${_match!['matched_tooth_position']} on case #${_case!['id']}',
       );
+      if (mounted) {
+        AppSnackBars.success(
+          context,
+          'Saved ${_match!['matched_manufacturer']} · '
+          'tooth ${_match!['matched_tooth_position']} on case #${_case!['id']}',
+        );
+      }
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() => _error = msg);
+      if (mounted) AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _saving = false);
     }

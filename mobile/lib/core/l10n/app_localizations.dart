@@ -307,9 +307,9 @@ class AppLocalizations {
   String get reportsCreatedInPeriod => _t('reports.createdInPeriod');
   String get reportsCompletedInPeriod => _t('reports.completedInPeriod');
   String get reportsOpenMessages => _t('reports.openMessages');
+
   String get reportsOpenPatients => _t('reports.openPatients');
   String get reportsClinicalHint => _t('reports.clinicalHint');
-
   String get reportsNoData => _t('reports.noData');
 
   String get reportsCasesCol => _t('reports.casesCol');

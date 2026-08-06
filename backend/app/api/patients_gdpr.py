@@ -26,7 +26,11 @@ from app.schemas_patients import (
 )
 from app.services import patient_access as pa
 from app.services.patient_crypto import decrypt_note, encrypt_note
-from app.services.profiles import fetch_profile
+from app.services.profiles import (
+    fetch_profile,
+    fetch_profiles_by_ids,
+    list_active_staff_profiles,
+)
 
 router = APIRouter()
 logger = logging.getLogger("app.api.patients_gdpr")
@@ -448,10 +452,32 @@ def list_patient_access(
 ):
     action = "list_patient_access"
     try:
-        pa.require_patient_access(patient_id, user.id)
+        patient = pa.require_patient_access(patient_id, user.id)
     except HTTPException as exc:
         return _from_http(
             action=action, user_id=user.id, exc=exc, patient_id=patient_id
+        )
+
+    owner_id = str(patient.get("created_by") or "")
+    is_owner = pa.is_owner(patient, user.id)
+    owner_profile = fetch_profile(owner_id)
+    owner_payload = {
+        "user_id": owner_id,
+        "full_name": _profile_display_name(owner_profile, owner_id),
+        "role": "Owner",
+    }
+
+    # Shared users must not see other staff on this patient's access list.
+    if not is_owner:
+        return _ok(
+            action=action,
+            user_id=user.id,
+            patient_id=patient_id,
+            payload={
+                "is_owner": False,
+                "owner": owner_payload,
+                "access_list": [],
+            },
         )
 
     try:
@@ -474,26 +500,29 @@ def list_patient_access(
         )
 
     rows = getattr(result, "data", None) or []
+    profile_ids: set[str] = set()
+    for row in rows:
+        profile_ids.add(str(row.get("user_id") or ""))
+        profile_ids.add(str(row.get("requested_by") or ""))
+        profile_ids.add(str(row.get("granted_by") or ""))
+    profile_ids.discard("")
+    profiles_by_id = fetch_profiles_by_ids(profile_ids)
+
     access_list: list[dict[str, Any]] = []
     for row in rows:
         uid = str(row.get("user_id") or "")
-        profile = fetch_profile(uid)
+        requester_id = str(row.get("requested_by") or row.get("granted_by") or "")
         access_list.append(
             {
-                "id": str(row["id"]),
-                "patient_id": patient_id,
+                "access_id": str(row["id"]),
                 "user_id": uid,
-                "user_name": _profile_display_name(profile, uid),
+                "full_name": _profile_display_name(profiles_by_id.get(uid), uid),
                 "status": row.get("status") or "approved",
-                "requested_by": (
-                    str(row["requested_by"]) if row.get("requested_by") else None
-                ),
-                "granted_by": (
-                    str(row["granted_by"]) if row.get("granted_by") else None
-                ),
-                "approved_by": (
-                    str(row["approved_by"]) if row.get("approved_by") else None
-                ),
+                "requested_by_name": _profile_display_name(
+                    profiles_by_id.get(requester_id), requester_id
+                )
+                if requester_id
+                else None,
                 "created_at": row.get("created_at"),
             }
         )
@@ -502,7 +531,76 @@ def list_patient_access(
         action=action,
         user_id=user.id,
         patient_id=patient_id,
-        payload={"access": access_list},
+        payload={
+            "is_owner": True,
+            "owner": owner_payload,
+            "access_list": access_list,
+        },
+    )
+
+
+@router.get(
+    "/{patient_id}/eligible-users",
+    summary="List staff eligible to invite for patient access",
+)
+def list_eligible_users(
+    patient_id: str,
+    user: AuthUser = Depends(get_current_user),
+):
+    action = "list_eligible_users"
+    try:
+        patient = pa.require_patient_access(patient_id, user.id)
+    except HTTPException as exc:
+        return _from_http(
+            action=action, user_id=user.id, exc=exc, patient_id=patient_id
+        )
+
+    owner_id = str(patient.get("created_by") or "")
+
+    try:
+        access_res = (
+            get_supabase_admin()
+            .table("patient_access")
+            .select("user_id,status")
+            .eq("patient_id", patient_id)
+            .in_("status", ["approved", "pending"])
+            .execute()
+        )
+        staff_rows = list_active_staff_profiles()
+    except Exception as exc:
+        return _err(
+            action=action,
+            user_id=user.id,
+            http_code=502,
+            code="DB_ERROR",
+            message=str(exc),
+            patient_id=patient_id,
+        )
+
+    excluded: set[str] = {owner_id}
+    for row in getattr(access_res, "data", None) or []:
+        uid = str(row.get("user_id") or "")
+        if uid:
+            excluded.add(uid)
+
+    eligible_users: list[dict[str, Any]] = []
+    for row in staff_rows:
+        uid = str(row.get("id") or "")
+        if not uid or uid in excluded:
+            continue
+        eligible_users.append(
+            {
+                "user_id": uid,
+                "full_name": _profile_display_name(row, uid),
+                "email": row.get("email"),
+            }
+        )
+
+    return _ok(
+        action=action,
+        user_id=user.id,
+        patient_id=patient_id,
+        payload={"eligible_users": eligible_users},
     )
 
 

@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:record/record.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_snackbar.dart';
 import '../utils/voice_record_path.dart';
 import '../widgets/chat_bubble.dart';
 
@@ -320,9 +321,7 @@ class _ChatComposerState extends State<ChatComposer> {
 
   void _toast(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message.replaceFirst('Exception: ', ''))),
-    );
+    AppSnackBars.error(context, message);
   }
 
   @override

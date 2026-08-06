@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
-import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/brand_logo.dart';
@@ -40,14 +39,17 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
     if (current.isEmpty || next.isEmpty || confirm.isEmpty) {
       setState(() => _error = loc.errEnterPasswords);
+      AppSnackBars.error(context, loc.errEnterPasswords);
       return;
     }
     if (next.length < 6) {
       setState(() => _error = loc.errNewPasswordShort);
+      AppSnackBars.error(context, loc.errNewPasswordShort);
       return;
     }
     if (next != confirm) {
       setState(() => _error = loc.errNewPasswordMismatch);
+      AppSnackBars.error(context, loc.errNewPasswordMismatch);
       return;
     }
 
@@ -62,6 +64,11 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
         newPassword: next,
       );
       if (!mounted) return;
+
+      AppSnackBars.success(
+        context,
+        message.isNotEmpty ? message : loc.changePasswordSuccessBody,
+      );
 
       await showDialog<void>(
         context: context,
@@ -87,9 +94,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
         (_) => false,
       );
     } catch (e) {
-      AppHaptics.warn();
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() => _error = msg);
+      AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _loading = false);
     }

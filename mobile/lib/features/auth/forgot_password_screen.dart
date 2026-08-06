@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
-import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/brand_logo.dart';
@@ -47,7 +46,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     }
     if (_loading) return;
 
-    AppHaptics.light();
     setState(() {
       _loading = true;
       _error = null;
@@ -57,14 +55,15 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     try {
       final data = await widget.api.forgotPassword(email);
       if (!mounted) return;
-      AppHaptics.success();
-      setState(() {
-        _success = data['message'] as String? ??
-            'If an account exists for that email, a password reset link has been sent.';
-      });
+      final msg = data['message'] as String? ??
+          'If an account exists for that email, a password reset link has been sent.';
+      setState(() => _success = msg);
+      AppSnackBars.success(context, msg);
     } catch (e) {
-      AppHaptics.warn();
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (!mounted) return;
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() => _error = msg);
+      AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _loading = false);
     }

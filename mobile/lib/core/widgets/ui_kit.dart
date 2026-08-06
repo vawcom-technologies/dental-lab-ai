@@ -4,6 +4,7 @@ import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import 'touchable.dart';
 
+export 'app_snackbar.dart';
 export 'busy_action.dart';
 
 class StatusChip extends StatelessWidget {

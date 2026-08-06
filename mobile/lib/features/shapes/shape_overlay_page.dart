@@ -431,8 +431,16 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
         _status =
             'Saved “${_selected.label}” to case #${_case!['id']}';
       });
+      if (mounted) {
+        AppSnackBars.success(
+          context,
+          'Saved “${_selected.label}” to case #${_case!['id']}',
+        );
+      }
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() => _error = msg);
+      if (mounted) AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _saving = false);
     }

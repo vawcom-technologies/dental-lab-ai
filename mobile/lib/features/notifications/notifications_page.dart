@@ -110,7 +110,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
       _emitUnread();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() => _error = msg);
+      AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _markingId = null);
     }
@@ -124,16 +126,20 @@ class _NotificationsPageState extends State<NotificationsPage> {
     });
     try {
       await widget.api.markAllNotificationsRead();
-      AppHaptics.success();
       setState(() {
         for (final n in _items) {
           n['read'] = true;
         }
       });
       _emitUnread();
+      if (mounted) {
+        AppSnackBars.success(context, 'All notifications marked as read');
+      }
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() => _error = msg);
+      AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _markingAll = false);
     }

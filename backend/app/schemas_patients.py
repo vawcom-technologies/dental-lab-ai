@@ -53,15 +53,18 @@ class PendingAccessRequestOut(BaseModel):
 
 
 class PatientAccessEntryOut(BaseModel):
-    id: str
-    patient_id: str
+    access_id: str
     user_id: str
-    user_name: str
+    full_name: str
     status: Literal["pending", "approved", "rejected"]
-    requested_by: str | None = None
-    granted_by: str | None = None
-    approved_by: str | None = None
+    requested_by_name: str | None = None
     created_at: datetime | str | None = None
+
+
+class EligibleUserOut(BaseModel):
+    user_id: str
+    full_name: str
+    email: str | None = None
 
 
 class UploadNoteRequest(BaseModel):
