@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
@@ -19,12 +20,26 @@ class _NewPatientPageState extends State<NewPatientPage> {
   final _formKey = GlobalKey<FormState>();
   final _first = TextEditingController();
   final _last = TextEditingController();
+  final _dob = TextEditingController();
   final _phone = TextEditingController();
   final _address = TextEditingController();
   final _insurance = TextEditingController();
-  final _notes = TextEditingController();
   bool _loading = false;
   String? _error;
+
+  Future<void> _pickDob() async {
+    final now = DateTime.now();
+    final initial = DateTime.tryParse(_dob.text) ??
+        DateTime(now.year - 30, now.month, now.day);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(1900),
+      lastDate: now,
+    );
+    if (picked == null) return;
+    setState(() => _dob.text = DateFormat('yyyy-MM-dd').format(picked));
+  }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
@@ -36,11 +51,10 @@ class _NewPatientPageState extends State<NewPatientPage> {
       await widget.api.createPatient({
         'first_name': _first.text.trim(),
         'last_name': _last.text.trim(),
-        'phone': _phone.text.trim().isEmpty ? null : _phone.text.trim(),
-        'address': _address.text.trim().isEmpty ? null : _address.text.trim(),
-        'health_insurance':
-            _insurance.text.trim().isEmpty ? null : _insurance.text.trim(),
-        'notes': _notes.text.trim().isEmpty ? null : _notes.text.trim(),
+        'date_of_birth': _dob.text.trim(),
+        'phone': _phone.text.trim(),
+        'address': _address.text.trim(),
+        'health_insurance': _insurance.text.trim(),
       });
       widget.onCreated();
     } catch (e) {
@@ -54,10 +68,10 @@ class _NewPatientPageState extends State<NewPatientPage> {
   void dispose() {
     _first.dispose();
     _last.dispose();
+    _dob.dispose();
     _phone.dispose();
     _address.dispose();
     _insurance.dispose();
-    _notes.dispose();
     super.dispose();
   }
 
@@ -81,10 +95,10 @@ class _NewPatientPageState extends State<NewPatientPage> {
                         _formKey.currentState?.reset();
                         _first.clear();
                         _last.clear();
+                        _dob.clear();
                         _phone.clear();
                         _address.clear();
                         _insurance.clear();
-                        _notes.clear();
                         setState(() => _error = null);
                       },
                 child: const Text('Clear'),
@@ -101,7 +115,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
                         ),
                       )
                     : const Icon(Icons.check_rounded, size: 18),
-                label: Text(_loading ? 'Saving…' : 'Save patient'),
+                label: Text(_loading ? 'Saving…' : loc.createPatient),
               ),
             ],
           ),
@@ -109,251 +123,97 @@ class _NewPatientPageState extends State<NewPatientPage> {
           Expanded(
             child: Form(
               key: _formKey,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final wide = constraints.maxWidth >= 860;
-                  final identity = _IdentityCard(
-                    first: _first,
-                    last: _last,
-                    phone: _phone,
-                    insurance: _insurance,
-                  );
-                  final details = _DetailsCard(
-                    address: _address,
-                    notes: _notes,
-                    error: _error,
-                  );
-                  if (wide) {
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+              child: SectionCard(
+                child: ListView(
+                  children: [
+                    const SectionLabel('Identity'),
+                    const SizedBox(height: 14),
+                    Row(
                       children: [
-                        Expanded(flex: 5, child: identity),
-                        const SizedBox(width: 16),
-                        Expanded(flex: 5, child: details),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _first,
+                            textCapitalization: TextCapitalization.words,
+                            decoration: InputDecoration(
+                              labelText: '${loc.firstName} *',
+                            ),
+                            validator: (v) =>
+                                (v == null || v.trim().isEmpty)
+                                    ? 'Required'
+                                    : null,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _last,
+                            textCapitalization: TextCapitalization.words,
+                            decoration: InputDecoration(
+                              labelText: '${loc.lastName} *',
+                            ),
+                            validator: (v) =>
+                                (v == null || v.trim().isEmpty)
+                                    ? 'Required'
+                                    : null,
+                          ),
+                        ),
                       ],
-                    );
-                  }
-                  return ListView(
-                    children: [
-                      identity,
-                      const SizedBox(height: 16),
-                      details,
-                      const SizedBox(height: 8),
-                    ],
-                  );
-                },
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _IdentityCard extends StatelessWidget {
-  const _IdentityCard({
-    required this.first,
-    required this.last,
-    required this.phone,
-    required this.insurance,
-  });
-
-  final TextEditingController first;
-  final TextEditingController last;
-  final TextEditingController phone;
-  final TextEditingController insurance;
-
-  @override
-  Widget build(BuildContext context) {
-    return SectionCard(
-      child: ListView(
-        children: [
-          Row(
-            children: [
-              const Expanded(child: SectionLabel('Identity')),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: AppColors.sidebarActive,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Text(
-                  'GDPR',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.navy,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'Legal name as on insurance card',
-            style: TextStyle(color: AppColors.muted, fontSize: 13),
-          ),
-          const SizedBox(height: 18),
-          Row(
-            children: [
-              Expanded(
-                child: TextFormField(
-                  controller: first,
-                  textCapitalization: TextCapitalization.words,
-                  decoration: const InputDecoration(
-                    labelText: 'First name *',
-                    prefixIcon: Icon(Icons.badge_outlined, size: 20),
-                  ),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'Required' : null,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: TextFormField(
-                  controller: last,
-                  textCapitalization: TextCapitalization.words,
-                  decoration: const InputDecoration(
-                    labelText: 'Last name *',
-                    prefixIcon: Icon(Icons.badge_outlined, size: 20),
-                  ),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'Required' : null,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          TextFormField(
-            controller: phone,
-            decoration: const InputDecoration(
-              labelText: 'Phone / mobile',
-              hintText: '+49 …',
-              prefixIcon: Icon(Icons.phone_outlined, size: 20),
-            ),
-            keyboardType: TextInputType.phone,
-          ),
-          const SizedBox(height: 14),
-          TextFormField(
-            controller: insurance,
-            decoration: const InputDecoration(
-              labelText: 'Health insurance',
-              hintText: 'e.g. AOK Bayern, TK, DKV',
-              prefixIcon: Icon(Icons.health_and_safety_outlined, size: 20),
-            ),
-          ),
-          const SizedBox(height: 18),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.inset,
-              borderRadius: AppRadii.borderSm,
-              boxShadow: NeoShadows.pressed(),
-            ),
-            child: const Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.lock_outline, size: 18, color: AppColors.dentalBlue),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Patient data stays in your clinic workspace and is shared with the lab only when a case is opened.',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      height: 1.4,
-                      color: AppColors.muted,
                     ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DetailsCard extends StatelessWidget {
-  const _DetailsCard({
-    required this.address,
-    required this.notes,
-    required this.error,
-  });
-
-  final TextEditingController address;
-  final TextEditingController notes;
-  final String? error;
-
-  @override
-  Widget build(BuildContext context) {
-    return SectionCard(
-      child: ListView(
-        children: [
-          const SectionLabel('Contact & clinical notes'),
-          const SizedBox(height: 6),
-          const Text(
-            'Optional details that help the lab and billing',
-            style: TextStyle(color: AppColors.muted, fontSize: 13),
-          ),
-          const SizedBox(height: 18),
-          TextFormField(
-            controller: address,
-            decoration: const InputDecoration(
-              labelText: 'Address',
-              hintText: 'Street, PLZ, city',
-              prefixIcon: Icon(Icons.location_on_outlined, size: 20),
-              alignLabelWithHint: true,
-            ),
-            maxLines: 2,
-          ),
-          const SizedBox(height: 14),
-          TextFormField(
-            controller: notes,
-            decoration: const InputDecoration(
-              labelText: 'Clinical notes',
-              hintText: 'Tooth numbers, shade preference, urgency…',
-              prefixIcon: Icon(Icons.notes_outlined, size: 20),
-              alignLabelWithHint: true,
-            ),
-            maxLines: 5,
-          ),
-          if (error != null) ...[
-            const SizedBox(height: 16),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.dangerSoft,
-                borderRadius: AppRadii.borderSm,
-              ),
-              child: Text(
-                error!,
-                style: const TextStyle(
-                  color: AppColors.danger,
-                  fontWeight: FontWeight.w600,
+                    const SizedBox(height: 14),
+                    TextFormField(
+                      controller: _dob,
+                      readOnly: true,
+                      onTap: _pickDob,
+                      decoration: InputDecoration(
+                        labelText: '${loc.dateOfBirth} *',
+                        suffixIcon:
+                            const Icon(Icons.calendar_today_outlined, size: 18),
+                      ),
+                      validator: (v) =>
+                          (v == null || v.trim().isEmpty) ? 'Required' : null,
+                    ),
+                    const SizedBox(height: 14),
+                    TextFormField(
+                      controller: _phone,
+                      decoration: const InputDecoration(labelText: 'Phone *'),
+                      keyboardType: TextInputType.phone,
+                      validator: (v) =>
+                          (v == null || v.trim().isEmpty) ? 'Required' : null,
+                    ),
+                    const SizedBox(height: 14),
+                    TextFormField(
+                      controller: _insurance,
+                      decoration: InputDecoration(
+                        labelText: '${loc.healthInsurance} *',
+                      ),
+                      validator: (v) =>
+                          (v == null || v.trim().isEmpty) ? 'Required' : null,
+                    ),
+                    const SizedBox(height: 14),
+                    TextFormField(
+                      controller: _address,
+                      minLines: 2,
+                      maxLines: 3,
+                      decoration: InputDecoration(
+                        labelText: '${loc.address} *',
+                      ),
+                      validator: (v) =>
+                          (v == null || v.trim().isEmpty) ? 'Required' : null,
+                    ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        _error!,
+                        style: const TextStyle(
+                          color: AppColors.danger,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),
-          ],
-          const SizedBox(height: 20),
-          const Row(
-            children: [
-              Icon(Icons.auto_awesome, size: 16, color: AppColors.dentalBlue),
-              SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'After saving, open Shade, Smile Preview, or Scan Body and attach this patient to a case.',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    height: 1.4,
-                    color: AppColors.muted,
-                  ),
-                ),
-              ),
-            ],
           ),
         ],
       ),
