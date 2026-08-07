@@ -31,10 +31,14 @@ class _PatientFormScreenState extends State<PatientFormScreen> {
       _error = null;
     });
     try {
+      final phoneLocal = _phone.text.trim();
+      final phone = phoneLocal.isEmpty
+          ? null
+          : PhoneNumbers.compose(phoneLocal);
       await widget.api.createPatient({
         'first_name': _first.text.trim(),
         'last_name': _last.text.trim(),
-        'phone': _phone.text.trim().isEmpty ? null : _phone.text.trim(),
+        'phone': phone,
         'address': _address.text.trim().isEmpty ? null : _address.text.trim(),
         'health_insurance':
             _insurance.text.trim().isEmpty ? null : _insurance.text.trim(),
@@ -87,10 +91,10 @@ class _PatientFormScreenState extends State<PatientFormScreen> {
                         (v == null || v.trim().isEmpty) ? 'Required' : null,
                   ),
                   const SizedBox(height: 12),
-                  TextFormField(
+                  PhoneField(
                     controller: _phone,
-                    decoration: const InputDecoration(labelText: 'Phone / mobile'),
-                    keyboardType: TextInputType.phone,
+                    labelText: 'Phone / mobile',
+                    required: false,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
@@ -123,10 +127,7 @@ class _PatientFormScreenState extends State<PatientFormScreen> {
                           ? const SizedBox(
                               height: 18,
                               width: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
+                              child: ToothLoadingIndicator(size: 28, compact: true, color: Colors.white),
                             )
                           : const Text('Save patient'),
                     ),

@@ -8,6 +8,7 @@ import 'package:record/record.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_snackbar.dart';
+import '../../../core/widgets/tooth_loader.dart';
 import '../utils/voice_record_path.dart';
 import '../widgets/chat_bubble.dart';
 
@@ -60,7 +61,7 @@ class _ChatComposerState extends State<ChatComposer> {
   }
 
   Future<void> _showAttachSheet() async {
-    if (widget.sending) return;
+    if (_recording) return;
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: AppColors.card,
@@ -223,7 +224,7 @@ class _ChatComposerState extends State<ChatComposer> {
   }
 
   Future<void> _startRecording() async {
-    if (widget.sending || _recording) return;
+    if (_recording) return;
     try {
       final hasPermission = await _audioRecorder.hasPermission();
       if (!hasPermission) {
@@ -326,106 +327,125 @@ class _ChatComposerState extends State<ChatComposer> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          IconButton(
-            tooltip: 'Attach',
-            onPressed: widget.sending || _recording ? null : _showAttachSheet,
-            icon: const Icon(Icons.attach_file_rounded),
-            color: AppColors.navy,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (widget.sending)
+          const Padding(
+            padding: EdgeInsets.fromLTRB(14, 0, 14, 6),
+            child: Row(
+              children: [
+                ToothLoadingIndicator(
+                  size: 16,
+                  compact: true,
+                  color: kToothLoaderBlue,
+                ),
+                SizedBox(width: 8),
+                Text(
+                  'Uploading… you can keep chatting',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.muted,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
           ),
-          Expanded(
-            child: _recording
-                ? Container(
-                    height: 48,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      color: AppColors.dangerSoft,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.mic, color: AppColors.danger, size: 18),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _LiveAmplitudeBars(level: _amplitudeNorm),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              IconButton(
+                tooltip: 'Attach',
+                onPressed: _recording ? null : _showAttachSheet,
+                icon: const Icon(Icons.attach_file_rounded),
+                color: AppColors.navy,
+              ),
+              Expanded(
+                child: _recording
+                    ? Container(
+                        height: 48,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: AppColors.dangerSoft,
+                          borderRadius: BorderRadius.circular(14),
                         ),
-                        const SizedBox(width: 8),
-                        Text(
-                          formatVoiceDuration(_elapsedSeconds),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.danger,
-                            fontSize: 12,
+                        child: Row(
+                          children: [
+                            const Icon(Icons.mic,
+                                color: AppColors.danger, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _LiveAmplitudeBars(level: _amplitudeNorm),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              formatVoiceDuration(_elapsedSeconds),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.danger,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : TextField(
+                        controller: widget.controller,
+                        minLines: 1,
+                        maxLines: 4,
+                        textInputAction: TextInputAction.send,
+                        onSubmitted: (_) => widget.onSend(),
+                        decoration: InputDecoration(
+                          hintText: 'Type a message…',
+                          filled: true,
+                          fillColor: AppColors.neo,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
                           ),
                         ),
-                      ],
-                    ),
-                  )
-                : TextField(
-                    controller: widget.controller,
-                    minLines: 1,
-                    maxLines: 4,
-                    textInputAction: TextInputAction.send,
-                    onSubmitted: (_) => widget.onSend(),
-                    decoration: InputDecoration(
-                      hintText: 'Type a message…',
-                      filled: true,
-                      fillColor: AppColors.neo,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide.none,
                       ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
-                      ),
-                    ),
-                  ),
-          ),
-          const SizedBox(width: 4),
-          if (_recording)
-            IconButton(
-              tooltip: 'Cancel',
-              onPressed: () => _stopRecordingAndSend(cancel: true),
-              icon: const Icon(Icons.close_rounded),
-              color: AppColors.muted,
-            ),
-          GestureDetector(
-            onLongPressStart: (_) => _startRecording(),
-            onLongPressEnd: (_) => _stopRecordingAndSend(),
-            onLongPressCancel: () => _stopRecordingAndSend(cancel: true),
-            child: IconButton(
-              tooltip: _recording ? 'Release to send' : 'Hold to record',
-              onPressed: _recording ? () => _stopRecordingAndSend() : () {},
-              icon: Icon(
-                _recording ? Icons.send_rounded : Icons.mic_none_rounded,
-                color: _recording ? AppColors.dentalBlue : AppColors.navy,
               ),
-            ),
+              const SizedBox(width: 4),
+              if (_recording)
+                IconButton(
+                  tooltip: 'Cancel',
+                  onPressed: () => _stopRecordingAndSend(cancel: true),
+                  icon: const Icon(Icons.close_rounded),
+                  color: AppColors.muted,
+                ),
+              GestureDetector(
+                onLongPressStart: (_) => _startRecording(),
+                onLongPressEnd: (_) => _stopRecordingAndSend(),
+                onLongPressCancel: () => _stopRecordingAndSend(cancel: true),
+                child: IconButton(
+                  tooltip: _recording ? 'Release to send' : 'Hold to record',
+                  onPressed: _recording ? () => _stopRecordingAndSend() : () {},
+                  icon: Icon(
+                    _recording ? Icons.send_rounded : Icons.mic_none_rounded,
+                    color: _recording ? AppColors.dentalBlue : AppColors.navy,
+                  ),
+                ),
+              ),
+              FilledButton(
+                onPressed: _recording ? null : widget.onSend,
+                style: FilledButton.styleFrom(
+                  shape: const CircleBorder(),
+                  padding: const EdgeInsets.all(14),
+                ),
+                child: const Icon(Icons.send_rounded, size: 20),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: widget.sending || _recording ? null : widget.onSend,
-            style: FilledButton.styleFrom(
-              shape: const CircleBorder(),
-              padding: const EdgeInsets.all(14),
-            ),
-            child: widget.sending
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Icon(Icons.send_rounded, size: 20),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

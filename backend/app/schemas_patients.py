@@ -94,6 +94,7 @@ class PatientNoteOut(BaseModel):
     id: str
     patient_id: str
     author_id: str
+    author_name: str = "Unknown Practitioner"
     note_content: str
     created_at: datetime | None = None
     updated_at: datetime | None = None

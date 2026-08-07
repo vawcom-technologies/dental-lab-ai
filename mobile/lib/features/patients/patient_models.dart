@@ -177,6 +177,7 @@ class PatientNote {
     required this.patientId,
     required this.authorId,
     required this.noteContent,
+    this.authorName,
     this.createdAt,
     this.updatedAt,
   });
@@ -185,26 +186,40 @@ class PatientNote {
   final String patientId;
   final String authorId;
   final String noteContent;
+  final String? authorName;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
+  String get displayAuthorName {
+    final name = authorName?.trim();
+    if (name != null && name.isNotEmpty) return name;
+    return 'Unknown Practitioner';
+  }
+
   factory PatientNote.fromJson(Map<String, dynamic> json) {
+    final name = (json['author_name'] as String?)?.trim();
     return PatientNote(
       id: '${json['id'] ?? ''}',
       patientId: '${json['patient_id'] ?? ''}',
       authorId: '${json['author_id'] ?? ''}',
       noteContent: (json['note_content'] as String?) ?? '',
+      authorName: (name == null || name.isEmpty) ? null : name,
       createdAt: _parseDate(json['created_at']),
       updatedAt: _parseDate(json['updated_at']),
     );
   }
 
-  PatientNote copyWith({String? noteContent, DateTime? updatedAt}) {
+  PatientNote copyWith({
+    String? noteContent,
+    String? authorName,
+    DateTime? updatedAt,
+  }) {
     return PatientNote(
       id: id,
       patientId: patientId,
       authorId: authorId,
       noteContent: noteContent ?? this.noteContent,
+      authorName: authorName ?? this.authorName,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
