@@ -42,7 +42,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       AppSnackBars.error(context, loc.errEnterPasswords);
       return;
     }
-    if (next.length < 6) {
+    if (!PasswordValidator.isValid(next)) {
       setState(() => _error = loc.errNewPasswordShort);
       AppSnackBars.error(context, loc.errNewPasswordShort);
       return;
@@ -145,22 +145,31 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   TextField(
                     controller: _current,
                     obscureText: true,
+                    onChanged: (_) => setState(() {}),
                     decoration: InputDecoration(labelText: loc.currentPassword),
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _next,
                     obscureText: true,
+                    onChanged: (_) => setState(() {}),
                     decoration: InputDecoration(labelText: loc.newPassword),
                   ),
+                  const SizedBox(height: 10),
+                  PasswordChecklist(password: _next.text),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _confirm,
                     obscureText: true,
+                    onChanged: (_) => setState(() {}),
                     decoration:
                         InputDecoration(labelText: loc.confirmNewPassword),
                     onSubmitted: (_) {
-                      if (!_loading) _submit();
+                      if (!_loading &&
+                          PasswordValidator.isValid(_next.text) &&
+                          _next.text == _confirm.text) {
+                        _submit();
+                      }
                     },
                   ),
                   if (_error != null) ...[
@@ -170,16 +179,19 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                       style: const TextStyle(color: AppColors.danger),
                     ),
                   ],
-                  
                   const SizedBox(height: 20),
-                  
                   FilledButton(
-                    onPressed: _loading ? null : _submit,
+                    onPressed: _loading ||
+                            !PasswordValidator.isValid(_next.text) ||
+                            _next.text != _confirm.text ||
+                            _current.text.isEmpty
+                        ? null
+                        : _submit,
                     child: _loading
-                        ? const SizedBox(
-                            height: 18,
-                            width: 18,
-                            child: ToothLoadingIndicator(size: 28, compact: true, color: Colors.white),
+                        ? const ToothLoadingIndicator(
+                            size: 20,
+                            compact: true,
+                            color: Colors.white,
                           )
                         : Text(loc.updatePassword),
                   ),

@@ -115,6 +115,7 @@ class AppLocalizations {
   String get settingsAutoShade => _t('settings.autoShade');
   String get settingsAutoShadeSub => _t('settings.autoShadeSub');
   String get settingsAutoQuality => _t('settings.autoQuality');
+  
   String get settingsAutoQualitySub => _t('settings.autoQualitySub');
   String get settingsAutoScanBody => _t('settings.autoScanBody');
   String get settingsAutoScanBodySub => _t('settings.autoScanBodySub');
@@ -392,7 +393,8 @@ class AppLocalizations {
     'auth.alreadyHaveAccount': 'Already have an account? Sign in',
     'auth.errNameEmailPassword': 'Name, email, and password are required',
     'auth.errAllFieldsRequired': 'All fields are required',
-    'auth.errPasswordShort': 'Password must be at least 6 characters',
+    'auth.errPasswordShort':
+        'Password must be at least 8 characters with 1 uppercase letter and 1 number',
     'auth.errPasswordMismatch': 'Passwords do not match',
     'auth.errPhoneInvalid':
         'Phone must start with +49 and have exactly 11 digits after',
@@ -476,7 +478,8 @@ class AppLocalizations {
         'Your password was changed successfully. Please sign in again.',
     'profile.errNameEmail': 'Name and email are required',
     'profile.errEnterPasswords': 'Enter current and new password',
-    'profile.errNewPasswordShort': 'New password must be at least 6 characters',
+    'profile.errNewPasswordShort':
+        'New password must be at least 8 characters with 1 uppercase letter and 1 number',
     'profile.errNewPasswordMismatch': 'New passwords do not match',
     'profile.clinicHint': 'e.g. Elite Dent Munich',
     'dash.goodMorning': 'Good morning, Dr. {name}',
@@ -666,7 +669,8 @@ class AppLocalizations {
     'auth.alreadyHaveAccount': 'Bereits ein Konto? Anmelden',
     'auth.errNameEmailPassword': 'Name, E-Mail und Passwort sind erforderlich',
     'auth.errAllFieldsRequired': 'Alle Felder sind erforderlich',
-    'auth.errPasswordShort': 'Passwort muss mindestens 6 Zeichen haben',
+    'auth.errPasswordShort':
+        'Passwort muss mindestens 8 Zeichen, 1 Großbuchstaben und 1 Zahl haben',
     'auth.errPasswordMismatch': 'Passwörter stimmen nicht überein',
     'auth.errPhoneInvalid':
         'Telefonnummer muss mit +49 beginnen und genau 11 Ziffern danach haben',
@@ -756,7 +760,7 @@ class AppLocalizations {
     'profile.errNameEmail': 'Name und E-Mail sind erforderlich',
     'profile.errEnterPasswords': 'Aktuelles und neues Passwort eingeben',
     'profile.errNewPasswordShort':
-        'Neues Passwort muss mindestens 6 Zeichen haben',
+        'Neues Passwort muss mindestens 8 Zeichen, 1 Großbuchstaben und 1 Zahl haben',
     'profile.errNewPasswordMismatch': 'Neue Passwörter stimmen nicht überein',
     'profile.clinicHint': 'z. B. Elite Dent München',
     'dash.goodMorning': 'Guten Morgen, Dr. {name}',

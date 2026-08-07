@@ -6,6 +6,7 @@ import 'touchable.dart';
 
 export 'app_snackbar.dart';
 export 'busy_action.dart';
+export 'password_checklist.dart';
 export 'phone_field.dart';
 export 'tooth_loader.dart';
 

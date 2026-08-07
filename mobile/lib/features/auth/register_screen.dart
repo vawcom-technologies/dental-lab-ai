@@ -69,7 +69,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
     final normalizedPhone = PhoneNumbers.compose(phoneLocal);
-    if (password.length < 6) {
+    if (!PasswordValidator.isValid(password)) {
       setState(() {
         _error = loc.errPasswordShort;
         _info = null;
@@ -187,12 +187,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 TextField(
                   controller: _password,
                   obscureText: true,
+                  onChanged: (_) => setState(() {}),
                   decoration: InputDecoration(labelText: '${loc.password} *'),
                 ),
+                const SizedBox(height: 10),
+                PasswordChecklist(password: _password.text),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _confirm,
                   obscureText: true,
+                  onChanged: (_) => setState(() {}),
                   decoration: InputDecoration(
                     labelText: '${loc.confirmPassword} *',
                   ),
@@ -207,7 +211,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ],
                 const SizedBox(height: 20),
                 FilledButton(
-                  onPressed: _loading || _info != null ? null : _submit,
+                  onPressed: _loading ||
+                          _info != null ||
+                          !PasswordValidator.isValid(_password.text) ||
+                          _password.text != _confirm.text
+                      ? null
+                      : _submit,
                   child: _loading
                       ? const ToothLoadingIndicator(
                           size: 20,

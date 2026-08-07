@@ -146,7 +146,7 @@ class _ProfilePageState extends State<ProfilePage> {
       AppSnackBars.error(context, msg);
       return;
     }
-    if (next.length < 6) {
+    if (!PasswordValidator.isValid(next)) {
       final msg = AppLocalizations.of(context).errNewPasswordShort;
       setState(() => _error = msg);
       AppSnackBars.error(context, msg);
@@ -349,6 +349,7 @@ class _ProfilePageState extends State<ProfilePage> {
                               TextField(
                                 controller: _currentPassword,
                                 obscureText: true,
+                                onChanged: (_) => setState(() {}),
                                 decoration: InputDecoration(
                                   labelText: loc.currentPassword,
                                 ),
@@ -357,14 +358,18 @@ class _ProfilePageState extends State<ProfilePage> {
                               TextField(
                                 controller: _newPassword,
                                 obscureText: true,
+                                onChanged: (_) => setState(() {}),
                                 decoration: InputDecoration(
                                   labelText: loc.newPassword,
                                 ),
                               ),
+                              const SizedBox(height: 10),
+                              PasswordChecklist(password: _newPassword.text),
                               const SizedBox(height: 12),
                               TextField(
                                 controller: _confirmPassword,
                                 obscureText: true,
+                                onChanged: (_) => setState(() {}),
                                 decoration: InputDecoration(
                                   labelText: loc.confirmNewPassword,
                                 ),
@@ -373,9 +378,22 @@ class _ProfilePageState extends State<ProfilePage> {
                               Align(
                                 alignment: Alignment.centerLeft,
                                 child: FilledButton.icon(
-                                  onPressed:
-                                      _changingPassword ? null : _savePassword,
-                                  icon: const Icon(Icons.lock_outline, size: 18),
+                                  onPressed: _changingPassword ||
+                                          !PasswordValidator.isValid(
+                                            _newPassword.text,
+                                          ) ||
+                                          _newPassword.text !=
+                                              _confirmPassword.text ||
+                                          _currentPassword.text.isEmpty
+                                      ? null
+                                      : _savePassword,
+                                  icon: _changingPassword
+                                      ? const ToothLoadingIndicator(
+                                          size: 16,
+                                          compact: true,
+                                          color: Colors.white,
+                                        )
+                                      : const Icon(Icons.lock_outline, size: 18),
                                   label: Text(
                                     _changingPassword
                                         ? loc.updating
