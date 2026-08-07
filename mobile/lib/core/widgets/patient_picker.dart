@@ -23,7 +23,8 @@ class PatientPickerButton extends StatefulWidget {
 
   final List<Map<String, dynamic>> patients;
   final Map<String, dynamic>? selected;
-  final int? caseId;
+  /// Legacy int case ids or future UUID strings.
+  final Object? caseId;
   final bool enabled;
   final ValueChanged<Map<String, dynamic>> onSelect;
   final VoidCallback onAdd;
@@ -38,7 +39,8 @@ class PatientPickerButton extends StatefulWidget {
 class _PatientPickerButtonState extends State<PatientPickerButton> {
   final _menu = MenuController();
 
-  int _pid(Map<String, dynamic> row) => (row['id'] as num).toInt();
+  /// GDPR patients use UUID strings; legacy rows used ints.
+  String _pid(Map<String, dynamic> row) => '${row['id'] ?? ''}';
 
   String _name(Map<String, dynamic> p) =>
       '${p['first_name'] ?? ''} ${p['last_name'] ?? ''}'.trim();
@@ -55,7 +57,7 @@ class _PatientPickerButtonState extends State<PatientPickerButton> {
         ? (widget.patients.isEmpty
             ? 'None yet'
             : '${widget.patients.length} available')
-        : 'Case #${widget.caseId ?? '—'}';
+        : (widget.caseId == null ? 'Ready for detect' : 'Case #${widget.caseId}');
 
     return MenuAnchor(
       controller: _menu,

@@ -504,7 +504,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
               PatientPickerButton(
                 patients: _patients,
                 selected: _patient,
-                caseId: (_case?['id'] as num?)?.toInt(),
+                caseId: _case?['id'],
                 enabled: !_busy && !_saving,
                 onSelect: _selectPatient,
                 onAdd: _quickAddPatient,

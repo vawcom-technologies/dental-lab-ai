@@ -189,7 +189,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
     }
   }
 
-  int _pid(Map<String, dynamic> row) => (row['id'] as num).toInt();
+  String _pid(Map<String, dynamic> row) => '${row['id'] ?? ''}';
 
   Future<void> _reloadPatients({bool selectFirst = false}) async {
     final patients = await widget.api.listPatients();
@@ -227,20 +227,24 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
       final patientId = _pid(patient);
       final cases = await widget.api.listCases();
       final mine = cases
-          .where((c) => (c['patient_id'] as num).toInt() == patientId)
+          .where((c) => '${c['patient_id']}' == patientId)
           .toList();
-      final caseRow = mine.isEmpty
-          ? await widget.api.createCase(patientId)
-          : mine.first;
+      Map<String, dynamic>? caseRow = mine.isEmpty ? null : mine.first;
+      if (caseRow == null) {
+        final asInt = int.tryParse(patientId);
+        if (asInt != null) {
+          caseRow = await widget.api.createCase(asInt);
+        }
+      }
       if (!mounted) return;
       setState(() => _case = caseRow);
-      await _restoreSaved(caseRow['id'] as int);
-    } catch (e) {
+      final caseId = caseRow?['id'];
+      if (caseId is num) {
+        await _restoreSaved(caseId.toInt());
+      }
+    } catch (_) {
       if (!mounted) return;
-      setState(() {
-        _case = null;
-        _error = e.toString().replaceFirst('Exception: ', '');
-      });
+      setState(() => _case = null);
     }
   }
 
@@ -602,7 +606,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
         PatientPickerButton(
           patients: _patients,
           selected: _patient,
-          caseId: (_case?['id'] as num?)?.toInt(),
+          caseId: _case?['id'],
           onSelect: _selectPatient,
           onAdd: _quickAddPatient,
           onRefresh: _reloadPatients,
