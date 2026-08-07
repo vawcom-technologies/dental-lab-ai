@@ -1,11 +1,13 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/ui_kit.dart';
 import '../models/chat_models.dart';
 import '../state/chat_controller.dart';
+import '../widgets/chat_bubble.dart';
+import '../widgets/chat_composer.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({
@@ -48,7 +50,6 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _onScroll() {
     if (!_scroll.hasClients) return;
-    // reverse:true → maxScrollExtent is older history
     if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 80) {
       context.read<ChatController>().loadOlderMessages();
     }
@@ -59,6 +60,22 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.trim().isEmpty) return;
     context.read<ChatController>().sendText(text);
     _compose.clear();
+  }
+
+  Future<void> _sendMedia({
+    required Uint8List fileBytes,
+    required String fileName,
+    required String mediaType,
+    double? durationSeconds,
+    String? content,
+  }) async {
+    await context.read<ChatController>().sendMedia(
+          fileBytes: fileBytes,
+          fileName: fileName,
+          mediaType: mediaType,
+          durationSeconds: durationSeconds,
+          content: content,
+        );
   }
 
   @override
@@ -146,12 +163,11 @@ class _ChatScreenState extends State<ChatScreen> {
                                   ),
                                 );
                               }
-                              // reverse list: index 0 = newest
                               final message =
                                   messages[messages.length - 1 - index];
-                              final mine = me != null &&
-                                  message.senderId == me;
-                              return _MessageBubble(
+                              final mine =
+                                  me != null && message.senderId == me;
+                              return ChatMessageBubble(
                                 message: message,
                                 mine: mine,
                                 showSeenEye: mine &&
@@ -170,10 +186,11 @@ class _ChatScreenState extends State<ChatScreen> {
               message: controller.replyTo!,
               onClear: controller.clearReply,
             ),
-          _Composer(
+          ChatComposer(
             controller: _compose,
             sending: controller.sending,
             onSend: _send,
+            onSendMedia: _sendMedia,
           ),
         ],
       ),
@@ -270,123 +287,6 @@ class _ChatHeader extends StatelessWidget {
   }
 }
 
-class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({
-    required this.message,
-    required this.mine,
-    required this.onReply,
-    this.showSeenEye = false,
-  });
-
-  final Message message;
-  final bool mine;
-  final VoidCallback onReply;
-  final bool showSeenEye;
-
-  @override
-  Widget build(BuildContext context) {
-    final time = message.createdAt != null
-        ? DateFormat.Hm().format(message.createdAt!.toLocal())
-        : '';
-
-    return Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
-        onLongPress: onReply,
-        onHorizontalDragEnd: (details) {
-          if (details.primaryVelocity != null &&
-              details.primaryVelocity!.abs() > 200) {
-            onReply();
-          }
-        },
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.sizeOf(context).width * 0.72,
-          ),
-          child: Column(
-            crossAxisAlignment:
-                mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-            children: [
-              Container(
-                margin: EdgeInsets.only(bottom: showSeenEye ? 2 : 8),
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-                decoration: BoxDecoration(
-                  color: mine ? AppColors.dentalBlue : AppColors.neo,
-                  borderRadius: BorderRadius.only(
-                    topLeft: const Radius.circular(16),
-                    topRight: const Radius.circular(16),
-                    bottomLeft: Radius.circular(mine ? 16 : 4),
-                    bottomRight: Radius.circular(mine ? 4 : 16),
-                  ),
-                  boxShadow: NeoShadows.soft(depth: 0.35),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (message.replyTo != null) ...[
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(8),
-                        margin: const EdgeInsets.only(bottom: 8),
-                        decoration: BoxDecoration(
-                          color: (mine ? Colors.white : AppColors.navy)
-                              .withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border(
-                            left: BorderSide(
-                              color: mine
-                                  ? Colors.white70
-                                  : AppColors.dentalBlue,
-                              width: 3,
-                            ),
-                          ),
-                        ),
-                        child: Text(
-                          message.replyTo!.content,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: mine ? Colors.white70 : AppColors.muted,
-                          ),
-                        ),
-                      ),
-                    ],
-                    Text(
-                      message.content,
-                      style: TextStyle(
-                        color: mine ? Colors.white : AppColors.navy,
-                        height: 1.35,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      time,
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: mine ? Colors.white70 : AppColors.muted,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (showSeenEye)
-                const Padding(
-                  padding: EdgeInsets.only(right: 4, bottom: 8),
-                  child: Icon(
-                    Icons.remove_red_eye_outlined,
-                    size: 14,
-                    color: AppColors.muted,
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _ReplyPreviewBar extends StatelessWidget {
   const _ReplyPreviewBar({
     required this.message,
@@ -431,7 +331,7 @@ class _ReplyPreviewBar extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  message.content,
+                  message.previewText,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 12, color: AppColors.muted),
@@ -443,69 +343,6 @@ class _ReplyPreviewBar extends StatelessWidget {
             onPressed: onClear,
             icon: const Icon(Icons.close, size: 18),
             color: AppColors.muted,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Composer extends StatelessWidget {
-  const _Composer({
-    required this.controller,
-    required this.sending,
-    required this.onSend,
-  });
-
-  final TextEditingController controller;
-  final bool sending;
-  final VoidCallback onSend;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: controller,
-              minLines: 1,
-              maxLines: 4,
-              textInputAction: TextInputAction.send,
-              onSubmitted: (_) => onSend(),
-              decoration: InputDecoration(
-                hintText: 'Type a message…',
-                filled: true,
-                fillColor: AppColors.neo,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          FilledButton(
-            onPressed: sending ? null : onSend,
-            style: FilledButton.styleFrom(
-              shape: const CircleBorder(),
-              padding: const EdgeInsets.all(14),
-            ),
-            child: sending
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Icon(Icons.send_rounded, size: 20),
           ),
         ],
       ),

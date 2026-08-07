@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
-import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/brand_logo.dart';
@@ -80,6 +79,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       });
       return;
     }
+    if (_loading) return;
     setState(() {
       _loading = true;
       _error = null;
@@ -98,9 +98,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final needsConfirmation = data['email_confirmation_required'] == true;
       final accessToken = data['access_token'] as String?;
       if (needsConfirmation || accessToken == null || accessToken.isEmpty) {
-        AppHaptics.success();
         final message = data['message'] as String? ??
             loc.emailConfirmationRequired;
+        if (mounted) AppSnackBars.success(context, message);
         // Pending admin verification / email confirm — return to login
         Navigator.of(context).pop(<String, String>{
           'message': message,
@@ -117,8 +117,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
         ),
       );    } catch (e) {
-      AppHaptics.warn();
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() => _error = msg);
+      if (mounted) AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _loading = false);
     }

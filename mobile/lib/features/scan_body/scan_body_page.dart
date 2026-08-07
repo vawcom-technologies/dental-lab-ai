@@ -244,6 +244,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
   }
 
   Future<void> _matchManual() async {
+    if (_busy) return;
     final mm = double.tryParse(_diameterCtrl.text.trim());
     if (mm == null || mm <= 0) {
       setState(() => _error = 'Enter a valid diameter in mm');
@@ -265,6 +266,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
   }
 
   Future<void> _detectFromPhoto({double? knownDiameterMm}) async {
+    if (_busy) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -404,6 +406,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     if (_case == null) {
       setState(() => _error = 'Select a patient first');
       return;
@@ -443,8 +446,17 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
             'Saved ${_match!['matched_manufacturer']} · '
             'tooth ${_match!['matched_tooth_position']} on case #${_case!['id']}',
       );
+      if (mounted) {
+        AppSnackBars.success(
+          context,
+          'Saved ${_match!['matched_manufacturer']} · '
+          'tooth ${_match!['matched_tooth_position']} on case #${_case!['id']}',
+        );
+      }
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() => _error = msg);
+      if (mounted) AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _saving = false);
     }

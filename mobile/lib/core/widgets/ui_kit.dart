@@ -4,6 +4,9 @@ import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import 'touchable.dart';
 
+export 'app_snackbar.dart';
+export 'busy_action.dart';
+
 class StatusChip extends StatelessWidget {
   const StatusChip({super.key, required this.statusKey});
 
@@ -244,11 +247,13 @@ class SoftFilterChip extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.enabled = true,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -259,6 +264,7 @@ class SoftFilterChip extends StatelessWidget {
       heightFactor: 1,
       child: Touchable(
         onTap: onTap,
+        enabled: enabled,
         selectionHaptic: true,
         borderRadius: BorderRadius.circular(20),
         minHeight: 32,

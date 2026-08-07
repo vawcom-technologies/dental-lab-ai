@@ -300,7 +300,6 @@ class AppLocalizations {
   String get reportsTopEmpty => _t('reports.topEmpty');
   String get reportsExports => _t('reports.exports');
   String get reportsExportsHint => _t('reports.exportsHint');
-  String get reportsDatev => _t('reports.datev');
   String get reportsSummaryExport => _t('reports.summaryExport');
   String get reportsSummaryTitle => _t('reports.summaryTitle');
   String get reportsClose => _t('reports.close');
@@ -308,9 +307,11 @@ class AppLocalizations {
   String get reportsCreatedInPeriod => _t('reports.createdInPeriod');
   String get reportsCompletedInPeriod => _t('reports.completedInPeriod');
   String get reportsOpenMessages => _t('reports.openMessages');
+
   String get reportsOpenPatients => _t('reports.openPatients');
   String get reportsClinicalHint => _t('reports.clinicalHint');
   String get reportsNoData => _t('reports.noData');
+
   String get reportsCasesCol => _t('reports.casesCol');
   String get reportsArtifacts => _t('reports.artifacts');
 
@@ -538,7 +539,7 @@ class AppLocalizations {
     'features.reports': 'Reports',
     'features.selectPatient': 'Select patient',
     'reports.subtitle':
-        'Clinic performance, case pipeline, AI coverage, and DATEV exports',
+        'Clinic performance, case pipeline, and AI coverage',
     'reports.loading': 'Building clinic report…',
     'reports.period7': '7 days',
     'reports.period30': '30 days',
@@ -571,8 +572,7 @@ class AppLocalizations {
     'reports.topEmpty': 'No patient case volume yet.',
     'reports.exports': 'Exports',
     'reports.exportsHint':
-        'DATEV XML per patient, or a printable clinic summary for the period.',
-    'reports.datev': 'DATEV XML',
+        'A printable clinic summary for the selected period.',
     'reports.summaryExport': 'Clinic summary',
     'reports.summaryTitle': 'Clinic report summary',
     'reports.close': 'Close',
@@ -821,7 +821,7 @@ class AppLocalizations {
     'features.reports': 'Berichte',
     'features.selectPatient': 'Patient wählen',
     'reports.subtitle':
-        'Praxisleistung, Fall-Pipeline, KI-Abdeckung und DATEV-Exporte',
+        'Praxisleistung, Fall-Pipeline und KI-Abdeckung',
     'reports.loading': 'Klinikbericht wird erstellt…',
     'reports.period7': '7 Tage',
     'reports.period30': '30 Tage',
@@ -854,8 +854,7 @@ class AppLocalizations {
     'reports.topEmpty': 'Noch kein Fallvolumen.',
     'reports.exports': 'Exporte',
     'reports.exportsHint':
-        'DATEV-XML pro Patient oder eine druckbare Klinikübersicht für den Zeitraum.',
-    'reports.datev': 'DATEV-XML',
+        'Eine druckbare Klinikübersicht für den ausgewählten Zeitraum.',
     'reports.summaryExport': 'Klinikübersicht',
     'reports.summaryTitle': 'Klinikbericht',
     'reports.close': 'Schließen',

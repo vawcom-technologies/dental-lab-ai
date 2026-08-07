@@ -71,6 +71,7 @@ class AdminUsersController extends ChangeNotifier {
   }
 
   Future<void> load({int skip = 0, int limit = 50}) async {
+    if (_loading) return;
     _loading = true;
     _error = null;
     _skip = skip;
@@ -96,6 +97,9 @@ class AdminUsersController extends ChangeNotifier {
   Future<void> refresh() => load(skip: _skip, limit: _limit);
 
   Future<String> verifyUser(String userId) async {
+    if (_actionBusy) {
+      throw StateError('Another laboratory action is already in progress');
+    }
     _actionBusy = true;
     _error = null;
     notifyListeners();
@@ -116,6 +120,9 @@ class AdminUsersController extends ChangeNotifier {
   }
 
   Future<String> softDeleteUser(String userId) async {
+    if (_actionBusy) {
+      throw StateError('Another laboratory action is already in progress');
+    }
     _actionBusy = true;
     _error = null;
     notifyListeners();
@@ -135,6 +142,9 @@ class AdminUsersController extends ChangeNotifier {
   }
 
   Future<String> hardDeleteUser(String userId) async {
+    if (_actionBusy) {
+      throw StateError('Another laboratory action is already in progress');
+    }
     _actionBusy = true;
     _error = null;
     notifyListeners();

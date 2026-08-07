@@ -147,10 +147,9 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context).pop(); // dismiss spinner
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-        ),
+      AppSnackBars.error(
+        context,
+        e.toString().replaceFirst('Exception: ', ''),
       );
     } finally {
       if (mounted) setState(() => _creating = false);

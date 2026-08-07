@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, health, admin, chat, users
+from app.api import auth, health, admin, chat, users, media, patients_gdpr
 from app.core.debug_middleware import DebugRequestMiddleware, configure_api_logging
 from app.openapi_docs import attach_custom_openapi
 
@@ -43,6 +43,14 @@ app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(chat.router, prefix="/api", tags=["chat"])
 # Contact discovery: GET /api/users
 app.include_router(users.router, prefix="/api", tags=["Users & Contacts"])
+# Chat media upload: POST /api/media/chat-upload
+app.include_router(media.router, prefix="/api/media", tags=["Chat Media"])
+# GDPR patients: /api/patients...
+app.include_router(
+    patients_gdpr.router,
+    prefix="/api/patients",
+    tags=["Patients (GDPR)"],
+)
 # Chat WebSocket: /ws/chat?token=<access_token>
 app.include_router(chat.ws_router, tags=["chat"])
 

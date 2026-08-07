@@ -221,7 +221,46 @@ class ApiClient {
   Future<List<Map<String, dynamic>>> listPatients() async {
     final res = await http.get(Uri.parse('$baseUrl/api/patients'), headers: _jsonHeaders);
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
+    final decoded = jsonDecode(res.body);
+    // GDPR AgentResponse envelope
+    if (decoded is Map) {
+      final status = '${decoded['status'] ?? ''}';
+      if (status == 'ERROR') {
+        final err = decoded['error'];
+        final msg = err is Map
+            ? '${err['message'] ?? 'Failed to list patients'}'
+            : 'Failed to list patients';
+        throw Exception(msg);
+      }
+      final payload = decoded['payload'];
+      final patients = payload is Map ? payload['patients'] : null;
+      if (patients is List) {
+        return patients
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      }
+      return const [];
+    }
+    if (decoded is List) {
+      return decoded.cast<Map<String, dynamic>>();
+    }
+    return const [];
+  }
+
+  /// Contacts for patient access sharing (`GET /api/users`).
+  Future<List<Map<String, dynamic>>> listChatContacts({int limit = 100}) async {
+    final uri = Uri.parse('$baseUrl/api/users').replace(
+      queryParameters: {'limit': '$limit'},
+    );
+    final res = await http.get(uri, headers: _jsonHeaders);
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    final body = jsonDecode(res.body);
+    if (body is! List) return const [];
+    return body
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
   }
 
   Future<Map<String, dynamic>> createPatient(Map<String, dynamic> body) async {
@@ -230,17 +269,53 @@ class ApiClient {
       headers: _jsonHeaders,
       body: jsonEncode(body),
     );
-    if (res.statusCode != 201) throw Exception(_errorMessage(res));
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(_errorMessage(res));
+    }
     AppHaptics.success();
-    return jsonDecode(res.body) as Map<String, dynamic>;
+    final decoded = jsonDecode(res.body);
+    if (decoded is Map) {
+      final status = '${decoded['status'] ?? ''}';
+      if (status == 'ERROR') {
+        final err = decoded['error'];
+        final msg = err is Map
+            ? '${err['message'] ?? 'Failed to create patient'}'
+            : 'Failed to create patient';
+        throw Exception(msg);
+      }
+      final payload = decoded['payload'];
+      final patient = payload is Map ? payload['patient'] : null;
+      if (patient is Map) return Map<String, dynamic>.from(patient);
+      return Map<String, dynamic>.from(decoded);
+    }
+    throw Exception('Invalid create patient response');
   }
 
-  Future<void> deletePatient(int id) async {
-    final res = await http.delete(
-      Uri.parse('$baseUrl/api/patients/$id'),
-      headers: _jsonHeaders,
+  Future<void> deletePatient(Object id, {bool hard = false}) async {
+    final uri = Uri.parse('$baseUrl/api/patients/$id').replace(
+      queryParameters: {'delete_type': hard ? 'hard' : 'soft'},
     );
-    if (res.statusCode != 204) throw Exception(_errorMessage(res));
+    final res = await http.delete(uri, headers: _jsonHeaders);
+    if (res.statusCode != 200 && res.statusCode != 204) {
+      throw Exception(_errorMessage(res));
+    }
+    // GDPR envelope may still return ERROR with 200-family codes rarely;
+    // parse when JSON body present.
+    if (res.body.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(res.body);
+        if (decoded is Map && '${decoded['status']}' == 'ERROR') {
+          final err = decoded['error'];
+          throw Exception(
+            err is Map
+                ? '${err['message'] ?? 'Delete failed'}'
+                : 'Delete failed',
+          );
+        }
+      } catch (e) {
+        if (e is Exception && e.toString().contains('Delete')) rethrow;
+      }
+    }
     AppHaptics.warn();
   }
 
@@ -489,15 +564,6 @@ class ApiClient {
       throw Exception(_errorMessage(res));
     }
     AppHaptics.warn();
-  }
-
-  Future<String> exportDatevXml(int patientId) async {
-    final res = await http.get(
-      Uri.parse('$baseUrl/api/exports/$patientId/datev.xml'),
-      headers: _authHeaders,
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return res.body;
   }
 
   /// Clinic analytics. Pass [days] = 0 for all-time.
@@ -812,11 +878,20 @@ class ApiClient {
   String _errorMessage(http.Response res) {
     try {
       final body = jsonDecode(res.body);
-      if (body is Map && body['detail'] != null) {
-        return _formatDetail(body['detail']);
-      }
-      if (body is Map && body['message'] is String) {
-        return body['message'] as String;
+      if (body is Map) {
+        // GDPR AgentResponse envelope
+        if (body['status'] == 'ERROR') {
+          final err = body['error'];
+          if (err is Map && err['message'] != null) {
+            return err['message'].toString();
+          }
+        }
+        if (body['detail'] != null) {
+          return _formatDetail(body['detail']);
+        }
+        if (body['message'] is String) {
+          return body['message'] as String;
+        }
       }
     } catch (_) {}
     return 'Request failed (${res.statusCode})';

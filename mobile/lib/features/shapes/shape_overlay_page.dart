@@ -294,6 +294,8 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
       setState(() => _error = 'First and last name are required');
       return;
     }
+    if (_saving) return;
+    setState(() => _saving = true);
     try {
       final created = await widget.api.createPatient({
         'first_name': first,
@@ -308,6 +310,8 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
       if (mounted) {
         setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
       }
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
@@ -468,6 +472,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     if (_case == null) {
       setState(() => _error = 'Select a patient first');
       return;
@@ -499,8 +504,16 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
         _status =
             'Saved “${_selected.label}” to case #${_case!['id']}';
       });
+      if (mounted) {
+        AppSnackBars.success(
+          context,
+          'Saved “${_selected.label}” to case #${_case!['id']}',
+        );
+      }
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() => _error = msg);
+      if (mounted) AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -593,11 +606,12 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
           onSelect: _selectPatient,
           onAdd: _quickAddPatient,
           onRefresh: _reloadPatients,
+          enabled: !_saving,
           emptyHint: 'No patients yet — add one to save the try-on.',
         ),
         const SizedBox(width: 8),
         OutlinedButton.icon(
-          onPressed: _pickPhoto,
+          onPressed: _saving ? null : _pickPhoto,
           icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
           label: Text(_photoBytes == null ? 'Load photo' : 'Change photo'),
         ),

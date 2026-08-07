@@ -4,7 +4,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
-import '../../core/haptics/app_haptics.dart';
 import '../../core/layout/adaptive.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/offline/sync_service.dart';
@@ -181,7 +180,7 @@ class _ScansPageState extends State<ScansPage> {
   }
 
   Future<void> _upload() async {
-    if (_case == null || _patient == null) return;
+    if (_busy || _case == null || _patient == null) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -197,6 +196,7 @@ class _ScansPageState extends State<ScansPage> {
       final bytes = file.bytes;
       if (bytes == null) {
         setState(() => _error = 'Could not read file bytes');
+        if (mounted) AppSnackBars.error(context, 'Could not read file bytes');
         return;
       }
       final name = file.name;
@@ -217,14 +217,22 @@ class _ScansPageState extends State<ScansPage> {
       if (scans.isNotEmpty) {
         await _loadPreviewFor(scans.first);
       }
+      if (mounted) AppSnackBars.success(context, 'Scan uploaded successfully');
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (mounted) {
+        AppSnackBars.error(
+          context,
+          e.toString().replaceFirst('Exception: ', ''),
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _deleteScan(Map<String, dynamic> scan) async {
+    if (_busy) return;
     final caseId = scan['case_id'] as int? ?? _case?['id'] as int?;
     final scanId = scan['id'];
     if (caseId is! int || scanId is! int) return;
@@ -259,7 +267,6 @@ class _ScansPageState extends State<ScansPage> {
     });
     try {
       await widget.api.deleteScan(caseId: caseId, scanId: scanId);
-      AppHaptics.success();
       final pid = _patient?['id'] as int?;
       if (pid == null) return;
       final scans = await _scansForPatient(pid);
@@ -277,9 +284,12 @@ class _ScansPageState extends State<ScansPage> {
       if (scans.isNotEmpty) {
         await _loadPreviewFor(scans.first);
       }
+      if (mounted) AppSnackBars.success(context, 'Scan deleted');
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() => _error = msg);
+      AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _busy = false);
     }

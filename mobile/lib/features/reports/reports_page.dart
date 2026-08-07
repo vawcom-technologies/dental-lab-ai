@@ -27,7 +27,6 @@ class _ReportsPageState extends State<ReportsPage> {
   String? _error;
   int _days = 30;
   Map<String, dynamic>? _summary;
-  List<Map<String, dynamic>> _patients = [];
 
   @override
   void initState() {
@@ -36,19 +35,16 @@ class _ReportsPageState extends State<ReportsPage> {
   }
 
   Future<void> _load() async {
+    if (_loading) return;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final results = await Future.wait([
-        widget.api.fetchReportsSummary(days: _days),
-        widget.api.listPatients(),
-      ]);
+      final summary = await widget.api.fetchReportsSummary(days: _days);
       if (!mounted) return;
       setState(() {
-        _summary = results[0] as Map<String, dynamic>;
-        _patients = results[1] as List<Map<String, dynamic>>;
+        _summary = summary;
         _loading = false;
       });
     } catch (e) {
@@ -113,79 +109,6 @@ class _ReportsPageState extends State<ReportsPage> {
       _ => loc.reportsPeriod30,
     };
     return '$prefix · $period';
-  }
-
-  Future<void> _showDatevPicker() async {
-    if (_patients.isEmpty) return;
-    final loc = AppLocalizations.of(context);
-    final selected = await showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(loc.reportsDatev),
-        content: SizedBox(
-          width: 420,
-          height: 360,
-          child: ListView.separated(
-            itemCount: _patients.length,
-            separatorBuilder: (_, _) => const Divider(height: 1),
-            itemBuilder: (context, i) {
-              final p = _patients[i];
-              final name =
-                  '${p['first_name'] ?? ''} ${p['last_name'] ?? ''}'.trim();
-              return ListTile(
-                title: Text(name.isEmpty ? 'Patient #${p['id']}' : name),
-                subtitle: Text('${p['health_insurance'] ?? '—'}'),
-                onTap: () => Navigator.pop(ctx, p),
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(loc.reportsClose),
-          ),
-        ],
-      ),
-    );
-    if (selected == null || !mounted) return;
-    final id = selected['id'];
-    if (id is! int) return;
-    try {
-      final xml = await widget.api.exportDatevXml(id);
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(loc.reportsDatev),
-          content: SizedBox(
-            width: 520,
-            height: 360,
-            child: SingleChildScrollView(
-              child: SelectableText(xml, style: const TextStyle(fontSize: 12)),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                await Clipboard.setData(ClipboardData(text: xml));
-                if (ctx.mounted) Navigator.pop(ctx);
-              },
-              child: const Text('Copy'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: Text(loc.reportsClose),
-            ),
-          ],
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
-      );
-    }
   }
 
   Future<void> _showClinicSummary() async {
@@ -281,11 +204,6 @@ class _ReportsPageState extends State<ReportsPage> {
                 icon: const Icon(Icons.refresh, size: 20),
               ),
               OutlinedButton.icon(
-                onPressed: _loading || _patients.isEmpty ? null : _showDatevPicker,
-                icon: const Icon(Icons.code, size: 18),
-                label: Text(loc.reportsDatev),
-              ),
-              OutlinedButton.icon(
                 onPressed: _loading || _summary == null ? null : _showClinicSummary,
                 icon: const Icon(Icons.description_outlined, size: 18),
                 label: Text(loc.reportsSummaryExport),
@@ -300,21 +218,25 @@ class _ReportsPageState extends State<ReportsPage> {
               SoftFilterChip(
                 label: loc.reportsPeriod7,
                 selected: _days == 7,
+                enabled: !_loading,
                 onTap: () => _setPeriod(7),
               ),
               SoftFilterChip(
                 label: loc.reportsPeriod30,
                 selected: _days == 30,
+                enabled: !_loading,
                 onTap: () => _setPeriod(30),
               ),
               SoftFilterChip(
                 label: loc.reportsPeriod90,
                 selected: _days == 90,
+                enabled: !_loading,
                 onTap: () => _setPeriod(90),
               ),
               SoftFilterChip(
                 label: loc.reportsPeriodAll,
                 selected: _days == 0,
+                enabled: !_loading,
                 onTap: () => _setPeriod(0),
               ),
             ],
@@ -484,9 +406,7 @@ class _ReportsPageState extends State<ReportsPage> {
                         const SizedBox(height: 14),
                         _ExportsCard(
                           loc: loc,
-                          onDatev: _showDatevPicker,
                           onSummary: _showClinicSummary,
-                          patientsEmpty: _patients.isEmpty,
                         ),
                         const SizedBox(height: 8),
                       ],
@@ -1337,15 +1257,11 @@ class _TopPatientsCard extends StatelessWidget {
 class _ExportsCard extends StatelessWidget {
   const _ExportsCard({
     required this.loc,
-    required this.onDatev,
     required this.onSummary,
-    required this.patientsEmpty,
   });
 
   final AppLocalizations loc;
-  final VoidCallback onDatev;
   final VoidCallback onSummary;
-  final bool patientsEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -1373,12 +1289,6 @@ class _ExportsCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          OutlinedButton.icon(
-            onPressed: patientsEmpty ? null : onDatev,
-            icon: const Icon(Icons.code, size: 18),
-            label: Text(loc.reportsDatev),
-          ),
-          const SizedBox(width: 8),
           FilledButton.icon(
             onPressed: onSummary,
             icon: const Icon(Icons.description_outlined, size: 18),

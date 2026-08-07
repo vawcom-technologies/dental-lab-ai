@@ -15,7 +15,9 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Elite Dent connects to the lab server on your local network.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Elite Dent needs the camera to capture chairside patient photos for lab cases.</string>
+	<string>Elite Dent needs the camera to capture chairside patient photos for lab cases and chat image messages.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Elite Dent needs the microphone to record voice notes in chat.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Elite Dent can import existing patient photos from your library when needed.</string>
 	<key>CFBundleDisplayName</key>

@@ -80,7 +80,8 @@ class ChatController extends ChangeNotifier {
           p.role,
           AppRoles.label(p.role),
           p.subtitle,
-          c.lastMessage?.content,
+          c.lastMessage?.previewText,
+          c.lastMessage?.mediaType,
         ].whereType<String>().join(' ').toLowerCase();
         return blob.contains(q);
       }).toList();
@@ -152,6 +153,7 @@ class ChatController extends ChangeNotifier {
   }
 
   Future<void> openConversation(Conversation conversation) async {
+    if (_loadingMessages) return;
     if (_active?.id == conversation.id && _messages.isNotEmpty) {
       if (_viewingThread) markActiveAsRead();
       return;
@@ -279,42 +281,61 @@ class ChatController extends ChangeNotifier {
     }
   }
 
-  void markActiveAsRead() {
-    if (!_viewingThread) return;
+  /// Upload media via `POST /api/media/chat-upload`.
+  /// Backend also broadcasts `new_message` over WS — local insert is de-duped by id.
+  Future<void> sendMedia({
+    required Uint8List fileBytes,
+    required String fileName,
+    required String mediaType,
+    double? durationSeconds,
+    String? content,
+  }) async {
     final active = _active;
-    if (active == null) return;
-    _socket.markAsRead(active.id);
-    _patchConversation(
-      active.id,
-      (c) => c.copyWith(unreadCount: 0),
-    );
+    if (active == null || _sending) return;
+
+    _sending = true;
+    _threadError = null;
+    notifyListeners();
+
+    try {
+      final message = await _apiService.sendMediaMessage(
+        fileBytes: fileBytes,
+        fileName: fileName,
+        conversationId: active.id,
+        mediaType: mediaType,
+        durationSeconds: durationSeconds,
+        content: content,
+        replyToMessageId: _replyTo?.id,
+      );
+      _replyTo = null;
+      _upsertMessage(message);
+    } catch (e) {
+      _threadError = e.toString().replaceFirst('Exception: ', '');
+    } finally {
+      _sending = false;
+      notifyListeners();
+    }
   }
 
-  void _onSocketMessage(Message message) {
+  /// Append message if not already present (HTTP response + WS broadcast).
+  void _upsertMessage(Message message) {
     final me = currentUserId;
     final isMine = me != null && message.senderId == me;
     final isOpenAndViewing =
         _viewingThread && _active?.id == message.conversationId;
 
-    // Upsert into open thread only while the chat UI is visible
-    if (isOpenAndViewing) {
+    if (_active?.id == message.conversationId) {
       final exists = _messages.any((m) => m.id == message.id);
       if (!exists) {
         _messages.add(message);
       }
-      if (!isMine) {
+      // Auto mark-as-read for any inbound type (text / voice / image / document)
+      // while the thread is visibly open.
+      if (isOpenAndViewing && !isMine) {
         _socket.markAsRead(message.conversationId);
-      }
-    } else if (_active?.id == message.conversationId && !isMine) {
-      // Thread selected but not viewing — still append locally if loaded,
-      // but do NOT mark as read.
-      final exists = _messages.any((m) => m.id == message.id);
-      if (!exists) {
-        _messages.add(message);
       }
     }
 
-    // Update inbox row
     final idx =
         _conversations.indexWhere((c) => c.id == message.conversationId);
     if (idx >= 0) {
@@ -323,7 +344,7 @@ class ChatController extends ChangeNotifier {
       if (!isMine) {
         if (isOpenAndViewing) {
           unread = 0;
-        } else {
+        } else if (existing.lastMessage?.id != message.id) {
           unread += 1;
         }
       }
@@ -338,9 +359,24 @@ class ChatController extends ChangeNotifier {
         _active = updated;
       }
     } else {
-      // Unknown room — refresh inbox
       loadInbox();
     }
+  }
+
+  void markActiveAsRead() {
+    if (!_viewingThread) return;
+    final active = _active;
+    if (active == null) return;
+    _socket.markAsRead(active.id);
+    _patchConversation(
+      active.id,
+      (c) => c.copyWith(unreadCount: 0),
+    );
+  }
+
+  void _onSocketMessage(Message message) {
+    // De-dupe by message.id (HTTP media upload also broadcasts new_message).
+    _upsertMessage(message);
     notifyListeners();
   }
 
@@ -351,9 +387,18 @@ class ChatController extends ChangeNotifier {
     if (_active?.id == event.conversationId) {
       for (var i = 0; i < _messages.length; i++) {
         final m = _messages[i];
-        final match = event.messageIds.isEmpty
-            ? (me != null && m.senderId == me && m.readAt == null)
-            : event.messageIds.contains(m.id);
+        final bool match;
+        if (event.messageIds.isNotEmpty) {
+          match = event.messageIds.contains(m.id);
+        } else if (me != null && event.readerId == me) {
+          // I read their inbound messages (incl. media / documents).
+          match = m.senderId != me && m.readAt == null;
+        } else if (me != null) {
+          // Partner read my outbound messages (incl. media / documents).
+          match = m.senderId == me && m.readAt == null;
+        } else {
+          match = false;
+        }
         if (match) {
           _messages[i] = m.copyWith(readAt: readAt);
         }
