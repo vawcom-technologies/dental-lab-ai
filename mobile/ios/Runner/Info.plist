@@ -20,6 +20,8 @@
 	<string>Elite Dent needs the microphone to record voice notes in chat.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Elite Dent can import existing patient photos from your library when needed.</string>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>CFBundleDisplayName</key>
 	<string>Dental Lab Ai</string>
 	<key>CFBundleExecutable</key>
