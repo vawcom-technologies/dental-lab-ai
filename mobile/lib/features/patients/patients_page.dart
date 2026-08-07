@@ -227,9 +227,11 @@ class _PatientsPageState extends State<PatientsPage> {
       listenable: _controller,
       builder: (context, _) {
         final rows = _controller.visiblePatients;
-        final blocked = _controller.mutating;
+        final opening = _controller.loadingDetail;
+        final blocked = _controller.mutating || opening;
         return BusyBarrier(
           busy: blocked,
+          message: opening ? 'Opening patient…' : null,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
             child: Column(
@@ -1300,6 +1302,14 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
 
   Future<void> _editNote(PatientNote note) async {
     if (widget.controller.mutating) return;
+    final me = widget.controller.currentUserId;
+    if (me == null || note.authorId != me) {
+      widget.onToast(
+        'Only the author can edit this clinical note.',
+        error: true,
+      );
+      return;
+    }
     final controller = TextEditingController(text: note.noteContent);
     final next = await showDialog<String>(
       context: context,
@@ -1385,6 +1395,14 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
 
   Future<void> _deleteNote(PatientNote note) async {
     if (widget.controller.mutating) return;
+    final me = widget.controller.currentUserId;
+    if (me == null || note.authorId != me) {
+      widget.onToast(
+        'Only the author can delete this clinical note.',
+        error: true,
+      );
+      return;
+    }
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1575,6 +1593,12 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                                             const SizedBox(height: 8),
                                         itemBuilder: (context, i) {
                                           final n = notes[i];
+                                          final me =
+                                              widget.controller.currentUserId;
+                                          final isAuthor =
+                                              me != null && n.authorId == me;
+                                          final canMutate =
+                                              isAuthor && !blocked;
                                           final when = n.createdAt == null
                                               ? ''
                                               : DateFormat.yMMMd()
@@ -1584,49 +1608,110 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                                           return SectionCard(
                                             padding: const EdgeInsets.all(12),
                                             depth: 0.4,
-                                            child: Column(
+                                            child: Row(
                                               crossAxisAlignment:
                                                   CrossAxisAlignment.start,
                                               children: [
-                                                Text(
-                                                  n.noteContent,
-                                                  style: const TextStyle(
-                                                    color: AppColors.navy,
-                                                    height: 1.35,
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Text(
+                                                        n.noteContent,
+                                                        style: const TextStyle(
+                                                          color: AppColors.navy,
+                                                          height: 1.35,
+                                                        ),
+                                                      ),
+                                                      if (when.isNotEmpty) ...[
+                                                        const SizedBox(
+                                                            height: 8),
+                                                        Text(
+                                                          when,
+                                                          style:
+                                                              const TextStyle(
+                                                            fontSize: 11,
+                                                            color:
+                                                                AppColors.muted,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ],
                                                   ),
                                                 ),
-                                                const SizedBox(height: 8),
-                                                Row(
+                                                const SizedBox(width: 8),
+                                                Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.end,
                                                   children: [
                                                     Text(
-                                                      when,
+                                                      n.displayAuthorName,
+                                                      textAlign:
+                                                          TextAlign.right,
                                                       style: const TextStyle(
-                                                        fontSize: 11,
-                                                        color: AppColors.muted,
+                                                        fontSize: 12,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                        color: AppColors.navy,
                                                       ),
                                                     ),
-                                                    const Spacer(),
-                                                    IconButton(
-                                                      tooltip: 'Edit note',
-                                                      onPressed: blocked
-                                                          ? null
-                                                          : () => _editNote(n),
-                                                      icon: const Icon(
-                                                        Icons.edit_outlined,
-                                                        size: 18,
-                                                      ),
-                                                    ),
-                                                    IconButton(
-                                                      tooltip: 'Delete note',
-                                                      onPressed: blocked
-                                                          ? null
-                                                          : () =>
-                                                              _deleteNote(n),
-                                                      icon: const Icon(
-                                                        Icons.delete_outline,
-                                                        size: 18,
-                                                        color: AppColors.danger,
-                                                      ),
+                                                    const SizedBox(height: 4),
+                                                    Row(
+                                                      mainAxisSize:
+                                                          MainAxisSize.min,
+                                                      children: [
+                                                        IconButton(
+                                                          tooltip: isAuthor
+                                                              ? 'Edit note'
+                                                              : 'Only the author can edit',
+                                                          visualDensity:
+                                                              VisualDensity
+                                                                  .compact,
+                                                          onPressed: canMutate
+                                                              ? () =>
+                                                                  _editNote(n)
+                                                              : null,
+                                                          icon: Icon(
+                                                            Icons.edit_outlined,
+                                                            size: 18,
+                                                            color: canMutate
+                                                                ? AppColors.navy
+                                                                : AppColors
+                                                                    .muted
+                                                                    .withValues(
+                                                                  alpha: 0.45,
+                                                                ),
+                                                          ),
+                                                        ),
+                                                        IconButton(
+                                                          tooltip: isAuthor
+                                                              ? 'Delete note'
+                                                              : 'Only the author can delete',
+                                                          visualDensity:
+                                                              VisualDensity
+                                                                  .compact,
+                                                          onPressed: canMutate
+                                                              ? () =>
+                                                                  _deleteNote(
+                                                                      n)
+                                                              : null,
+                                                          icon: Icon(
+                                                            Icons
+                                                                .delete_outline,
+                                                            size: 18,
+                                                            color: canMutate
+                                                                ? AppColors
+                                                                    .danger
+                                                                : AppColors
+                                                                    .muted
+                                                                    .withValues(
+                                                                  alpha: 0.45,
+                                                                ),
+                                                          ),
+                                                        ),
+                                                      ],
                                                     ),
                                                   ],
                                                 ),

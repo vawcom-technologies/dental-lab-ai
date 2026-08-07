@@ -122,15 +122,35 @@ def _patient_public(row: dict[str, Any]) -> dict[str, Any]:
     ).model_dump(mode="json")
 
 
-def _note_public(row: dict[str, Any], plaintext: str) -> dict[str, Any]:
+def _note_public(
+    row: dict[str, Any],
+    plaintext: str,
+    *,
+    author_name: str | None = None,
+) -> dict[str, Any]:
+    author_id = str(row["author_id"])
+    resolved = (author_name or "").strip() or "Unknown Practitioner"
     return PatientNoteOut(
         id=str(row["id"]),
         patient_id=str(row["patient_id"]),
-        author_id=str(row["author_id"]),
+        author_id=author_id,
+        author_name=resolved,
         note_content=plaintext,
         created_at=row.get("created_at"),
         updated_at=row.get("updated_at"),
     ).model_dump(mode="json")
+
+
+def _note_author_display_name(
+    profile: dict[str, Any] | None, author_id: str
+) -> str:
+    if not profile:
+        return "Unknown Practitioner"
+    name = (profile.get("name") or "").strip()
+    if name:
+        return name
+    email = (profile.get("email") or "").strip()
+    return email or "Unknown Practitioner"
 
 
 def _profile_display_name(profile: dict[str, Any] | None, fallback_id: str) -> str:
@@ -1158,12 +1178,19 @@ def upload_patient_note(
         )
 
     # Return decrypted content only to the authorized caller (never log it)
+    author_profile = fetch_profile(user.id)
     return _ok(
         action=action,
         user_id=user.id,
         http_code=201,
         patient_id=patient_id,
-        payload={"note": _note_public(rows[0], payload.note_content)},
+        payload={
+            "note": _note_public(
+                rows[0],
+                payload.note_content,
+                author_name=_note_author_display_name(author_profile, user.id),
+            )
+        },
     )
 
 
@@ -1184,7 +1211,20 @@ def list_patient_notes(patient_id: str, user: AuthUser = Depends(get_current_use
             .execute()
         )
         rows = getattr(result, "data", None) or []
-        notes = [_note_public(r, decrypt_note(r["note_ciphertext"])) for r in rows]
+        author_ids = {str(r.get("author_id") or "") for r in rows}
+        author_ids.discard("")
+        profiles_by_id = fetch_profiles_by_ids(author_ids)
+        notes = [
+            _note_public(
+                r,
+                decrypt_note(r["note_ciphertext"]),
+                author_name=_note_author_display_name(
+                    profiles_by_id.get(str(r.get("author_id") or "")),
+                    str(r.get("author_id") or ""),
+                ),
+            )
+            for r in rows
+        ]
     except HTTPException as exc:
         return _from_http(
             action=action, user_id=user.id, exc=exc, patient_id=patient_id
@@ -1293,13 +1333,19 @@ def edit_patient_note(
             message=str(exc),
         )
 
+    updated_row = rows[0] if rows else note
+    author_id = str(updated_row.get("author_id") or note.get("author_id") or "")
+    author_profile = fetch_profile(author_id) if author_id else None
+
     return _ok(
         action=action,
         user_id=user.id,
         patient_id=patient_id,
         payload={
             "note": _note_public(
-                rows[0] if rows else note, payload.new_note_content
+                updated_row,
+                payload.new_note_content,
+                author_name=_note_author_display_name(author_profile, author_id),
             )
         },
     )
