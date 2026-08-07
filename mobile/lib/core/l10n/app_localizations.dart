@@ -115,11 +115,12 @@ class AppLocalizations {
   String get settingsAutoShade => _t('settings.autoShade');
   String get settingsAutoShadeSub => _t('settings.autoShadeSub');
   String get settingsAutoQuality => _t('settings.autoQuality');
-  
+
   String get settingsAutoQualitySub => _t('settings.autoQualitySub');
   String get settingsAutoScanBody => _t('settings.autoScanBody');
   String get settingsAutoScanBodySub => _t('settings.autoScanBodySub');
   String get settingsAboutTitle => _t('settings.aboutTitle');
+  
   String get settingsAboutSub => _t('settings.aboutSub');
   String get settingsVersion => _t('settings.version');
   String get settingsApi => _t('settings.api');

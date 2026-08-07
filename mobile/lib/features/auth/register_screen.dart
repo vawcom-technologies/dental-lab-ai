@@ -184,22 +184,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   errorMessage: loc.errPhoneInvalid,
                 ),
                 const SizedBox(height: 12),
-                TextField(
+                AppPasswordField(
                   controller: _password,
-                  obscureText: true,
+                  labelText: '${loc.password} *',
                   onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(labelText: '${loc.password} *'),
+                  autofillHints: const [AutofillHints.newPassword],
                 ),
                 const SizedBox(height: 10),
                 PasswordChecklist(password: _password.text),
                 const SizedBox(height: 12),
-                TextField(
+                AppPasswordField(
                   controller: _confirm,
-                  obscureText: true,
+                  labelText: '${loc.confirmPassword} *',
                   onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(
-                    labelText: '${loc.confirmPassword} *',
-                  ),
+                  autofillHints: const [AutofillHints.newPassword],
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),

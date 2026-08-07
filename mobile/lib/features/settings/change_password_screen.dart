@@ -142,28 +142,27 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                     style: const TextStyle(color: AppColors.muted),
                   ),
                   const SizedBox(height: 22),
-                  TextField(
+                  AppPasswordField(
                     controller: _current,
-                    obscureText: true,
+                    labelText: loc.currentPassword,
                     onChanged: (_) => setState(() {}),
-                    decoration: InputDecoration(labelText: loc.currentPassword),
+                    autofillHints: const [AutofillHints.password],
                   ),
                   const SizedBox(height: 12),
-                  TextField(
+                  AppPasswordField(
                     controller: _next,
-                    obscureText: true,
+                    labelText: loc.newPassword,
                     onChanged: (_) => setState(() {}),
-                    decoration: InputDecoration(labelText: loc.newPassword),
+                    autofillHints: const [AutofillHints.newPassword],
                   ),
                   const SizedBox(height: 10),
                   PasswordChecklist(password: _next.text),
                   const SizedBox(height: 12),
-                  TextField(
+                  AppPasswordField(
                     controller: _confirm,
-                    obscureText: true,
+                    labelText: loc.confirmNewPassword,
                     onChanged: (_) => setState(() {}),
-                    decoration:
-                        InputDecoration(labelText: loc.confirmNewPassword),
+                    autofillHints: const [AutofillHints.newPassword],
                     onSubmitted: (_) {
                       if (!_loading &&
                           PasswordValidator.isValid(_next.text) &&

@@ -187,11 +187,12 @@ class _LoginScreenState extends State<LoginScreen> {
                           decoration: InputDecoration(labelText: loc.email),
                         ),
                         const SizedBox(height: 12),
-                        TextField(
+                        AppPasswordField(
                           controller: _password,
-                          obscureText: true,
-                          decoration: InputDecoration(labelText: loc.password),
+                          labelText: loc.password,
                           onSubmitted: (_) => _submit(),
+                          textInputAction: TextInputAction.done,
+                          autofillHints: const [AutofillHints.password],
                         ),
                         Align(
                           alignment: Alignment.centerRight,

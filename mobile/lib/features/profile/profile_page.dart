@@ -346,33 +346,27 @@ class _ProfilePageState extends State<ProfilePage> {
                                 ),
                               ),
                               const SizedBox(height: 14),
-                              TextField(
+                              AppPasswordField(
                                 controller: _currentPassword,
-                                obscureText: true,
+                                labelText: loc.currentPassword,
                                 onChanged: (_) => setState(() {}),
-                                decoration: InputDecoration(
-                                  labelText: loc.currentPassword,
-                                ),
+                                autofillHints: const [AutofillHints.password],
                               ),
                               const SizedBox(height: 12),
-                              TextField(
+                              AppPasswordField(
                                 controller: _newPassword,
-                                obscureText: true,
+                                labelText: loc.newPassword,
                                 onChanged: (_) => setState(() {}),
-                                decoration: InputDecoration(
-                                  labelText: loc.newPassword,
-                                ),
+                                autofillHints: const [AutofillHints.newPassword],
                               ),
                               const SizedBox(height: 10),
                               PasswordChecklist(password: _newPassword.text),
                               const SizedBox(height: 12),
-                              TextField(
+                              AppPasswordField(
                                 controller: _confirmPassword,
-                                obscureText: true,
+                                labelText: loc.confirmNewPassword,
                                 onChanged: (_) => setState(() {}),
-                                decoration: InputDecoration(
-                                  labelText: loc.confirmNewPassword,
-                                ),
+                                autofillHints: const [AutofillHints.newPassword],
                               ),
                               const SizedBox(height: 16),
                               Align(
