@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/tooth_loader.dart';
 
 /// Rotatable point-cloud preview for dental mesh scans.
 ///
@@ -101,7 +102,7 @@ class _MeshViewerState extends State<MeshViewer> {
           children: [
             if (widget.loading)
               const Center(
-                child: CircularProgressIndicator(color: Colors.white70),
+                child: ToothLoadingIndicator(size: 28, compact: true, color: Colors.white70),
               )
             else if (widget.error != null)
               _EmptyState(

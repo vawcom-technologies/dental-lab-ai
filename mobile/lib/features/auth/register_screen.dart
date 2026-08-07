@@ -42,13 +42,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final name = _name.text.trim();
     final email = _email.text.trim();
     final clinic = _clinic.text.trim();
-    final phone = _phone.text.trim();
+    final phoneLocal = _phone.text.trim();
     final password = _password.text;
     final loc = AppLocalizations.of(context);
     if (name.isEmpty ||
         email.isEmpty ||
         clinic.isEmpty ||
-        phone.isEmpty ||
+        phoneLocal.isEmpty ||
         password.isEmpty ||
         _confirm.text.isEmpty) {
       setState(() {
@@ -57,15 +57,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
       });
       return;
     }
-    final normalizedPhone = phone.replaceAll(RegExp(r'[\s\-]'), '');
-    if (!RegExp(r'^\+49\d{11}$').hasMatch(normalizedPhone)) {
+    final phoneError = PhoneNumbers.validateRequired(
+      phoneLocal,
+      message: loc.errPhoneInvalid,
+    );
+    if (phoneError != null) {
       setState(() {
-        _error = loc.errPhoneInvalid;
+        _error = phoneError;
         _info = null;
       });
       return;
     }
-    if (password.length < 6) {
+    final normalizedPhone = PhoneNumbers.compose(phoneLocal);
+    if (!PasswordValidator.isValid(password)) {
       setState(() {
         _error = loc.errPasswordShort;
         _info = null;
@@ -174,27 +178,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   decoration: InputDecoration(labelText: loc.clinic),
                 ),
                 const SizedBox(height: 12),
-                TextField(
+                PhoneField(
                   controller: _phone,
-                  keyboardType: TextInputType.phone,
-                  decoration: InputDecoration(
-                    labelText: loc.phone,
-                    hintText: '+4917012345678',
-                  ),
+                  labelText: loc.phone,
+                  errorMessage: loc.errPhoneInvalid,
                 ),
                 const SizedBox(height: 12),
-                TextField(
+                AppPasswordField(
                   controller: _password,
-                  obscureText: true,
-                  decoration: InputDecoration(labelText: '${loc.password} *'),
+                  labelText: '${loc.password} *',
+                  onChanged: (_) => setState(() {}),
+                  autofillHints: const [AutofillHints.newPassword],
                 ),
+                const SizedBox(height: 10),
+                PasswordChecklist(password: _password.text),
                 const SizedBox(height: 12),
-                TextField(
+                AppPasswordField(
                   controller: _confirm,
-                  obscureText: true,
-                  decoration: InputDecoration(
-                    labelText: '${loc.confirmPassword} *',
-                  ),
+                  labelText: '${loc.confirmPassword} *',
+                  onChanged: (_) => setState(() {}),
+                  autofillHints: const [AutofillHints.newPassword],
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
@@ -206,8 +209,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ],
                 const SizedBox(height: 20),
                 FilledButton(
-                  onPressed: _loading || _info != null ? null : _submit,
-                  child: Text(_loading ? loc.saving : loc.createProfile),
+                  onPressed: _loading ||
+                          _info != null ||
+                          !PasswordValidator.isValid(_password.text) ||
+                          _password.text != _confirm.text
+                      ? null
+                      : _submit,
+                  child: _loading
+                      ? const ToothLoadingIndicator(
+                          size: 20,
+                          compact: true,
+                          color: Colors.white,
+                        )
+                      : Text(loc.createProfile),
                 ),
                 const SizedBox(height: 10),
                 TextButton(

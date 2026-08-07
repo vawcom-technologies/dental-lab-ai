@@ -72,6 +72,16 @@ class _NotificationsPageState extends State<NotificationsPage> {
   bool _allowedBySettings(String type) {
     final p = _prefs;
     if (p == null) return true;
+    if (!p.notificationsEnabled) {
+      switch (type) {
+        case 'message':
+        case 'case_status':
+        case 'scan_quality':
+          return false;
+        default:
+          return true;
+      }
+    }
     switch (type) {
       case 'message':
         return p.notifyMessages;
@@ -242,8 +252,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
           const SizedBox(height: 14),
           Expanded(
             child: _loading
-                ? const Center(
-                    child: CircularProgressIndicator(color: AppColors.dentalBlue),
+                ? const ToothPageLoader(
+                    message: 'Loading notifications…',
+                    color: AppColors.dentalBlue,
                   )
                 : visible.isEmpty
                     ? Center(
@@ -395,11 +406,7 @@ class _NotificationTile extends StatelessWidget {
             if (marking)
               const Padding(
                 padding: EdgeInsets.fromLTRB(8, 4, 4, 8),
-                child: SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
+                child: ToothLoadingIndicator(size: 14, compact: true),
               )
             else if (unread)
               Tooltip(

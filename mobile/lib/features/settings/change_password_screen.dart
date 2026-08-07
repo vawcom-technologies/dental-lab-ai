@@ -42,7 +42,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       AppSnackBars.error(context, loc.errEnterPasswords);
       return;
     }
-    if (next.length < 6) {
+    if (!PasswordValidator.isValid(next)) {
       setState(() => _error = loc.errNewPasswordShort);
       AppSnackBars.error(context, loc.errNewPasswordShort);
       return;
@@ -142,25 +142,33 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                     style: const TextStyle(color: AppColors.muted),
                   ),
                   const SizedBox(height: 22),
-                  TextField(
+                  AppPasswordField(
                     controller: _current,
-                    obscureText: true,
-                    decoration: InputDecoration(labelText: loc.currentPassword),
+                    labelText: loc.currentPassword,
+                    onChanged: (_) => setState(() {}),
+                    autofillHints: const [AutofillHints.password],
                   ),
                   const SizedBox(height: 12),
-                  TextField(
+                  AppPasswordField(
                     controller: _next,
-                    obscureText: true,
-                    decoration: InputDecoration(labelText: loc.newPassword),
+                    labelText: loc.newPassword,
+                    onChanged: (_) => setState(() {}),
+                    autofillHints: const [AutofillHints.newPassword],
                   ),
+                  const SizedBox(height: 10),
+                  PasswordChecklist(password: _next.text),
                   const SizedBox(height: 12),
-                  TextField(
+                  AppPasswordField(
                     controller: _confirm,
-                    obscureText: true,
-                    decoration:
-                        InputDecoration(labelText: loc.confirmNewPassword),
+                    labelText: loc.confirmNewPassword,
+                    onChanged: (_) => setState(() {}),
+                    autofillHints: const [AutofillHints.newPassword],
                     onSubmitted: (_) {
-                      if (!_loading) _submit();
+                      if (!_loading &&
+                          PasswordValidator.isValid(_next.text) &&
+                          _next.text == _confirm.text) {
+                        _submit();
+                      }
                     },
                   ),
                   if (_error != null) ...[
@@ -170,19 +178,19 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                       style: const TextStyle(color: AppColors.danger),
                     ),
                   ],
-                  
                   const SizedBox(height: 20),
-                  
                   FilledButton(
-                    onPressed: _loading ? null : _submit,
+                    onPressed: _loading ||
+                            !PasswordValidator.isValid(_next.text) ||
+                            _next.text != _confirm.text ||
+                            _current.text.isEmpty
+                        ? null
+                        : _submit,
                     child: _loading
-                        ? const SizedBox(
-                            height: 18,
-                            width: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
+                        ? const ToothLoadingIndicator(
+                            size: 20,
+                            compact: true,
+                            color: Colors.white,
                           )
                         : Text(loc.updatePassword),
                   ),

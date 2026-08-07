@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/tooth_loader.dart';
 import '../models/chat_models.dart';
 
 /// Formats voice duration as `m:ss`.
@@ -78,64 +79,93 @@ class ChatMessageBubble extends StatelessWidget {
             crossAxisAlignment:
                 mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             children: [
-              Container(
-                margin: EdgeInsets.only(bottom: showSeenEye ? 2 : 8),
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-                decoration: BoxDecoration(
-                  color: mine ? AppColors.dentalBlue : AppColors.neo,
-                  borderRadius: BorderRadius.only(
-                    topLeft: const Radius.circular(16),
-                    topRight: const Radius.circular(16),
-                    bottomLeft: Radius.circular(mine ? 16 : 4),
-                    bottomRight: Radius.circular(mine ? 4 : 16),
-                  ),
-                  boxShadow: NeoShadows.soft(depth: 0.35),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (message.replyTo != null) ...[
-                      _ReplyQuote(
-                        label: message.replyTo!.previewLabel,
-                        mine: mine,
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    margin: EdgeInsets.only(bottom: showSeenEye ? 2 : 8),
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+                    decoration: BoxDecoration(
+                      color: mine ? AppColors.dentalBlue : AppColors.neo,
+                      borderRadius: BorderRadius.only(
+                        topLeft: const Radius.circular(16),
+                        topRight: const Radius.circular(16),
+                        bottomLeft: Radius.circular(mine ? 16 : 4),
+                        bottomRight: Radius.circular(mine ? 4 : 16),
                       ),
-                      const SizedBox(height: 8),
-                    ],
-                    if (message.isVoice && message.hasMedia)
-                      VoiceNoteBubble(
-                        url: message.mediaUrl!,
-                        durationSeconds: message.durationSeconds,
-                        mine: mine,
-                      )
-                    else if (message.isImage && message.hasMedia)
-                      ImageMessageBubble(
-                        url: message.mediaUrl!,
-                        mine: mine,
-                      )
-                    else if (message.isDocument && message.hasMedia)
-                      DocumentMessageBubble(
-                        url: message.mediaUrl!,
-                        mine: mine,
-                      )
-                    else if (message.hasMedia && !message.isVoice)
-                      DocumentMessageBubble(
-                        url: message.mediaUrl!,
-                        mine: mine,
-                      ),
-                    if (message.content.trim().isNotEmpty) ...[
-                      if (message.hasMedia) const SizedBox(height: 8),
-                      Text(
-                        message.content,
-                        style: TextStyle(color: fg, height: 1.35),
-                      ),
-                    ],
-                    const SizedBox(height: 4),
-                    Text(
-                      time,
-                      style: TextStyle(fontSize: 10, color: muted),
+                      boxShadow: NeoShadows.soft(depth: 0.35),
                     ),
-                  ],
-                ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (message.replyTo != null) ...[
+                          _ReplyQuote(
+                            label: message.replyTo!.previewLabel,
+                            mine: mine,
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                        if (message.isPending)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 20, bottom: 4),
+                            child: Text(
+                              message.previewText,
+                              style: TextStyle(
+                                color: muted,
+                                fontStyle: FontStyle.italic,
+                                height: 1.35,
+                              ),
+                            ),
+                          )
+                        else if (message.isVoice && message.hasMedia)
+                          VoiceNoteBubble(
+                            url: message.mediaUrl!,
+                            durationSeconds: message.durationSeconds,
+                            mine: mine,
+                          )
+                        else if (message.isImage && message.hasMedia)
+                          ImageMessageBubble(
+                            url: message.mediaUrl!,
+                            mine: mine,
+                          )
+                        else if (message.isDocument && message.hasMedia)
+                          DocumentMessageBubble(
+                            url: message.mediaUrl!,
+                            mine: mine,
+                          )
+                        else if (message.hasMedia && !message.isVoice)
+                          DocumentMessageBubble(
+                            url: message.mediaUrl!,
+                            mine: mine,
+                          ),
+                        if (!message.isPending &&
+                            message.content.trim().isNotEmpty) ...[
+                          if (message.hasMedia) const SizedBox(height: 8),
+                          Text(
+                            message.content,
+                            style: TextStyle(color: fg, height: 1.35),
+                          ),
+                        ],
+                        const SizedBox(height: 4),
+                        Text(
+                          time,
+                          style: TextStyle(fontSize: 10, color: muted),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (message.isPending)
+                    Positioned(
+                      top: 8,
+                      right: mine ? 10 : null,
+                      left: mine ? null : 10,
+                      child: ToothLoadingIndicator(
+                        size: 18,
+                        compact: true,
+                        color: mine ? Colors.white : kToothLoaderBlue,
+                      ),
+                    ),
+                ],
               ),
               if (showSeenEye)
                 const Padding(
@@ -331,16 +361,13 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (!_ready)
-                  SizedBox(
+                  const SizedBox(
                     height: 28,
                     child: Center(
-                      child: SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: accent,
-                        ),
+                      child: ToothLoadingIndicator(
+                        size: 16,
+                        compact: true,
+                        color: AppColors.dentalBlue,
                       ),
                     ),
                   )
@@ -523,17 +550,10 @@ class _ChatNetworkImage extends StatelessWidget {
           height: height ?? 160,
           color: placeholderColor,
           alignment: Alignment.center,
-          child: SizedBox(
-            width: 22,
-            height: 22,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: iconColor,
-              value: progress.expectedTotalBytes != null
-                  ? progress.cumulativeBytesLoaded /
-                      progress.expectedTotalBytes!
-                  : null,
-            ),
+          child: ToothLoadingIndicator(
+            size: 24,
+            compact: true,
+            color: iconColor,
           ),
         );
       },

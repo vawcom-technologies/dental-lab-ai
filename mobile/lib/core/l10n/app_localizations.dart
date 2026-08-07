@@ -94,12 +94,15 @@ class AppLocalizations {
   String get settingsAutoSyncSub => _t('settings.autoSyncSub');
   String get settingsSyncNow => _t('settings.syncNow');
   String get settingsSyncing => _t('settings.syncing');
+  
   String get settingsClearCache => _t('settings.clearCache');
   String get settingsClearing => _t('settings.clearing');
   String get settingsClearCacheTitle => _t('settings.clearCacheTitle');
   String get settingsClearCacheBody => _t('settings.clearCacheBody');
   String get settingsNotificationsTitle => _t('settings.notificationsTitle');
   String get settingsNotificationsSub => _t('settings.notificationsSub');
+  String get settingsNotifyMaster => _t('settings.notifyMaster');
+  String get settingsNotifyMasterSub => _t('settings.notifyMasterSub');
   String get settingsNotifyMessages => _t('settings.notifyMessages');
   String get settingsNotifyMessagesSub => _t('settings.notifyMessagesSub');
   String get settingsNotifyCase => _t('settings.notifyCase');
@@ -115,9 +118,11 @@ class AppLocalizations {
   String get settingsAutoShadeSub => _t('settings.autoShadeSub');
   String get settingsAutoQuality => _t('settings.autoQuality');
   String get settingsAutoQualitySub => _t('settings.autoQualitySub');
+  
   String get settingsAutoScanBody => _t('settings.autoScanBody');
   String get settingsAutoScanBodySub => _t('settings.autoScanBodySub');
   String get settingsAboutTitle => _t('settings.aboutTitle');
+  
   String get settingsAboutSub => _t('settings.aboutSub');
   String get settingsVersion => _t('settings.version');
   String get settingsApi => _t('settings.api');
@@ -315,6 +320,8 @@ class AppLocalizations {
   String get reportsCasesCol => _t('reports.casesCol');
   String get reportsArtifacts => _t('reports.artifacts');
 
+
+
   // ── Case statuses ────────────────────────────────────────────────────────
   String statusLabel(String key) {
     switch (key) {
@@ -389,7 +396,8 @@ class AppLocalizations {
     'auth.alreadyHaveAccount': 'Already have an account? Sign in',
     'auth.errNameEmailPassword': 'Name, email, and password are required',
     'auth.errAllFieldsRequired': 'All fields are required',
-    'auth.errPasswordShort': 'Password must be at least 6 characters',
+    'auth.errPasswordShort':
+        'Password must be at least 8 characters with 1 uppercase letter and 1 number',
     'auth.errPasswordMismatch': 'Passwords do not match',
     'auth.errPhoneInvalid':
         'Phone must start with +49 and have exactly 11 digits after',
@@ -410,16 +418,21 @@ class AppLocalizations {
     'settings.connection': 'Connection',
     'settings.pending': 'Pending',
     'settings.autoSync': 'Auto-sync when online',
+    
     'settings.autoSyncSub': 'Flush queued uploads when the network returns',
     'settings.syncNow': 'Sync now',
     'settings.syncing': 'Syncing…',
+    
     'settings.clearCache': 'Clear cache',
     'settings.clearing': 'Clearing…',
     'settings.clearCacheTitle': 'Clear encrypted cache?',
     'settings.clearCacheBody':
         'Removes locally encrypted photos/scans on this device. Pending sync queue items are kept. This cannot be undone.',
     'settings.notificationsTitle': 'Notifications',
-    'settings.notificationsSub': 'Choose which alerts appear in the inbox badge',
+    'settings.notificationsSub': 'Manage alert preferences for this device',
+    'settings.notifyMaster': 'Enable Notifications',
+    'settings.notifyMasterSub':
+        'Receive alerts for lab messages, case status changes, and scan quality updates',
     'settings.notifyMessages': 'Lab messages',
     'settings.notifyMessagesSub': 'New chat from the lab on a case',
     'settings.notifyCase': 'Case status changes',
@@ -473,7 +486,8 @@ class AppLocalizations {
         'Your password was changed successfully. Please sign in again.',
     'profile.errNameEmail': 'Name and email are required',
     'profile.errEnterPasswords': 'Enter current and new password',
-    'profile.errNewPasswordShort': 'New password must be at least 6 characters',
+    'profile.errNewPasswordShort':
+        'New password must be at least 8 characters with 1 uppercase letter and 1 number',
     'profile.errNewPasswordMismatch': 'New passwords do not match',
     'profile.clinicHint': 'e.g. Elite Dent Munich',
     'dash.goodMorning': 'Good morning, Dr. {name}',
@@ -663,7 +677,8 @@ class AppLocalizations {
     'auth.alreadyHaveAccount': 'Bereits ein Konto? Anmelden',
     'auth.errNameEmailPassword': 'Name, E-Mail und Passwort sind erforderlich',
     'auth.errAllFieldsRequired': 'Alle Felder sind erforderlich',
-    'auth.errPasswordShort': 'Passwort muss mindestens 6 Zeichen haben',
+    'auth.errPasswordShort':
+        'Passwort muss mindestens 8 Zeichen, 1 Großbuchstaben und 1 Zahl haben',
     'auth.errPasswordMismatch': 'Passwörter stimmen nicht überein',
     'auth.errPhoneInvalid':
         'Telefonnummer muss mit +49 beginnen und genau 11 Ziffern danach haben',
@@ -695,7 +710,11 @@ class AppLocalizations {
         'Entfernt lokal verschlüsselte Fotos/Scans auf diesem Gerät. Ausstehende Sync-Einträge bleiben. Nicht rückgängig zu machen.',
     'settings.notificationsTitle': 'Benachrichtigungen',
     'settings.notificationsSub':
-        'Wählen Sie, welche Hinweise im Badge erscheinen',
+        'Benachrichtigungseinstellungen für dieses Gerät',
+    'settings.notifyMaster': 'Benachrichtigungen aktivieren',
+    'settings.notifyMasterSub':
+    
+        'Hinweise zu Labornachrichten, Fallstatus und Scanqualität erhalten',
     'settings.notifyMessages': 'Labornachrichten',
     'settings.notifyMessagesSub': 'Neuer Chat vom Labor zu einem Fall',
     'settings.notifyCase': 'Fallstatus-Änderungen',
@@ -753,7 +772,7 @@ class AppLocalizations {
     'profile.errNameEmail': 'Name und E-Mail sind erforderlich',
     'profile.errEnterPasswords': 'Aktuelles und neues Passwort eingeben',
     'profile.errNewPasswordShort':
-        'Neues Passwort muss mindestens 6 Zeichen haben',
+        'Neues Passwort muss mindestens 8 Zeichen, 1 Großbuchstaben und 1 Zahl haben',
     'profile.errNewPasswordMismatch': 'Neue Passwörter stimmen nicht überein',
     'profile.clinicHint': 'z. B. Elite Dent München',
     'dash.goodMorning': 'Guten Morgen, Dr. {name}',

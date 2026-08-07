@@ -28,14 +28,10 @@ class _NewPatientPageState extends State<NewPatientPage> {
   String? _error;
 
   Future<void> _pickDob() async {
-    final now = DateTime.now();
-    final initial = DateTime.tryParse(_dob.text) ??
-        DateTime(now.year - 30, now.month, now.day);
-    final picked = await showDatePicker(
+    final current = DateTime.tryParse(_dob.text.trim());
+    final picked = await DentalDatePickerDialog.showForDateOfBirth(
       context: context,
-      initialDate: initial,
-      firstDate: DateTime(1900),
-      lastDate: now,
+      currentDob: current,
     );
     if (picked == null) return;
     setState(() => _dob.text = DateFormat('yyyy-MM-dd').format(picked));
@@ -53,7 +49,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
         'first_name': _first.text.trim(),
         'last_name': _last.text.trim(),
         'date_of_birth': _dob.text.trim(),
-        'phone': _phone.text.trim(),
+        'phone': PhoneNumbers.compose(_phone.text),
         'address': _address.text.trim(),
         'health_insurance': _insurance.text.trim(),
       });
@@ -107,14 +103,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
               FilledButton.icon(
                 onPressed: _loading ? null : _save,
                 icon: _loading
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
+                    ? const ToothLoadingIndicator(size: 16, compact: true, color: Colors.white)
                     : const Icon(Icons.check_rounded, size: 18),
                 label: Text(_loading ? 'Saving…' : loc.createPatient),
               ),
@@ -174,12 +163,9 @@ class _NewPatientPageState extends State<NewPatientPage> {
                           (v == null || v.trim().isEmpty) ? 'Required' : null,
                     ),
                     const SizedBox(height: 14),
-                    TextFormField(
+                    PhoneField(
                       controller: _phone,
-                      decoration: const InputDecoration(labelText: 'Phone *'),
-                      keyboardType: TextInputType.phone,
-                      validator: (v) =>
-                          (v == null || v.trim().isEmpty) ? 'Required' : null,
+                      labelText: 'Phone *',
                     ),
                     const SizedBox(height: 14),
                     TextFormField(

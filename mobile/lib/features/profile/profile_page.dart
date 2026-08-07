@@ -76,7 +76,7 @@ class _ProfilePageState extends State<ProfilePage> {
       _name.text = me['name']?.toString() ?? '';
       _email.text = me['email']?.toString() ?? '';
       _clinic.text = me['clinic_name']?.toString() ?? '';
-      _phone.text = me['phone']?.toString() ?? '';
+      _phone.text = PhoneNumbers.localDigits(me['phone']?.toString());
       _role = AppRoles.label(me['role']?.toString());
       if (_role.isEmpty) _role = '—';
       _createdAt = _fmt(me['created_at']);
@@ -98,6 +98,16 @@ class _ProfilePageState extends State<ProfilePage> {
       AppSnackBars.error(context, msg);
       return;
     }
+    final loc = AppLocalizations.of(context);
+    final phoneError = PhoneNumbers.validateRequired(
+      _phone.text,
+      message: loc.errPhoneInvalid,
+    );
+    if (phoneError != null) {
+      setState(() => _error = phoneError);
+      AppSnackBars.error(context, phoneError);
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
@@ -108,7 +118,7 @@ class _ProfilePageState extends State<ProfilePage> {
         name: name,
         email: email,
         clinicName: _clinic.text.trim(),
-        phone: _phone.text.trim(),
+        phone: PhoneNumbers.compose(_phone.text),
       );
       if (!mounted) return;
       widget.onProfileUpdated(updated['name']?.toString() ?? name);
@@ -136,7 +146,7 @@ class _ProfilePageState extends State<ProfilePage> {
       AppSnackBars.error(context, msg);
       return;
     }
-    if (next.length < 6) {
+    if (!PasswordValidator.isValid(next)) {
       final msg = AppLocalizations.of(context).errNewPasswordShort;
       setState(() => _error = msg);
       AppSnackBars.error(context, msg);
@@ -178,7 +188,7 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return const ToothPageLoader(message: 'Loading profile…');
 
     final displayName = _name.text.trim().isEmpty ? 'User' : _name.text.trim();
 
@@ -284,18 +294,26 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        TextFormField(
+                        PhoneField(
                           controller: _phone,
-                          keyboardType: TextInputType.phone,
-                          decoration: InputDecoration(labelText: loc.phone),
+                          labelText: loc.phone,
+                          errorMessage: loc.errPhoneInvalid,
                         ),
                         const SizedBox(height: 20),
                         Align(
                           alignment: Alignment.centerLeft,
                           child: FilledButton.icon(
                             onPressed: _saving ? null : _saveProfile,
-                            icon: const Icon(Icons.save_outlined, size: 18),
-                            label: Text(_saving ? loc.saving : loc.saveProfile),
+                            icon: _saving
+                                ? const ToothLoadingIndicator(
+                                    size: 18,
+                                    compact: true,
+                                    color: Colors.white,
+                                  )
+                                : const Icon(Icons.save_outlined, size: 18),
+                            label: Text(
+                              _saving ? loc.saving : loc.saveProfile,
+                            ),
                           ),
                         ),
                       ],
@@ -328,36 +346,48 @@ class _ProfilePageState extends State<ProfilePage> {
                                 ),
                               ),
                               const SizedBox(height: 14),
-                              TextField(
+                              AppPasswordField(
                                 controller: _currentPassword,
-                                obscureText: true,
-                                decoration: InputDecoration(
-                                  labelText: loc.currentPassword,
-                                ),
+                                labelText: loc.currentPassword,
+                                onChanged: (_) => setState(() {}),
+                                autofillHints: const [AutofillHints.password],
                               ),
                               const SizedBox(height: 12),
-                              TextField(
+                              AppPasswordField(
                                 controller: _newPassword,
-                                obscureText: true,
-                                decoration: InputDecoration(
-                                  labelText: loc.newPassword,
-                                ),
+                                labelText: loc.newPassword,
+                                onChanged: (_) => setState(() {}),
+                                autofillHints: const [AutofillHints.newPassword],
                               ),
+                              const SizedBox(height: 10),
+                              PasswordChecklist(password: _newPassword.text),
                               const SizedBox(height: 12),
-                              TextField(
+                              AppPasswordField(
                                 controller: _confirmPassword,
-                                obscureText: true,
-                                decoration: InputDecoration(
-                                  labelText: loc.confirmNewPassword,
-                                ),
+                                labelText: loc.confirmNewPassword,
+                                onChanged: (_) => setState(() {}),
+                                autofillHints: const [AutofillHints.newPassword],
                               ),
                               const SizedBox(height: 16),
                               Align(
                                 alignment: Alignment.centerLeft,
                                 child: FilledButton.icon(
-                                  onPressed:
-                                      _changingPassword ? null : _savePassword,
-                                  icon: const Icon(Icons.lock_outline, size: 18),
+                                  onPressed: _changingPassword ||
+                                          !PasswordValidator.isValid(
+                                            _newPassword.text,
+                                          ) ||
+                                          _newPassword.text !=
+                                              _confirmPassword.text ||
+                                          _currentPassword.text.isEmpty
+                                      ? null
+                                      : _savePassword,
+                                  icon: _changingPassword
+                                      ? const ToothLoadingIndicator(
+                                          size: 16,
+                                          compact: true,
+                                          color: Colors.white,
+                                        )
+                                      : const Icon(Icons.lock_outline, size: 18),
                                   label: Text(
                                     _changingPassword
                                         ? loc.updating

@@ -10,6 +10,22 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 # ── Auth (Supabase) ───────────────────────────────────────────────────────────
 
 _PHONE_DIGITS_RE = re.compile(r"\D+")
+_PASSWORD_UPPER_RE = re.compile(r"[A-Z]")
+_PASSWORD_DIGIT_RE = re.compile(r"[0-9]")
+
+
+def validate_password_complexity(value: str) -> str:
+    """Enforce min length, uppercase letter, and digit for new passwords."""
+    errors: list[str] = []
+    if len(value) < 8:
+        errors.append("at least 8 characters long")
+    if not _PASSWORD_UPPER_RE.search(value):
+        errors.append("at least one uppercase letter (A-Z)")
+    if not _PASSWORD_DIGIT_RE.search(value):
+        errors.append("at least one numeric digit (0-9)")
+    if errors:
+        raise ValueError(f"Password must contain {', '.join(errors)}.")
+    return value
 
 
 def normalize_german_phone(value: str) -> str:
@@ -41,7 +57,7 @@ def normalize_german_phone(value: str) -> str:
 class SignUpRequest(BaseModel):
     email: EmailStr
     name: str = Field(min_length=1, max_length=255)
-    password: str = Field(min_length=6, max_length=128)
+    password: str = Field(min_length=8, max_length=128)
     clinic_name: str | None = Field(default=None, max_length=255)
     phone: str = Field(min_length=1, max_length=64)
 
@@ -49,6 +65,11 @@ class SignUpRequest(BaseModel):
     @classmethod
     def _phone_de(cls, v: str) -> str:
         return normalize_german_phone(v)
+
+    @field_validator("password")
+    @classmethod
+    def _password_complexity(cls, v: str) -> str:
+        return validate_password_complexity(v)
 
 
 class SignInRequest(BaseModel):
@@ -62,7 +83,12 @@ class ForgotPasswordRequest(BaseModel):
 
 class PasswordChange(BaseModel):
     current_password: str = Field(min_length=1, max_length=128)
-    new_password: str = Field(min_length=6, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def _password_complexity(cls, v: str) -> str:
+        return validate_password_complexity(v)
 
 
 class AuthMessageOut(BaseModel):

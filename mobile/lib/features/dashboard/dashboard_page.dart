@@ -374,7 +374,9 @@ class _DashboardPageState extends State<DashboardPage> {
                         const Divider(height: 1),
                         Expanded(
                           child: _loading
-                              ? const Center(child: CircularProgressIndicator())
+                              ? const ToothPageLoader(
+                                  message: 'Loading recent cases…',
+                                )
                               : _recentRows.isEmpty
                                   ? Center(
                                       child: Text(
@@ -414,7 +416,9 @@ class _DashboardPageState extends State<DashboardPage> {
                         const SizedBox(height: 16),
                         Expanded(
                           child: _loading
-                              ? const Center(child: CircularProgressIndicator())
+                              ? const ToothPageLoader(
+                                  message: 'Loading activity…',
+                                )
                               : _activity.isEmpty
                                   ? Text(
                                       loc.dashActivityEmpty,

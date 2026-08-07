@@ -252,7 +252,7 @@ class _ReportsPageState extends State<ReportsPage> {
           const SizedBox(height: 16),
           Expanded(
             child: _loading && _summary == null
-                ? const Center(child: CircularProgressIndicator())
+                ? const ToothPageLoader(message: 'Loading reports…')
                 : SingleChildScrollView(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,

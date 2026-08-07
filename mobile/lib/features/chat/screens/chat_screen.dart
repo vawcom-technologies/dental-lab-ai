@@ -120,7 +120,7 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           Expanded(
             child: controller.loadingMessages && messages.isEmpty
-                ? const Center(child: CircularProgressIndicator())
+                ? const ToothPageLoader(message: 'Loading chat…')
                 : messages.isEmpty
                     ? const Center(
                         child: Text(
@@ -153,13 +153,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                 return const Padding(
                                   padding: EdgeInsets.all(12),
                                   child: Center(
-                                    child: SizedBox(
-                                      width: 22,
-                                      height: 22,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    ),
+                                    child: ToothLoadingIndicator(size: 28),
                                   ),
                                 );
                               }
