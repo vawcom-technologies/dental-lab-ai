@@ -175,24 +175,48 @@ def _finite_verts(
 
 
 def _stats(verts: list[tuple[float, float, float]]) -> dict[str, float]:
+    """Shape descriptors for a point cloud.
+
+    Everything used for scoring is **scale- and orientation-invariant** so the
+    same thresholds hold whether the export is in millimetres or centimetres and
+    regardless of how the mesh is oriented in space:
+
+    - ``planarity``  = λ₂ / (λ₀+λ₁+λ₂) from the covariance eigenvalues. ~0 means
+      the cloud collapses to a plane (missing arch depth / bad export); a real
+      arch has genuine 3-D relief.
+    - ``elongation`` = 1 − λ₁/λ₀. ~1 means a sliver / partial fragment.
+
+    ``span_*`` is reported for context only; the physical extent is not scored
+    (volumetric density on a thin surface scan is meaningless).
+    """
     verts = _finite_verts(verts)
     arr = np.asarray(verts, dtype=np.float64)
-    if arr.size == 0:
-        return {"span_x": 0, "span_y": 0, "span_z": 0, "noise_z": 0, "density": 0}
+    if arr.shape[0] == 0:
+        return {
+            "span_x": 0.0, "span_y": 0.0, "span_z": 0.0,
+            "planarity": 0.0, "elongation": 0.0,
+        }
     spans = arr.max(axis=0) - arr.min(axis=0)
-    # Local roughness proxy: std of z after removing linear trend in xy
-    z = arr[:, 2]
-    noise = float(np.std(z - np.median(z)))
-    if not math.isfinite(noise):
-        noise = 0.0
-    volume = max(float(np.prod(np.maximum(spans, 1e-9))), 1e-9)
-    density = len(verts) / volume
+
+    # PCA on centred points → eigenvalues (variance along principal axes).
+    planarity = 0.0
+    elongation = 0.0
+    if arr.shape[0] >= 3:
+        centred = arr - arr.mean(axis=0)
+        cov = (centred.T @ centred) / max(arr.shape[0] - 1, 1)
+        evals = np.clip(np.linalg.eigvalsh(cov)[::-1], 0.0, None)  # λ₀ ≥ λ₁ ≥ λ₂
+        total = float(evals.sum())
+        if total > 1e-12:
+            planarity = float(evals[2] / total)
+        if evals[0] > 1e-12:
+            elongation = float(1.0 - evals[1] / evals[0])
+
     return {
         "span_x": float(spans[0]) if math.isfinite(spans[0]) else 0.0,
         "span_y": float(spans[1]) if math.isfinite(spans[1]) else 0.0,
         "span_z": float(spans[2]) if math.isfinite(spans[2]) else 0.0,
-        "noise_z": noise,
-        "density": float(density) if math.isfinite(density) else 0.0,
+        "planarity": planarity if math.isfinite(planarity) else 0.0,
+        "elongation": elongation if math.isfinite(elongation) else 0.0,
     }
 
 
@@ -443,33 +467,52 @@ def validate_scan_bytes(data: bytes, filename: str = "scan.ply") -> dict[str, An
     verts = parsed["vertices"]
     st = _stats(verts)
 
-    # Vertex completeness
+    # 1. Completeness. For a surface scan the vertex count is the scale-invariant
+    #    density signal (points-per-area collapses to ~count for a fixed shape),
+    #    so we grade on count directly instead of a bogus volumetric density.
     if n < 500:
         reasons.append(f"Very low vertex count ({n}) — incomplete scan.")
         issues.append({"severity": "high", "code": "sparse", "message": f"Only {n} vertices"})
         score -= 0.55
     elif n < 5000:
-        reasons.append(f"Low vertex count ({n}) — possible sparse/grainy capture.")
+        reasons.append(f"Low vertex count ({n}) — sparse/grainy capture.")
         issues.append({"severity": "medium", "code": "low_density", "message": f"{n} vertices"})
         score -= 0.25
+    elif n < 15000:
+        reasons.append(f"Moderate vertex count ({n}) — fine margins may lack detail.")
+        issues.append({"severity": "low", "code": "moderate_density", "message": f"{n} vertices"})
+        score -= 0.08
 
-    # Collapsed / missing margin (near-zero extent on an axis)
-    min_span = min(st["span_x"], st["span_y"], st["span_z"])
-    if len(verts) >= 50 and min_span < 1e-3:
-        reasons.append("Near-zero extent on one axis — possible missing margin / collapsed mesh.")
-        issues.append({"severity": "high", "code": "missing_margin", "message": "Collapsed axis extent"})
-        score -= 0.4
+    # 2. Collapsed / degenerate surface — orientation- & scale-invariant via PCA.
+    #    A real arch has 3-D relief (planarity well above zero); a flat plane,
+    #    a single-axis export, or a collapsed mesh has planarity ≈ 0.
+    if len(verts) >= 50:
+        if st["planarity"] < 0.002:
+            reasons.append("Collapsed / near-flat geometry — missing arch depth or bad export.")
+            issues.append({
+                "severity": "high",
+                "code": "missing_margin",
+                "message": f"planarity≈{st['planarity']:.4f}",
+            })
+            score -= 0.45
+        elif st["planarity"] < 0.01:
+            reasons.append("Very thin capture — low surface relief; margin detail may be missing.")
+            issues.append({
+                "severity": "medium",
+                "code": "thin_capture",
+                "message": f"planarity≈{st['planarity']:.4f}",
+            })
+            score -= 0.2
 
-    # Grainy / noisy surface (thin volume + high z deviation)
-    if len(verts) >= 100 and st["span_z"] < 0.8 and st["noise_z"] > 0.06:
-        reasons.append("High surface noise with thin extent — grainy/blurry scan quality.")
-        issues.append({"severity": "medium", "code": "grainy", "message": f"noise≈{st['noise_z']:.3f}"})
-        score -= 0.3
-
-    if st["density"] < 1.0 and n >= 50:
-        reasons.append("Very low vertex density — possible missing regions.")
-        issues.append({"severity": "medium", "code": "holes", "message": "Low spatial density"})
-        score -= 0.2
+    # 3. Sliver / partial capture — one axis dominates the whole cloud.
+    if len(verts) >= 50 and st["elongation"] > 0.985:
+        reasons.append("Highly elongated fragment — likely a partial scan.")
+        issues.append({
+            "severity": "medium",
+            "code": "partial",
+            "message": f"elongation≈{st['elongation']:.3f}",
+        })
+        score -= 0.15
 
     score = max(0.0, min(1.0, score))
     if any(i["code"] == "missing_margin" for i in issues):
@@ -498,8 +541,9 @@ def validate_scan_bytes(data: bytes, filename: str = "scan.ply") -> dict[str, An
         "format": parsed.get("format"),
         "mesh_kind": parsed.get("kind"),
         "note": (
-            "Mesh validator supports PLY / STL / OBJ. "
-            "Heuristics calibrated on synthetic PLY fixtures; supervised model later."
+            "Mesh validator supports PLY / STL / OBJ. Scored on vertex "
+            "completeness plus scale-/orientation-invariant PCA shape checks "
+            "(planarity, elongation); supervised model later."
         ),
         "filename": filename,
         "prompt_rescan": prompt_rescan,

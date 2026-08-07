@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -407,6 +408,27 @@ class ApiClient {
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  /// Full original mesh bytes (PLY/STL/OBJ) for solid 3D rendering.
+  Future<({Uint8List bytes, String filename})> fetchScanFile({
+    required int caseId,
+    required int scanId,
+  }) async {
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/cases/$caseId/scans/$scanId/file'),
+      headers: _authHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    var name = 'scan.ply';
+    final cd = res.headers['content-disposition'];
+    if (cd != null) {
+      final match = RegExp(r'filename="?([^";]+)"?').firstMatch(cd);
+      if (match != null && match.group(1)!.isNotEmpty) {
+        name = match.group(1)!;
+      }
+    }
+    return (bytes: res.bodyBytes, filename: name);
   }
 
   Future<Map<String, dynamic>> uploadScan({

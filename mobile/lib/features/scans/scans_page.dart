@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
@@ -34,9 +35,10 @@ class _ScansPageState extends State<ScansPage> {
   String? _error;
   String? _previewError;
   Map<String, dynamic>? _lastResult;
-  List<List<double>> _vertices = const [];
+  Uint8List? _meshBytes;
+  String? _meshFilename;
+  List<List<double>> _previewVertices = const [];
   int? _vertexCount;
-  int? _sampledCount;
   int? _previewScanId;
 
   @override
@@ -61,28 +63,37 @@ class _ScansPageState extends State<ScansPage> {
     }
   }
 
+  /// GDPR patients use UUID strings; legacy rows used ints.
+  String _pid(Map<String, dynamic> row) => '${row['id'] ?? ''}';
+
   String get _patientLabel {
     final p = _patient;
     if (p == null) return '';
     return '${p['first_name'] ?? ''} ${p['last_name'] ?? ''}'.trim();
   }
 
-  Future<List<Map<String, dynamic>>> _scansForPatient(int patientId) async {
+  Future<List<Map<String, dynamic>>> _scansForPatient(String patientId) async {
+    if (patientId.isEmpty) return const [];
     final cases = await widget.api.listCases();
-    final mine = cases.where((c) => c['patient_id'] == patientId).toList()
+    final mine = cases.where((c) => '${c['patient_id']}' == patientId).toList()
       ..sort((a, b) {
         final ta = DateTime.tryParse('${a['updated_at'] ?? ''}') ?? DateTime(1970);
         final tb = DateTime.tryParse('${b['updated_at'] ?? ''}') ?? DateTime(1970);
         return tb.compareTo(ta);
       });
 
-    Map<String, dynamic> caseRow;
+    Map<String, dynamic>? caseRow;
     if (mine.isEmpty) {
-      caseRow = await widget.api.createCase(patientId);
+      // Legacy cases API only accepts numeric patient ids.
+      final asInt = int.tryParse(patientId);
+      if (asInt != null) {
+        caseRow = await widget.api.createCase(asInt);
+      }
     } else {
       caseRow = mine.first;
     }
     if (mounted) setState(() => _case = caseRow);
+    if (caseRow == null) return const [];
 
     final all = <Map<String, dynamic>>[];
     final caseList = mine.isEmpty ? [caseRow] : mine;
@@ -112,12 +123,14 @@ class _ScansPageState extends State<ScansPage> {
       _case = null;
       _scans = [];
       _lastResult = null;
-      _vertices = const [];
+      _meshBytes = null;
+      _meshFilename = null;
+      _previewVertices = const [];
       _previewError = null;
       _previewScanId = null;
     });
-    final pid = patient['id'];
-    if (pid is! int) return;
+    final pid = _pid(patient);
+    if (pid.isEmpty) return;
     final scans = await _scansForPatient(pid);
     if (!mounted) return;
     setState(() {
@@ -142,90 +155,174 @@ class _ScansPageState extends State<ScansPage> {
       }
     });
     try {
-      final preview = await widget.api.fetchScanPreview(
+      // Full mesh file — point-preview API has no faces, so Solid cannot work from it.
+      final file = await widget.api.fetchScanFile(
         caseId: caseId,
         scanId: scanId,
       );
       if (!mounted || _previewScanId != scanId) return;
-      final raw = preview['vertices'];
-      final verts = <List<double>>[];
-      if (raw is List) {
-        for (final row in raw) {
-          if (row is List && row.length >= 3) {
-            verts.add([
-              (row[0] as num).toDouble(),
-              (row[1] as num).toDouble(),
-              (row[2] as num).toDouble(),
-            ]);
+      final name = file.filename.isNotEmpty
+          ? file.filename
+          : '${scan['filename'] ?? 'scan.ply'}';
+      setState(() {
+        _meshBytes = file.bytes;
+        _meshFilename = name;
+        _previewVertices = const [];
+        _vertexCount = null;
+        _previewError = null;
+        _previewLoading = false;
+      });
+    } catch (_) {
+      // Fallback: downsampled points (Dots only) if full-file download fails.
+      try {
+        final preview = await widget.api.fetchScanPreview(
+          caseId: caseId,
+          scanId: scanId,
+        );
+        if (!mounted || _previewScanId != scanId) return;
+        final raw = preview['vertices'];
+        final verts = <List<double>>[];
+        if (raw is List) {
+          for (final row in raw) {
+            if (row is List && row.length >= 3) {
+              verts.add([
+                (row[0] as num).toDouble(),
+                (row[1] as num).toDouble(),
+                (row[2] as num).toDouble(),
+              ]);
+            }
           }
         }
+        setState(() {
+          _meshBytes = null;
+          _meshFilename = null;
+          _previewVertices = verts;
+          _vertexCount = (preview['vertex_count'] as num?)?.toInt();
+          _previewError = verts.isEmpty
+              ? (preview['error']?.toString() ?? 'Preview has no points')
+              : null;
+          _previewLoading = false;
+        });
+      } catch (e) {
+        if (!mounted || _previewScanId != scanId) return;
+        setState(() {
+          _meshBytes = null;
+          _meshFilename = null;
+          _previewVertices = const [];
+          _previewError = e.toString().replaceFirst('Exception: ', '');
+          _previewLoading = false;
+        });
       }
-      setState(() {
-        _vertices = verts;
-        _vertexCount = (preview['vertex_count'] as num?)?.toInt();
-        _sampledCount = (preview['sampled'] as num?)?.toInt() ?? verts.length;
-        _previewError = verts.isEmpty
-            ? (preview['error']?.toString() ?? 'Preview has no points')
-            : null;
-        _previewLoading = false;
-      });
-    } catch (e) {
-      if (!mounted || _previewScanId != scanId) return;
-      setState(() {
-        _vertices = const [];
-        _previewError = e.toString().replaceFirst('Exception: ', '');
-        _previewLoading = false;
-      });
+    }
+  }
+
+  Future<int?> _ensureCaseId() async {
+    final existing = _case?['id'];
+    if (existing is int) return existing;
+    if (_patient == null) return null;
+    final asInt = int.tryParse(_pid(_patient!));
+    if (asInt == null) return null;
+    try {
+      final row = await widget.api.createCase(asInt);
+      if (mounted) setState(() => _case = row);
+      final id = row['id'];
+      return id is int ? id : (id as num?)?.toInt();
+    } catch (_) {
+      return null;
     }
   }
 
   Future<void> _upload() async {
-    if (_busy || _case == null || _patient == null) return;
+    if (_busy || _patient == null) return;
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
+      // Web needs withData; native prefers path for large PLYs.
       final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: const ['ply', 'stl', 'obj'],
-        withData: true,
+        withData: kIsWeb,
+        allowMultiple: false,
       );
       if (result == null || result.files.isEmpty) return;
+
       final file = result.files.first;
-      final bytes = file.bytes;
-      if (bytes == null) {
+      Uint8List? bytes;
+      try {
+        bytes = await file.xFile.readAsBytes();
+      } catch (_) {
+        if (file.bytes != null && file.bytes!.isNotEmpty) {
+          bytes = Uint8List.fromList(file.bytes!);
+        }
+      }
+      if (bytes == null || bytes.isEmpty) {
         setState(() => _error = 'Could not read file bytes');
         if (mounted) AppSnackBars.error(context, 'Could not read file bytes');
         return;
       }
-      final name = file.name;
-      final upload = await _sync.captureScan(
-        caseId: _case!['id'] as int,
-        bytes: Uint8List.fromList(bytes),
-        filename: name,
-      );
-      setState(() => _lastResult = upload);
-      await _sync.flush();
-      final pid = _patient!['id'] as int;
-      final scans = await _scansForPatient(pid);
+      final name = file.name.isNotEmpty ? file.name : 'scan.ply';
+      final meshBytes = bytes;
+
+      // Upload before preview so viewer failures cannot kill the pick flow.
+      final caseId = await _ensureCaseId();
+      Map<String, dynamic>? upload;
+      if (caseId != null) {
+        upload = await _sync.captureScan(
+          caseId: caseId,
+          bytes: meshBytes,
+          filename: name,
+        );
+        await _sync.flush();
+      }
+
       if (!mounted) return;
+      setState(() {
+        _meshBytes = meshBytes;
+        _meshFilename = name;
+        _previewVertices = const [];
+        _vertexCount = null;
+        _previewError = null;
+        _previewScanId = null;
+        _lastResult = upload;
+      });
+
+      if (caseId == null) {
+        if (mounted) {
+          AppSnackBars.success(
+            context,
+            'Preview ready (server upload needs a numeric case id)',
+          );
+        }
+        return;
+      }
+
+      final scans = await _scansForPatient(_pid(_patient!));
+      if (!mounted) return;
+      final keptBytes = _meshBytes;
+      final keptName = _meshFilename;
       setState(() {
         _scans = scans;
         _selected = 0;
       });
-      if (scans.isNotEmpty) {
+      if (keptBytes != null && keptBytes.isNotEmpty) {
+        setState(() {
+          _meshBytes = keptBytes;
+          _meshFilename = keptName;
+          _previewVertices = const [];
+          _previewError = null;
+          _previewLoading = false;
+        });
+      } else if (scans.isNotEmpty) {
         await _loadPreviewFor(scans.first);
       }
       if (mounted) AppSnackBars.success(context, 'Scan uploaded successfully');
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
-      if (mounted) {
-        AppSnackBars.error(
-          context,
-          e.toString().replaceFirst('Exception: ', ''),
-        );
-      }
+      if (!mounted) return;
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() => _error = msg);
+      AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -267,8 +364,8 @@ class _ScansPageState extends State<ScansPage> {
     });
     try {
       await widget.api.deleteScan(caseId: caseId, scanId: scanId);
-      final pid = _patient?['id'] as int?;
-      if (pid == null) return;
+      final pid = _patient == null ? '' : _pid(_patient!);
+      if (pid.isEmpty) return;
       final scans = await _scansForPatient(pid);
       if (!mounted) return;
       setState(() {
@@ -276,7 +373,9 @@ class _ScansPageState extends State<ScansPage> {
         _selected = 0;
         _lastResult = null;
         if (scans.isEmpty) {
-          _vertices = const [];
+          _meshBytes = null;
+          _meshFilename = null;
+          _previewVertices = const [];
           _previewError = null;
           _previewScanId = null;
         }
@@ -302,17 +401,16 @@ class _ScansPageState extends State<ScansPage> {
     }
 
     final scan = _scans.isEmpty ? null : _scans[_selected.clamp(0, _scans.length - 1)];
-    final score = ((scan?['quality_score'] as num?)?.toDouble() ??
-            (_lastResult?['quality_score'] as num?)?.toDouble() ??
-            0) *
-        (scan?['quality_score'] != null &&
-                (scan!['quality_score'] as num) <= 1
-            ? 100
-            : 1);
-    final scoreInt = score.round().clamp(0, 100);
+    final rawScore = (scan?['quality_score'] as num?)?.toDouble() ??
+        (_lastResult?['quality_score'] as num?)?.toDouble();
+    // No mesh / no server score → never show a fake 0.
+    final hasScore = rawScore != null && (scan != null || _lastResult != null);
+    final scoreInt = !hasScore
+        ? null
+        : (rawScore <= 1 ? rawScore * 100 : rawScore).round().clamp(0, 100);
     final result = scan?['validation_result'] as String? ??
-        _lastResult?['validation_result'] as String? ??
-        'unknown';
+        _lastResult?['validation_result'] as String?;
+    final canUpload = !_busy && _patient != null;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
@@ -345,8 +443,8 @@ class _ScansPageState extends State<ScansPage> {
               if (_patients.isNotEmpty)
                 SizedBox(
                   width: 240,
-                  child: DropdownButtonFormField<int>(
-                    initialValue: _patient?['id'] as int?,
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _patient == null ? null : _pid(_patient!),
                     decoration: const InputDecoration(
                       isDense: true,
                       labelText: 'Patient',
@@ -354,13 +452,13 @@ class _ScansPageState extends State<ScansPage> {
                     items: _patients
                         .map(
                           (p) => DropdownMenuItem(
-                            value: p['id'] as int,
+                            value: _pid(p),
                             child: Text('${p['first_name']} ${p['last_name']}'),
                           ),
                         )
                         .toList(),
                     onChanged: (id) {
-                      final p = _patients.firstWhere((e) => e['id'] == id);
+                      final p = _patients.firstWhere((e) => _pid(e) == id);
                       _selectPatient(p);
                     },
                   ),
@@ -378,26 +476,47 @@ class _ScansPageState extends State<ScansPage> {
               narrowPanelHeight: 280,
               panel: Column(
                     children: [
-                      InkWell(
-                        onTap: _busy || _case == null ? null : _upload,
-                        borderRadius: AppRadii.border,
+                      SizedBox(
+                        width: double.infinity,
                         child: SectionCard(
-                          child: Column(
-                            children: [
-                              Icon(Icons.cloud_upload_outlined,
-                                  color: AppColors.dentalBlue, size: 28),
-                              const SizedBox(height: 8),
-                              Text(
-                                _busy ? 'Uploading…' : 'Upload scan file',
-                                style: const TextStyle(fontWeight: FontWeight.w600),
+                          padding: EdgeInsets.zero,
+                          child: InkWell(
+                            onTap: canUpload ? _upload : null,
+                            borderRadius: AppRadii.border,
+                            child: Padding(
+                              padding: const EdgeInsets.all(18),
+                              child: Column(
+                                children: [
+                                  Icon(
+                                    Icons.cloud_upload_outlined,
+                                    color: canUpload
+                                        ? AppColors.dentalBlue
+                                        : AppColors.muted,
+                                    size: 28,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    _busy
+                                        ? 'Uploading…'
+                                        : _patient == null
+                                            ? 'Select a patient to upload'
+                                            : 'Upload scan file',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const Text(
+                                    'PLY, STL, OBJ — opens Files on iPad',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: AppColors.muted,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 4),
-                              const Text(
-                                'PLY, STL, OBJ — uploads to server when online',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(color: AppColors.muted, fontSize: 12),
-                              ),
-                            ],
+                            ),
                           ),
                         ),
                       ),
@@ -420,9 +539,13 @@ class _ScansPageState extends State<ScansPage> {
                                   itemBuilder: (context, i) {
                                     final s = _scans[i];
                                     final selected = i == _selected;
-                                    final q = ((s['quality_score'] as num?)?.toDouble() ?? 0);
-                                    final pct = (q <= 1 ? q * 100 : q).round();
-                                    final file = '${s['filename'] ?? 'Scan #${s['id']}'}';
+                                    final q = (s['quality_score'] as num?)
+                                        ?.toDouble();
+                                    final pct = q == null
+                                        ? null
+                                        : (q <= 1 ? q * 100 : q).round();
+                                    final file =
+                                        '${s['filename'] ?? 'Scan #${s['id']}'}';
                                     final short = file.length > 28
                                         ? '${file.substring(0, 26)}…'
                                         : file;
@@ -454,14 +577,16 @@ class _ScansPageState extends State<ScansPage> {
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
                                           Text(
-                                            '$pct%',
+                                            pct == null ? '—' : '$pct%',
                                             style: TextStyle(
                                               fontWeight: FontWeight.w700,
-                                              color: pct >= 80
-                                                  ? AppColors.success
-                                                  : pct >= 50
-                                                      ? AppColors.warning
-                                                      : AppColors.danger,
+                                              color: pct == null
+                                                  ? AppColors.muted
+                                                  : pct >= 80
+                                                      ? AppColors.success
+                                                      : pct >= 50
+                                                          ? AppColors.warning
+                                                          : AppColors.danger,
                                             ),
                                           ),
                                           IconButton(
@@ -492,10 +617,7 @@ class _ScansPageState extends State<ScansPage> {
                           children: [
                             Expanded(
                               child: Text(
-                                scan == null
-                                    ? 'No scan selected'
-                                    : '${scan['filename'] ?? 'Scan #${scan['id']}'}'
-                                        ' · ${scan['patient_name'] ?? _patientLabel}',
+                                _viewerTitle(scan),
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                   fontSize: 16,
@@ -516,26 +638,29 @@ class _ScansPageState extends State<ScansPage> {
                         const SizedBox(height: 16),
                         Expanded(
                           child: MeshViewer(
-                            vertices: _vertices,
+                            bytes: _meshBytes,
+                            filename: _meshFilename,
+                            previewVertices: _previewVertices,
                             loading: _previewLoading,
                             error: _previewError,
                             vertexCount: _vertexCount,
-                            sampled: _sampledCount,
                           ),
                         ),
                         const SizedBox(height: 16),
                         Row(
                           children: [
                             Text(
-                              '$scoreInt',
+                              scoreInt?.toString() ?? '—',
                               style: TextStyle(
                                 fontSize: 36,
                                 fontWeight: FontWeight.w800,
-                                color: scoreInt >= 80
-                                    ? AppColors.success
-                                    : scoreInt >= 50
-                                        ? AppColors.warning
-                                        : AppColors.danger,
+                                color: scoreInt == null
+                                    ? AppColors.muted
+                                    : scoreInt >= 80
+                                        ? AppColors.success
+                                        : scoreInt >= 50
+                                            ? AppColors.warning
+                                            : AppColors.danger,
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -543,7 +668,11 @@ class _ScansPageState extends State<ScansPage> {
                                 style: TextStyle(fontWeight: FontWeight.w600)),
                             const Spacer(),
                             Text(
-                              result.toUpperCase(),
+                              (result ??
+                                      (scan == null && !_hasLoadedMesh
+                                          ? 'no scan'
+                                          : 'pending'))
+                                  .toUpperCase(),
                               style: const TextStyle(
                                 color: AppColors.muted,
                                 fontWeight: FontWeight.w700,
@@ -556,14 +685,16 @@ class _ScansPageState extends State<ScansPage> {
                         ClipRRect(
                           borderRadius: BorderRadius.circular(8),
                           child: LinearProgressIndicator(
-                            value: scoreInt / 100,
+                            value: scoreInt == null ? 0 : scoreInt / 100,
                             minHeight: 10,
                             backgroundColor: AppColors.border,
-                            color: scoreInt >= 80
-                                ? AppColors.success
-                                : scoreInt >= 50
-                                    ? AppColors.warning
-                                    : AppColors.danger,
+                            color: scoreInt == null
+                                ? AppColors.border
+                                : scoreInt >= 80
+                                    ? AppColors.success
+                                    : scoreInt >= 50
+                                        ? AppColors.warning
+                                        : AppColors.danger,
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -605,31 +736,35 @@ class _ScansPageState extends State<ScansPage> {
                           width: double.infinity,
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: (_lastResult?['prompt_rescan'] == true ||
-                                    result == 'bad' ||
-                                    result == 'blurry' ||
-                                    result == 'missing_margin')
-                                ? AppColors.dangerSoft
-                                : scoreInt >= 80
-                                    ? AppColors.successSoft
-                                    : scoreInt >= 50
-                                        ? AppColors.warningSoft
-                                        : AppColors.dangerSoft,
+                            color: scoreInt == null
+                                ? AppColors.border.withValues(alpha: 0.35)
+                                : (_lastResult?['prompt_rescan'] == true ||
+                                        result == 'bad' ||
+                                        result == 'blurry' ||
+                                        result == 'missing_margin')
+                                    ? AppColors.dangerSoft
+                                    : scoreInt >= 80
+                                        ? AppColors.successSoft
+                                        : scoreInt >= 50
+                                            ? AppColors.warningSoft
+                                            : AppColors.dangerSoft,
                             borderRadius: AppRadii.border,
                           ),
                           child: Text(
                             _messageFor(result, scoreInt, _lastResult),
                             style: TextStyle(
-                              color: (_lastResult?['prompt_rescan'] == true ||
-                                      result == 'bad' ||
-                                      result == 'blurry' ||
-                                      result == 'missing_margin')
-                                  ? AppColors.danger
-                                  : scoreInt >= 80
-                                      ? AppColors.success
-                                      : scoreInt >= 50
-                                          ? AppColors.warning
-                                          : AppColors.danger,
+                              color: scoreInt == null
+                                  ? AppColors.muted
+                                  : (_lastResult?['prompt_rescan'] == true ||
+                                          result == 'bad' ||
+                                          result == 'blurry' ||
+                                          result == 'missing_margin')
+                                      ? AppColors.danger
+                                      : scoreInt >= 80
+                                          ? AppColors.success
+                                          : scoreInt >= 50
+                                              ? AppColors.warning
+                                              : AppColors.danger,
                               fontWeight: FontWeight.w600,
                               height: 1.35,
                             ),
@@ -643,7 +778,7 @@ class _ScansPageState extends State<ScansPage> {
                           SizedBox(
                             width: double.infinity,
                             child: FilledButton.icon(
-                              onPressed: _busy || _case == null ? null : _upload,
+                              onPressed: canUpload ? _upload : null,
                               icon: const Icon(Icons.refresh),
                               label: const Text('Rescan now — before patient leaves'),
                               style: FilledButton.styleFrom(
@@ -662,6 +797,26 @@ class _ScansPageState extends State<ScansPage> {
     );
   }
 
+  /// A mesh is on screen if we have raw bytes or a decoded point preview.
+  bool get _hasLoadedMesh =>
+      (_meshBytes != null && _meshBytes!.isNotEmpty) ||
+      _previewVertices.isNotEmpty;
+
+  /// Header keys off what's actually displayed — a freshly picked/uploaded file
+  /// shows its name even before its server row lands in [_scans].
+  String _viewerTitle(Map<String, dynamic>? scan) {
+    if (scan != null) {
+      final name = '${scan['filename'] ?? 'Scan #${scan['id']}'}';
+      final who = scan['patient_name'] ?? _patientLabel;
+      return '$who'.trim().isEmpty ? name : '$name · $who';
+    }
+    if (_hasLoadedMesh) {
+      final name = _meshFilename ?? 'Scan preview';
+      return _patientLabel.isEmpty ? name : '$name · $_patientLabel';
+    }
+    return 'No scan selected';
+  }
+
   List<Map<String, dynamic>> _issuesFor(
     Map<String, dynamic>? scan,
     Map<String, dynamic>? last,
@@ -675,7 +830,13 @@ class _ScansPageState extends State<ScansPage> {
         .toList();
   }
 
-  String _messageFor(String result, int score, Map<String, dynamic>? last) {
+  String _messageFor(String? result, int? score, Map<String, dynamic>? last) {
+    if (score == null && last?['queued'] != true) {
+      return (_meshBytes != null && _meshBytes!.isNotEmpty) ||
+              _previewVertices.isNotEmpty
+          ? '3D preview ready — quality score appears after upload.'
+          : 'Upload a PLY / STL / OBJ scan to see quality.';
+    }
     if (last?['queued'] == true) {
       return last?['note'] as String? ?? 'Queued for offline sync.';
     }
@@ -686,7 +847,7 @@ class _ScansPageState extends State<ScansPage> {
       final reasons = (last?['reasons'] as List?)?.join(' ') ?? '';
       return 'Rescan recommended before the patient leaves. $reasons'.trim();
     }
-    if (score >= 80 || result == 'good') {
+    if ((score ?? 0) >= 80 || result == 'good') {
       return 'Scan accepted — ready for lab review. Stored encrypted at rest.';
     }
     return 'Review recommended — quality score below threshold.';
