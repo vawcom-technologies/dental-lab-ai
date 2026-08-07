@@ -102,7 +102,9 @@ class _SettingsPageState extends State<SettingsPage> {
     });
     await s.save();
     if (!mounted) return;
-    setState(() => _status = AppLocalizations.of(context).preferenceSaved);
+    final msg = AppLocalizations.of(context).preferenceSaved;
+    setState(() => _status = msg);
+    AppSnackBars.success(context, msg);
   }
 
   Future<void> _setLanguage(String code) async {
@@ -130,19 +132,24 @@ class _SettingsPageState extends State<SettingsPage> {
       final loc = AppLocalizations.of(context);
       if (!online) {
         setState(() => _error = loc.settingsOfflineError);
+        AppSnackBars.error(context, loc.settingsOfflineError);
         return;
       }
       final n = await _sync.flush();
       final pending = await _sync.queue.pendingCount();
       if (!mounted) return;
+      final msg = n == 0 ? loc.settingsQueueEmpty : loc.settingsSynced(n);
       setState(() {
         _pending = pending;
         _online = true;
-        _status = n == 0 ? loc.settingsQueueEmpty : loc.settingsSynced(n);
+        _status = msg;
       });
+      AppSnackBars.success(context, msg);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() => _error = msg);
+      AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _syncing = false);
     }
@@ -178,9 +185,13 @@ class _SettingsPageState extends State<SettingsPage> {
     });
     try {
       final n = await (_settings ?? await AppSettings.load()).clearEncryptedCache();
-      setState(() => _status = loc.settingsCleared(n));
+      final msg = loc.settingsCleared(n);
+      setState(() => _status = msg);
+      if (mounted) AppSnackBars.success(context, msg);
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() => _error = msg);
+      if (mounted) AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _clearing = false);
     }

@@ -126,6 +126,7 @@ class InboxScreen extends StatelessWidget {
                                 return _ConversationTile(
                                   conversation: c,
                                   selected: selected,
+                                  enabled: !controller.loadingMessages,
                                   onTap: () async {
                                     await controller.openConversation(c);
                                     onConversationSelected?.call(c);
@@ -160,11 +161,13 @@ class _ConversationTile extends StatelessWidget {
     required this.conversation,
     required this.selected,
     required this.onTap,
+    this.enabled = true,
   });
 
   final Conversation conversation;
   final bool selected;
   final VoidCallback onTap;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -182,7 +185,7 @@ class _ConversationTile extends StatelessWidget {
           ? AppColors.sidebarActive.withValues(alpha: 0.65)
           : Colors.transparent,
       child: InkWell(
-        onTap: onTap,
+        onTap: enabled ? onTap : null,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(

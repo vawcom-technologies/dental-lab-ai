@@ -153,6 +153,7 @@ class ChatController extends ChangeNotifier {
   }
 
   Future<void> openConversation(Conversation conversation) async {
+    if (_loadingMessages) return;
     if (_active?.id == conversation.id && _messages.isNotEmpty) {
       if (_viewingThread) markActiveAsRead();
       return;

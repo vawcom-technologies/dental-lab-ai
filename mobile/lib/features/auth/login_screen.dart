@@ -27,6 +27,7 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _info;
 
   Future<void> _submit() async {
+    if (_loading) return;
     AppHaptics.light();
     setState(() {
       _loading = true;
@@ -45,8 +46,10 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     } catch (e) {
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() => _error = msg);
+      if (mounted) AppSnackBars.error(context, msg, haptic: false);
       AppHaptics.warn();
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
