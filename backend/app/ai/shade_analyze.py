@@ -123,9 +123,11 @@ def analyze_tooth_from_outline_rgb(
     arr = _maybe_downscale_rgb(arr)
     h, w = arr.shape[:2]
 
-    # Keep the sparse edit skeleton (≈4–6 points); fillPoly does not need densify.
-    handles = simplify_normalized_outline(outline, max_points=6, min_points=4)
-    mask = mask_from_normalized_outline(handles, height=h, width=w)
+    # Client densifies Bezier bulges into a polyline — fill that, not 4–6 handles
+    # (approxPolyDP handles straighten mid-edge curves).
+    dense = [[float(p[0]), float(p[1])] for p in outline if len(p) >= 2]
+    handles = simplify_normalized_outline(dense, max_points=6, min_points=4)
+    mask = mask_from_normalized_outline(dense, height=h, width=w)
     if int(mask.sum()) < 40:
         raise ValueError("edited outline covers too few pixels")
 
@@ -140,10 +142,12 @@ def analyze_tooth_from_outline_rgb(
     row["tooth_index"] = tooth_index
     row["label"] = f"Tooth {tooth_index + 1}"
     row["outline_edited"] = True
-    # Preserve the dentist's control points (not a densified ring)
+    # Display keeps the curved polyline; sparse handles are edit-only.
     if isinstance(row.get("geometry"), dict):
-        row["geometry"]["outline"] = handles
         row["geometry"]["edited"] = True
+        row["geometry"]["edit_handles"] = handles
+        if len(dense) >= 8:
+            row["geometry"]["outline"] = dense
     return {
         "tooth": row,
         "image_width": w,

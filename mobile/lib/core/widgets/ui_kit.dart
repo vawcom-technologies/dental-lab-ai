@@ -97,12 +97,19 @@ class SectionCard extends StatelessWidget {
     // Material owns the fill color so nested ListTiles can paint ink /
     // selectedTileColor. A colored DecoratedBox between Material and ListTile
     // asserts in debug and can lock the widget tree.
+    final shadows =
+        boxShadow ?? (depth <= 0 ? null : NeoShadows.raised(depth: depth));
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: AppRadii.border,
-        border: depth <= 0 ? Border.all(color: AppColors.border) : null,
-        boxShadow:
-            boxShadow ?? (depth <= 0 ? null : NeoShadows.raised(depth: depth)),
+        // Custom glows: white rim so dark fills (e.g. photo pane) don't show
+        // a grey fringe. Flat depth-0 cards keep the default grey border.
+        border: boxShadow != null
+            ? Border.all(color: Colors.white)
+            : (shadows == null && depth <= 0
+                ? Border.all(color: AppColors.border)
+                : null),
+        boxShadow: shadows,
       ),
       child: Material(
         color: color ?? AppColors.card,

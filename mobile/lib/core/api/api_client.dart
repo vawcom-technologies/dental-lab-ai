@@ -321,8 +321,12 @@ class ApiClient {
 
   Future<List<Map<String, dynamic>>> listCases() async {
     final res = await http.get(Uri.parse('$baseUrl/api/cases'), headers: _jsonHeaders);
+    // Cases router is not always mounted (GDPR cutover) — treat as empty.
+    if (res.statusCode == 404) return const [];
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
+    final body = jsonDecode(res.body);
+    if (body is! List) return const [];
+    return body.cast<Map<String, dynamic>>();
   }
 
   Future<Map<String, dynamic>> createCase(int patientId) async {

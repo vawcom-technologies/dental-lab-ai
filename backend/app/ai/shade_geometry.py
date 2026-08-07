@@ -34,16 +34,12 @@ def tooth_display_geometry(
     if cv2.contourArea(cnt) < 8:
         return None
 
-    epsilon = max(0.8, 0.012 * cv2.arcLength(cnt, True))
+    # Sparse ring for soft-curve display (~6–12 verts). Flutter rounds corners.
+    epsilon = max(1.0, 0.016 * cv2.arcLength(cnt, True))
     approx = cv2.approxPolyDP(cnt, epsilon, True)
-    # Prefer a compact skeleton (≈4–6 verts) for dentist edge edits.
-    if len(approx) > 6:
-        epsilon = max(1.0, 0.02 * cv2.arcLength(cnt, True))
-        approx = cv2.approxPolyDP(cnt, epsilon, True)
-    if len(approx) < 4:
-        epsilon = max(0.4, 0.004 * cv2.arcLength(cnt, True))
-        approx = cv2.approxPolyDP(cnt, epsilon, True)
-    outline = simplify_normalized_outline(_poly_norm(approx, w, h), max_points=6, min_points=4)
+    outline = simplify_normalized_outline(
+        _poly_norm(approx, w, h), max_points=12, min_points=6
+    )
 
     x, y, bw, bh = cv2.boundingRect(cnt)
     bbox = {
@@ -85,9 +81,12 @@ def _mask_outline(mask: np.ndarray, w: int, h: int) -> list[list[float]]:
     if not contours:
         return []
     cnt = max(contours, key=cv2.contourArea)
-    epsilon = max(0.8, 0.015 * cv2.arcLength(cnt, True))
+    epsilon = max(0.5, 0.004 * cv2.arcLength(cnt, True))
     approx = cv2.approxPolyDP(cnt, epsilon, True)
-    return _poly_norm(approx, w, h)
+    outline = _poly_norm(approx, w, h)
+    if len(outline) > 64:
+        outline = simplify_normalized_outline(outline, max_points=64, min_points=12)
+    return outline
 
 
 def _poly_norm(approx: np.ndarray, w: int, h: int) -> list[list[float]]:

@@ -10,26 +10,34 @@ import 'package:dental_lab_ai/shell/app_sidebar.dart';
 void main() {
   test('Outline edit history undoes and redoes a drag', () {
     final history = OutlineEditHistory();
-    var current = [
-      [0.1, 0.1],
-      [0.2, 0.2],
-    ];
-    final before = OutlineEditHistory.clone(current);
-    current = [
-      [0.3, 0.3],
-      [0.2, 0.2],
-    ];
+    var current = OutlineEditHistory.snapOf(
+      [
+        [0.1, 0.1],
+        [0.2, 0.2],
+      ],
+      [0.0, 0.0],
+    );
+    final before = OutlineEditHistory.snapOf(current.verts, current.bulges);
+    current = OutlineEditHistory.snapOf(
+      [
+        [0.3, 0.3],
+        [0.2, 0.2],
+      ],
+      [0.01, 0.0],
+    );
     history.record(before);
 
     expect(history.canUndo, isTrue);
     expect(history.canRedo, isFalse);
 
     final undone = history.undo(current)!;
-    expect(undone, before);
+    expect(undone.verts, before.verts);
+    expect(undone.bulges, before.bulges);
     expect(history.canRedo, isTrue);
 
     final redone = history.redo(undone)!;
-    expect(redone, current);
+    expect(redone.verts, current.verts);
+    expect(redone.bulges, current.bulges);
   });
 
   testWidgets('Login screen shows Elite Dent logo', (tester) async {
