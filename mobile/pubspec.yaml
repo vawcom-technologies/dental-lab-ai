@@ -78,7 +78,7 @@ flutter:
 
   assets:
     - assets/brand/logo.png
-    - assets/clinical/vita-classical-a1-d4.png
+    - assets/clinical/vita_teeth/
     # Archived original 5×4 client grid (kept for restore) — see ShapeLibrary.legacyGridAsset
     - assets/clinical/archive/tooth-preview-grid.legacy.png
     - assets/clinical/shapes/

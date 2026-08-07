@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session, joinedload
 
-from app.ai.shade import VITA_SHADES
+from app.ai.shade import ALLOWED_SHADES
 from app.ai.shade_zones import ZONES
 from app.models.clinical import ShadeAnalysis, ShadeToothResult, ShadeZoneResult
 
@@ -224,5 +224,5 @@ def get_zone_for_analysis(
 def _validate_optional_vita(shade: str | None) -> None:
     if shade is None:
         return
-    if shade not in VITA_SHADES:
-        raise ValueError(f"Unknown VITA Classical shade: {shade}")
+    if shade not in ALLOWED_SHADES:
+        raise ValueError(f"Unknown shade: {shade}")

@@ -9,14 +9,14 @@ import '../../core/widgets/ui_kit.dart';
 import 'shade_shared.dart';
 import 'tooth_overlay.dart';
 
-/// Only claims a drag that starts on an outline handle, so pans and pinches
-/// elsewhere on the photo fall through to the zooming [InteractiveViewer].
-class HandleDragRecognizer extends PanGestureRecognizer {
-  int? Function(Offset local)? handleIndexAt;
+/// Claims drag on a vertex handle or mid-edge curve grip.
+class OutlineEditDragRecognizer extends PanGestureRecognizer {
+  /// 'v' = vertex index, 'e' = edge index.
+  ({String kind, int index})? Function(Offset local)? hitAt;
 
   @override
   bool isPointerAllowed(PointerEvent event) =>
-      handleIndexAt?.call(event.localPosition) != null &&
+      hitAt?.call(event.localPosition) != null &&
       super.isPointerAllowed(event);
 }
 
@@ -32,7 +32,9 @@ class ShadePhotoPane extends StatelessWidget {
     required this.analysisImageSize,
     required this.focusZone,
     required this.editOutline,
+    required this.editBulges,
     required this.activeHandleIndex,
+    required this.activeEdgeIndex,
     required this.photoTransformController,
     required this.dragTick,
     required this.canUndo,
@@ -45,6 +47,7 @@ class ShadePhotoPane extends StatelessWidget {
     required this.onHandleDragStart,
     required this.onHandleDragUpdate,
     required this.onHandleDragEnd,
+    required this.onEdgeDoubleTap,
     required this.onUndo,
     required this.onRedo,
   });
@@ -58,7 +61,9 @@ class ShadePhotoPane extends StatelessWidget {
   final Size analysisImageSize;
   final String focusZone;
   final List<List<double>>? editOutline;
+  final List<double>? editBulges;
   final int? activeHandleIndex;
+  final int? activeEdgeIndex;
   final TransformationController photoTransformController;
   final ValueNotifier<int> dragTick;
   final bool canUndo;
@@ -71,6 +76,7 @@ class ShadePhotoPane extends StatelessWidget {
   final void Function(Offset local, Size box) onHandleDragStart;
   final void Function(Offset local, Size box) onHandleDragUpdate;
   final VoidCallback onHandleDragEnd;
+  final void Function(Offset local, Size box) onEdgeDoubleTap;
   final VoidCallback onUndo;
   final VoidCallback onRedo;
 
@@ -137,6 +143,32 @@ class ShadePhotoPane extends StatelessWidget {
                                     );
                                   }
 
+                                  ({String kind, int index})? hitAt(
+                                    Offset local,
+                                  ) {
+                                    final outline = editOutline;
+                                    if (outline == null) return null;
+                                    final scale = photoTransformController
+                                        .value
+                                        .getMaxScaleOnAxis()
+                                        .clamp(1.0, 4.0);
+                                    final hi = handleAt(local);
+                                    if (hi != null) {
+                                      return (kind: 'v', index: hi);
+                                    }
+                                    final ei = hitTestOutlineEdge(
+                                      local: local,
+                                      box: box,
+                                      imageSize: imgSize,
+                                      outline: outline,
+                                      maxDist: 22 / scale,
+                                    );
+                                    if (ei != null) {
+                                      return (kind: 'e', index: ei);
+                                    }
+                                    return null;
+                                  }
+
                                   return RawGestureDetector(
                                     behavior: HitTestBehavior.opaque,
                                     gestures: <Type, GestureRecognizerFactory>{
@@ -158,18 +190,18 @@ class ShadePhotoPane extends StatelessWidget {
                                           },
                                         ),
                                       if (editOutlineMode)
-                                        HandleDragRecognizer:
+                                        OutlineEditDragRecognizer:
                                             GestureRecognizerFactoryWithHandlers<
-                                                HandleDragRecognizer>(
-                                          HandleDragRecognizer.new,
+                                                OutlineEditDragRecognizer>(
+                                          OutlineEditDragRecognizer.new,
                                           (r) => r
-                                            ..handleIndexAt = handleAt
+                                            ..hitAt = hitAt
                                             ..onStart = (details) {
-                                              final hi = handleAt(
-                                                details.localPosition,
-                                              );
-                                              if (editOutline == null ||
-                                                  hi == null) {
+                                              if (editOutline == null) return;
+                                              if (hitAt(
+                                                    details.localPosition,
+                                                  ) ==
+                                                  null) {
                                                 return;
                                               }
                                               onHandleDragStart(
@@ -188,6 +220,22 @@ class ShadePhotoPane extends StatelessWidget {
                                             }
                                             ..onCancel = onHandleDragEnd,
                                         ),
+                                      if (editOutlineMode)
+                                        DoubleTapGestureRecognizer:
+                                            GestureRecognizerFactoryWithHandlers<
+                                                DoubleTapGestureRecognizer>(
+                                          DoubleTapGestureRecognizer.new,
+                                          (r) => r.onDoubleTapDown = (d) {
+                                            if (hitAt(d.localPosition) ==
+                                                null) {
+                                              return;
+                                            }
+                                            onEdgeDoubleTap(
+                                              d.localPosition,
+                                              box,
+                                            );
+                                          },
+                                        ),
                                     },
                                     child: CustomPaint(
                                       painter: ToothOverlayPainter(
@@ -201,7 +249,9 @@ class ShadePhotoPane extends StatelessWidget {
                                         focusZone: focusZone,
                                         editMode: editOutlineMode,
                                         editOutline: editOutline,
+                                        editBulges: editBulges,
                                         activeHandleIndex: activeHandleIndex,
+                                        activeEdgeIndex: activeEdgeIndex,
                                         transformationController:
                                             photoTransformController,
                                       ),
@@ -304,7 +354,7 @@ class ShadePhotoPane extends StatelessWidget {
                   bottom: 12,
                   child: Text(
                     editOutlineMode
-                        ? 'Pinch to zoom · Drag the handles to reshape the tooth, then Apply.'
+                        ? 'Drag corners · hold mid-edge to curve · double-tap edge to add a point · Apply.'
                         : 'Pinch to zoom · Tap a tooth to select, adjust, add, or delete.',
                     textAlign: TextAlign.center,
                     style: TextStyle(

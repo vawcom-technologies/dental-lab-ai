@@ -170,5 +170,5 @@ class TestShadeAnalysisPersist:
         session, case_id = db
         bad = _tooth_payload()
         bad["zones"]["middle"]["detected_shade"] = "Z9"
-        with pytest.raises(ValueError, match="Unknown VITA"):
+        with pytest.raises(ValueError, match="Unknown shade"):
             shade_svc.create_analysis(session, case_id=case_id, teeth_payload=[bad])

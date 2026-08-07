@@ -64,11 +64,14 @@ class _ShadePageState extends State<ShadePage> {
   bool _editOutlineMode = false;
   List<List<double>>? _editOutline;
   List<List<double>>? _editOutlineBackup;
+  List<double>? _editBulges;
+  List<double>? _editBulgesBackup;
   int? _activeHandleIndex;
+  int? _activeEdgeIndex;
   Offset? _magnifierFocalPoint;
   Size? _magnifierViewSize;
   final _outlineHistory = OutlineEditHistory();
-  List<List<double>>? _outlineBeforeDrag;
+  OutlineSnap? _outlineBeforeDrag;
   /// Ticks on every handle move so only the overlay and loupe repaint —
   /// a page-level setState per pointer move rebuilds the whole shade screen.
   final _dragTick = ValueNotifier<int>(0);
@@ -340,6 +343,14 @@ class _ShadePageState extends State<ShadePage> {
     }).toList();
   }
 
+  /// Result hero shade: override wins over AI detected.
+  String _resultDisplayShade() {
+    final tooth = _selectedTooth;
+    if (tooth == null) return _detected;
+    final zone = _zoneOf(tooth, _focusZone) ?? _zoneOf(tooth, 'middle');
+    return _zoneEffective(zone) ?? _detected;
+  }
+
   /// Sync Result / Similar shades / selection from the focused tooth+zone.
   void _syncUiFromSelection({bool resetSelectedToDetected = true}) {
     final tooth = _selectedTooth;
@@ -372,26 +383,51 @@ class _ShadePageState extends State<ShadePage> {
     _recomputeOverallTopMatches();
   }
 
+  /// ΔE of zone sample vs effective shade (override or detected).
+  double? _zoneMatchDeltaE(Map<String, dynamic>? zone) {
+    if (zone == null) return null;
+    final effective = _zoneEffective(zone);
+    if (effective == null) return null;
+    final sampled = zone['sampled_lab'];
+    if (sampled is List && sampled.length >= 3) {
+      final de = deltaEVsShade(
+        [sampled[0] as num, sampled[1] as num, sampled[2] as num],
+        effective,
+      );
+      if (de != null) return de;
+    }
+    final detected = zone['detected_shade'] as String?;
+    if (effective == detected) {
+      return (zone['delta_e_2000'] as num?)?.toDouble();
+    }
+    final tops = zone['top_matches'];
+    if (tops is List) {
+      for (final m in tops) {
+        if (m is Map && m['shade'] == effective) {
+          return (m['delta_e_2000'] as num?)?.toDouble();
+        }
+      }
+    }
+    return null;
+  }
+
   /// Shade-match confidence from CIEDE2000 (Result %), not segmentation fill.
   double _shadeMatchConfidence(
     Map<String, dynamic>? zone,
     Map<String, dynamic>? tooth,
   ) {
-    final de = (zone?['delta_e_2000'] as num?)?.toDouble();
-    if (de != null) {
-      // ΔE 0 → ~0.97, ΔE 1 → ~0.78, ΔE 2 → ~0.64, ΔE 3.5 → ~0.50, ΔE 7 → ~0.33
-      return (1.0 / (1.0 + de / 3.5)).clamp(0.05, 0.97);
-    }
+    final de = _zoneMatchDeltaE(zone);
+    if (de != null) return confidenceFromDeltaE(de);
     return (tooth?['confidence'] as num?)?.toDouble() ?? 0;
   }
 
-  /// Most prominent shades across the whole analysis (Result "Top matches").
+  /// Overall Top matches: mode of effective shades (middle×3), ΔE tie-break only.
   void _recomputeOverallTopMatches() {
     final weight = <String, double>{};
     final bestDe = <String, double>{};
 
-    void bump(String shade, double w, double? de) {
-      if (shade.isEmpty || shade == '—') return;
+    void bump(String? shade, double w, double? de) {
+      if (shade == null || shade.isEmpty || shade == '—') return;
       weight[shade] = (weight[shade] ?? 0) + w;
       if (de != null) {
         final prev = bestDe[shade];
@@ -404,30 +440,16 @@ class _ShadePageState extends State<ShadePage> {
       for (final zName in kShadeZones) {
         final z = _zoneOf(t, zName);
         if (z == null) continue;
+        final effective = _zoneEffective(z);
+        if (effective == null) continue;
         final zoneW = zName == 'middle' ? 3.0 : 1.0;
-        final detected = z['detected_shade'] as String?;
-        final de = (z['delta_e_2000'] as num?)?.toDouble();
-        if (detected != null) {
-          bump(detected, zoneW * 2.5, de);
-        }
-        final tops = z['top_matches'];
-        if (tops is! List) continue;
-        for (var i = 0; i < tops.length; i++) {
-          final m = tops[i];
-          if (m is! Map) continue;
-          final s = m['shade']?.toString();
-          if (s == null || s.isEmpty) continue;
-          final mde = (m['delta_e_2000'] as num?)?.toDouble() ?? de;
-          bump(s, zoneW * (1.0 / (1.0 + i)) * 0.45, mde);
-        }
+        bump(effective, zoneW, _zoneMatchDeltaE(z));
       }
     }
 
     final ranked = weight.keys.toList()
       ..sort((a, b) {
-        final sa = (weight[a] ?? 0) / (1.0 + (bestDe[a] ?? 9));
-        final sb = (weight[b] ?? 0) / (1.0 + (bestDe[b] ?? 9));
-        final c = sb.compareTo(sa);
+        final c = (weight[b] ?? 0).compareTo(weight[a] ?? 0);
         if (c != 0) return c;
         return (bestDe[a] ?? 99).compareTo(bestDe[b] ?? 99);
       });
@@ -488,7 +510,7 @@ class _ShadePageState extends State<ShadePage> {
 
   void _commitPendingOverride({required int index, required String zone}) {
     final shade = _pendingShade;
-    if (shade == null || shade == '—' || !kVitaShades.contains(shade)) {
+    if (shade == null || shade == '—' || !kAllowedShades.contains(shade)) {
       _toast('Choose a shade first, then tap Override');
       return;
     }
@@ -508,13 +530,13 @@ class _ShadePageState extends State<ShadePage> {
       _syncUiFromSelection(resetSelectedToDetected: false);
       _selected = shade;
       _saveStatus = null;
-      // Keep an already-saved Session row in sync without a re-save.
-      _upsertSessionEntry(onlyIfExists: true);
     });
     _toast(
       'Tooth ${index + 1} · ${capitalizeZone(zone)} → $shade',
       bg: AppColors.success,
     );
+    // Persist so Session gets the accepted match (was onlyIfExists before).
+    _persist(acceptAi: false);
   }
 
   void _beginZoneOverride(int index, String zone) {
@@ -577,6 +599,7 @@ class _ShadePageState extends State<ShadePage> {
         'detected_shade': null,
         'delta_e_2000': null,
         'override_shade': null,
+        'sampled_lab': null,
         'top_matches': <Map<String, dynamic>>[],
       };
 
@@ -674,19 +697,41 @@ class _ShadePageState extends State<ShadePage> {
     if (tooth == null) return;
     final geo = tooth['geometry'];
     if (geo is! Map) return;
-    final raw = geo['outline'];
-    if (raw is! List || raw.length < 3) return;
-    final simplified = simplifyOutlineForEdit(raw, maxPoints: 6, minPoints: 4);
+    final handles = geo['edit_handles'];
+    final List<List<double>> verts;
+    if (handles is List && handles.length >= 3) {
+      // Prefer stored edit skeleton (do not re-simplify — keeps bulge indices).
+      verts = [
+        for (final p in handles)
+          if (p is List && p.length >= 2)
+            [(p[0] as num).toDouble(), (p[1] as num).toDouble()],
+      ];
+    } else {
+      final raw = geo['outline'];
+      if (raw is! List || raw.length < 3) return;
+      verts = simplifyOutlineForEdit(raw, maxPoints: 8, minPoints: 4);
+    }
+    if (verts.length < 3) return;
+    final stored = geo['edge_bulges'];
+    final bulges = (stored is List && stored.length == verts.length)
+        ? [
+            for (final b in stored) (b as num).toDouble(),
+          ]
+        : zeroBulges(verts.length);
     setState(() {
       _editOutlineMode = true;
-      _editOutline = simplified.map((p) => [p[0], p[1]]).toList();
-      _editOutlineBackup = simplified.map((p) => [p[0], p[1]]).toList();
+      _editOutline = verts;
+      _editOutlineBackup = OutlineEditHistory.cloneVerts(verts);
+      _editBulges = bulges;
+      _editBulgesBackup = OutlineEditHistory.cloneBulges(bulges);
       _activeHandleIndex = null;
+      _activeEdgeIndex = null;
       _clearMagnifier();
       _outlineBeforeDrag = null;
       _outlineHistory.clear();
       _photoMenuVisible = false;
-      _saveStatus = 'Drag the 4–6 handles to nudge corners/sides, then Apply.';
+      _saveStatus =
+          'Drag corners · hold mid-edge to curve · double-tap edge to add a point · Apply.';
     });
   }
 
@@ -696,10 +741,13 @@ class _ShadePageState extends State<ShadePage> {
 
   void _resetOutlineEdit() {
     final bak = _editOutlineBackup;
-    if (bak == null) return;
+    final bakB = _editBulgesBackup;
+    if (bak == null || bakB == null) return;
     setState(() {
-      _editOutline = OutlineEditHistory.clone(bak);
+      _editOutline = OutlineEditHistory.cloneVerts(bak);
+      _editBulges = OutlineEditHistory.cloneBulges(bakB);
       _activeHandleIndex = null;
+      _activeEdgeIndex = null;
       _clearMagnifier();
       _outlineBeforeDrag = null;
       _outlineHistory.clear();
@@ -709,9 +757,11 @@ class _ShadePageState extends State<ShadePage> {
   void _commitOutlineDrag() {
     final before = _outlineBeforeDrag;
     final current = _editOutline;
+    final bulges = _editBulges;
     _outlineBeforeDrag = null;
-    if (before == null || current == null) return;
-    if (OutlineEditHistory.same(before, current)) return;
+    if (before == null || current == null || bulges == null) return;
+    final now = OutlineEditHistory.snapOf(current, bulges);
+    if (OutlineEditHistory.same(before, now)) return;
     _outlineHistory.record(before);
   }
 
@@ -724,7 +774,10 @@ class _ShadePageState extends State<ShadePage> {
     _editOutlineMode = false;
     _editOutline = null;
     _editOutlineBackup = null;
+    _editBulges = null;
+    _editBulgesBackup = null;
     _activeHandleIndex = null;
+    _activeEdgeIndex = null;
     _clearMagnifier();
     _outlineBeforeDrag = null;
     _outlineHistory.clear();
@@ -759,30 +812,37 @@ class _ShadePageState extends State<ShadePage> {
     _commitOutlineDrag();
     setState(() {
       _activeHandleIndex = null;
+      _activeEdgeIndex = null;
       _clearMagnifier();
     });
   }
 
   void _undoOutlineEdit() {
     final current = _editOutline;
-    if (current == null || !_outlineHistory.canUndo) return;
-    final prev = _outlineHistory.undo(current);
+    final bulges = _editBulges;
+    if (current == null || bulges == null || !_outlineHistory.canUndo) return;
+    final prev = _outlineHistory.undo(OutlineEditHistory.snapOf(current, bulges));
     if (prev == null) return;
     setState(() {
-      _editOutline = prev;
+      _editOutline = prev.verts;
+      _editBulges = prev.bulges;
       _activeHandleIndex = null;
+      _activeEdgeIndex = null;
       _clearMagnifier();
     });
   }
 
   void _redoOutlineEdit() {
     final current = _editOutline;
-    if (current == null || !_outlineHistory.canRedo) return;
-    final next = _outlineHistory.redo(current);
+    final bulges = _editBulges;
+    if (current == null || bulges == null || !_outlineHistory.canRedo) return;
+    final next = _outlineHistory.redo(OutlineEditHistory.snapOf(current, bulges));
     if (next == null) return;
     setState(() {
-      _editOutline = next;
+      _editOutline = next.verts;
+      _editBulges = next.bulges;
       _activeHandleIndex = null;
+      _activeEdgeIndex = null;
       _clearMagnifier();
     });
   }
@@ -790,8 +850,14 @@ class _ShadePageState extends State<ShadePage> {
   Future<void> _applyOutlineEdit() async {
     final bytes = _previewBytes;
     final outline = _editOutline;
+    final bulges = _editBulges;
     final idx = _selectedToothIndex;
-    if (bytes == null || outline == null || idx == null) return;
+    if (bytes == null || outline == null || bulges == null || idx == null) {
+      return;
+    }
+
+    // Densify Bezier bulges so backend fillPoly keeps mid-edge bends.
+    final sampled = sampleCurvedOutline(outline, bulges, samplesPerEdge: 8);
 
     setState(() {
       _busy = true;
@@ -802,7 +868,7 @@ class _ShadePageState extends State<ShadePage> {
       final result = await widget.api.resampleShadeOutline(
         bytes: bytes,
         filename: _previewFilename,
-        outline: outline,
+        outline: sampled,
         toothIndex: idx,
       );
       final toothRaw = result['tooth'];
@@ -817,6 +883,17 @@ class _ShadePageState extends State<ShadePage> {
             e.key.toString(): Map<String, dynamic>.from(e.value as Map),
         };
       }
+      // Keep curved display polyline + sparse handles/bulges for re-edit.
+      final geo = Map<String, dynamic>.from(
+        (updated['geometry'] is Map)
+            ? Map<String, dynamic>.from(updated['geometry'] as Map)
+            : <String, dynamic>{},
+      );
+      geo['outline'] = sampled;
+      geo['edit_handles'] = OutlineEditHistory.cloneVerts(outline);
+      geo['edge_bulges'] = OutlineEditHistory.cloneBulges(bulges);
+      geo['edited'] = true;
+      updated['geometry'] = geo;
       setState(() {
         _teeth = [
           for (final t in _teeth)
@@ -839,7 +916,7 @@ class _ShadePageState extends State<ShadePage> {
   }
 
   void _applyShadeChoice(String shade, {bool overall = false}) {
-    if (shade.isEmpty || shade == '—' || !kVitaShades.contains(shade)) return;
+    if (shade.isEmpty || shade == '—' || !kAllowedShades.contains(shade)) return;
 
     // Zone-level preview only — Override on the zone chip commits this pick.
     // overall: Result "Top matches" — Save override works immediately.
@@ -1114,8 +1191,8 @@ class _ShadePageState extends State<ShadePage> {
       return;
     }
     final finalShade = acceptAi ? _detected : _selected;
-    if (finalShade == '—' || !kVitaShades.contains(finalShade)) {
-      setState(() => _error = 'Pick a VITA shade before saving.');
+    if (finalShade == '—' || !kAllowedShades.contains(finalShade)) {
+      setState(() => _error = 'Pick a shade before saving.');
       return;
     }
     if (!acceptAi &&
@@ -1155,6 +1232,8 @@ class _ShadePageState extends State<ShadePage> {
       if (!acceptAi && _overallShadePick) {
         _focusZone = 'middle';
       }
+      _syncUiFromSelection(resetSelectedToDetected: false);
+      _selected = finalShade;
     }
 
     final overridden = !acceptAi && finalShade != _detected;
@@ -1181,25 +1260,33 @@ class _ShadePageState extends State<ShadePage> {
           overridden: overridden,
         );
       }
-      await widget.api.markCaseInProgressIfPending(
-        _case!['id'] as int,
-        _case!['status']?.toString(),
-      );
-      _case = {..._case!, 'status': 'in_progress'};
+      // Session first — don't lose the save if case-status update fails.
+      if (!mounted) return;
       setState(() {
         _finalShade = finalShade;
         _selected = finalShade;
         _pendingShade = null;
         _overallShadePick = false;
-        _saveStatus = overridden
-            ? 'Saved override $finalShade on case #${_case!['id']}'
-            : 'Accepted AI $finalShade on case #${_case!['id']}';
         _upsertSessionEntry(
           savedId: saved['id'],
           summaryShade: saved['summary_shade']?.toString() ?? finalShade,
           hasOverride: overridden || saved['has_override'] == true,
         );
+        _saveStatus = overridden
+            ? 'Saved override $finalShade on case #${_case!['id']}'
+            : 'Accepted AI $finalShade on case #${_case!['id']}';
       });
+      try {
+        await widget.api.markCaseInProgressIfPending(
+          _case!['id'] as int,
+          _case!['status']?.toString(),
+        );
+        if (mounted) {
+          setState(() => _case = {..._case!, 'status': 'in_progress'});
+        }
+      } catch (_) {
+        // Analysis already saved + session updated.
+      }
       if (mounted) {
         AppSnackBars.success(
           context,
@@ -1279,7 +1366,8 @@ class _ShadePageState extends State<ShadePage> {
 
   void _onHandleDragStart(Offset local, Size box) {
     final outline = _editOutline;
-    if (outline == null) return;
+    final bulges = _editBulges;
+    if (outline == null || bulges == null) return;
     final imgSize = _analysisImageSize == Size.zero ? box : _analysisImageSize;
     final scale =
         _photoTransformController.value.getMaxScaleOnAxis().clamp(1.0, 4.0);
@@ -1290,28 +1378,104 @@ class _ShadePageState extends State<ShadePage> {
       outline: outline,
       radius: 32 / scale,
     );
-    if (hi == null) return;
+    final ei = hi == null
+        ? hitTestOutlineEdge(
+            local: local,
+            box: box,
+            imageSize: imgSize,
+            outline: outline,
+            maxDist: 22 / scale,
+          )
+        : null;
+    if (hi == null && ei == null) return;
     setState(() {
       _activeHandleIndex = hi;
+      _activeEdgeIndex = ei;
       _magnifierFocalPoint = local;
       _magnifierViewSize = box;
-      _outlineBeforeDrag = OutlineEditHistory.clone(outline);
+      _outlineBeforeDrag = OutlineEditHistory.snapOf(outline, bulges);
     });
   }
 
   void _onHandleDragUpdate(Offset local, Size box) {
-    final hi = _activeHandleIndex;
     final outline = _editOutline;
-    if (hi == null || outline == null) return;
+    final bulges = _editBulges;
+    if (outline == null || bulges == null) return;
     final imgSize = _analysisImageSize == Size.zero ? box : _analysisImageSize;
     final dest = containRect(box, imgSize);
-    final norm = localToNorm(local, dest);
-    // No setState: the painter reads this list live and the tick
-    // repaints overlay + loupe only.
-    outline[hi] = [norm[0], norm[1]];
+    final hi = _activeHandleIndex;
+    final ei = _activeEdgeIndex;
+    if (hi != null) {
+      final norm = localToNorm(local, dest);
+      outline[hi] = [norm[0], norm[1]];
+    } else if (ei != null && ei < outline.length) {
+      final a = normToLocal(outline[ei], dest);
+      final b = normToLocal(outline[(ei + 1) % outline.length], dest);
+      final ab = b - a;
+      final len = ab.distance;
+      if (len > 1e-6) {
+        final mid = Offset((a.dx + b.dx) * 0.5, (a.dy + b.dy) * 0.5);
+        final nrm = Offset(-ab.dy / len, ab.dx / len);
+        final signed =
+            (local.dx - mid.dx) * nrm.dx + (local.dy - mid.dy) * nrm.dy;
+        final scale = dest.shortestSide.clamp(1.0, 10000.0);
+        while (bulges.length < outline.length) {
+          bulges.add(0);
+        }
+        bulges[ei] = (signed / scale).clamp(-0.09, 0.09);
+      }
+    } else {
+      return;
+    }
     _magnifierFocalPoint = local;
     _magnifierViewSize = box;
     _dragTick.value++;
+  }
+
+  void _onEdgeDoubleTap(Offset local, Size box) {
+    final outline = _editOutline;
+    final bulges = _editBulges;
+    if (outline == null || bulges == null) return;
+    final imgSize = _analysisImageSize == Size.zero ? box : _analysisImageSize;
+    final scale =
+        _photoTransformController.value.getMaxScaleOnAxis().clamp(1.0, 4.0);
+    // Prefer edge; if on vertex, use nearest edge.
+    var ei = hitTestOutlineEdge(
+      local: local,
+      box: box,
+      imageSize: imgSize,
+      outline: outline,
+      maxDist: 28 / scale,
+    );
+    if (ei == null) {
+      final hi = hitTestOutlineHandle(
+        local: local,
+        box: box,
+        imageSize: imgSize,
+        outline: outline,
+        radius: 32 / scale,
+      );
+      if (hi == null) return;
+      ei = hi; // insert after this vertex's outgoing edge
+    }
+    final dest = containRect(box, imgSize);
+    final a = normToLocal(outline[ei], dest);
+    final b = normToLocal(outline[(ei + 1) % outline.length], dest);
+    final onSeg = closestPointOnSegment(local, a, b);
+    final norm = localToNorm(onSeg, dest);
+    setState(() {
+      _outlineHistory.record(OutlineEditHistory.snapOf(outline, bulges));
+      outline.insert(ei! + 1, [norm[0], norm[1]]);
+      while (bulges.length < outline.length - 1) {
+        bulges.add(0);
+      }
+      bulges[ei] = 0;
+      bulges.insert(ei + 1, 0);
+      _activeHandleIndex = ei + 1;
+      _activeEdgeIndex = null;
+      _saveStatus = 'Point added — drag to refine, or curve the new edges.';
+    });
+    AppHaptics.selection();
   }
 
 
@@ -1422,8 +1586,13 @@ class _ShadePageState extends State<ShadePage> {
                       return Column(
                         children: [
                           Expanded(
-                            child: Row(
-                              children: [
+                            child: Padding(
+                              // Room for white card glows (blur ~14) so they
+                              // aren't clipped by the action bar / column.
+                              padding: const EdgeInsets.fromLTRB(2, 2, 2, 8),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
                                 Expanded(
                                   flex: 3,
                                   child: ShadePhotoPane(
@@ -1436,7 +1605,9 @@ class _ShadePageState extends State<ShadePage> {
                                     analysisImageSize: _analysisImageSize,
                                     focusZone: _focusZone,
                                     editOutline: _editOutline,
+                                    editBulges: _editBulges,
                                     activeHandleIndex: _activeHandleIndex,
+                                    activeEdgeIndex: _activeEdgeIndex,
                                     photoTransformController:
                                         _photoTransformController,
                                     dragTick: _dragTick,
@@ -1454,6 +1625,7 @@ class _ShadePageState extends State<ShadePage> {
                                     onHandleDragStart: _onHandleDragStart,
                                     onHandleDragUpdate: _onHandleDragUpdate,
                                     onHandleDragEnd: _endOutlineDrag,
+                                    onEdgeDoubleTap: _onEdgeDoubleTap,
                                     onUndo: _undoOutlineEdit,
                                     onRedo: _redoOutlineEdit,
                                   ),
@@ -1466,7 +1638,7 @@ class _ShadePageState extends State<ShadePage> {
                                     selectedToothIndex: _selectedToothIndex,
                                     focusZone: _focusZone,
                                     pendingShade: _pendingShade,
-                                    detected: _detected,
+                                    detected: _resultDisplayShade(),
                                     confidence: _confidence,
                                     selected: _selected,
                                     finalShade: _finalShade,
@@ -1490,10 +1662,13 @@ class _ShadePageState extends State<ShadePage> {
                                     analysisImageSize: _analysisImageSize,
                                     dragTick: _dragTick,
                                     editOutline: _editOutline,
+                                    editBulges: _editBulges,
                                     activeHandleIndex: _activeHandleIndex,
+                                    activeEdgeIndex: _activeEdgeIndex,
                                   ),
                                 ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                           // Keep the mounted action bar stable without leaving
@@ -1525,16 +1700,21 @@ class _ShadePageState extends State<ShadePage> {
                                 : null,
                           ),
                           if (showActions) const SizedBox(height: 4),
-                          SizedBox(
-                            height: overrideH,
-                            child: SingleChildScrollView(
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 2),
+                            child: SizedBox(
+                              height: overrideH,
+                              width: double.infinity,
                               child: ShadeOverridePane(
                                 focusZone: _focusZone,
                                 selectedToothIndex: _selectedToothIndex,
                                 selected: _selected,
                                 topMatches: _topMatches,
+                                overallTopMatches: _overallTopMatches,
                                 swatch: shadeSwatch,
                                 onShadeChoice: _applyShadeChoice,
+                                onOverallShadeChoice: (s) =>
+                                    _applyShadeChoice(s, overall: true),
                               ),
                             ),
                           ),

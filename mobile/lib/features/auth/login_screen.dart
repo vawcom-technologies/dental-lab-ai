@@ -158,7 +158,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   padding: const EdgeInsets.all(28),
                   child: SectionCard(
                     padding: const EdgeInsets.fromLTRB(28, 28, 28, 22),
-                    child: Column(
+                    child: SingleChildScrollView(
+                      child: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -256,6 +257,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                       ],
+                    ),
                     ),
                   ),
                 ),
