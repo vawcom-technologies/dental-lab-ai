@@ -204,7 +204,7 @@ class _SettingsPageState extends State<SettingsPage> {
         child: SectionCard(
           child: Padding(
             padding: EdgeInsets.all(12),
-            child: CircularProgressIndicator(color: AppColors.dentalBlue),
+            child: ToothLoadingIndicator(size: 28, compact: true, color: AppColors.dentalBlue),
           ),
         ),
       );
@@ -1009,14 +1009,7 @@ class _NeoActionButton extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (busy)
-                SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: fg,
-                  ),
-                )
+                ToothLoadingIndicator(size: 14, compact: true, color: fg)
               else
                 Icon(icon, size: 16, color: enabled ? fg : AppColors.muted),
               const SizedBox(width: 6),

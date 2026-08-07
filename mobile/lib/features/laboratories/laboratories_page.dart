@@ -187,7 +187,7 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
                 child: SectionCard(
                   padding: EdgeInsets.zero,
                   child: _controller.loading && _controller.users.isEmpty
-                      ? const Center(child: CircularProgressIndicator())
+                      ? const ToothPageLoader(message: 'Loading users…')
                       : visible.isEmpty
                           ? Center(
                               child: Text(

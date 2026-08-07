@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import 'tooth_loader.dart';
 
 /// Mixin for [State] that serializes async work and exposes [busy].
 ///
@@ -29,7 +30,8 @@ mixin BusyStateMixin<T extends StatefulWidget> on State<T> {
   }
 }
 
-/// Blocks interaction and optionally shows a centered spinner while [busy].
+/// Soft overlay with a dental tooth loader. Prefer [blockInteraction] only for
+/// short form mutations — uploads should use optimistic UI instead.
 class BusyBarrier extends StatelessWidget {
   const BusyBarrier({
     super.key,
@@ -37,36 +39,37 @@ class BusyBarrier extends StatelessWidget {
     required this.child,
     this.showSpinner = true,
     this.dim = true,
+    this.blockInteraction = true,
+    this.message,
   });
 
   final bool busy;
   final Widget child;
   final bool showSpinner;
   final bool dim;
+  final bool blockInteraction;
+  final String? message;
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
         AbsorbPointer(
-          absorbing: busy,
+          absorbing: busy && blockInteraction,
           child: child,
         ),
         if (busy)
           Positioned.fill(
-            child: ColoredBox(
-              color: dim
-                  ? AppColors.navy.withValues(alpha: 0.06)
-                  : Colors.transparent,
-              child: showSpinner
-                  ? const Center(
-                      child: SizedBox(
-                        width: 28,
-                        height: 28,
-                        child: CircularProgressIndicator(strokeWidth: 2.5),
-                      ),
-                    )
-                  : const SizedBox.shrink(),
+            child: IgnorePointer(
+              ignoring: !blockInteraction,
+              child: ColoredBox(
+                color: dim
+                    ? AppColors.navy.withValues(alpha: 0.05)
+                    : Colors.transparent,
+                child: showSpinner
+                    ? ToothPageLoader(message: message, size: 44)
+                    : const SizedBox.shrink(),
+              ),
             ),
           ),
       ],
@@ -74,7 +77,9 @@ class BusyBarrier extends StatelessWidget {
   }
 }
 
-/// Compact inline spinner used inside buttons / trailing actions.
+/// Compact inline tooth loader used inside buttons / trailing actions.
+/// Prefer [ToothLoadingIndicator] directly at call sites; this alias keeps
+/// Async* button helpers concise.
 class BusySpinner extends StatelessWidget {
   const BusySpinner({
     super.key,
@@ -85,17 +90,16 @@ class BusySpinner extends StatelessWidget {
 
   final double size;
   final Color? color;
+
+  /// Kept for call-site compatibility; unused (tooth loader has no stroke).
   final double strokeWidth;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: size,
-      height: size,
-      child: CircularProgressIndicator(
-        strokeWidth: strokeWidth,
-        color: color,
-      ),
+    return ToothLoadingIndicator(
+      size: size,
+      color: color ?? Colors.white,
+      compact: true,
     );
   }
 }

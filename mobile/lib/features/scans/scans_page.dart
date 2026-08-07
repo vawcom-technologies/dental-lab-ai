@@ -298,7 +298,7 @@ class _ScansPageState extends State<ScansPage> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const ToothPageLoader(message: 'Loading scans…');
     }
 
     final scan = _scans.isEmpty ? null : _scans[_selected.clamp(0, _scans.length - 1)];

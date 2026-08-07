@@ -94,6 +94,7 @@ class AppLocalizations {
   String get settingsAutoSyncSub => _t('settings.autoSyncSub');
   String get settingsSyncNow => _t('settings.syncNow');
   String get settingsSyncing => _t('settings.syncing');
+  
   String get settingsClearCache => _t('settings.clearCache');
   String get settingsClearing => _t('settings.clearing');
   String get settingsClearCacheTitle => _t('settings.clearCacheTitle');
@@ -314,7 +315,8 @@ class AppLocalizations {
 
   String get reportsCasesCol => _t('reports.casesCol');
   String get reportsArtifacts => _t('reports.artifacts');
-  
+
+
 
   // ── Case statuses ────────────────────────────────────────────────────────
   String statusLabel(String key) {

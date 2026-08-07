@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/haptics/app_haptics.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/tooth_loader.dart';
 
 /// Full-screen live camera. Pops with JPEG bytes, or null if cancelled.
 class LiveCameraCapturePage extends StatefulWidget {
@@ -147,7 +148,7 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
               )
             else if (_error == null)
               const Center(
-                child: CircularProgressIndicator(color: Colors.white),
+                child: ToothLoadingIndicator(size: 28, compact: true, color: Colors.white),
               ),
             if (_error != null)
               Center(

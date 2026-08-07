@@ -124,29 +124,14 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
     if (_creating) return;
     setState(() => _creating = true);
 
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(
-        child: Card(
-          child: Padding(
-            padding: EdgeInsets.all(24),
-            child: CircularProgressIndicator(),
-          ),
-        ),
-      ),
-    );
-
     try {
       final controller = context.read<ChatController>();
       final conversation = await controller.openOrCreateWith(user.id);
       if (!mounted) return;
-      Navigator.of(context).pop(); // dismiss spinner
       widget.onConversationOpened?.call(conversation);
       if (mounted) Navigator.of(context).pop(conversation);
     } catch (e) {
       if (!mounted) return;
-      Navigator.of(context).pop(); // dismiss spinner
       AppSnackBars.error(
         context,
         e.toString().replaceFirst('Exception: ', ''),
@@ -188,6 +173,28 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
               ),
             ),
             const SizedBox(height: 12),
+            if (_creating)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 10),
+                child: Row(
+                  children: [
+                    ToothLoadingIndicator(
+                      size: 18,
+                      compact: true,
+                      color: kToothLoaderBlue,
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      'Opening conversation…',
+                      style: TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -218,7 +225,7 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
               child: SectionCard(
                 padding: EdgeInsets.zero,
                 child: _loading
-                    ? const Center(child: CircularProgressIndicator())
+                    ? const ToothPageLoader(message: 'Loading contacts…')
                     : _users.isEmpty
                         ? const Center(
                             child: Padding(

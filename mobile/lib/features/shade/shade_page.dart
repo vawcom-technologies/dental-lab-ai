@@ -8,6 +8,7 @@ import '../../core/api/api_client.dart';
 import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/tooth_loader.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/widgets/patient_picker.dart';
 import 'shade_action_bar.dart';
@@ -1317,7 +1318,7 @@ class _ShadePageState extends State<ShadePage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return const ToothPageLoader(message: 'Loading shade session…');
 
     return Padding(
       padding: EdgeInsets.fromLTRB(

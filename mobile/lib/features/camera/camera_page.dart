@@ -171,7 +171,9 @@ class _CameraPageState extends State<CameraPage> {
           ),
           const SizedBox(height: 16),
           if (_loading)
-            const Expanded(child: Center(child: CircularProgressIndicator()))
+            const Expanded(
+              child: ToothPageLoader(message: 'Preparing camera…'),
+            )
           else if (_patients.isEmpty)
             const Expanded(
               child: Center(
@@ -237,7 +239,12 @@ class _CameraPageState extends State<CameraPage> {
                           ),
                           if (_busy) ...[
                             const SizedBox(height: 16),
-                            const LinearProgressIndicator(),
+                            const Center(
+                              child: ToothLoadingIndicator(
+                                size: 28,
+                                loadingText: 'Uploading photo…',
+                              ),
+                            ),
                           ],
                           if (_status != null) ...[
                             const SizedBox(height: 12),

@@ -473,7 +473,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return const ToothPageLoader(message: 'Loading scan body…');
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),

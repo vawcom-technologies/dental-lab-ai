@@ -188,7 +188,7 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return const ToothPageLoader(message: 'Loading profile…');
 
     final displayName = _name.text.trim().isEmpty ? 'User' : _name.text.trim();
 
@@ -304,8 +304,16 @@ class _ProfilePageState extends State<ProfilePage> {
                           alignment: Alignment.centerLeft,
                           child: FilledButton.icon(
                             onPressed: _saving ? null : _saveProfile,
-                            icon: const Icon(Icons.save_outlined, size: 18),
-                            label: Text(_saving ? loc.saving : loc.saveProfile),
+                            icon: _saving
+                                ? const ToothLoadingIndicator(
+                                    size: 18,
+                                    compact: true,
+                                    color: Colors.white,
+                                  )
+                                : const Icon(Icons.save_outlined, size: 18),
+                            label: Text(
+                              _saving ? loc.saving : loc.saveProfile,
+                            ),
                           ),
                         ),
                       ],

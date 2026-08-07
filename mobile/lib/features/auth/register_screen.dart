@@ -208,7 +208,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 const SizedBox(height: 20),
                 FilledButton(
                   onPressed: _loading || _info != null ? null : _submit,
-                  child: Text(_loading ? loc.saving : loc.createProfile),
+                  child: _loading
+                      ? const ToothLoadingIndicator(
+                          size: 20,
+                          compact: true,
+                          color: Colors.white,
+                        )
+                      : Text(loc.createProfile),
                 ),
                 const SizedBox(height: 10),
                 TextButton(

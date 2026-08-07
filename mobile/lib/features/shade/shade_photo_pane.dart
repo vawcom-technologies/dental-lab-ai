@@ -240,7 +240,7 @@ class ShadePhotoPane extends StatelessWidget {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        CircularProgressIndicator(color: Colors.white),
+                        ToothLoadingIndicator(size: 28, compact: true, color: Colors.white),
                         SizedBox(height: 12),
                         Text(
                           'Analyzing shade…',

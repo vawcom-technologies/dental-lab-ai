@@ -260,9 +260,9 @@ class ChatController extends ChangeNotifier {
   void sendText(String raw) {
     final active = _active;
     final content = raw.trim();
-    if (active == null || content.isEmpty || _sending) return;
+    // Allow typing/sending text while a media upload is in flight.
+    if (active == null || content.isEmpty) return;
 
-    _sending = true;
     _threadError = null;
     notifyListeners();
 
@@ -275,14 +275,12 @@ class ChatController extends ChangeNotifier {
       _replyTo = null;
     } catch (e) {
       _threadError = e.toString().replaceFirst('Exception: ', '');
-    } finally {
-      _sending = false;
       notifyListeners();
     }
   }
 
   /// Upload media via `POST /api/media/chat-upload`.
-  /// Backend also broadcasts `new_message` over WS — local insert is de-duped by id.
+  /// Inserts a non-blocking optimistic bubble; HTTP + WS responses de-dupe by id.
   Future<void> sendMedia({
     required Uint8List fileBytes,
     required String fileName,
@@ -291,10 +289,39 @@ class ChatController extends ChangeNotifier {
     String? content,
   }) async {
     final active = _active;
-    if (active == null || _sending) return;
+    final me = currentUserId;
+    if (active == null || me == null) return;
 
+    final pendingId =
+        'pending_${DateTime.now().microsecondsSinceEpoch}_$mediaType';
+    final pending = Message(
+      id: pendingId,
+      conversationId: active.id,
+      senderId: me,
+      content: content?.trim() ?? '',
+      mediaType: mediaType,
+      durationSeconds: durationSeconds,
+      replyToMessageId: _replyTo?.id,
+      replyTo: _replyTo == null
+          ? null
+          : ParentMessage(
+              id: _replyTo!.id,
+              senderId: _replyTo!.senderId,
+              content: _replyTo!.content,
+              mediaUrl: _replyTo!.mediaUrl,
+              mediaType: _replyTo!.mediaType,
+              durationSeconds: _replyTo!.durationSeconds,
+              createdAt: _replyTo!.createdAt,
+            ),
+      createdAt: DateTime.now(),
+      isPending: true,
+    );
+
+    _messages.add(pending);
     _sending = true;
     _threadError = null;
+    final replySnapshot = _replyTo;
+    _replyTo = null;
     notifyListeners();
 
     try {
@@ -305,20 +332,53 @@ class ChatController extends ChangeNotifier {
         mediaType: mediaType,
         durationSeconds: durationSeconds,
         content: content,
-        replyToMessageId: _replyTo?.id,
+        replyToMessageId: replySnapshot?.id,
       );
-      _replyTo = null;
-      _upsertMessage(message);
+      _replacePending(pendingId, message);
     } catch (e) {
+      _messages.removeWhere((m) => m.id == pendingId);
       _threadError = e.toString().replaceFirst('Exception: ', '');
     } finally {
-      _sending = false;
+      _sending = _messages.any((m) => m.isPending);
       notifyListeners();
+    }
+  }
+
+  void _replacePending(String pendingId, Message message) {
+    final idx = _messages.indexWhere((m) => m.id == pendingId);
+    if (idx >= 0) {
+      _messages[idx] = message;
+    } else {
+      _upsertMessage(message);
+      return;
+    }
+    // Keep inbox preview in sync without double-counting.
+    final cIdx =
+        _conversations.indexWhere((c) => c.id == message.conversationId);
+    if (cIdx >= 0) {
+      final existing = _conversations[cIdx];
+      _conversations[cIdx] = existing.copyWith(
+        lastMessage: message,
+        updatedAt: message.createdAt ?? DateTime.now(),
+      );
+      _conversations.sort((a, b) {
+        final aT = a.updatedAt ?? a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bT = b.updatedAt ?? b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return bT.compareTo(aT);
+      });
     }
   }
 
   /// Append message if not already present (HTTP response + WS broadcast).
   void _upsertMessage(Message message) {
+    // Drop matching pending optimistic bubble once the real message arrives.
+    _messages.removeWhere(
+      (m) =>
+          m.isPending &&
+          m.conversationId == message.conversationId &&
+          m.mediaType == message.mediaType &&
+          m.senderId == message.senderId,
+    );
     final me = currentUserId;
     final isMine = me != null && message.senderId == me;
     final isOpenAndViewing =

@@ -127,10 +127,7 @@ class _PatientFormScreenState extends State<PatientFormScreen> {
                           ? const SizedBox(
                               height: 18,
                               width: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
+                              child: ToothLoadingIndicator(size: 28, compact: true, color: Colors.white),
                             )
                           : const Text('Save patient'),
                     ),

@@ -107,14 +107,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
               FilledButton.icon(
                 onPressed: _loading ? null : _save,
                 icon: _loading
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
+                    ? const ToothLoadingIndicator(size: 16, compact: true, color: Colors.white)
                     : const Icon(Icons.check_rounded, size: 18),
                 label: Text(_loading ? 'Saving…' : loc.createPatient),
               ),

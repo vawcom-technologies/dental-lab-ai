@@ -7,6 +7,7 @@ import 'touchable.dart';
 export 'app_snackbar.dart';
 export 'busy_action.dart';
 export 'phone_field.dart';
+export 'tooth_loader.dart';
 
 class StatusChip extends StatelessWidget {
   const StatusChip({super.key, required this.statusKey});

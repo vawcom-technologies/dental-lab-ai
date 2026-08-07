@@ -133,6 +133,7 @@ class Message {
     this.replyTo,
     this.readAt,
     this.createdAt,
+    this.isPending = false,
   });
 
   final String id;
@@ -149,6 +150,9 @@ class Message {
   final DateTime? readAt;
   final DateTime? createdAt;
 
+  /// Local optimistic bubble waiting for upload / HTTP response.
+  final bool isPending;
+
   bool get isRead => readAt != null;
   bool get hasMedia => mediaUrl != null && mediaUrl!.isNotEmpty;
   bool get isVoice => mediaType == 'voice';
@@ -159,6 +163,18 @@ class Message {
   String get previewText {
     final text = content.trim();
     if (text.isNotEmpty) return text;
+    if (isPending) {
+      switch (mediaType) {
+        case 'voice':
+          return 'Sending voice…';
+        case 'image':
+          return 'Sending photo…';
+        case 'document':
+          return 'Sending document…';
+        default:
+          return 'Sending…';
+      }
+    }
     switch (mediaType) {
       case 'voice':
         return 'Voice message';
@@ -184,6 +200,7 @@ class Message {
     DateTime? readAt,
     bool clearReadAt = false,
     DateTime? createdAt,
+    bool? isPending,
   }) {
     return Message(
       id: id ?? this.id,
@@ -197,6 +214,7 @@ class Message {
       replyTo: replyTo ?? this.replyTo,
       readAt: clearReadAt ? null : (readAt ?? this.readAt),
       createdAt: createdAt ?? this.createdAt,
+      isPending: isPending ?? this.isPending,
     );
   }
 

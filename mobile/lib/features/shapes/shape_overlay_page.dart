@@ -454,7 +454,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return const ToothPageLoader(message: 'Loading smile design…');
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),

@@ -131,10 +131,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                           ? const SizedBox(
                               height: 18,
                               width: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
+                              child: ToothLoadingIndicator(size: 28, compact: true, color: Colors.white),
                             )
                           : Text(loc.sendResetLink),
                     ),

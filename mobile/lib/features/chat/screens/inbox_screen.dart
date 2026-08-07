@@ -82,7 +82,7 @@ class InboxScreen extends StatelessWidget {
               child: SectionCard(
                 padding: EdgeInsets.zero,
                 child: controller.loadingInbox && rows.isEmpty
-                    ? const Center(child: CircularProgressIndicator())
+                    ? const ToothPageLoader(message: 'Loading conversations…')
                     : rows.isEmpty
                         ? Center(
                             child: Padding(

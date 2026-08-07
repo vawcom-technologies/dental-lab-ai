@@ -227,7 +227,7 @@ class _PatientsPageState extends State<PatientsPage> {
       listenable: _controller,
       builder: (context, _) {
         final rows = _controller.visiblePatients;
-        final blocked = _controller.loadingDetail || _controller.mutating;
+        final blocked = _controller.mutating;
         return BusyBarrier(
           busy: blocked,
           child: Padding(
@@ -262,7 +262,11 @@ class _PatientsPageState extends State<PatientsPage> {
                           ? null
                           : () => _controller.load(),
                       icon: _controller.loading
-                          ? const BusySpinner(size: 18)
+                          ? const ToothLoadingIndicator(
+                              size: 18,
+                              compact: true,
+                              color: AppColors.navy,
+                            )
                           : const Icon(Icons.refresh, size: 20),
                     ),
                     Stack(
@@ -340,7 +344,7 @@ class _PatientsPageState extends State<PatientsPage> {
                   child: SectionCard(
                     padding: EdgeInsets.zero,
                     child: _controller.loading && rows.isEmpty
-                        ? const Center(child: CircularProgressIndicator())
+                        ? const ToothPageLoader(message: 'Loading patients…')
                         : rows.isEmpty
                             ? const _EmptyPatients()
                             : ListView.separated(
@@ -728,14 +732,7 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
         FilledButton(
           onPressed: _saving ? null : _submit,
           child: _saving
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
+              ? const ToothLoadingIndicator(size: 18, compact: true, color: Colors.white)
               : Text(widget.submitLabel),
         ),
       ],
@@ -948,7 +945,7 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
             const SizedBox(height: 12),
             Expanded(
               child: _loading
-                  ? const Center(child: CircularProgressIndicator())
+                  ? const ToothPageLoader(message: 'Loading eligible staff…')
                   : _users.isEmpty
                       ? const Center(
                           child: Text(
@@ -967,7 +964,11 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
                               title: Text(u.fullName),
                               subtitle: u.email != null ? Text(u.email!) : null,
                               trailing: busy
-                                  ? const BusySpinner(size: 20)
+                                  ? const ToothLoadingIndicator(
+                                      size: 20,
+                                      compact: true,
+                                      color: AppColors.dentalBlue,
+                                    )
                                   : FilledButton(
                                       onPressed: _busyId != null ||
                                               _users.isEmpty
@@ -1031,7 +1032,9 @@ class _PendingAccessDrawer extends StatelessWidget {
           final rows = controller.pendingRequests;
           final blocked = controller.mutating;
           return BusyBarrier(
-            busy: blocked || controller.loadingPending,
+            busy: blocked,
+            blockInteraction: blocked,
+            showSpinner: false,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
               child: Column(
@@ -1066,7 +1069,9 @@ class _PendingAccessDrawer extends StatelessWidget {
                   const SizedBox(height: 12),
                   Expanded(
                     child: controller.loadingPending && rows.isEmpty
-                        ? const Center(child: CircularProgressIndicator())
+                        ? const ToothPageLoader(
+                            message: 'Loading access requests…',
+                          )
                         : rows.isEmpty
                             ? const Center(
                                 child: Text(
@@ -1263,8 +1268,13 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
   void initState() {
     super.initState();
     _tabs = TabController(length: 3, vsync: this);
-    widget.controller.loadNotes(widget.patient.id);
-    widget.controller.loadAccess(widget.patient.id);
+    // Defer controller loads — notifyListeners during initState/build marks the
+    // parent ListenableBuilder dirty mid-frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      widget.controller.loadNotes(widget.patient.id);
+      widget.controller.loadAccess(widget.patient.id);
+    });
   }
 
   @override
@@ -1538,8 +1548,11 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                                 onPressed:
                                     blocked || _adding ? null : _addNote,
                                 child: _adding
-                                    ? const BusySpinner(
-                                        size: 16, color: Colors.white)
+                                    ? const ToothLoadingIndicator(
+                                        size: 16,
+                                        compact: true,
+                                        color: Colors.white,
+                                      )
                                     : const Text('Add Note'),
                               ),
                             ],
@@ -1548,8 +1561,10 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                           Expanded(
                             child: widget.controller.loadingNotes &&
                                     notes.isEmpty
-                                ? const Center(
-                                    child: CircularProgressIndicator())
+                                ? const ToothPageLoader(
+                                    message: 'Loading notes…',
+                                    size: 40,
+                                  )
                                 : notes.isEmpty
                                     ? const Center(
                                         child: Text(
@@ -1628,7 +1643,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                         ],
                       ),
                       widget.controller.loadingAccess && accessOwner == null
-                          ? const Center(child: CircularProgressIndicator())
+                          ? const ToothPageLoader(message: 'Loading access…')
                           : accessOwner == null
                               ? const Center(
                                   child: Text(

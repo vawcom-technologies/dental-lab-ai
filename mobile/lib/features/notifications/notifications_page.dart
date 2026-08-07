@@ -242,8 +242,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
           const SizedBox(height: 14),
           Expanded(
             child: _loading
-                ? const Center(
-                    child: CircularProgressIndicator(color: AppColors.dentalBlue),
+                ? const ToothPageLoader(
+                    message: 'Loading notifications…',
+                    color: AppColors.dentalBlue,
                   )
                 : visible.isEmpty
                     ? Center(
@@ -395,11 +396,7 @@ class _NotificationTile extends StatelessWidget {
             if (marking)
               const Padding(
                 padding: EdgeInsets.fromLTRB(8, 4, 4, 8),
-                child: SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
+                child: ToothLoadingIndicator(size: 14, compact: true),
               )
             else if (unread)
               Tooltip(

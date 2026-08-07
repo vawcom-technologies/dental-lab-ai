@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/tooth_loader.dart';
 import 'patient_form_screen.dart';
 
 class PatientsScreen extends StatefulWidget {
@@ -64,7 +65,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
         future: _future,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
+            return const ToothPageLoader(message: 'Loading patients…');
           }
           if (snap.hasError) {
             return Center(
