@@ -17,6 +17,7 @@ class PasswordValidator {
   static bool isValid(String password) {
     return hasMinLength(password) &&
         hasUppercase(password) &&
+        
         hasNumber(password);
   }
 }

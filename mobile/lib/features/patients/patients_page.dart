@@ -612,14 +612,10 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
   }
 
   Future<void> _pickDob() async {
-    final now = DateTime.now();
-    final initial = DateTime.tryParse(_dob.text) ??
-        DateTime(now.year - 30, now.month, now.day);
-    final picked = await showDatePicker(
+    final current = DateTime.tryParse(_dob.text.trim());
+    final picked = await DentalDatePickerDialog.showForDateOfBirth(
       context: context,
-      initialDate: initial,
-      firstDate: DateTime(1900),
-      lastDate: now,
+      currentDob: current,
     );
     if (picked == null) return;
     _dob.text = DateFormat('yyyy-MM-dd').format(picked);
