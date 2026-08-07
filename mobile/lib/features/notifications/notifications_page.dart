@@ -72,6 +72,16 @@ class _NotificationsPageState extends State<NotificationsPage> {
   bool _allowedBySettings(String type) {
     final p = _prefs;
     if (p == null) return true;
+    if (!p.notificationsEnabled) {
+      switch (type) {
+        case 'message':
+        case 'case_status':
+        case 'scan_quality':
+          return false;
+        default:
+          return true;
+      }
+    }
     switch (type) {
       case 'message':
         return p.notifyMessages;

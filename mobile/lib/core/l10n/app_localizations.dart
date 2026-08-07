@@ -101,6 +101,8 @@ class AppLocalizations {
   String get settingsClearCacheBody => _t('settings.clearCacheBody');
   String get settingsNotificationsTitle => _t('settings.notificationsTitle');
   String get settingsNotificationsSub => _t('settings.notificationsSub');
+  String get settingsNotifyMaster => _t('settings.notifyMaster');
+  String get settingsNotifyMasterSub => _t('settings.notifyMasterSub');
   String get settingsNotifyMessages => _t('settings.notifyMessages');
   String get settingsNotifyMessagesSub => _t('settings.notifyMessagesSub');
   String get settingsNotifyCase => _t('settings.notifyCase');
@@ -416,16 +418,21 @@ class AppLocalizations {
     'settings.connection': 'Connection',
     'settings.pending': 'Pending',
     'settings.autoSync': 'Auto-sync when online',
+    
     'settings.autoSyncSub': 'Flush queued uploads when the network returns',
     'settings.syncNow': 'Sync now',
     'settings.syncing': 'Syncing…',
+    
     'settings.clearCache': 'Clear cache',
     'settings.clearing': 'Clearing…',
     'settings.clearCacheTitle': 'Clear encrypted cache?',
     'settings.clearCacheBody':
         'Removes locally encrypted photos/scans on this device. Pending sync queue items are kept. This cannot be undone.',
     'settings.notificationsTitle': 'Notifications',
-    'settings.notificationsSub': 'Choose which alerts appear in the inbox badge',
+    'settings.notificationsSub': 'Manage alert preferences for this device',
+    'settings.notifyMaster': 'Enable Notifications',
+    'settings.notifyMasterSub':
+        'Receive alerts for lab messages, case status changes, and scan quality updates',
     'settings.notifyMessages': 'Lab messages',
     'settings.notifyMessagesSub': 'New chat from the lab on a case',
     'settings.notifyCase': 'Case status changes',
@@ -703,7 +710,11 @@ class AppLocalizations {
         'Entfernt lokal verschlüsselte Fotos/Scans auf diesem Gerät. Ausstehende Sync-Einträge bleiben. Nicht rückgängig zu machen.',
     'settings.notificationsTitle': 'Benachrichtigungen',
     'settings.notificationsSub':
-        'Wählen Sie, welche Hinweise im Badge erscheinen',
+        'Benachrichtigungseinstellungen für dieses Gerät',
+    'settings.notifyMaster': 'Benachrichtigungen aktivieren',
+    'settings.notifyMasterSub':
+    
+        'Hinweise zu Labornachrichten, Fallstatus und Scanqualität erhalten',
     'settings.notifyMessages': 'Labornachrichten',
     'settings.notifyMessagesSub': 'Neuer Chat vom Labor zu einem Fall',
     'settings.notifyCase': 'Fallstatus-Änderungen',

@@ -1,12 +1,8 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/l10n/locale_controller.dart';
-import '../../core/offline/sync_service.dart';
 import '../../core/settings/app_settings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
@@ -23,19 +19,10 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  late final SyncService _sync = SyncService(api: widget.api);
-
   AppSettings? _settings;
   bool _loading = true;
-  bool _syncing = false;
-  bool _clearing = false;
   String? _status;
   String? _error;
-
-  int _pending = 0;
-  bool? _online;
-  String _apiStatus = '—';
-  String _appVersion = '—';
 
   @override
   void initState() {
@@ -53,16 +40,9 @@ class _SettingsPageState extends State<SettingsPage> {
       if (mounted) {
         settings.language = LocaleScope.of(context).code;
       }
-      final pending = await _sync.queue.pendingCount();
-      final online = await _sync.isOnline;
-      final api = await _pingApi();
       if (!mounted) return;
       setState(() {
         _settings = settings;
-        _pending = pending;
-        _online = online;
-        _appVersion = '1.0.0+1';
-        _apiStatus = api;
         _loading = false;
       });
     } catch (e) {
@@ -71,23 +51,6 @@ class _SettingsPageState extends State<SettingsPage> {
         _error = e.toString().replaceFirst('Exception: ', '');
         _loading = false;
       });
-    }
-  }
-
-  Future<String> _pingApi() async {
-    try {
-      final res = await http
-          .get(Uri.parse('${widget.api.baseUrl}/health'))
-          .timeout(const Duration(seconds: 4));
-      if (res.statusCode == 200) {
-        final body = jsonDecode(res.body);
-        if (body is Map && body['status'] == 'ok') {
-          return 'Online';
-        }
-      }
-      return 'Unhealthy (${res.statusCode})';
-    } catch (_) {
-      return 'Unreachable';
     }
   }
 
@@ -120,93 +83,11 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Future<void> _syncNow() async {
-    setState(() {
-      _syncing = true;
-      _error = null;
-      _status = null;
-    });
-    try {
-      final online = await _sync.isOnline;
-      if (!mounted) return;
-      final loc = AppLocalizations.of(context);
-      if (!online) {
-        setState(() => _error = loc.settingsOfflineError);
-        AppSnackBars.error(context, loc.settingsOfflineError);
-        return;
-      }
-      final n = await _sync.flush();
-      final pending = await _sync.queue.pendingCount();
-      if (!mounted) return;
-      final msg = n == 0 ? loc.settingsQueueEmpty : loc.settingsSynced(n);
-      setState(() {
-        _pending = pending;
-        _online = true;
-        _status = msg;
-      });
-      AppSnackBars.success(context, msg);
-    } catch (e) {
-      if (!mounted) return;
-      final msg = e.toString().replaceFirst('Exception: ', '');
-      setState(() => _error = msg);
-      AppSnackBars.error(context, msg);
-    } finally {
-      if (mounted) setState(() => _syncing = false);
-    }
-  }
-
-  Future<void> _clearCache() async {
-    final loc = AppLocalizations.of(context);
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.card,
-        shape: RoundedRectangleBorder(borderRadius: AppRadii.border),
-        title: Text(loc.settingsClearCacheTitle),
-        content: Text(loc.settingsClearCacheBody),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(loc.cancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(loc.settingsClearCache),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
-
-    setState(() {
-      _clearing = true;
-      _error = null;
-      _status = null;
-    });
-    try {
-      final n = await (_settings ?? await AppSettings.load()).clearEncryptedCache();
-      final msg = loc.settingsCleared(n);
-      setState(() => _status = msg);
-      if (mounted) AppSnackBars.success(context, msg);
-    } catch (e) {
-      final msg = e.toString().replaceFirst('Exception: ', '');
-      setState(() => _error = msg);
-      if (mounted) AppSnackBars.error(context, msg);
-    } finally {
-      if (mounted) setState(() => _clearing = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_loading) {
       return const Center(
-        child: SectionCard(
-          child: Padding(
-            padding: EdgeInsets.all(12),
-            child: ToothLoadingIndicator(size: 28, compact: true, color: AppColors.dentalBlue),
-          ),
-        ),
+        child: ToothPageLoader(message: 'Loading settings…'),
       );
     }
     final s = _settings;
@@ -221,14 +102,14 @@ class _SettingsPageState extends State<SettingsPage> {
       );
     }
 
+    final loc = AppLocalizations.of(context);
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Builder(builder: (context) {
-            final loc = AppLocalizations.of(context);
-            return PageHeader(
+          PageHeader(
             icon: Icons.settings_outlined,
             title: loc.settingsTitle,
             subtitle: loc.settingsSubtitle,
@@ -240,8 +121,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 onPressed: _signOut,
               ),
             ],
-          );
-          }),
+          ),
           if (_status != null) ...[
             const SizedBox(height: 12),
             _NeoBanner(text: _status!, tone: _BannerTone.success),
@@ -252,45 +132,14 @@ class _SettingsPageState extends State<SettingsPage> {
           ],
           const SizedBox(height: 18),
           Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final wide = constraints.maxWidth >= 960;
-                final left = Column(
-                  mainAxisSize: MainAxisSize.min,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 720),
+                child: ListView(
+                  padding: const EdgeInsets.only(bottom: 24),
                   children: [
                     _SecurityCard(api: widget.api),
-                    const SizedBox(height: 16),
-                    _OfflineCard(
-                      online: _online,
-                      pending: _pending,
-                      autoSync: s.autoSync,
-                      syncing: _syncing,
-                      clearing: _clearing,
-                      onAutoSync: (v) => _persist((x) => x.autoSync = v),
-                      onSyncNow: _syncNow,
-                      onClearCache: _clearCache,
-                    ),
-                    const SizedBox(height: 16),
-                    _NotificationsCard(
-                      messages: s.notifyMessages,
-                      caseStatus: s.notifyCaseStatus,
-                      scanQuality: s.notifyScanQuality,
-                      onMessages: (v) => _persist((x) => x.notifyMessages = v),
-                      onCaseStatus: (v) =>
-                          _persist((x) => x.notifyCaseStatus = v),
-                      onScanQuality: (v) =>
-                          _persist((x) => x.notifyScanQuality = v),
-                    ),
-                    const SizedBox(height: 16),
-                    _LanguageCard(
-                      language: s.language,
-                      onChanged: _setLanguage,
-                    ),
-                  ],
-                );
-                final right = Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
+                    const SizedBox(height: 20),
                     _AiCard(
                       shade: s.autoShade,
                       scanQuality: s.autoScanQuality,
@@ -300,31 +149,20 @@ class _SettingsPageState extends State<SettingsPage> {
                           _persist((x) => x.autoScanQuality = v),
                       onScanBody: (v) => _persist((x) => x.autoScanBody = v),
                     ),
-                    const SizedBox(height: 16),
-                    _AboutCard(
-                      version: _appVersion,
-                      apiStatus: _apiStatus,
-                      baseUrl: widget.api.baseUrl,
-                      online: _online,
+                    const SizedBox(height: 20),
+                    _NotificationsCard(
+                      enabled: s.notificationsEnabled,
+                      onChanged: (v) =>
+                          _persist((x) => x.notificationsEnabled = v),
+                    ),
+                    const SizedBox(height: 20),
+                    _LanguageCard(
+                      language: s.language,
+                      onChanged: _setLanguage,
                     ),
                   ],
-                );
-
-                if (!wide) {
-                  return ListView(
-                    children: [left, const SizedBox(height: 16), right],
-                  );
-                }
-
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(flex: 5, child: ListView(children: [left])),
-                    const SizedBox(width: 16),
-                    Expanded(flex: 4, child: ListView(children: [right])),
-                  ],
-                );
-              },
+                ),
+              ),
             ),
           ),
         ],
@@ -335,123 +173,14 @@ class _SettingsPageState extends State<SettingsPage> {
 
 // ─── Section cards ───────────────────────────────────────────────────────────
 
-class _OfflineCard extends StatelessWidget {
-  const _OfflineCard({
-    required this.online,
-    required this.pending,
-    required this.autoSync,
-    required this.syncing,
-    required this.clearing,
-    required this.onAutoSync,
-    required this.onSyncNow,
-    required this.onClearCache,
-  });
-
-  final bool? online;
-  final int pending;
-  final bool autoSync;
-  final bool syncing;
-  final bool clearing;
-  final ValueChanged<bool> onAutoSync;
-  final VoidCallback onSyncNow;
-  final VoidCallback onClearCache;
-
-  @override
-  Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context);
-    final onlineLabel = online == null
-        ? '…'
-        : online!
-            ? loc.online
-            : loc.offline;
-    final onlineColor = online == true
-        ? AppColors.success
-        : (online == false ? AppColors.danger : AppColors.muted);
-
-    return SectionCard(
-      depth: 1.05,
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SectionHeader(
-            icon: Icons.cloud_sync_outlined,
-            title: loc.settingsOfflineTitle,
-            subtitle: loc.settingsOfflineSubtitle,
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _NeoStatTile(
-                  label: loc.settingsConnection,
-                  value: onlineLabel,
-                  valueColor: onlineColor,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _NeoStatTile(
-                  label: loc.settingsPending,
-                  value: '$pending',
-                  valueColor: pending > 0 ? AppColors.warning : AppColors.navy,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          NeoInset(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            child: _NeoToggleRow(
-              title: loc.settingsAutoSync,
-              subtitle: loc.settingsAutoSyncSub,
-              value: autoSync,
-              onChanged: onAutoSync,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              _NeoActionButton(
-                icon: Icons.sync_rounded,
-                label: syncing ? loc.settingsSyncing : loc.settingsSyncNow,
-                primary: true,
-                busy: syncing,
-                onPressed: syncing ? null : onSyncNow,
-              ),
-              _NeoActionButton(
-                icon: Icons.delete_outline_rounded,
-                label: clearing ? loc.settingsClearing : loc.settingsClearCache,
-                danger: true,
-                busy: clearing,
-                onPressed: clearing ? null : onClearCache,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _NotificationsCard extends StatelessWidget {
   const _NotificationsCard({
-    required this.messages,
-    required this.caseStatus,
-    required this.scanQuality,
-    required this.onMessages,
-    required this.onCaseStatus,
-    required this.onScanQuality,
+    required this.enabled,
+    required this.onChanged,
   });
 
-  final bool messages;
-  final bool caseStatus;
-  final bool scanQuality;
-  final ValueChanged<bool> onMessages;
-  final ValueChanged<bool> onCaseStatus;
-  final ValueChanged<bool> onScanQuality;
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -470,29 +199,11 @@ class _NotificationsCard extends StatelessWidget {
           const SizedBox(height: 14),
           NeoInset(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            child: Column(
-              children: [
-                _NeoToggleRow(
-                  title: loc.settingsNotifyMessages,
-                  subtitle: loc.settingsNotifyMessagesSub,
-                  value: messages,
-                  onChanged: onMessages,
-                ),
-                const _NeoDivider(),
-                _NeoToggleRow(
-                  title: loc.settingsNotifyCase,
-                  subtitle: loc.settingsNotifyCaseSub,
-                  value: caseStatus,
-                  onChanged: onCaseStatus,
-                ),
-                const _NeoDivider(),
-                _NeoToggleRow(
-                  title: loc.settingsNotifyScan,
-                  subtitle: loc.settingsNotifyScanSub,
-                  value: scanQuality,
-                  onChanged: onScanQuality,
-                ),
-              ],
+            child: _NeoToggleRow(
+              title: loc.settingsNotifyMaster,
+              subtitle: loc.settingsNotifyMasterSub,
+              value: enabled,
+              onChanged: onChanged,
             ),
           ),
         ],
@@ -687,86 +398,6 @@ class _AiCard extends StatelessWidget {
   }
 }
 
-class _AboutCard extends StatelessWidget {
-  const _AboutCard({
-    required this.version,
-    required this.apiStatus,
-    required this.baseUrl,
-    required this.online,
-  });
-
-  final String version;
-  final String apiStatus;
-  final String baseUrl;
-  final bool? online;
-
-  @override
-  Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context);
-    return SectionCard(
-      depth: 1.05,
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SectionHeader(
-            icon: Icons.info_outline_rounded,
-            title: loc.settingsAboutTitle,
-            subtitle: loc.settingsAboutSub,
-          ),
-          const SizedBox(height: 14),
-          NeoInset(
-            child: Column(
-              children: [
-                _InfoRow(label: loc.settingsVersion, value: version),
-                const _NeoDivider(),
-                _InfoRow(
-                  label: loc.settingsApi,
-                  value: online == true
-                      ? loc.online
-                      : (online == false ? loc.offline : apiStatus),
-                  valueColor: online == true
-                      ? AppColors.success
-                      : (online == false ? AppColors.danger : AppColors.navy),
-                ),
-                const _NeoDivider(),
-                _InfoRow(label: loc.settingsBaseUrl, value: baseUrl),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.neo,
-              borderRadius: AppRadii.borderSm,
-              boxShadow: NeoShadows.soft(depth: 0.4),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.shield_outlined, size: 18, color: AppColors.dentalBlue),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    loc.settingsPrivacyNote,
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 12.5,
-                      height: 1.4,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 // ─── Neumorphic primitives ───────────────────────────────────────────────────
 
 class _SectionHeader extends StatelessWidget {
@@ -814,53 +445,6 @@ class _SectionHeader extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _NeoStatTile extends StatelessWidget {
-  const _NeoStatTile({
-    required this.label,
-    required this.value,
-    this.valueColor,
-  });
-
-  final String label;
-  final String value;
-  final Color? valueColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-      decoration: BoxDecoration(
-        color: AppColors.neo,
-        borderRadius: AppRadii.borderSm,
-        boxShadow: NeoShadows.soft(depth: 0.55),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label.toUpperCase(),
-            style: const TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.7,
-              color: AppColors.muted,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 20,
-              color: valueColor ?? AppColors.navy,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -916,7 +500,6 @@ class _NeoToggleRow extends StatelessWidget {
   }
 }
 
-/// Soft raised / pressed toggle — matches Elite Dent neumorphism (not Material).
 class _NeoSwitch extends StatelessWidget {
   const _NeoSwitch({required this.value, required this.onChanged});
 
@@ -962,33 +545,19 @@ class _NeoActionButton extends StatelessWidget {
     required this.icon,
     required this.label,
     this.onPressed,
-    this.primary = false,
     this.danger = false,
-    this.busy = false,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback? onPressed;
-  final bool primary;
   final bool danger;
-  final bool busy;
 
   @override
   Widget build(BuildContext context) {
-    final enabled = onPressed != null && !busy;
-    final Color fg;
-    final Color bg;
-    if (primary) {
-      fg = Colors.white;
-      bg = AppColors.navy;
-    } else if (danger) {
-      fg = AppColors.danger;
-      bg = AppColors.dangerSoft;
-    } else {
-      fg = AppColors.navy;
-      bg = AppColors.neo;
-    }
+    final enabled = onPressed != null;
+    final fg = danger ? AppColors.danger : AppColors.navy;
+    final bg = danger ? AppColors.dangerSoft : AppColors.neo;
 
     return Material(
       color: Colors.transparent,
@@ -1001,30 +570,38 @@ class _NeoActionButton extends StatelessWidget {
           decoration: BoxDecoration(
             color: bg,
             borderRadius: BorderRadius.circular(10),
-            boxShadow: enabled && !primary
-                ? NeoShadows.soft(depth: 0.4)
-                : (primary ? NeoShadows.soft(depth: 0.3) : null),
+            boxShadow: enabled ? NeoShadows.soft(depth: 0.4) : null,
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (busy)
-                ToothLoadingIndicator(size: 14, compact: true, color: fg)
-              else
-                Icon(icon, size: 16, color: enabled ? fg : AppColors.muted),
+              Icon(icon, size: 16, color: enabled ? fg : AppColors.muted),
               const SizedBox(width: 6),
               Text(
                 label,
                 style: TextStyle(
                   color: enabled ? fg : AppColors.muted,
                   fontWeight: FontWeight.w600,
-                  fontSize: 12.5,
+                  fontSize: 13,
                 ),
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _NeoDivider extends StatelessWidget {
+  const _NeoDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Divider(
+      height: 1,
+      thickness: 1,
+      color: AppColors.border.withValues(alpha: 0.7),
     );
   }
 }
@@ -1044,87 +621,20 @@ class _NeoBanner extends StatelessWidget {
         : AppColors.dangerSoft;
     final fg =
         tone == _BannerTone.success ? AppColors.success : AppColors.danger;
-    final icon = tone == _BannerTone.success
-        ? Icons.check_circle_outline
-        : Icons.error_outline;
-
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: AppRadii.borderSm,
-        boxShadow: NeoShadows.soft(depth: 0.35),
       ),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: fg),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(
-                color: fg,
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _NeoDivider extends StatelessWidget {
-  const _NeoDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 1,
-      margin: const EdgeInsets.symmetric(vertical: 2),
-      color: AppColors.border.withValues(alpha: 0.55),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({
-    required this.label,
-    required this.value,
-    this.valueColor,
-  });
-
-  final String label;
-  final String value;
-  final Color? valueColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 88,
-            child: Text(
-              label,
-              style: const TextStyle(color: AppColors.muted, fontSize: 13),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                color: valueColor ?? AppColors.navy,
-                fontSize: 13.5,
-              ),
-            ),
-          ),
-        ],
+      child: Text(
+        text,
+        style: TextStyle(
+          color: fg,
+          fontWeight: FontWeight.w600,
+          fontSize: 13,
+        ),
       ),
     );
   }
