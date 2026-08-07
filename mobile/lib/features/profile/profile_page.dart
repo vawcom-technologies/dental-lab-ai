@@ -76,7 +76,7 @@ class _ProfilePageState extends State<ProfilePage> {
       _name.text = me['name']?.toString() ?? '';
       _email.text = me['email']?.toString() ?? '';
       _clinic.text = me['clinic_name']?.toString() ?? '';
-      _phone.text = me['phone']?.toString() ?? '';
+      _phone.text = PhoneNumbers.localDigits(me['phone']?.toString());
       _role = AppRoles.label(me['role']?.toString());
       if (_role.isEmpty) _role = '—';
       _createdAt = _fmt(me['created_at']);
@@ -98,6 +98,16 @@ class _ProfilePageState extends State<ProfilePage> {
       AppSnackBars.error(context, msg);
       return;
     }
+    final loc = AppLocalizations.of(context);
+    final phoneError = PhoneNumbers.validateRequired(
+      _phone.text,
+      message: loc.errPhoneInvalid,
+    );
+    if (phoneError != null) {
+      setState(() => _error = phoneError);
+      AppSnackBars.error(context, phoneError);
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
@@ -108,7 +118,7 @@ class _ProfilePageState extends State<ProfilePage> {
         name: name,
         email: email,
         clinicName: _clinic.text.trim(),
-        phone: _phone.text.trim(),
+        phone: PhoneNumbers.compose(_phone.text),
       );
       if (!mounted) return;
       widget.onProfileUpdated(updated['name']?.toString() ?? name);
@@ -284,10 +294,10 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        TextFormField(
+                        PhoneField(
                           controller: _phone,
-                          keyboardType: TextInputType.phone,
-                          decoration: InputDecoration(labelText: loc.phone),
+                          labelText: loc.phone,
+                          errorMessage: loc.errPhoneInvalid,
                         ),
                         const SizedBox(height: 20),
                         Align(

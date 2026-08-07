@@ -314,6 +314,7 @@ class AppLocalizations {
 
   String get reportsCasesCol => _t('reports.casesCol');
   String get reportsArtifacts => _t('reports.artifacts');
+  
 
   // ── Case statuses ────────────────────────────────────────────────────────
   String statusLabel(String key) {

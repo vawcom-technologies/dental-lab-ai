@@ -53,7 +53,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
         'first_name': _first.text.trim(),
         'last_name': _last.text.trim(),
         'date_of_birth': _dob.text.trim(),
-        'phone': _phone.text.trim(),
+        'phone': PhoneNumbers.compose(_phone.text),
         'address': _address.text.trim(),
         'health_insurance': _insurance.text.trim(),
       });
@@ -174,12 +174,9 @@ class _NewPatientPageState extends State<NewPatientPage> {
                           (v == null || v.trim().isEmpty) ? 'Required' : null,
                     ),
                     const SizedBox(height: 14),
-                    TextFormField(
+                    PhoneField(
                       controller: _phone,
-                      decoration: const InputDecoration(labelText: 'Phone *'),
-                      keyboardType: TextInputType.phone,
-                      validator: (v) =>
-                          (v == null || v.trim().isEmpty) ? 'Required' : null,
+                      labelText: 'Phone *',
                     ),
                     const SizedBox(height: 14),
                     TextFormField(

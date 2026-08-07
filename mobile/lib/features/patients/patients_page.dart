@@ -592,7 +592,7 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
     _last = TextEditingController(text: p?.lastName ?? '');
     _dob = TextEditingController(text: p?.dateOfBirth ?? '');
     _address = TextEditingController(text: p?.address ?? '');
-    _phone = TextEditingController(text: p?.phone ?? '');
+    _phone = TextEditingController(text: PhoneNumbers.localDigits(p?.phone));
     _insurance = TextEditingController(text: p?.healthInsurance ?? '');
   }
 
@@ -622,19 +622,24 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
   }
 
   Future<void> _submit() async {
+    final phoneLocal = _phone.text.trim();
+    final phoneError = PhoneNumbers.validateRequired(phoneLocal);
+    if (phoneError != null) {
+      setState(() => _error = phoneError);
+      return;
+    }
     final fields = _PatientFormFields(
       firstName: _first.text.trim(),
       lastName: _last.text.trim(),
       dateOfBirth: _dob.text.trim(),
       address: _address.text.trim(),
-      phone: _phone.text.trim(),
+      phone: PhoneNumbers.compose(phoneLocal),
       healthInsurance: _insurance.text.trim(),
     );
     if (fields.firstName.isEmpty ||
         fields.lastName.isEmpty ||
         fields.dateOfBirth.isEmpty ||
         fields.address.isEmpty ||
-        fields.phone.isEmpty ||
         fields.healthInsurance.isEmpty) {
       setState(() => _error = 'All fields are required.');
       return;
@@ -690,9 +695,9 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
                 ),
               ),
               const SizedBox(height: 10),
-              TextField(
+              PhoneField(
                 controller: _phone,
-                decoration: const InputDecoration(labelText: 'Phone'),
+                labelText: 'Phone',
               ),
               const SizedBox(height: 10),
               TextField(

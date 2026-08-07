@@ -42,13 +42,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final name = _name.text.trim();
     final email = _email.text.trim();
     final clinic = _clinic.text.trim();
-    final phone = _phone.text.trim();
+    final phoneLocal = _phone.text.trim();
     final password = _password.text;
     final loc = AppLocalizations.of(context);
     if (name.isEmpty ||
         email.isEmpty ||
         clinic.isEmpty ||
-        phone.isEmpty ||
+        phoneLocal.isEmpty ||
         password.isEmpty ||
         _confirm.text.isEmpty) {
       setState(() {
@@ -57,14 +57,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
       });
       return;
     }
-    final normalizedPhone = phone.replaceAll(RegExp(r'[\s\-]'), '');
-    if (!RegExp(r'^\+49\d{11}$').hasMatch(normalizedPhone)) {
+    final phoneError = PhoneNumbers.validateRequired(
+      phoneLocal,
+      message: loc.errPhoneInvalid,
+    );
+    if (phoneError != null) {
       setState(() {
-        _error = loc.errPhoneInvalid;
+        _error = phoneError;
         _info = null;
       });
       return;
     }
+    final normalizedPhone = PhoneNumbers.compose(phoneLocal);
     if (password.length < 6) {
       setState(() {
         _error = loc.errPasswordShort;
@@ -174,13 +178,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   decoration: InputDecoration(labelText: loc.clinic),
                 ),
                 const SizedBox(height: 12),
-                TextField(
+                PhoneField(
                   controller: _phone,
-                  keyboardType: TextInputType.phone,
-                  decoration: InputDecoration(
-                    labelText: loc.phone,
-                    hintText: '+4917012345678',
-                  ),
+                  labelText: loc.phone,
+                  errorMessage: loc.errPhoneInvalid,
                 ),
                 const SizedBox(height: 12),
                 TextField(
