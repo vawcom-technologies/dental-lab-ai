@@ -326,32 +326,70 @@ int? hitTestTooth({
   required Size box,
   required Size imageSize,
   required List<Map<String, dynamic>> teeth,
+  int? preferIndex,
 }) {
   final dest = containRect(box, imageSize);
   if (!dest.contains(local)) return null;
   final nx = ((local.dx - dest.left) / dest.width).clamp(0.0, 1.0);
   final ny = ((local.dy - dest.top) / dest.height).clamp(0.0, 1.0);
+  final point = Offset(local.dx, local.dy);
 
-  int? best;
-  var bestArea = double.infinity;
+  int? bestOutline;
+  var bestOutlineArea = double.infinity;
+  int? bestBBox;
+  var bestBBoxArea = double.infinity;
+
   for (final t in teeth) {
+    final idx = (t['tooth_index'] as num?)?.toInt();
+    if (idx == null) continue;
     final geo = t['geometry'];
     if (geo is! Map) continue;
+
     final bbox = geo['bbox'];
-    if (bbox is! Map) continue;
-    final x = (bbox['x'] as num).toDouble();
-    final y = (bbox['y'] as num).toDouble();
-    final w = (bbox['w'] as num).toDouble();
-    final h = (bbox['h'] as num).toDouble();
-    if (nx >= x && nx <= x + w && ny >= y && ny <= y + h) {
-      final area = w * h;
-      if (area < bestArea) {
-        bestArea = area;
-        best = (t['tooth_index'] as num).toInt();
+    double? area;
+    if (bbox is Map) {
+      final x = (bbox['x'] as num).toDouble();
+      final y = (bbox['y'] as num).toDouble();
+      final w = (bbox['w'] as num).toDouble();
+      final h = (bbox['h'] as num).toDouble();
+      area = w * h;
+      if (nx >= x && nx <= x + w && ny >= y && ny <= y + h) {
+        if (area < bestBBoxArea ||
+            (area == bestBBoxArea && preferIndex != null && idx == preferIndex)) {
+          bestBBoxArea = area;
+          bestBBox = idx;
+        }
+      }
+    }
+
+    final raw = geo['outline'];
+    if (raw is List && raw.length >= 3) {
+      final verts = [
+        for (final p in raw)
+          if (p is List && p.length >= 2)
+            [(p[0] as num).toDouble(), (p[1] as num).toDouble()],
+      ];
+      if (verts.length >= 3) {
+        final path = curvedPathFromNorm(verts, dest);
+        if (path.contains(point)) {
+          final a = area ?? 1.0;
+          // Prefer outline hits; among those, smallest tooth. On a tie,
+          // prefer a tooth that isn't already selected so taps can switch.
+          final better = bestOutline == null ||
+              a < bestOutlineArea ||
+              (a == bestOutlineArea &&
+                  preferIndex != null &&
+                  idx != preferIndex);
+          if (better) {
+            bestOutlineArea = a;
+            bestOutline = idx;
+          }
+        }
       }
     }
   }
-  return best;
+
+  return bestOutline ?? bestBBox;
 }
 
 /// Hit-test a vertex handle while editing. Returns outline index or null.
@@ -386,6 +424,7 @@ class ToothOverlayPainter extends CustomPainter {
     required this.selectedToothIndex,
     required this.imageSize,
     required this.focusZone,
+    this.isolatedToothIndex,
     this.editMode = false,
     this.editOutline,
     this.editBulges,
@@ -396,6 +435,8 @@ class ToothOverlayPainter extends CustomPainter {
 
   final List<Map<String, dynamic>> teeth;
   final int? selectedToothIndex;
+  /// When set, non-focused teeth are drawn dimmer (still tappable).
+  final int? isolatedToothIndex;
   final Size imageSize;
   final String focusZone;
   final bool editMode;
@@ -416,9 +457,13 @@ class ToothOverlayPainter extends CustomPainter {
     if (teeth.isEmpty || imageSize.width <= 0) return;
     final dest = containRect(size, imageSize);
 
+    // After upload: draw all. After triple-tap isolate: draw only that tooth.
+    final isolateIdx = isolatedToothIndex;
+
     for (final t in teeth) {
       final idx = (t['tooth_index'] as num?)?.toInt();
       if (idx == null) continue;
+      if (isolateIdx != null && idx != isolateIdx) continue;
       final selected = idx == selectedToothIndex;
       final rejected = t['rejected'] == true;
       final geo = t['geometry'];
@@ -585,6 +630,7 @@ class ToothOverlayPainter extends CustomPainter {
   bool shouldRepaint(covariant ToothOverlayPainter oldDelegate) {
     if (editMode || oldDelegate.editMode) return true;
     return oldDelegate.selectedToothIndex != selectedToothIndex ||
+        oldDelegate.isolatedToothIndex != isolatedToothIndex ||
         oldDelegate.focusZone != focusZone ||
         oldDelegate.teeth != teeth ||
         oldDelegate.imageSize != imageSize;

@@ -52,6 +52,10 @@ class _ShadePageState extends State<ShadePage> {
 
   // Per-tooth / per-zone analysis (added onto existing UI)
   List<Map<String, dynamic>> _teeth = [];
+  /// Full AI detection set — kept across isolate so other teeth stay tappable.
+  List<Map<String, dynamic>> _teethMemory = [];
+  /// Triple-tap focus: Result pane shows this tooth; overlay keeps all.
+  int? _isolatedToothIndex;
   int? _selectedToothIndex;
   String _focusZone = 'middle';
   Size _analysisImageSize = Size.zero;
@@ -83,6 +87,35 @@ class _ShadePageState extends State<ShadePage> {
       if ((t['tooth_index'] as num?)?.toInt() == _selectedToothIndex) return t;
     }
     return null;
+  }
+
+  List<Map<String, dynamic>> _cloneTeeth(List<Map<String, dynamic>> src) =>
+      src.map((t) => Map<String, dynamic>.from(t)).toList();
+
+  void _rememberTeeth() {
+    _teethMemory = _cloneTeeth(_teeth);
+  }
+
+  /// Result list: all teeth after detect; only the focused one after triple-tap.
+  List<Map<String, dynamic>> get _teethForResultPane {
+    final iso = _isolatedToothIndex;
+    if (iso == null) return _teeth;
+    return _teeth
+        .where((t) => (t['tooth_index'] as num?)?.toInt() == iso)
+        .toList();
+  }
+
+  bool _hasToothIndex(int index) =>
+      _teeth.any((t) => (t['tooth_index'] as num?)?.toInt() == index);
+
+  /// Bring back the full detection set from memory (e.g. after isolate).
+  void _ensureTeethFromMemory({int? preferIndex}) {
+    if (_teethMemory.isEmpty) return;
+    final needRestore = preferIndex != null
+        ? !_hasToothIndex(preferIndex)
+        : _teeth.length < _teethMemory.length;
+    if (!needRestore) return;
+    _teeth = _cloneTeeth(_teethMemory);
   }
 
   Map<String, dynamic>? _zoneOf(Map<String, dynamic> tooth, String name) {
@@ -129,6 +162,10 @@ class _ShadePageState extends State<ShadePage> {
           : Uint8List.fromList(_previewBytes!),
       'preview_filename': _previewFilename,
       'teeth': cloneShadeMaps(_teeth),
+      'teeth_memory': cloneShadeMaps(
+        _teethMemory.isEmpty ? _teeth : _teethMemory,
+      ),
+      'isolated_tooth_index': _isolatedToothIndex,
       'selected_tooth_index': _selectedToothIndex,
       'focus_zone': _focusZone,
       'analysis_image_width': _analysisImageSize.width,
@@ -204,6 +241,11 @@ class _ShadePageState extends State<ShadePage> {
     _teeth = teethRaw is List
         ? _parseTeeth(teethRaw)
         : <Map<String, dynamic>>[];
+    final memRaw = ws['teeth_memory'];
+    _teethMemory = memRaw is List
+        ? _parseTeeth(memRaw)
+        : _cloneTeeth(_teeth);
+    _isolatedToothIndex = (ws['isolated_tooth_index'] as num?)?.toInt();
     _selectedToothIndex = (ws['selected_tooth_index'] as num?)?.toInt();
     _focusZone = ws['focus_zone'] as String? ?? 'middle';
     final iw = (ws['analysis_image_width'] as num?)?.toDouble() ?? 0;
@@ -276,6 +318,8 @@ class _ShadePageState extends State<ShadePage> {
       } else {
         _previewBytes = null;
         _teeth = [];
+        _teethMemory = [];
+        _isolatedToothIndex = null;
         _selectedToothIndex = null;
         _detected = '—';
         _selected = entry['shade'] as String? ?? '—';
@@ -481,11 +525,16 @@ class _ShadePageState extends State<ShadePage> {
 
   void _selectTooth(int index, {String? zone}) {
     if (_editOutlineMode) return; // finish or cancel edit first
+    final switchingTooth = _selectedToothIndex != index;
+    final nextZone = zone ?? (switchingTooth ? 'middle' : _focusZone);
+    final same = !switchingTooth && nextZone == _focusZone;
     setState(() {
-      final same =
-          _selectedToothIndex == index && (zone == null || zone == _focusZone);
       _selectedToothIndex = index;
-      _focusZone = zone ?? 'middle';
+      // If already in triple-tap focus mode, move focus with the selection.
+      if (_isolatedToothIndex != null) {
+        _isolatedToothIndex = index;
+      }
+      _focusZone = nextZone;
       if (!same) {
         _pendingShade = null;
         _overallShadePick = false;
@@ -494,6 +543,78 @@ class _ShadePageState extends State<ShadePage> {
       if (_pendingShade != null) _selected = _pendingShade!;
       _saveStatus = null;
     });
+    if (switchingTooth) AppHaptics.selection();
+  }
+
+  // Triple-tap tracking on the photo overlay (same tooth within window).
+  int? _toothTapIndex;
+  int _toothTapCount = 0;
+  DateTime? _toothTapAt;
+
+  /// Single tap selects (restores full set from memory); triple-tap isolates focus.
+  void _onToothTap(int index) {
+    if (_editOutlineMode || _busy) return;
+    final now = DateTime.now();
+    if (_toothTapIndex == index &&
+        _toothTapAt != null &&
+        now.difference(_toothTapAt!) < const Duration(milliseconds: 500)) {
+      _toothTapCount += 1;
+    } else {
+      _toothTapCount = 1;
+    }
+    _toothTapIndex = index;
+    _toothTapAt = now;
+
+    if (_toothTapCount >= 3) {
+      _toothTapCount = 0;
+      _isolateTooth(index);
+      return;
+    }
+
+    setState(() {
+      _ensureTeethFromMemory(preferIndex: index);
+      // Stay in isolate focus mode but move it to the newly tapped tooth.
+      if (_isolatedToothIndex != null) {
+        _isolatedToothIndex = index;
+      }
+    });
+    _selectTooth(index);
+  }
+
+  /// Focus Result details on [index]; keep every detected tooth in memory/overlay.
+  void _isolateTooth(int index) {
+    if (_editOutlineMode || _busy) return;
+    setState(() {
+      if (_teethMemory.isEmpty) _rememberTeeth();
+      _ensureTeethFromMemory(preferIndex: index);
+    });
+    if (!_hasToothIndex(index)) return;
+
+    final label = () {
+      for (final t in _teeth) {
+        if ((t['tooth_index'] as num?)?.toInt() == index) {
+          return t['label']?.toString() ?? 'Tooth ${index + 1}';
+        }
+      }
+      return 'Tooth ${index + 1}';
+    }();
+
+    setState(() {
+      _isolatedToothIndex = index;
+      _selectedToothIndex = index;
+      _focusZone = 'middle';
+      _pendingShade = null;
+      _overallShadePick = false;
+      _syncUiFromSelection(resetSelectedToDetected: true);
+      _saveStatus =
+          'Focused on $label — tap another tooth to switch (all kept in memory).';
+      _upsertSessionEntry(onlyIfExists: true);
+    });
+    AppHaptics.success();
+    _toast(
+      '$label focused — tap any other tooth to move there',
+      bg: AppColors.navy,
+    );
   }
 
 
@@ -575,8 +696,16 @@ class _ShadePageState extends State<ShadePage> {
     }
     setState(() {
       _teeth = remaining;
+      _rememberTeeth();
+      if (_isolatedToothIndex == idx) {
+        _isolatedToothIndex = remaining.isEmpty ? null : 0;
+      } else if (_isolatedToothIndex != null) {
+        // Indices were renumbered — drop isolate focus to avoid stale id.
+        _isolatedToothIndex = _selectedToothIndex;
+      }
       if (remaining.isEmpty) {
         _selectedToothIndex = null;
+        _isolatedToothIndex = null;
         _detected = '—';
         _confidence = 0;
         _topMatches = [];
@@ -586,6 +715,7 @@ class _ShadePageState extends State<ShadePage> {
         // Prefer the neighbor that was to the right, else the new last.
         final next = idx.clamp(0, remaining.length - 1);
         _selectedToothIndex = next;
+        if (_isolatedToothIndex != null) _isolatedToothIndex = next;
         _syncUiFromSelection();
         _saveStatus =
             'Removed tooth. ${remaining.length} remaining (renumbered left → right).';
@@ -664,6 +794,7 @@ class _ShadePageState extends State<ShadePage> {
 
     setState(() {
       _teeth = [..._teeth, tooth];
+      _rememberTeeth();
       _selectedToothIndex = idx;
       _focusZone = 'middle';
       _error = null;
@@ -789,6 +920,8 @@ class _ShadePageState extends State<ShadePage> {
       _previewBytes = null;
       _previewFilename = 'tooth.jpg';
       _teeth = [];
+      _teethMemory = [];
+      _isolatedToothIndex = null;
       _selectedToothIndex = null;
       _analysisImageSize = Size.zero;
       _detected = '—';
@@ -899,6 +1032,7 @@ class _ShadePageState extends State<ShadePage> {
           for (final t in _teeth)
             ((t['tooth_index'] as num?)?.toInt() == idx) ? updated : t,
         ];
+        _rememberTeeth();
         _exitOutlineEdit(clearStatus: false);
         _syncUiFromSelection();
         _saveStatus =
@@ -1165,6 +1299,9 @@ class _ShadePageState extends State<ShadePage> {
 
       setState(() {
         _teeth = teeth;
+        _rememberTeeth();
+        // After upload: show every tooth highlighted; isolate only via triple-tap.
+        _isolatedToothIndex = null;
         _selectedToothIndex = (first?['tooth_index'] as num?)?.toInt();
         _focusZone = 'middle';
         final iw = (result['image_width'] as num?)?.toDouble() ?? 0;
@@ -1605,6 +1742,7 @@ class _ShadePageState extends State<ShadePage> {
                                     editOutlineMode: _editOutlineMode,
                                     teeth: _teeth,
                                     selectedToothIndex: _selectedToothIndex,
+                                    isolatedToothIndex: _isolatedToothIndex,
                                     analysisImageSize: _analysisImageSize,
                                     focusZone: _focusZone,
                                     editOutline: _editOutline,
@@ -1624,7 +1762,7 @@ class _ShadePageState extends State<ShadePage> {
                                     ),
                                     onUpload: _runAiFromGallery,
                                     onClearPhoto: _clearUploadedPhoto,
-                                    onSelectTooth: _selectTooth,
+                                    onSelectTooth: _onToothTap,
                                     onHandleDragStart: _onHandleDragStart,
                                     onHandleDragUpdate: _onHandleDragUpdate,
                                     onHandleDragEnd: _endOutlineDrag,
@@ -1637,7 +1775,7 @@ class _ShadePageState extends State<ShadePage> {
                                 Expanded(
                                   flex: 3,
                                   child: ShadeResultPane(
-                                    teeth: _teeth,
+                                    teeth: _teethForResultPane,
                                     selectedToothIndex: _selectedToothIndex,
                                     focusZone: _focusZone,
                                     pendingShade: _pendingShade,
@@ -1651,7 +1789,13 @@ class _ShadePageState extends State<ShadePage> {
                                     zoneEffective: _zoneEffective,
                                     zoneOf: _zoneOf,
                                     zoneOverridden: _zoneOverridden,
-                                    onSelectTooth: _selectTooth,
+                                    onSelectTooth: (index, {zone}) {
+                                      if (zone != null) {
+                                        _selectTooth(index, zone: zone);
+                                      } else {
+                                        _onToothTap(index);
+                                      }
+                                    },
                                     onDeleteTooth: _deleteSelectedTooth,
                                     onBeginZoneOverride: _beginZoneOverride,
                                     onOverallShade: (s) =>

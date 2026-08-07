@@ -29,6 +29,7 @@ class ShadePhotoPane extends StatelessWidget {
     required this.editOutlineMode,
     required this.teeth,
     required this.selectedToothIndex,
+    this.isolatedToothIndex,
     required this.analysisImageSize,
     required this.focusZone,
     required this.editOutline,
@@ -58,6 +59,7 @@ class ShadePhotoPane extends StatelessWidget {
   final bool editOutlineMode;
   final List<Map<String, dynamic>> teeth;
   final int? selectedToothIndex;
+  final int? isolatedToothIndex;
   final Size analysisImageSize;
   final String focusZone;
   final List<List<double>>? editOutline;
@@ -95,174 +97,189 @@ class ShadePhotoPane extends StatelessWidget {
             children: [
               if (previewBytes != null)
                 Positioned.fill(
-                  child: GestureDetector(
-                    onLongPress: editOutlineMode || busy
-                        ? null
-                        : () {
-                            AppHaptics.selection();
-                            onShowPhotoMenu();
-                          },
-                    child: InteractiveViewer(
-                      transformationController: photoTransformController,
-                      minScale: 1,
-                      maxScale: 4,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          Image.memory(
-                            previewBytes!,
-                            fit: BoxFit.contain,
-                            gaplessPlayback: true,
-                            filterQuality: FilterQuality.low,
-                          ),
-                          if (teeth.isNotEmpty && !busy)
-                            Positioned.fill(
-                              child: LayoutBuilder(
-                                builder: (context, constraints) {
-                                  final box = Size(
-                                    constraints.maxWidth,
-                                    constraints.maxHeight,
-                                  );
-                                  final imgSize =
-                                      analysisImageSize == Size.zero
-                                          ? box
-                                          : analysisImageSize;
-                                  int? handleAt(Offset local) {
-                                    final outline = editOutline;
-                                    if (outline == null) return null;
-                                    final scale = photoTransformController
-                                        .value
-                                        .getMaxScaleOnAxis()
-                                        .clamp(1.0, 4.0);
-                                    return hitTestOutlineHandle(
-                                      local: local,
-                                      box: box,
-                                      imageSize: imgSize,
-                                      outline: outline,
-                                      radius: 32 / scale,
-                                    );
-                                  }
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final box = Size(
+                        constraints.maxWidth,
+                        constraints.maxHeight,
+                      );
+                      final imgSize = analysisImageSize == Size.zero
+                          ? box
+                          : analysisImageSize;
 
-                                  ({String kind, int index})? hitAt(
-                                    Offset local,
-                                  ) {
-                                    final outline = editOutline;
-                                    if (outline == null) return null;
-                                    final scale = photoTransformController
-                                        .value
-                                        .getMaxScaleOnAxis()
-                                        .clamp(1.0, 4.0);
-                                    final hi = handleAt(local);
-                                    if (hi != null) {
-                                      return (kind: 'v', index: hi);
-                                    }
-                                    final ei = hitTestOutlineEdge(
-                                      local: local,
-                                      box: box,
-                                      imageSize: imgSize,
-                                      outline: outline,
-                                      maxDist: 22 / scale,
-                                    );
-                                    if (ei != null) {
-                                      return (kind: 'e', index: ei);
-                                    }
-                                    return null;
-                                  }
+                      void selectAtViewport(Offset viewportLocal) {
+                        if (editOutlineMode || busy || teeth.isEmpty) return;
+                        // Tap is outside InteractiveViewer — map into scene.
+                        final scene =
+                            photoTransformController.toScene(viewportLocal);
+                        final hit = hitTestTooth(
+                          local: scene,
+                          box: box,
+                          imageSize: imgSize,
+                          teeth: teeth,
+                          preferIndex: selectedToothIndex,
+                        );
+                        if (hit != null) onSelectTooth(hit);
+                      }
 
-                                  return RawGestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    gestures: <Type, GestureRecognizerFactory>{
-                                      if (!editOutlineMode)
-                                        TapGestureRecognizer:
-                                            GestureRecognizerFactoryWithHandlers<
-                                                TapGestureRecognizer>(
-                                          TapGestureRecognizer.new,
-                                          (r) => r.onTapDown = (details) {
-                                            final hit = hitTestTooth(
-                                              local: details.localPosition,
-                                              box: box,
-                                              imageSize: imgSize,
-                                              teeth: teeth,
-                                            );
-                                            if (hit != null) {
-                                              onSelectTooth(hit);
-                                            }
-                                          },
+                      return GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTapUp: editOutlineMode || busy
+                            ? null
+                            : (details) =>
+                                selectAtViewport(details.localPosition),
+                        onLongPress: editOutlineMode || busy
+                            ? null
+                            : () {
+                                AppHaptics.selection();
+                                onShowPhotoMenu();
+                              },
+                        child: InteractiveViewer(
+                          transformationController: photoTransformController,
+                          minScale: 1,
+                          maxScale: 4,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              Image.memory(
+                                previewBytes!,
+                                fit: BoxFit.contain,
+                                gaplessPlayback: true,
+                                filterQuality: FilterQuality.low,
+                              ),
+                              if (teeth.isNotEmpty && !busy)
+                                Positioned.fill(
+                                  child: Builder(
+                                    builder: (context) {
+                                      int? handleAt(Offset local) {
+                                        final outline = editOutline;
+                                        if (outline == null) return null;
+                                        final scale = photoTransformController
+                                            .value
+                                            .getMaxScaleOnAxis()
+                                            .clamp(1.0, 4.0);
+                                        return hitTestOutlineHandle(
+                                          local: local,
+                                          box: box,
+                                          imageSize: imgSize,
+                                          outline: outline,
+                                          radius: 32 / scale,
+                                        );
+                                      }
+
+                                      ({String kind, int index})? hitAt(
+                                        Offset local,
+                                      ) {
+                                        final outline = editOutline;
+                                        if (outline == null) return null;
+                                        final scale = photoTransformController
+                                            .value
+                                            .getMaxScaleOnAxis()
+                                            .clamp(1.0, 4.0);
+                                        final hi = handleAt(local);
+                                        if (hi != null) {
+                                          return (kind: 'v', index: hi);
+                                        }
+                                        final ei = hitTestOutlineEdge(
+                                          local: local,
+                                          box: box,
+                                          imageSize: imgSize,
+                                          outline: outline,
+                                          maxDist: 22 / scale,
+                                        );
+                                        if (ei != null) {
+                                          return (kind: 'e', index: ei);
+                                        }
+                                        return null;
+                                      }
+
+                                      final paint = CustomPaint(
+                                        painter: ToothOverlayPainter(
+                                          repaint: Listenable.merge([
+                                            dragTick,
+                                            photoTransformController,
+                                          ]),
+                                          teeth: teeth,
+                                          selectedToothIndex:
+                                              selectedToothIndex,
+                                          isolatedToothIndex:
+                                              isolatedToothIndex,
+                                          imageSize: imgSize,
+                                          focusZone: focusZone,
+                                          editMode: editOutlineMode,
+                                          editOutline: editOutline,
+                                          editBulges: editBulges,
+                                          activeHandleIndex: activeHandleIndex,
+                                          activeEdgeIndex: activeEdgeIndex,
+                                          transformationController:
+                                              photoTransformController,
                                         ),
-                                      if (editOutlineMode)
-                                        OutlineEditDragRecognizer:
-                                            GestureRecognizerFactoryWithHandlers<
-                                                OutlineEditDragRecognizer>(
-                                          OutlineEditDragRecognizer.new,
-                                          (r) => r
-                                            ..hitAt = hitAt
-                                            ..onStart = (details) {
-                                              if (editOutline == null) return;
-                                              if (hitAt(
-                                                    details.localPosition,
-                                                  ) ==
+                                      );
+
+                                      if (!editOutlineMode) return paint;
+
+                                      return RawGestureDetector(
+                                        behavior: HitTestBehavior.opaque,
+                                        gestures: <Type,
+                                            GestureRecognizerFactory>{
+                                          OutlineEditDragRecognizer:
+                                              GestureRecognizerFactoryWithHandlers<
+                                                  OutlineEditDragRecognizer>(
+                                            OutlineEditDragRecognizer.new,
+                                            (r) => r
+                                              ..hitAt = hitAt
+                                              ..onStart = (details) {
+                                                if (editOutline == null) {
+                                                  return;
+                                                }
+                                                if (hitAt(
+                                                      details.localPosition,
+                                                    ) ==
+                                                    null) {
+                                                  return;
+                                                }
+                                                onHandleDragStart(
+                                                  details.localPosition,
+                                                  box,
+                                                );
+                                              }
+                                              ..onUpdate = (details) {
+                                                onHandleDragUpdate(
+                                                  details.localPosition,
+                                                  box,
+                                                );
+                                              }
+                                              ..onEnd = (_) {
+                                                onHandleDragEnd();
+                                              }
+                                              ..onCancel = onHandleDragEnd,
+                                          ),
+                                          DoubleTapGestureRecognizer:
+                                              GestureRecognizerFactoryWithHandlers<
+                                                  DoubleTapGestureRecognizer>(
+                                            DoubleTapGestureRecognizer.new,
+                                            (r) => r.onDoubleTapDown = (d) {
+                                              if (hitAt(d.localPosition) ==
                                                   null) {
                                                 return;
                                               }
-                                              onHandleDragStart(
-                                                details.localPosition,
+                                              onEdgeDoubleTap(
+                                                d.localPosition,
                                                 box,
                                               );
-                                            }
-                                            ..onUpdate = (details) {
-                                              onHandleDragUpdate(
-                                                details.localPosition,
-                                                box,
-                                              );
-                                            }
-                                            ..onEnd = (_) {
-                                              onHandleDragEnd();
-                                            }
-                                            ..onCancel = onHandleDragEnd,
-                                        ),
-                                      if (editOutlineMode)
-                                        DoubleTapGestureRecognizer:
-                                            GestureRecognizerFactoryWithHandlers<
-                                                DoubleTapGestureRecognizer>(
-                                          DoubleTapGestureRecognizer.new,
-                                          (r) => r.onDoubleTapDown = (d) {
-                                            if (hitAt(d.localPosition) ==
-                                                null) {
-                                              return;
-                                            }
-                                            onEdgeDoubleTap(
-                                              d.localPosition,
-                                              box,
-                                            );
-                                          },
-                                        ),
+                                            },
+                                          ),
+                                        },
+                                        child: paint,
+                                      );
                                     },
-                                    child: CustomPaint(
-                                      painter: ToothOverlayPainter(
-                                        repaint: Listenable.merge([
-                                          dragTick,
-                                          photoTransformController,
-                                        ]),
-                                        teeth: teeth,
-                                        selectedToothIndex: selectedToothIndex,
-                                        imageSize: imgSize,
-                                        focusZone: focusZone,
-                                        editMode: editOutlineMode,
-                                        editOutline: editOutline,
-                                        editBulges: editBulges,
-                                        activeHandleIndex: activeHandleIndex,
-                                        activeEdgeIndex: activeEdgeIndex,
-                                        transformationController:
-                                            photoTransformController,
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 )
               else
@@ -355,7 +372,7 @@ class ShadePhotoPane extends StatelessWidget {
                   child: Text(
                     editOutlineMode
                         ? 'Drag corners · hold mid-edge to curve · double-tap edge to add a point · Apply.'
-                        : 'Pinch to zoom · Tap a tooth to select, adjust, add, or delete.',
+                        : 'Pinch to zoom · Tap to select · Triple-tap to show only that tooth.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.85),
