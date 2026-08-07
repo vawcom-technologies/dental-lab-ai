@@ -1,11 +1,12 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
 import '../../../core/api/api_client.dart';
 import '../models/chat_models.dart';
 
-/// REST client for `/api/conversations*`.
+/// REST client for `/api/conversations*` and `/api/media/chat-upload`.
 class ChatApiService {
   ChatApiService(this._api);
 
@@ -15,6 +16,11 @@ class ChatApiService {
 
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        if (_api.token != null) 'Authorization': 'Bearer ${_api.token}',
+      };
+
+  Map<String, String> get _authHeaders => {
         'Accept': 'application/json',
         if (_api.token != null) 'Authorization': 'Bearer ${_api.token}',
       };
@@ -97,6 +103,54 @@ class ChatApiService {
       throw Exception('Invalid messages response');
     }
     return PaginatedMessagesResponse.fromJson(Map<String, dynamic>.from(body));
+  }
+
+  /// `POST /api/media/chat-upload` — byte-based multipart (Web / Android / iOS).
+  Future<Message> sendMediaMessage({
+    required Uint8List fileBytes,
+    required String fileName,
+    required String conversationId,
+    required String mediaType,
+    double? durationSeconds,
+    String? content,
+    String? replyToMessageId,
+  }) async {
+    final uri = Uri.parse('$_base/api/media/chat-upload');
+    final request = http.MultipartRequest('POST', uri);
+    request.headers.addAll(_authHeaders);
+    request.fields['conversation_id'] = conversationId;
+    request.fields['media_type'] = mediaType;
+    if (durationSeconds != null) {
+      request.fields['duration_seconds'] = durationSeconds.toString();
+    }
+    final caption = content?.trim();
+    if (caption != null && caption.isNotEmpty) {
+      request.fields['content'] = caption;
+    }
+    final replyId = replyToMessageId?.trim();
+    if (replyId != null && replyId.isNotEmpty) {
+      request.fields['reply_to_message_id'] = replyId;
+    }
+
+    final safeName = fileName.trim().isEmpty ? 'upload.bin' : fileName.trim();
+    request.files.add(
+      http.MultipartFile.fromBytes(
+        'file',
+        fileBytes,
+        filename: safeName,
+      ),
+    );
+
+    final streamed = await request.send();
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(_errorMessage(res));
+    }
+    final body = jsonDecode(res.body);
+    if (body is! Map) {
+      throw Exception('Invalid media upload response');
+    }
+    return Message.fromJson(Map<String, dynamic>.from(body));
   }
 
   String _errorMessage(http.Response res) {

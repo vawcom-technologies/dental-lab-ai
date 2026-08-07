@@ -15,5 +15,14 @@ class Settings(BaseSettings):
     resend_from_email: str = "onboarding@resend.dev"
     resend_welcome_to_email: str = "hamza.naxeed@gmail.com"
 
+    # Cloudflare R2 (S3-compatible) for chat media
+    r2_account_id: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    r2_voice_bucket: str = ""
+    r2_voice_public_url: str = ""
+    r2_documents_bucket: str = ""
+    r2_documents_public_url: str = ""
+
 
 settings = Settings()

@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import '../../core/api/api_client.dart';
 import '../../core/layout/adaptive.dart';
 import '../../core/l10n/app_localizations.dart';
-import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'screens/chat_screen.dart';
 import 'screens/inbox_screen.dart';

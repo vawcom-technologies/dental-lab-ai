@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS public.messages (
   sender_id           UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
   content             TEXT NOT NULL DEFAULT '',
   media_url           TEXT NULL,
+  media_type          TEXT NULL,
+  duration_seconds    NUMERIC NULL,
   reply_to_message_id UUID NULL REFERENCES public.messages (id) ON DELETE SET NULL,
   read_at             TIMESTAMPTZ NULL,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now()

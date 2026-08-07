@@ -66,6 +66,8 @@ class ParentMessage {
     required this.senderId,
     required this.content,
     this.mediaUrl,
+    this.mediaType,
+    this.durationSeconds,
     this.createdAt,
   });
 
@@ -73,7 +75,24 @@ class ParentMessage {
   final String senderId;
   final String content;
   final String? mediaUrl;
+  final String? mediaType;
+  final double? durationSeconds;
   final DateTime? createdAt;
+
+  String get previewLabel {
+    final text = content.trim();
+    if (text.isNotEmpty) return text;
+    switch (mediaType) {
+      case 'voice':
+        return 'Voice message';
+      case 'image':
+        return 'Photo';
+      case 'document':
+        return 'Document';
+      default:
+        return mediaUrl != null ? 'Attachment' : '';
+    }
+  }
 
   factory ParentMessage.fromJson(Map<String, dynamic>? json) {
     if (json == null) {
@@ -84,6 +103,8 @@ class ParentMessage {
       senderId: '${json['sender_id'] ?? ''}',
       content: '${json['content'] ?? ''}',
       mediaUrl: _optString(json['media_url']),
+      mediaType: _optString(json['media_type']),
+      durationSeconds: _optDouble(json['duration_seconds']),
       createdAt: _parseDate(json['created_at']),
     );
   }
@@ -93,6 +114,8 @@ class ParentMessage {
         'sender_id': senderId,
         'content': content,
         'media_url': mediaUrl,
+        'media_type': mediaType,
+        'duration_seconds': durationSeconds,
         'created_at': createdAt?.toIso8601String(),
       };
 }
@@ -102,8 +125,10 @@ class Message {
     required this.id,
     required this.conversationId,
     required this.senderId,
-    required this.content,
+    this.content = '',
     this.mediaUrl,
+    this.mediaType,
+    this.durationSeconds,
     this.replyToMessageId,
     this.replyTo,
     this.readAt,
@@ -113,14 +138,38 @@ class Message {
   final String id;
   final String conversationId;
   final String senderId;
+  /// Caption / text body. Empty for media-only messages.
   final String content;
   final String? mediaUrl;
+  /// `"voice"`, `"image"`, or `"document"`.
+  final String? mediaType;
+  final double? durationSeconds;
   final String? replyToMessageId;
   final ParentMessage? replyTo;
   final DateTime? readAt;
   final DateTime? createdAt;
 
   bool get isRead => readAt != null;
+  bool get hasMedia => mediaUrl != null && mediaUrl!.isNotEmpty;
+  bool get isVoice => mediaType == 'voice';
+  bool get isImage => mediaType == 'image';
+  bool get isDocument => mediaType == 'document';
+
+  /// Inbox / reply preview line.
+  String get previewText {
+    final text = content.trim();
+    if (text.isNotEmpty) return text;
+    switch (mediaType) {
+      case 'voice':
+        return 'Voice message';
+      case 'image':
+        return 'Photo';
+      case 'document':
+        return 'Document';
+      default:
+        return hasMedia ? 'Attachment' : '';
+    }
+  }
 
   Message copyWith({
     String? id,
@@ -128,6 +177,8 @@ class Message {
     String? senderId,
     String? content,
     String? mediaUrl,
+    String? mediaType,
+    double? durationSeconds,
     String? replyToMessageId,
     ParentMessage? replyTo,
     DateTime? readAt,
@@ -140,6 +191,8 @@ class Message {
       senderId: senderId ?? this.senderId,
       content: content ?? this.content,
       mediaUrl: mediaUrl ?? this.mediaUrl,
+      mediaType: mediaType ?? this.mediaType,
+      durationSeconds: durationSeconds ?? this.durationSeconds,
       replyToMessageId: replyToMessageId ?? this.replyToMessageId,
       replyTo: replyTo ?? this.replyTo,
       readAt: clearReadAt ? null : (readAt ?? this.readAt),
@@ -155,6 +208,8 @@ class Message {
       senderId: '${json['sender_id'] ?? ''}',
       content: '${json['content'] ?? ''}',
       mediaUrl: _optString(json['media_url']),
+      mediaType: _optString(json['media_type']),
+      durationSeconds: _optDouble(json['duration_seconds']),
       replyToMessageId: _optString(json['reply_to_message_id']),
       replyTo: replyRaw is Map<String, dynamic>
           ? ParentMessage.fromJson(replyRaw)
@@ -172,6 +227,8 @@ class Message {
         'sender_id': senderId,
         'content': content,
         'media_url': mediaUrl,
+        'media_type': mediaType,
+        'duration_seconds': durationSeconds,
         'reply_to_message_id': replyToMessageId,
         'reply_to': replyTo?.toJson(),
         'read_at': readAt?.toIso8601String(),
@@ -321,6 +378,12 @@ String? _optString(dynamic value) {
   if (value == null) return null;
   final s = value.toString().trim();
   return s.isEmpty ? null : s;
+}
+
+double? _optDouble(dynamic value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  return double.tryParse(value.toString());
 }
 
 DateTime? _parseDate(dynamic value) {
