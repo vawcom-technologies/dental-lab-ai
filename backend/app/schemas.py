@@ -239,7 +239,6 @@ class ShadeAnalyzeOut(BaseModel):
 
 class ScanValidateOut(BaseModel):
     result: str
-    quality_score: float
     reasons: list[str]
     note: str
     issues: list[dict] = []

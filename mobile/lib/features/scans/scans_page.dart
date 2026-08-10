@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
@@ -221,10 +222,26 @@ class _ScansPageState extends State<ScansPage> {
     }
   }
 
+  Future<int?> _ensureCaseId() async {
+    final existing = _caseIdInt();
+    if (existing != null) return existing;
+    if (_patient == null) return null;
+    final asInt = int.tryParse(_pid(_patient!));
+    if (asInt == null) return null;
+    try {
+      final row = await widget.api.createCase(asInt);
+      if (mounted) setState(() => _case = row);
+      return _asInt(row['id']);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _upload() async {
     if (_busy || _patient == null) return;
     setState(() => _error = null);
     try {
+      // Web needs withData; native iPad prefers path + xFile (large PLYs).
       final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: const ['ply', 'stl', 'obj'],
@@ -232,8 +249,15 @@ class _ScansPageState extends State<ScansPage> {
       );
       if (result == null || result.files.isEmpty) return;
       final file = result.files.first;
-      final bytes = file.bytes;
-      if (bytes == null) {
+      Uint8List? bytes;
+      try {
+        bytes = await file.xFile.readAsBytes();
+      } catch (_) {
+        if (file.bytes != null && file.bytes!.isNotEmpty) {
+          bytes = Uint8List.fromList(file.bytes!);
+        }
+      }
+      if (bytes == null || bytes.isEmpty) {
         setState(() => _error = 'Could not read file bytes');
         if (mounted) AppSnackBars.error(context, 'Could not read file bytes');
         return;
@@ -266,7 +290,6 @@ class _ScansPageState extends State<ScansPage> {
         final sampled = sampleMeshBytes(data, name);
         validation = {
           'result': sampled.error == null ? 'ok' : 'fail',
-          'quality_score': sampled.error == null ? 0.85 : 0.2,
           'reasons': [
             if (sampled.error != null) sampled.error!,
             if (sampled.error == null)
@@ -369,17 +392,15 @@ class _ScansPageState extends State<ScansPage> {
     }
 
     final scan = _scans.isEmpty ? null : _scans[_selected.clamp(0, _scans.length - 1)];
-    final score = ((scan?['quality_score'] as num?)?.toDouble() ??
-            (_lastResult?['quality_score'] as num?)?.toDouble() ??
-            0) *
-        (scan?['quality_score'] != null &&
-                (scan!['quality_score'] as num) <= 1
-            ? 100
-            : 1);
-    final scoreInt = score.round().clamp(0, 100);
     final result = scan?['validation_result'] as String? ??
         _lastResult?['validation_result'] as String? ??
+        _lastResult?['result'] as String? ??
         'unknown';
+    final needsRescan = _lastResult?['prompt_rescan'] == true ||
+        result == 'bad' ||
+        result == 'blurry' ||
+        result == 'missing_margin';
+    final canUpload = !_busy && _patient != null;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
@@ -400,12 +421,11 @@ class _ScansPageState extends State<ScansPage> {
                         color: AppColors.navy,
                       ),
                     ),
-                    Text(
-                      _patient == null
-                          ? 'Upload PLY / STL / OBJ · AI quality check · Dots / Solid preview'
-                          : 'Patient: $_patientLabel · PLY / STL / OBJ · Dots / Solid',
-                      style: const TextStyle(color: AppColors.muted),
-                    ),
+                    if (_patient != null)
+                      Text(
+                        'Patient: $_patientLabel',
+                        style: const TextStyle(color: AppColors.muted),
+                      ),
                   ],
                 ),
               ),
@@ -448,7 +468,7 @@ class _ScansPageState extends State<ScansPage> {
               panel: Column(
                     children: [
                       InkWell(
-                        onTap: _busy || _patient == null ? null : _upload,
+                        onTap: canUpload ? _upload : null,
                         borderRadius: AppRadii.border,
                         child: SectionCard(
                           child: Column(
@@ -496,8 +516,6 @@ class _ScansPageState extends State<ScansPage> {
                                   itemBuilder: (context, i) {
                                     final s = _scans[i];
                                     final selected = i == _selected;
-                                    final q = ((s['quality_score'] as num?)?.toDouble() ?? 0);
-                                    final pct = (q <= 1 ? q * 100 : q).round();
                                     final file = '${s['filename'] ?? 'Scan #${s['id']}'}';
                                     final short = file.length > 28
                                         ? '${file.substring(0, 26)}…'
@@ -526,32 +544,16 @@ class _ScansPageState extends State<ScansPage> {
                                         overflow: TextOverflow.ellipsis,
                                         style: const TextStyle(fontSize: 11.5),
                                       ),
-                                      trailing: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Text(
-                                            '$pct%',
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.w700,
-                                              color: pct >= 80
-                                                  ? AppColors.success
-                                                  : pct >= 50
-                                                      ? AppColors.warning
-                                                      : AppColors.danger,
-                                            ),
-                                          ),
-                                          IconButton(
-                                            tooltip: 'Delete scan',
-                                            onPressed: _busy
-                                                ? null
-                                                : () => _deleteScan(s),
-                                            icon: const Icon(
-                                              Icons.delete_outline,
-                                              size: 18,
-                                              color: AppColors.danger,
-                                            ),
-                                          ),
-                                        ],
+                                      trailing: IconButton(
+                                        tooltip: 'Delete scan',
+                                        onPressed: _busy
+                                            ? null
+                                            : () => _deleteScan(s),
+                                        icon: const Icon(
+                                          Icons.delete_outline,
+                                          size: 18,
+                                          color: AppColors.danger,
+                                        ),
                                       ),
                                     );
                                   },
@@ -601,133 +603,114 @@ class _ScansPageState extends State<ScansPage> {
                           ),
                         ),
                         const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Text(
-                              '$scoreInt',
-                              style: TextStyle(
-                                fontSize: 36,
-                                fontWeight: FontWeight.w800,
-                                color: scoreInt >= 80
-                                    ? AppColors.success
-                                    : scoreInt >= 50
-                                        ? AppColors.warning
-                                        : AppColors.danger,
-                              ),
+                        if (scan == null) ...[
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppColors.border.withValues(alpha: 0.35),
+                              borderRadius: AppRadii.border,
                             ),
-                            const SizedBox(width: 8),
-                            const Text('Quality Score',
-                                style: TextStyle(fontWeight: FontWeight.w600)),
-                            const Spacer(),
-                            Text(
-                              result.toUpperCase(),
+                            child: Text(
+                              _patient == null
+                                  ? 'Select a patient, then upload a scan to see quality results.'
+                                  : 'No scan uploaded yet — upload a PLY, STL, or OBJ to run the quality check.',
                               style: const TextStyle(
                                 color: AppColors.muted,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                height: 1.35,
+                              ),
+                            ),
+                          ),
+                        ] else ...[
+                          Row(
+                            children: [
+                              const Text('Validation',
+                                  style: TextStyle(fontWeight: FontWeight.w600)),
+                              const Spacer(),
+                              Text(
+                                result.toUpperCase(),
+                                style: const TextStyle(
+                                  color: AppColors.muted,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          if (_issuesFor(scan, _lastResult).isNotEmpty) ...[
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: _issuesFor(scan, _lastResult).map((issue) {
+                                final sev = issue['severity']?.toString() ?? 'medium';
+                                final color = sev == 'high'
+                                    ? AppColors.danger
+                                    : sev == 'medium'
+                                        ? AppColors.warning
+                                        : AppColors.muted;
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: color.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: color.withValues(alpha: 0.4)),
+                                  ),
+                                  child: Text(
+                                    '${issue['code']}: ${issue['message']}',
+                                    style: TextStyle(
+                                      color: color,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: needsRescan
+                                  ? AppColors.dangerSoft
+                                  : result == 'good' || result == 'ok'
+                                      ? AppColors.successSoft
+                                      : AppColors.warningSoft,
+                              borderRadius: AppRadii.border,
+                            ),
+                            child: Text(
+                              _messageFor(result, _lastResult),
+                              style: TextStyle(
+                                color: needsRescan
+                                    ? AppColors.danger
+                                    : result == 'good' || result == 'ok'
+                                        ? AppColors.success
+                                        : AppColors.warning,
+                                fontWeight: FontWeight.w600,
+                                height: 1.35,
+                              ),
+                            ),
+                          ),
+                          if (needsRescan) ...[
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                onPressed: canUpload ? _upload : null,
+                                icon: const Icon(Icons.refresh),
+                                label: const Text('Rescan now — before patient leaves'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: AppColors.danger,
+                                ),
                               ),
                             ),
                           ],
-                        ),
-                        const SizedBox(height: 8),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: LinearProgressIndicator(
-                            value: scoreInt / 100,
-                            minHeight: 10,
-                            backgroundColor: AppColors.border,
-                            color: scoreInt >= 80
-                                ? AppColors.success
-                                : scoreInt >= 50
-                                    ? AppColors.warning
-                                    : AppColors.danger,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        if (_issuesFor(scan, _lastResult).isNotEmpty) ...[
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children: _issuesFor(scan, _lastResult).map((issue) {
-                              final sev = issue['severity']?.toString() ?? 'medium';
-                              final color = sev == 'high'
-                                  ? AppColors.danger
-                                  : sev == 'medium'
-                                      ? AppColors.warning
-                                      : AppColors.muted;
-                              return Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: color.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: color.withValues(alpha: 0.4)),
-                                ),
-                                child: Text(
-                                  '${issue['code']}: ${issue['message']}',
-                                  style: TextStyle(
-                                    color: color,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                          const SizedBox(height: 12),
-                        ],
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: (_lastResult?['prompt_rescan'] == true ||
-                                    result == 'bad' ||
-                                    result == 'blurry' ||
-                                    result == 'missing_margin')
-                                ? AppColors.dangerSoft
-                                : scoreInt >= 80
-                                    ? AppColors.successSoft
-                                    : scoreInt >= 50
-                                        ? AppColors.warningSoft
-                                        : AppColors.dangerSoft,
-                            borderRadius: AppRadii.border,
-                          ),
-                          child: Text(
-                            _messageFor(result, scoreInt, _lastResult),
-                            style: TextStyle(
-                              color: (_lastResult?['prompt_rescan'] == true ||
-                                      result == 'bad' ||
-                                      result == 'blurry' ||
-                                      result == 'missing_margin')
-                                  ? AppColors.danger
-                                  : scoreInt >= 80
-                                      ? AppColors.success
-                                      : scoreInt >= 50
-                                          ? AppColors.warning
-                                          : AppColors.danger,
-                              fontWeight: FontWeight.w600,
-                              height: 1.35,
-                            ),
-                          ),
-                        ),
-                        if (_lastResult?['prompt_rescan'] == true ||
-                            result == 'bad' ||
-                            result == 'blurry' ||
-                            result == 'missing_margin') ...[
-                          const SizedBox(height: 10),
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton.icon(
-                              onPressed: _busy || _patient == null ? null : _upload,
-                              icon: const Icon(Icons.refresh),
-                              label: const Text('Rescan now — before patient leaves'),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: AppColors.danger,
-                              ),
-                            ),
-                          ),
                         ],
                       ],
                     ),
@@ -752,7 +735,7 @@ class _ScansPageState extends State<ScansPage> {
         .toList();
   }
 
-  String _messageFor(String result, int score, Map<String, dynamic>? last) {
+  String _messageFor(String result, Map<String, dynamic>? last) {
     if (last?['queued'] == true) {
       return last?['note'] as String? ?? 'Queued for offline sync.';
     }
@@ -763,9 +746,9 @@ class _ScansPageState extends State<ScansPage> {
       final reasons = (last?['reasons'] as List?)?.join(' ') ?? '';
       return 'Rescan recommended before the patient leaves. $reasons'.trim();
     }
-    if (score >= 80 || result == 'good') {
+    if (result == 'good' || result == 'ok') {
       return 'Scan accepted — ready for lab review. Stored encrypted at rest.';
     }
-    return 'Review recommended — quality score below threshold.';
+    return 'Review recommended.';
   }
 }

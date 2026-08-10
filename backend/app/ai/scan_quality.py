@@ -444,7 +444,6 @@ def validate_scan_bytes(data: bytes, filename: str = "scan.ply") -> dict[str, An
         kind = parsed.get("kind", "unknown")
         return {
             "result": "bad",
-            "quality_score": 0.0,
             "reasons": [
                 parsed.get("error")
                 or f"Could not parse {kind.upper() if kind != 'unknown' else 'mesh'} file."
@@ -533,7 +532,6 @@ def validate_scan_bytes(data: bytes, filename: str = "scan.ply") -> dict[str, An
     prompt_rescan = result in ("bad", "blurry", "missing_margin")
     return {
         "result": result,
-        "quality_score": round(score, 3),
         "reasons": reasons,
         "issues": issues,
         "vertex_count": n,

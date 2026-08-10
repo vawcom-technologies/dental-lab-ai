@@ -51,7 +51,6 @@ async def scan_validate(file: UploadFile = File(...)):
     result = validate_ply_bytes(data, filename=file.filename or "scan.ply")
     return ScanValidateOut(
         result=result["result"],
-        quality_score=result["quality_score"],
         reasons=result["reasons"],
         note=result["note"],
         issues=result.get("issues", []),

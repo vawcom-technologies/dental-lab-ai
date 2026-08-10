@@ -75,6 +75,10 @@ class EditNoteRequest(BaseModel):
     new_note_content: str = Field(min_length=1)
 
 
+class RenamePatientPhotoRequest(BaseModel):
+    filename: str = Field(min_length=1, max_length=200)
+
+
 class PatientOut(BaseModel):
     id: str
     created_by: str

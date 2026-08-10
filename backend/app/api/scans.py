@@ -55,7 +55,6 @@ def _serialize_scan(scan: Scan, case: Case | None = None) -> dict:
         "filename": raw_name,
         "format": scan.format,
         "validation_result": scan.validation_result,
-        "quality_score": scan.scan_quality_score,
         "uploaded_at": scan.uploaded_at.isoformat() if scan.uploaded_at else None,
     }
 
@@ -81,7 +80,6 @@ async def upload_scan(
         case_id=case_id,
         file_path=str(path),
         format=(mesh_kind or "ply").upper(),
-        scan_quality_score=validation["quality_score"],
         validation_result=validation["result"],
     )
     db.add(scan)

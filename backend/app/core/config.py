@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     r2_voice_public_url: str = ""
     r2_documents_bucket: str = ""
     r2_documents_public_url: str = ""
+    # Clinical camera photos (chairside patient images)
+    r2_patient_images_bucket: str = ""
+    r2_patient_images_public_url: str = ""
 
     # Cloudflare R2 buckets for patient clinical media
     r2_scans_bucket: str = ""

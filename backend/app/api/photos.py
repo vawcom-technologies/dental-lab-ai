@@ -1,4 +1,4 @@
-"""Photos API — frontal/left/right, max 10 per case (Week 2)."""
+"""Photos API — frontal/left/right, max 12 per case (Week 2)."""
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
@@ -11,7 +11,7 @@ from app.storage.local import save_case_file
 router = APIRouter()
 
 ALLOWED_ANGLES = {"frontal", "left", "right", "other"}
-MAX_PHOTOS = 10
+MAX_PHOTOS = 12
 
 
 @router.post("/{case_id}/photos")

@@ -1,8 +1,8 @@
-"""Quality-scoring tests for the mesh validator.
+"""Validation tests for the mesh validator.
 
-These lock the scale-/orientation-invariant scoring so a genuinely good scan is
-not penalised (the old volumetric-density heuristic false-flagged nearly every
-surface scan) while degenerate, sparse, or partial captures still drop.
+These lock the scale-/orientation-invariant classification so a genuinely good
+scan is not penalised (the old volumetric-density heuristic false-flagged nearly
+every surface scan) while degenerate, sparse, or partial captures still fail.
 """
 
 from __future__ import annotations
@@ -46,22 +46,23 @@ def test_dense_arch_scores_good_without_false_issues():
     data = _ply_ascii(_arch())
     res = validate_scan_bytes(data, filename="arch.ply")
     assert res["result"] == "good"
-    assert res["quality_score"] >= 0.9
+    assert "quality_score" not in res
     # Old heuristic would emit "holes"/"grainy" here — must not anymore.
     assert _codes(res) == set()
     assert res["prompt_rescan"] is False
 
 
 def test_arch_is_scale_invariant():
-    """Same shape in cm vs mm must score identically (no absolute thresholds)."""
+    """Same shape in cm vs mm must classify identically (no absolute thresholds)."""
     mm = validate_scan_bytes(_ply_ascii(_arch()), filename="mm.ply")
     cm = validate_scan_bytes(_ply_ascii(_arch() * 0.1), filename="cm.ply")
     assert mm["result"] == cm["result"] == "good"
-    assert abs(mm["quality_score"] - cm["quality_score"]) < 1e-6
+    assert abs(mm["stats"]["planarity"] - cm["stats"]["planarity"]) < 1e-6
+    assert abs(mm["stats"]["elongation"] - cm["stats"]["elongation"]) < 1e-6
 
 
 def test_arch_is_orientation_invariant():
-    """Rotating the mesh must not change the score (PCA, not axis-aligned)."""
+    """Rotating the mesh must not change the result (PCA, not axis-aligned)."""
     pts = _arch()
     theta = 0.7
     rot = np.array([
@@ -79,7 +80,8 @@ def test_arch_is_orientation_invariant():
     a = validate_scan_bytes(_ply_ascii(pts), filename="a.ply")
     b = validate_scan_bytes(_ply_ascii(rotated), filename="b.ply")
     assert a["result"] == b["result"] == "good"
-    assert abs(a["quality_score"] - b["quality_score"]) < 1e-6
+    assert abs(a["stats"]["planarity"] - b["stats"]["planarity"]) < 1e-6
+    assert abs(a["stats"]["elongation"] - b["stats"]["elongation"]) < 1e-6
 
 
 def test_collapsed_plane_flags_missing_margin():
@@ -92,10 +94,10 @@ def test_collapsed_plane_flags_missing_margin():
     assert res["prompt_rescan"] is True
 
 
-def test_sparse_capture_flags_sparse_and_drops_score():
+def test_sparse_capture_flags_sparse_and_prompts_rescan():
     res = validate_scan_bytes(_ply_ascii(_arch(n_u=18, n_v=16)), filename="sparse.ply")
     assert "sparse" in _codes(res)
-    assert res["quality_score"] < 0.6
+    assert res["result"] in ("bad", "blurry")
     assert res["prompt_rescan"] is True
 
 
@@ -110,8 +112,8 @@ def test_elongated_fragment_flags_partial():
     assert "partial" in _codes(res)
 
 
-def test_unparseable_returns_bad_zero():
+def test_unparseable_returns_bad():
     res = validate_scan_bytes(b"not a mesh at all", filename="junk.txt")
     assert res["result"] == "bad"
-    assert res["quality_score"] == 0.0
+    assert "quality_score" not in res
     assert res["prompt_rescan"] is True
