@@ -8,6 +8,7 @@ export 'app_snackbar.dart';
 export 'busy_action.dart';
 export 'dental_date_picker.dart';
 export 'password_checklist.dart';
+export 'patient_media_dialogs.dart';
 export 'phone_field.dart';
 export 'tooth_loader.dart';
 

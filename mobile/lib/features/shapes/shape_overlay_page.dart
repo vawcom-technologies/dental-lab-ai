@@ -166,10 +166,13 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
   Size? _imageSize; // photo px — remap placement when stage size changes
 
   bool _loading = true;
+  bool _mediaLoading = false;
   bool _saving = false;
   bool _dirty = false;
   String? _status;
   String? _error;
+  List<Map<String, dynamic>> _smileItems = [];
+  String? _selectedSmileId;
 
   ShapeLibraryItem get _selected => ShapeLibrary.at(_shapeIndex);
 
@@ -222,6 +225,9 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
       _status = null;
       _error = null;
       _dirty = false;
+      _smileItems = [];
+      _selectedSmileId = null;
+      _mediaLoading = true;
     });
     try {
       final patientId = _pid(patient);
@@ -245,6 +251,114 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
     } catch (_) {
       if (!mounted) return;
       setState(() => _case = null);
+    }
+    await _loadSmilePreviews();
+  }
+
+  Future<void> _loadSmilePreviews() async {
+    final patient = _patient;
+    if (patient == null) {
+      if (mounted) {
+        setState(() {
+          _smileItems = [];
+          _mediaLoading = false;
+        });
+      }
+      return;
+    }
+    final pid = _pid(patient);
+    if (pid.isEmpty) {
+      if (mounted) setState(() => _mediaLoading = false);
+      return;
+    }
+    if (mounted) setState(() => _mediaLoading = true);
+    try {
+      final rows = await widget.api.listSmilePreviews(pid);
+      if (!mounted) return;
+      setState(() {
+        _smileItems = rows;
+        _mediaLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _mediaLoading = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  Future<void> _applyPhotoBytes(
+    Uint8List data, {
+    String? smileId,
+    String? status,
+  }) async {
+    setState(() {
+      _photoBytes = data;
+      _selectedSmileId = smileId;
+      _imageSize = null;
+      _scale = 1.05;
+      _width = 1.0;
+      _height = 1.0;
+      _rotation = 0;
+      _opacity = 0.88;
+      _showOverlay = true;
+      _centeredOnce = false;
+      _dirty = true;
+      _status = status ?? 'Photo loaded — select a shape from the library.';
+    });
+    await _readImageSize(data);
+  }
+
+  Future<void> _openSmileItem(Map<String, dynamic> item) async {
+    final id = '${item['id'] ?? ''}';
+    final url = '${item['file_url'] ?? ''}'.trim();
+    if (url.isEmpty) return;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final bytes = await widget.api.downloadMediaBytes(url);
+      if (!mounted) return;
+      await _applyPhotoBytes(
+        bytes,
+        smileId: id,
+        status: 'Loaded saved smile preview.',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _deleteSmileItem(Map<String, dynamic> item) async {
+    final id = '${item['id'] ?? ''}';
+    if (id.isEmpty || _saving) return;
+    final ok = await confirmPatientMediaDelete(context);
+    if (!ok || !mounted) return;
+    setState(() => _saving = true);
+    try {
+      await widget.api.deleteSmilePreview(id);
+      if (!mounted) return;
+      setState(() {
+        _smileItems = _smileItems.where((e) => '${e['id']}' != id).toList();
+        if (_selectedSmileId == id) _selectedSmileId = null;
+        _saving = false;
+      });
+      AppSnackBars.success(context, 'Smile preview deleted');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
+      AppSnackBars.error(
+        context,
+        e.toString().replaceFirst('Exception: ', ''),
+      );
     }
   }
 
@@ -384,6 +498,10 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
   }
 
   Future<void> _pickPhoto() async {
+    if (_patient == null) {
+      setState(() => _error = 'Select a patient first.');
+      return;
+    }
     setState(() => _error = null);
     try {
       final picked = await FilePicker.pickFiles(
@@ -397,23 +515,46 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
         setState(() => _error = 'Could not read image bytes.');
         return;
       }
+
+      if (!mounted) return;
+      final confirmed = await confirmPatientMediaUpload(context);
+      if (!confirmed || !mounted) return;
+
       final data = Uint8List.fromList(bytes);
+      final name = picked.files.first.name.isNotEmpty
+          ? picked.files.first.name
+          : 'smile.jpg';
+      final pid = _pid(_patient!);
+
+      setState(() => _saving = true);
+      final uploaded = await runWithToothLoadingDialog(
+        context,
+        message: 'Uploading…',
+        action: () => widget.api.uploadSmilePreview(
+          patientId: pid,
+          bytes: data,
+          filename: name,
+        ),
+      );
+      if (!mounted) return;
+
       setState(() {
-        _photoBytes = data;
-        _imageSize = null;
-        _scale = 1.05;
-        _width = 1.0;
-        _height = 1.0;
-        _rotation = 0;
-        _opacity = 0.88;
-        _showOverlay = true;
-        _centeredOnce = false;
-        _dirty = true;
-        _status = 'Photo loaded — select a shape from the library.';
+        _smileItems = [uploaded, ..._smileItems];
+        _saving = false;
       });
-      await _readImageSize(data);
+      await _applyPhotoBytes(
+        data,
+        smileId: '${uploaded['id'] ?? ''}',
+        status: 'Smile preview saved — select a shape from the library.',
+      );
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
+    } finally {
+      if (mounted && _saving) setState(() => _saving = false);
     }
   }
 
@@ -531,7 +672,9 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) {
+      return const ToothPageLoader(message: 'Loading smile preview…');
+    }
 
     if (_fullscreen) {
       return ColoredBox(
@@ -615,7 +758,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
         ),
         const SizedBox(width: 8),
         OutlinedButton.icon(
-          onPressed: _saving ? null : _pickPhoto,
+          onPressed: _saving || _patient == null ? null : _pickPhoto,
           icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
           label: Text(_photoBytes == null ? 'Load photo' : 'Change photo'),
         ),
@@ -961,12 +1104,137 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
     );
   }
 
+  Widget _buildSmileMediaSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Saved smile previews',
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 14,
+            color: AppColors.navy,
+          ),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 72,
+          child: _mediaLoading
+              ? const Center(
+                  child: ToothLoadingIndicator(size: 28, compact: true),
+                )
+              : _smileItems.isEmpty
+                  ? Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        _patient == null
+                            ? 'Select a patient'
+                            : 'No saved previews yet',
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _smileItems.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 8),
+                      itemBuilder: (context, i) {
+                        final item = _smileItems[i];
+                        final id = '${item['id'] ?? ''}';
+                        final url = '${item['file_url'] ?? ''}';
+                        final selected = id == _selectedSmileId;
+                        return Material(
+                          color: selected
+                              ? AppColors.dentalBlue.withValues(alpha: 0.12)
+                              : const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(10),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(10),
+                            onTap: _saving ? null : () => _openSmileItem(item),
+                            child: Container(
+                              width: 110,
+                              padding: const EdgeInsets.fromLTRB(6, 6, 2, 6),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: selected
+                                      ? AppColors.dentalBlue
+                                      : AppColors.border,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(6),
+                                    child: url.isEmpty
+                                        ? Container(
+                                            width: 48,
+                                            height: 48,
+                                            color: AppColors.sidebarActive,
+                                            child: const Icon(
+                                              Icons.image_outlined,
+                                              size: 18,
+                                              color: AppColors.muted,
+                                            ),
+                                          )
+                                        : Image.network(
+                                            url,
+                                            width: 48,
+                                            height: 48,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (_, _, _) =>
+                                                Container(
+                                              width: 48,
+                                              height: 48,
+                                              color: AppColors.sidebarActive,
+                                              child: const Icon(
+                                                Icons.broken_image_outlined,
+                                                size: 16,
+                                                color: AppColors.muted,
+                                              ),
+                                            ),
+                                          ),
+                                  ),
+                                  const Spacer(),
+                                  IconButton(
+                                    tooltip: 'Delete',
+                                    visualDensity: VisualDensity.compact,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                      minWidth: 28,
+                                      minHeight: 28,
+                                    ),
+                                    onPressed: _saving
+                                        ? null
+                                        : () => _deleteSmileItem(item),
+                                    icon: const Icon(
+                                      Icons.delete_outline,
+                                      size: 16,
+                                      color: AppColors.danger,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildRail() {
     return SectionCard(
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _buildSmileMediaSection(),
+          const SizedBox(height: 12),
           Row(
             children: [
               const Expanded(
