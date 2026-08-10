@@ -158,3 +158,88 @@ def upload_chat_file(
         public_url,
     )
     return public_url
+
+
+def _patient_images_bucket_and_url() -> tuple[str, str]:
+    bucket = (settings.r2_patient_images_bucket or "").strip()
+    public = (settings.r2_patient_images_public_url or "").strip().rstrip("/")
+    if not bucket:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Missing R2_PATIENT_IMAGES_BUCKET in environment",
+        )
+    if not public:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Missing R2_PATIENT_IMAGES_PUBLIC_URL in environment",
+        )
+    return bucket, public
+
+
+def upload_patient_photo_bytes(
+    *,
+    patient_id: str,
+    filename: str,
+    data: bytes,
+    content_type: str = "image/jpeg",
+) -> str:
+    """Upload clinical photo bytes to the patient-images bucket; return public URL."""
+    from io import BytesIO
+
+    bucket, public_base = _patient_images_bucket_and_url()
+    ext = Path(filename or "").suffix.lower() or ".jpg"
+    key = f"patients/{patient_id}/photos/{uuid.uuid4().hex}{ext}"
+    client = get_r2_client()
+    try:
+        client.upload_fileobj(
+            BytesIO(data),
+            bucket,
+            key,
+            ExtraArgs={"ContentType": content_type or "image/jpeg"},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("R2 patient photo upload failed patient_id=%s", patient_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"R2 upload failed: {str(exc).strip() or 'unknown error'}",
+        ) from exc
+    return f"{public_base}/{key}"
+
+
+def delete_patient_photo_object(file_url: str) -> None:
+    """Delete a clinical photo object from the patient-images bucket."""
+    url = (file_url or "").strip()
+    if not url:
+        return
+
+    bucket, public_base = _patient_images_bucket_and_url()
+    key = ""
+    if url.startswith(public_base + "/"):
+        key = url[len(public_base) + 1 :]
+    else:
+        # Fallback: keep path after /patients/ so older or alternate CDN hosts still work.
+        marker = "/patients/"
+        idx = url.find(marker)
+        if idx >= 0:
+            key = url[idx + 1 :]  # patients/...
+
+    key = key.lstrip("/")
+    if not key.startswith("patients/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Photo URL is not a patient-images object",
+        )
+
+    client = get_r2_client()
+    try:
+        client.delete_object(Bucket=bucket, Key=key)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("R2 patient photo delete failed key=%s", key)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"R2 delete failed: {str(exc).strip() or 'unknown error'}",
+        ) from exc

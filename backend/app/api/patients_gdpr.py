@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse
 
 from app.core.security import AuthUser, get_current_user
@@ -22,6 +22,7 @@ from app.schemas_patients import (
     PatientOut,
     PatientUpdateRequest,
     PendingAccessRequestOut,
+    RenamePatientPhotoRequest,
     UploadNoteRequest,
 )
 from app.services import patient_access as pa
@@ -31,9 +32,13 @@ from app.services.profiles import (
     fetch_profiles_by_ids,
     list_active_staff_profiles,
 )
+from app.services.r2 import delete_patient_photo_object, upload_patient_photo_bytes
 
 router = APIRouter()
 logger = logging.getLogger("app.api.patients_gdpr")
+
+_PHOTO_ANGLES = frozenset({"frontal", "left", "right", "other"})
+_MAX_PATIENT_PHOTOS = 12
 
 _EDITABLE_FIELDS = frozenset(
     {
@@ -1426,4 +1431,320 @@ def delete_patient_note(note_id: str, user: AuthUser = Depends(get_current_user)
         user_id=user.id,
         patient_id=patient_id,
         payload={"deleted": True, "note_id": note_id},
+    )
+
+
+# ── Patient clinical photos (camera tab — no case required) ───────────────────
+
+
+def _photo_public(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row.get("id") or ""),
+        "patient_id": str(row.get("patient_id") or ""),
+        "angle": row.get("angle") or "other",
+        "filename": row.get("filename") or "photo.jpg",
+        "file_url": row.get("file_url") or "",
+        "byte_size": int(row.get("byte_size") or 0),
+        "taken_at": row.get("created_at"),
+    }
+
+
+@router.get(
+    "/{patient_id}/photos",
+    summary="List clinical photos for a patient",
+)
+def list_patient_photos(patient_id: str, user: AuthUser = Depends(get_current_user)):
+    action = "list_patient_photos"
+    try:
+        pa.require_patient_access(patient_id, user.id)
+        result = (
+            get_supabase_admin()
+            .table("patient_photos")
+            .select("*")
+            .eq("patient_id", patient_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        rows = getattr(result, "data", None) or []
+        photos = [_photo_public(r) for r in rows]
+    except HTTPException as exc:
+        return _from_http(
+            action=action, user_id=user.id, exc=exc, patient_id=patient_id
+        )
+    except Exception as exc:
+        return _err(
+            action=action,
+            user_id=user.id,
+            http_code=502,
+            code="DB_ERROR",
+            message=str(exc),
+            patient_id=patient_id,
+        )
+
+    return _ok(
+        action=action,
+        user_id=user.id,
+        patient_id=patient_id,
+        payload={"photos": photos, "max_photos": _MAX_PATIENT_PHOTOS},
+    )
+
+
+@router.post(
+    "/{patient_id}/photos",
+    summary="Upload a clinical photo for a patient (max 12)",
+    status_code=201,
+)
+async def upload_patient_photo(
+    patient_id: str,
+    angle: str = Form(...),
+    file: UploadFile = File(...),
+    user: AuthUser = Depends(get_current_user),
+):
+    action = "upload_patient_photo"
+    angle_norm = (angle or "").strip().lower()
+    if angle_norm not in _PHOTO_ANGLES:
+        return _err(
+            action=action,
+            user_id=user.id,
+            http_code=400,
+            code="VALIDATION_ERROR",
+            message=f"angle must be one of {sorted(_PHOTO_ANGLES)}",
+            patient_id=patient_id,
+        )
+    try:
+        pa.require_patient_access(patient_id, user.id)
+        count_res = (
+            get_supabase_admin()
+            .table("patient_photos")
+            .select("id", count="exact")
+            .eq("patient_id", patient_id)
+            .execute()
+        )
+        count = getattr(count_res, "count", None)
+        if count is None:
+            count = len(getattr(count_res, "data", None) or [])
+        if int(count) >= _MAX_PATIENT_PHOTOS:
+            return _err(
+                action=action,
+                user_id=user.id,
+                http_code=400,
+                code="LIMIT_REACHED",
+                message=f"Max {_MAX_PATIENT_PHOTOS} photos per patient",
+                patient_id=patient_id,
+            )
+
+        data = await file.read()
+        if not data:
+            return _err(
+                action=action,
+                user_id=user.id,
+                http_code=400,
+                code="VALIDATION_ERROR",
+                message="Empty photo file",
+                patient_id=patient_id,
+            )
+        filename = file.filename or f"photo_{angle_norm}.jpg"
+        file_url = upload_patient_photo_bytes(
+            patient_id=patient_id,
+            filename=filename,
+            data=data,
+            content_type=file.content_type or "image/jpeg",
+        )
+        insert = (
+            get_supabase_admin()
+            .table("patient_photos")
+            .insert(
+                {
+                    "patient_id": patient_id,
+                    "uploaded_by": user.id,
+                    "angle": angle_norm,
+                    "filename": filename,
+                    "file_url": file_url,
+                    "byte_size": len(data),
+                    "created_at": pa.utc_now_iso(),
+                }
+            )
+            .execute()
+        )
+        rows = getattr(insert, "data", None) or []
+        if not rows:
+            return _err(
+                action=action,
+                user_id=user.id,
+                http_code=502,
+                code="DB_ERROR",
+                message="Photo insert returned no row",
+                patient_id=patient_id,
+            )
+        pa.write_audit_log(
+            actor_id=user.id,
+            action=action,
+            patient_id=patient_id,
+            details={"photo_id": str(rows[0]["id"]), "angle": angle_norm},
+        )
+    except HTTPException as exc:
+        return _from_http(
+            action=action, user_id=user.id, exc=exc, patient_id=patient_id
+        )
+    except Exception as exc:
+        return _err(
+            action=action,
+            user_id=user.id,
+            http_code=502,
+            code="DB_ERROR",
+            message=str(exc),
+            patient_id=patient_id,
+        )
+
+    return _ok(
+        action=action,
+        user_id=user.id,
+        http_code=201,
+        patient_id=patient_id,
+        payload={"photo": _photo_public(rows[0])},
+    )
+
+
+@router.patch(
+    "/{patient_id}/photos/{photo_id}",
+    summary="Rename a clinical photo",
+)
+def rename_patient_photo(
+    patient_id: str,
+    photo_id: str,
+    payload: RenamePatientPhotoRequest,
+    user: AuthUser = Depends(get_current_user),
+):
+    action = "rename_patient_photo"
+    name = (payload.filename or "").strip()
+    if not name:
+        return _err(
+            action=action,
+            user_id=user.id,
+            http_code=400,
+            code="VALIDATION_ERROR",
+            message="filename is required",
+            patient_id=patient_id,
+        )
+    try:
+        pa.require_patient_access(patient_id, user.id)
+        existing = (
+            get_supabase_admin()
+            .table("patient_photos")
+            .select("*")
+            .eq("id", photo_id)
+            .eq("patient_id", patient_id)
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(existing, "data", None) or []
+        if not rows:
+            return _err(
+                action=action,
+                user_id=user.id,
+                http_code=404,
+                code="NOT_FOUND",
+                message="Photo not found",
+                patient_id=patient_id,
+            )
+        updated = (
+            get_supabase_admin()
+            .table("patient_photos")
+            .update({"filename": name})
+            .eq("id", photo_id)
+            .eq("patient_id", patient_id)
+            .execute()
+        )
+        out_rows = getattr(updated, "data", None) or []
+        if not out_rows:
+            out_rows = [{**rows[0], "filename": name}]
+        pa.write_audit_log(
+            actor_id=user.id,
+            action=action,
+            patient_id=patient_id,
+            details={"photo_id": photo_id, "filename": name},
+        )
+    except HTTPException as exc:
+        return _from_http(
+            action=action, user_id=user.id, exc=exc, patient_id=patient_id
+        )
+    except Exception as exc:
+        return _err(
+            action=action,
+            user_id=user.id,
+            http_code=502,
+            code="DB_ERROR",
+            message=str(exc),
+            patient_id=patient_id,
+        )
+
+    return _ok(
+        action=action,
+        user_id=user.id,
+        patient_id=patient_id,
+        payload={"photo": _photo_public(out_rows[0])},
+    )
+
+
+@router.delete(
+    "/{patient_id}/photos/{photo_id}",
+    summary="Delete a clinical photo for a patient",
+)
+def delete_patient_photo(
+    patient_id: str,
+    photo_id: str,
+    user: AuthUser = Depends(get_current_user),
+):
+    action = "delete_patient_photo"
+    try:
+        pa.require_patient_access(patient_id, user.id)
+        existing = (
+            get_supabase_admin()
+            .table("patient_photos")
+            .select("id, file_url")
+            .eq("id", photo_id)
+            .eq("patient_id", patient_id)
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(existing, "data", None) or []
+        if not rows:
+            return _err(
+                action=action,
+                user_id=user.id,
+                http_code=404,
+                code="NOT_FOUND",
+                message="Photo not found",
+                patient_id=patient_id,
+            )
+        file_url = str(rows[0].get("file_url") or "")
+        delete_patient_photo_object(file_url)
+        get_supabase_admin().table("patient_photos").delete().eq(
+            "id", photo_id
+        ).execute()
+        pa.write_audit_log(
+            actor_id=user.id,
+            action=action,
+            patient_id=patient_id,
+            details={"photo_id": photo_id},
+        )
+    except HTTPException as exc:
+        return _from_http(
+            action=action, user_id=user.id, exc=exc, patient_id=patient_id
+        )
+    except Exception as exc:
+        return _err(
+            action=action,
+            user_id=user.id,
+            http_code=502,
+            code="DB_ERROR",
+            message=str(exc),
+            patient_id=patient_id,
+        )
+
+    return _ok(
+        action=action,
+        user_id=user.id,
+        patient_id=patient_id,
+        payload={"deleted": True, "photo_id": photo_id},
     )

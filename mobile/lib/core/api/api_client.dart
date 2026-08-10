@@ -320,6 +320,104 @@ class ApiClient {
     AppHaptics.warn();
   }
 
+  Map<String, dynamic> _agentPayload(http.Response res, {String fallback = 'Request failed'}) {
+    final decoded = jsonDecode(res.body);
+    if (decoded is! Map) throw Exception(fallback);
+    if ('${decoded['status'] ?? ''}' == 'ERROR') {
+      final err = decoded['error'];
+      throw Exception(
+        err is Map ? '${err['message'] ?? fallback}' : fallback,
+      );
+    }
+    final payload = decoded['payload'];
+    if (payload is Map) return Map<String, dynamic>.from(payload);
+    return Map<String, dynamic>.from(decoded);
+  }
+
+  Future<List<Map<String, dynamic>>> listPatientPhotos(String patientId) async {
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/patients/$patientId/photos'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    final payload = _agentPayload(res, fallback: 'Failed to list photos');
+    final photos = payload['photos'];
+    if (photos is! List) return const [];
+    return photos
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> uploadPatientPhoto({
+    required String patientId,
+    required String angle,
+    required List<int> bytes,
+    required String filename,
+  }) async {
+    final req = http.MultipartRequest(
+      'POST',
+      Uri.parse('$baseUrl/api/patients/$patientId/photos'),
+    );
+    req.headers.addAll(_authHeaders);
+    req.fields['angle'] = angle;
+    req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
+    final streamed = await req.send();
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      // Prefer GDPR AgentResponse error message when present.
+      try {
+        final decoded = jsonDecode(res.body);
+        if (decoded is Map && decoded['error'] is Map) {
+          throw Exception(
+            '${decoded['error']['message'] ?? _errorMessage(res)}',
+          );
+        }
+      } catch (e) {
+        if (e is Exception && !'$e'.startsWith('FormatException')) rethrow;
+      }
+      throw Exception(_errorMessage(res));
+    }
+    final payload = _agentPayload(res, fallback: 'Failed to upload photo');
+    final photo = payload['photo'];
+    if (photo is Map) return Map<String, dynamic>.from(photo);
+    return payload;
+  }
+
+    Future<void> deletePatientPhoto({
+    required String patientId,
+    required String photoId,
+  }) async {
+    final res = await http.delete(
+      Uri.parse('$baseUrl/api/patients/$patientId/photos/$photoId'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200 && res.statusCode != 204) {
+      throw Exception(_errorMessage(res));
+    }
+    if (res.body.isNotEmpty) {
+      _agentPayload(res, fallback: 'Failed to delete photo');
+    }
+    AppHaptics.warn();
+  }
+
+  Future<Map<String, dynamic>> renamePatientPhoto({
+    required String patientId,
+    required String photoId,
+    required String filename,
+  }) async {
+    final res = await http.patch(
+      Uri.parse('$baseUrl/api/patients/$patientId/photos/$photoId'),
+      headers: _jsonHeaders,
+      body: jsonEncode({'filename': filename}),
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    final payload = _agentPayload(res, fallback: 'Failed to rename photo');
+    final photo = payload['photo'];
+    if (photo is Map) return Map<String, dynamic>.from(photo);
+    return payload;
+  }
+
   Future<List<Map<String, dynamic>>> listCases() async {
     final res = await http.get(Uri.parse('$baseUrl/api/cases'), headers: _jsonHeaders);
     // Cases router is not always mounted (GDPR cutover) — treat as empty.

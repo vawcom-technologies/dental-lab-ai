@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     r2_voice_public_url: str = ""
     r2_documents_bucket: str = ""
     r2_documents_public_url: str = ""
+    # Clinical camera photos (chairside patient images)
+    r2_patient_images_bucket: str = ""
+    r2_patient_images_public_url: str = ""
 
     # Fernet key material for patient clinical notes (GDPR at-rest encryption)
     # Prefer a long random secret; derived via SHA-256 → Fernet key.

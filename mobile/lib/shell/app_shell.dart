@@ -196,7 +196,7 @@ class _AppShellState extends State<AppShell> {
           },
         );
       case AppNavItem.camera:
-        return CameraPage(api: widget.api, dentistName: _dentistName);
+        return CameraPage(api: widget.api);
       case AppNavItem.scans:
         return ScansPage(api: widget.api);
       case AppNavItem.shade:
