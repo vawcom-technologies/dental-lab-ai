@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 /// Width breakpoints tuned for iPad (11" portrait ≈ 834pt, 13" ≈ 1032pt,
@@ -27,6 +29,7 @@ class AdaptiveSplit extends StatelessWidget {
     this.gap = 12,
     this.panelOnRight = false,
     this.narrowPanelHeight,
+    this.narrowContentMinHeight = 220,
   });
 
   final Widget panel;
@@ -47,6 +50,9 @@ class AdaptiveSplit extends StatelessWidget {
   /// contains Expanded/flex children; leave null to let it size itself.
   final double? narrowPanelHeight;
 
+  /// Minimum height reserved for [content] when stacked in portrait.
+  final double narrowContentMinHeight;
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -62,13 +68,23 @@ class AdaptiveSplit extends StatelessWidget {
                 : [panelBox, SizedBox(width: gap), Expanded(child: content)],
           );
         }
+
+        // Portrait / narrow: keep a usable stage below, clamp panel height.
+        final maxPanel = math.max(
+          160.0,
+          constraints.maxHeight - gap - narrowContentMinHeight,
+        );
+        final panelHeight = narrowPanelHeight == null
+            ? null
+            : math.min(narrowPanelHeight!, maxPanel);
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (narrowPanelHeight == null)
+            if (panelHeight == null)
               panel
             else
-              SizedBox(height: narrowPanelHeight, child: panel),
+              SizedBox(height: panelHeight, child: panel),
             SizedBox(height: gap),
             Expanded(child: content),
           ],

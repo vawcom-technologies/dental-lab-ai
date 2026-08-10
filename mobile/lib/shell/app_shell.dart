@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/api/api_client.dart';
+import '../core/session/patient_session.dart';
 import '../core/theme/app_theme.dart';
 import '../features/camera/camera_page.dart';
 import '../features/chat/messages_page.dart';
@@ -33,8 +34,7 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
-  static const _pageIn = Duration(milliseconds: 320);
-  static const _pageOut = Duration(milliseconds: 220);
+  static const _navOrder = AppNavItem.values;
 
   AppNavItem _active = AppNavItem.dashboard;
   int _patientRefresh = 0;
@@ -43,6 +43,10 @@ class _AppShellState extends State<AppShell> {
   int _messageBadge = 0;
   bool _sidebarCollapsed = false;
   late final ChatController _chat;
+  late final PatientSession _patients;
+
+  /// Lazily mount pages on first visit, then keep their State alive.
+  final Set<AppNavItem> _mountedPages = {AppNavItem.dashboard};
 
   @override
   void initState() {
@@ -50,7 +54,9 @@ class _AppShellState extends State<AppShell> {
     _dentistName = widget.dentistName;
     _chat = ChatController(api: widget.api);
     _chat.addListener(_onChatChanged);
-    // Load conversations + open WebSocket immediately after login.
+    _patients = PatientSession(widget.api);
+    // Warm patient list + chat so the first workflow page opens faster.
+    _patients.ensureLoaded();
     _chat.start();
     _refreshNotificationBadge();
   }
@@ -66,6 +72,7 @@ class _AppShellState extends State<AppShell> {
   void dispose() {
     _chat.removeListener(_onChatChanged);
     _chat.dispose();
+    _patients.dispose();
     super.dispose();
   }
 
@@ -81,38 +88,35 @@ class _AppShellState extends State<AppShell> {
 
   void _go(AppNavItem item) {
     if (item == _active) return;
-    setState(() => _active = item);
+    setState(() {
+      _active = item;
+      _mountedPages.add(item);
+    });
     if (item == AppNavItem.notifications) {
       _refreshNotificationBadge();
     }
     if (item == AppNavItem.messages) {
-      // Refresh inbox when opening Messages (WS already running).
       _chat.loadInbox();
     }
   }
 
-  Widget _transition(Widget child, Animation<double> animation) {
-    final fade = CurvedAnimation(
-      parent: animation,
-      curve: Curves.easeOutCubic,
-      reverseCurve: Curves.easeInCubic,
-    );
-    final slide = Tween<Offset>(
-      begin: const Offset(0.014, 0.008),
-      end: Offset.zero,
-    ).animate(fade);
-
-    return FadeTransition(
-      opacity: fade,
-      child: SlideTransition(
-        position: slide,
-        child: child,
-      ),
-    );
+  Future<void> _onPatientCreated() async {
+    await _patients.refresh(keepSelection: true);
+    if (!mounted) return;
+    setState(() {
+      _patientRefresh++;
+      // Drop new-patient form so the next visit starts clean.
+      _mountedPages.remove(AppNavItem.newPatient);
+      _active = AppNavItem.patients;
+      _mountedPages.add(AppNavItem.patients);
+    });
+    _refreshNotificationBadge();
   }
 
   @override
   Widget build(BuildContext context) {
+    final activeIndex = _navOrder.indexOf(_active);
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: DecoratedBox(
@@ -141,25 +145,23 @@ class _AppShellState extends State<AppShell> {
               showLaboratories: widget.api.isDentist,
             ),
             Expanded(
-              child: ClipRect(
-                child: AnimatedSwitcher(
-                  duration: _pageIn,
-                  reverseDuration: _pageOut,
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
-                  layoutBuilder: (currentChild, previousChildren) {
-                    return Stack(
-                      fit: StackFit.expand,
-                      children: <Widget>[
-                        ...previousChildren,
-                        ?currentChild,
-                      ],
-                    );
-                  },
-                  transitionBuilder: _transition,
-                  child: KeyedSubtree(
-                    key: ValueKey<AppNavItem>(_active),
-                    child: RepaintBoundary(child: _page()),
+              child: SafeArea(
+                left: false,
+                child: ClipRect(
+                  child: IndexedStack(
+                    index: activeIndex < 0 ? 0 : activeIndex,
+                    sizing: StackFit.expand,
+                    children: [
+                      for (final item in _navOrder)
+                        _mountedPages.contains(item)
+                            ? KeyedSubtree(
+                                key: _pageKey(item),
+                                child: RepaintBoundary(
+                                  child: _createPage(item),
+                                ),
+                              )
+                            : const SizedBox.shrink(),
+                    ],
                   ),
                 ),
               ),
@@ -170,8 +172,16 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
-  Widget _page() {
-    switch (_active) {
+  Key _pageKey(AppNavItem item) {
+    if (item == AppNavItem.patients) {
+      return ValueKey<String>('patients-$_patientRefresh');
+    }
+    return ValueKey<AppNavItem>(item);
+  }
+
+  Widget _createPage(AppNavItem item) {
+    final active = item == _active;
+    switch (item) {
       case AppNavItem.dashboard:
         return DashboardPage(
           dentistName: _dentistName,
@@ -181,7 +191,6 @@ class _AppShellState extends State<AppShell> {
         );
       case AppNavItem.patients:
         return PatientsPage(
-          key: ValueKey(_patientRefresh),
           api: widget.api,
           dentistName: _dentistName,
           onNewPatient: () => _go(AppNavItem.newPatient),
@@ -189,22 +198,38 @@ class _AppShellState extends State<AppShell> {
       case AppNavItem.newPatient:
         return NewPatientPage(
           api: widget.api,
-          onCreated: () {
-            _patientRefresh++;
-            _go(AppNavItem.patients);
-            _refreshNotificationBadge();
-          },
+          onCreated: _onPatientCreated,
         );
       case AppNavItem.camera:
-        return CameraPage(api: widget.api);
+        return CameraPage(
+          api: widget.api,
+          patientSession: _patients,
+          active: active,
+        );
       case AppNavItem.scans:
-        return ScansPage(api: widget.api);
+        return ScansPage(
+          api: widget.api,
+          patientSession: _patients,
+          active: active,
+        );
       case AppNavItem.shade:
-        return ShadePage(api: widget.api);
+        return ShadePage(
+          api: widget.api,
+          patientSession: _patients,
+          active: active,
+        );
       case AppNavItem.smilePreview:
-        return ShapeOverlayPage(api: widget.api);
+        return ShapeOverlayPage(
+          api: widget.api,
+          patientSession: _patients,
+          active: active,
+        );
       case AppNavItem.scanBody:
-        return ScanBodyPage(api: widget.api);
+        return ScanBodyPage(
+          api: widget.api,
+          patientSession: _patients,
+          active: active,
+        );
       case AppNavItem.messages:
         return MessagesPage(
           api: widget.api,

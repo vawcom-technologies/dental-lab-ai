@@ -6,15 +6,24 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/layout/adaptive.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'mesh_sample.dart';
 import 'mesh_viewer.dart';
 
 class ScansPage extends StatefulWidget {
-  const ScansPage({super.key, required this.api});
+  const ScansPage({
+    super.key,
+    required this.api,
+    required this.patientSession,
+    this.active = true,
+  });
 
   final ApiClient api;
+  final PatientSession patientSession;
+  final bool active;
 
   @override
   State<ScansPage> createState() => _ScansPageState();
@@ -44,19 +53,60 @@ class _ScansPageState extends State<ScansPage> {
     _bootstrap();
   }
 
+  @override
+  void didUpdateWidget(covariant ScansPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active) {
+      _onPageActivated();
+    }
+  }
+
   Future<void> _bootstrap() async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final patients = await widget.api.listPatients();
-      setState(() => _patients = patients);
-      if (patients.isNotEmpty) await _selectPatient(patients.first);
+      await widget.patientSession.ensureLoaded();
+      if (!mounted) return;
+      setState(() {
+        _patients = List<Map<String, dynamic>>.from(
+          widget.patientSession.patients,
+        );
+        _error = null;
+      });
+      final sel = widget.patientSession.selected;
+      if (sel != null) {
+        await _selectPatient(sel, publish: false);
+      } else if (_patients.isNotEmpty) {
+        await _selectPatient(_patients.first);
+      }
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _onPageActivated() async {
+    if (!widget.patientSession.isLoaded) return;
+    final list = List<Map<String, dynamic>>.from(
+      widget.patientSession.patients,
+    );
+    final sel = widget.patientSession.selected;
+    if (!mounted) return;
+    setState(() => _patients = list);
+    if (sel == null) {
+      if (_patient != null) {
+        setState(() {
+          _patient = null;
+          _scans = [];
+        });
+      }
+      return;
+    }
+    if (_patient == null || _pid(_patient!) != _pid(sel)) {
+      await _selectPatient(sel, publish: false);
     }
   }
 
@@ -67,6 +117,104 @@ class _ScansPageState extends State<ScansPage> {
   }
 
   String _pid(Map<String, dynamic> row) => '${row['id'] ?? ''}';
+
+  Future<void> _reloadPatients({bool selectFirst = false}) async {
+    await widget.patientSession.refresh(keepSelection: !selectFirst);
+    if (!mounted) return;
+    setState(() {
+      _patients = List<Map<String, dynamic>>.from(
+        widget.patientSession.patients,
+      );
+      _error = null;
+    });
+    if (_patients.isEmpty) {
+      setState(() {
+        _patient = null;
+        _scans = [];
+      });
+      widget.patientSession.clearSelection();
+      return;
+    }
+    if (selectFirst) {
+      await _selectPatient(_patients.first);
+      return;
+    }
+    final sel = widget.patientSession.selected ?? _patients.first;
+    await _selectPatient(sel, publish: false);
+  }
+
+  Future<void> _quickAddPatient() async {
+    final firstCtrl = TextEditingController();
+    final lastCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add patient'),
+        content: SizedBox(
+          width: 360,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: firstCtrl,
+                decoration: const InputDecoration(labelText: 'First name *'),
+                autofocus: true,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: lastCtrl,
+                decoration: const InputDecoration(labelText: 'Last name *'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) {
+      firstCtrl.dispose();
+      lastCtrl.dispose();
+      return;
+    }
+    final first = firstCtrl.text.trim();
+    final last = lastCtrl.text.trim();
+    firstCtrl.dispose();
+    lastCtrl.dispose();
+    if (first.isEmpty || last.isEmpty) {
+      setState(() => _error = 'First and last name are required');
+      return;
+    }
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final created = await widget.patientSession.createPatient(
+        firstName: first,
+        lastName: last,
+      );
+      if (!mounted) return;
+      setState(() {
+        _patients = List<Map<String, dynamic>>.from(
+          widget.patientSession.patients,
+        );
+      });
+      await _selectPatient(created, publish: false);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   String _formatOf(String filename) {
     final lower = filename.toLowerCase();
@@ -97,7 +245,11 @@ class _ScansPageState extends State<ScansPage> {
     return rows.map(_normalizeScan).toList();
   }
 
-  Future<void> _selectPatient(Map<String, dynamic> patient) async {
+  Future<void> _selectPatient(
+    Map<String, dynamic> patient, {
+    bool publish = true,
+  }) async {
+    if (publish) widget.patientSession.select(patient);
     setState(() {
       _patient = patient;
       _scans = [];
@@ -391,61 +543,45 @@ class _ScansPageState extends State<ScansPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      AppLocalizations.of(context).scansTitle,
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.navy,
-                      ),
-                    ),
-                    if (_patient != null)
-                      Text(
-                        'Patient: $_patientLabel',
-                        style: const TextStyle(color: AppColors.muted),
-                      ),
-                  ],
-                ),
+          PageHeader(
+            icon: Icons.view_in_ar_outlined,
+            title: AppLocalizations.of(context).scansTitle,
+            subtitle: 'Upload PLY / STL / OBJ · preview Dots / Solid on device',
+            actions: [
+              PatientPickerButton(
+                patients: _patients,
+                selected: _patient,
+                enabled: !_busy,
+                onSelect: _selectPatient,
+                onAdd: _quickAddPatient,
+                onRefresh: () async {
+                  setState(() => _busy = true);
+                  try {
+                    await _reloadPatients();
+                  } finally {
+                    if (mounted) setState(() => _busy = false);
+                  }
+                },
+                emptyHint: 'No patients yet — add one to upload scans.',
               ),
-              if (_patients.isNotEmpty)
-                SizedBox(
-                  width: 240,
-                  child: DropdownButtonFormField<String>(
-                    initialValue:
-                        _patient == null ? null : _pid(_patient!),
-                    decoration: const InputDecoration(
-                      isDense: true,
-                      labelText: 'Patient',
-                    ),
-                    items: _patients
-                        .map(
-                          (p) => DropdownMenuItem(
-                            value: _pid(p),
-                            child: Text('${p['first_name']} ${p['last_name']}'),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (id) {
-                      if (id == null) return;
-                      final p = _patients.firstWhere((e) => _pid(e) == id);
-                      _selectPatient(p);
-                    },
-                  ),
-                ),
+              FilledButton.icon(
+                onPressed: canUpload ? _upload : null,
+                icon: _busy
+                    ? const ToothLoadingIndicator(
+                        size: 16,
+                        compact: true,
+                        color: Colors.white,
+                      )
+                    : const Icon(Icons.cloud_upload_outlined, size: 18),
+                label: Text(_busy ? 'Uploading…' : 'Upload scan'),
+              ),
             ],
           ),
-          const SizedBox(height: 16),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text(_error!, style: const TextStyle(color: AppColors.danger)),
-            ),
+          if (_error != null) ...[
+            const SizedBox(height: 10),
+            Text(_error!, style: const TextStyle(color: AppColors.danger)),
+          ],
+          const SizedBox(height: 14),
           Expanded(
             child: AdaptiveSplit(
               narrowPanelHeight: 280,

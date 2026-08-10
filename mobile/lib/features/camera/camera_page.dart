@@ -7,7 +7,9 @@ import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
 import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'live_camera_capture.dart';
 
@@ -16,9 +18,13 @@ class CameraPage extends StatefulWidget {
   const CameraPage({
     super.key,
     required this.api,
+    required this.patientSession,
+    this.active = true,
   });
 
   final ApiClient api;
+  final PatientSession patientSession;
+  final bool active;
 
   @override
   State<CameraPage> createState() => _CameraPageState();
@@ -44,6 +50,14 @@ class _CameraPageState extends State<CameraPage> {
   void initState() {
     super.initState();
     _bootstrap();
+  }
+
+  @override
+  void didUpdateWidget(covariant CameraPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active) {
+      _onPageActivated();
+    }
   }
 
   String _pid(Map<String, dynamic> row) => '${row['id'] ?? ''}';
@@ -132,10 +146,19 @@ class _CameraPageState extends State<CameraPage> {
       _error = null;
     });
     try {
-      final patients = await widget.api.listPatients();
-      setState(() => _patients = patients);
-      if (patients.isNotEmpty) {
-        await _selectPatient(patients.first);
+      await widget.patientSession.ensureLoaded();
+      if (!mounted) return;
+      setState(() {
+        _patients = List<Map<String, dynamic>>.from(
+          widget.patientSession.patients,
+        );
+        _error = null;
+      });
+      final sel = widget.patientSession.selected;
+      if (sel != null) {
+        await _selectPatient(sel, publish: false);
+      } else if (_patients.isNotEmpty) {
+        await _selectPatient(_patients.first);
       }
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
@@ -144,7 +167,124 @@ class _CameraPageState extends State<CameraPage> {
     }
   }
 
-  Future<void> _selectPatient(Map<String, dynamic> patient) async {
+  Future<void> _onPageActivated() async {
+    if (!widget.patientSession.isLoaded) return;
+    final list = List<Map<String, dynamic>>.from(
+      widget.patientSession.patients,
+    );
+    final sel = widget.patientSession.selected;
+    if (!mounted) return;
+    setState(() => _patients = list);
+    if (sel == null) {
+      if (_patient != null) {
+        setState(() {
+          _patient = null;
+          _photos = [];
+        });
+      }
+      return;
+    }
+    if (_patient == null || _pid(_patient!) != _pid(sel)) {
+      await _selectPatient(sel, publish: false);
+    }
+  }
+
+  Future<void> _reloadPatients({bool selectFirst = false}) async {
+    await widget.patientSession.refresh(keepSelection: !selectFirst);
+    if (!mounted) return;
+    setState(() {
+      _patients = List<Map<String, dynamic>>.from(
+        widget.patientSession.patients,
+      );
+      _error = null;
+    });
+    if (_patients.isEmpty) {
+      setState(() {
+        _patient = null;
+        _photos = [];
+      });
+      widget.patientSession.clearSelection();
+      return;
+    }
+    if (selectFirst) {
+      await _selectPatient(_patients.first);
+      return;
+    }
+    final sel = widget.patientSession.selected ?? _patients.first;
+    await _selectPatient(sel, publish: false);
+  }
+
+  Future<void> _quickAddPatient() async {
+    final firstCtrl = TextEditingController();
+    final lastCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add patient'),
+        content: SizedBox(
+          width: 360,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: firstCtrl,
+                decoration: const InputDecoration(labelText: 'First name *'),
+                autofocus: true,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: lastCtrl,
+                decoration: const InputDecoration(labelText: 'Last name *'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) {
+      firstCtrl.dispose();
+      lastCtrl.dispose();
+      return;
+    }
+    final first = firstCtrl.text.trim();
+    final last = lastCtrl.text.trim();
+    firstCtrl.dispose();
+    lastCtrl.dispose();
+    if (first.isEmpty || last.isEmpty) {
+      setState(() => _error = 'First and last name are required');
+      return;
+    }
+    await _runBusy('Adding patient…', () async {
+      final created = await widget.patientSession.createPatient(
+        firstName: first,
+        lastName: last,
+      );
+      if (!mounted) return 'Patient $first $last ready for photos';
+      setState(() {
+        _patients = List<Map<String, dynamic>>.from(
+          widget.patientSession.patients,
+        );
+      });
+      await _selectPatient(created, publish: false);
+      return 'Patient $first $last ready for photos';
+    });
+  }
+
+  Future<void> _selectPatient(
+    Map<String, dynamic> patient, {
+    bool publish = true,
+  }) async {
+    if (publish) widget.patientSession.select(patient);
     setState(() {
       _patient = patient;
       _photos = [];
@@ -302,24 +442,57 @@ class _CameraPageState extends State<CameraPage> {
     final canCapture = !_busy && _patient != null && _photos.length < maxPhotos;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+      padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            AppLocalizations.of(context).cameraTitle,
-            style: const TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.w700,
-              color: AppColors.navy,
+          PageHeader(
+            icon: Icons.photo_camera_outlined,
+            title: AppLocalizations.of(context).cameraTitle,
+            subtitle:
+                'Frontal / left / right · up to 12 photos per patient · saved to patient record',
+            actions: [
+              PatientPickerButton(
+                patients: _patients,
+                selected: _patient,
+                enabled: !_busy,
+                onSelect: _selectPatient,
+                onAdd: _quickAddPatient,
+                onRefresh: () async {
+                  setState(() => _busy = true);
+                  try {
+                    await _reloadPatients();
+                  } finally {
+                    if (mounted) setState(() => _busy = false);
+                  }
+                },
+                emptyHint: 'No patients yet — add one to capture photos.',
+              ),
+              FilledButton.icon(
+                onPressed:
+                    canCapture ? () => _capture(fromCamera: true) : null,
+                icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                label: const Text('Take photo'),
+              ),
+              OutlinedButton.icon(
+                onPressed:
+                    canCapture ? () => _capture(fromCamera: false) : null,
+                icon: const Icon(Icons.photo_library_outlined, size: 18),
+                label: const Text('Gallery'),
+              ),
+            ],
+          ),
+          if (_status != null || _error != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              _error ?? _status!,
+              style: TextStyle(
+                color: _error != null ? AppColors.danger : AppColors.success,
+                fontSize: 13,
+              ),
             ),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Frontal / left / right · up to 12 photos per patient · saved to patient record',
-            style: TextStyle(color: AppColors.muted, fontSize: 13),
-          ),
-          const SizedBox(height: 12),
+          ],
+          const SizedBox(height: 14),
           if (_loading)
             const Expanded(
               child: ToothPageLoader(message: 'Preparing camera…'),
@@ -328,7 +501,7 @@ class _CameraPageState extends State<CameraPage> {
             const Expanded(
               child: Center(
                 child: Text(
-                  'Add a patient first, then capture photos.',
+                  'Add a patient from the header to start capturing photos.',
                   style: TextStyle(color: AppColors.muted),
                 ),
               ),
@@ -340,125 +513,38 @@ class _CameraPageState extends State<CameraPage> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Expanded(
-                        flex: 3,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Patient',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 13,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            DropdownButtonFormField<String>(
-                              initialValue:
-                                  _patient == null ? null : _pid(_patient!),
-                              isExpanded: true,
-                              decoration: const InputDecoration(
-                                isDense: true,
-                                contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 10,
-                                ),
-                              ),
-                              items: _patients
-                                  .map(
-                                    (p) => DropdownMenuItem(
-                                      value: _pid(p),
-                                      child: Text(
-                                        '${p['first_name']} ${p['last_name']}',
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  )
-                                  .toList(),
-                              onChanged: (id) {
-                                if (id == null) return;
-                                final p = _patients
-                                    .firstWhere((e) => _pid(e) == id);
-                                _selectPatient(p);
-                              },
-                            ),
-                          ],
+                      const Text(
+                        'Angle',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
                         ),
                       ),
-                      const SizedBox(width: 16),
+                      const SizedBox(width: 14),
                       Expanded(
-                        flex: 2,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Angle',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 13,
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: angles.map((a) {
+                            final selected = _angle == a;
+                            return ChoiceChip(
+                              label: Text(_titleCase(a)),
+                              selected: selected,
+                              visualDensity: VisualDensity.compact,
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                              onSelected: (_) => setState(() => _angle = a),
+                              selectedColor: AppColors.sidebarActive,
+                              labelStyle: TextStyle(
+                                color: selected
+                                    ? AppColors.navy
+                                    : AppColors.muted,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12,
                               ),
-                            ),
-                            const SizedBox(height: 6),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 4,
-                              children: angles.map((a) {
-                                final selected = _angle == a;
-                                return ChoiceChip(
-                                  label: Text(_titleCase(a)),
-                                  selected: selected,
-                                  visualDensity: VisualDensity.compact,
-                                  materialTapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                  onSelected: (_) =>
-                                      setState(() => _angle = a),
-                                  selectedColor: AppColors.sidebarActive,
-                                  labelStyle: TextStyle(
-                                    color: selected
-                                        ? AppColors.navy
-                                        : AppColors.muted,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 12,
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        flex: 3,
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: FilledButton.icon(
-                                onPressed: canCapture
-                                    ? () => _capture(fromCamera: true)
-                                    : null,
-                                icon: const Icon(
-                                  Icons.photo_camera_outlined,
-                                  size: 18,
-                                ),
-                                label: const Text('Take photo'),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: canCapture
-                                    ? () => _capture(fromCamera: false)
-                                    : null,
-                                icon: const Icon(
-                                  Icons.photo_library_outlined,
-                                  size: 18,
-                                ),
-                                label: const Text('Gallery'),
-                              ),
-                            ),
-                          ],
+                            );
+                          }).toList(),
                         ),
                       ),
                     ],
@@ -469,26 +555,6 @@ class _CameraPageState extends State<CameraPage> {
                       child: ToothLoadingIndicator(
                         size: 24,
                         loadingText: _busyLabel,
-                      ),
-                    ),
-                  ],
-                  if (_status != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      _status!,
-                      style: const TextStyle(
-                        color: AppColors.success,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                  if (_error != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      _error!,
-                      style: const TextStyle(
-                        color: AppColors.danger,
-                        fontSize: 12,
                       ),
                     ),
                   ],

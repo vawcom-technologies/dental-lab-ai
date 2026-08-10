@@ -234,13 +234,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         FilledButton(
                           onPressed: _loading ? null : _submit,
                           child: _loading
-                              ? const SizedBox(
-                                  height: 18,
-                                  width: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
+                              ? const ToothLoadingIndicator(
+                                  size: 20,
+                                  compact: true,
+                                  color: Colors.white,
                                 )
                               : Text(loc.signIn),
                         ),

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../../../core/api/api_client.dart';
 import '../../../core/auth/app_roles.dart';
@@ -187,7 +188,16 @@ class ChatController extends ChangeNotifier {
     if (viewing) {
       markActiveAsRead();
     }
-    notifyListeners();
+    // Defer: ChatScreen.dispose() may call this while the tree is locked.
+    final phase = SchedulerBinding.instance.schedulerPhase;
+    if (phase == SchedulerPhase.idle ||
+        phase == SchedulerPhase.postFrameCallbacks) {
+      notifyListeners();
+    } else {
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (hasListeners) notifyListeners();
+      });
+    }
   }
 
   void clearActiveConversation() {

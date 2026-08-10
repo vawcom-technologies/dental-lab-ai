@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:three_js/three_js.dart' as three;
 
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/ui_kit.dart';
 import 'mesh_sample.dart';
 import 'mesh_viewer_chrome.dart';
 
@@ -85,7 +86,11 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
         loadingWidget: const ColoredBox(
           color: Color(0xFF15283F),
           child: Center(
-            child: CircularProgressIndicator(color: Colors.white70),
+            child: ToothLoadingIndicator(
+              size: 44,
+              color: Colors.white70,
+              loadingText: 'Loading mesh…',
+            ),
           ),
         ),
       );
@@ -586,7 +591,11 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
                   const ColoredBox(
                     color: Color(0x8815283F),
                     child: Center(
-                      child: CircularProgressIndicator(color: Colors.white70),
+                      child: ToothLoadingIndicator(
+                        size: 44,
+                        color: Colors.white70,
+                        loadingText: 'Loading mesh…',
+                      ),
                     ),
                   )
                 else if (showError != null)

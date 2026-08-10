@@ -7,11 +7,10 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/app_snackbar.dart';
-import '../../core/widgets/patient_media_dialogs.dart';
 import '../../core/widgets/patient_picker.dart';
-import '../../core/widgets/tooth_loader.dart';
+import '../../core/widgets/ui_kit.dart';
 import 'shade_action_bar.dart';
 import 'shade_override_pane.dart';
 import 'shade_photo_pane.dart';
@@ -21,9 +20,16 @@ import 'shade_shared.dart';
 import 'tooth_overlay.dart';
 
 class ShadePage extends StatefulWidget {
-  const ShadePage({super.key, required this.api});
+  const ShadePage({
+    super.key,
+    required this.api,
+    required this.patientSession,
+    this.active = true,
+  });
 
   final ApiClient api;
+  final PatientSession patientSession;
+  final bool active;
 
   @override
   State<ShadePage> createState() => _ShadePageState();
@@ -1115,6 +1121,14 @@ class _ShadePageState extends State<ShadePage> {
   }
 
   @override
+  void didUpdateWidget(covariant ShadePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active) {
+      _onPageActivated();
+    }
+  }
+
+  @override
   void dispose() {
     _dragTick.dispose();
     _photoTransformController.dispose();
@@ -1123,7 +1137,20 @@ class _ShadePageState extends State<ShadePage> {
 
   Future<void> _bootstrap() async {
     try {
-      await _reloadPatients(selectFirst: true);
+      await widget.patientSession.ensureLoaded();
+      if (!mounted) return;
+      setState(() {
+        _patients = List<Map<String, dynamic>>.from(
+          widget.patientSession.patients,
+        );
+        _error = null;
+      });
+      final sel = widget.patientSession.selected;
+      if (sel != null) {
+        await _selectPatient(sel, publish: false);
+      } else if (_patients.isNotEmpty) {
+        await _selectPatient(_patients.first);
+      }
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -1131,36 +1158,61 @@ class _ShadePageState extends State<ShadePage> {
     }
   }
 
+  Future<void> _onPageActivated() async {
+    if (!widget.patientSession.isLoaded) return;
+    final list = List<Map<String, dynamic>>.from(
+      widget.patientSession.patients,
+    );
+    final sel = widget.patientSession.selected;
+    if (!mounted) return;
+    setState(() => _patients = list);
+    if (sel == null) {
+      if (_patient != null) {
+        setState(() {
+          _patient = null;
+          _case = null;
+          _shadeItems = [];
+        });
+      }
+      return;
+    }
+    if (_patient == null || _pid(_patient!) != _pid(sel)) {
+      await _selectPatient(sel, publish: false);
+    }
+  }
+
   String _pid(Map<String, dynamic> row) => '${row['id'] ?? ''}';
 
   Future<void> _reloadPatients({bool selectFirst = false}) async {
-    final patients = await widget.api.listPatients();
+    await widget.patientSession.refresh(keepSelection: !selectFirst);
     if (!mounted) return;
     setState(() {
-      _patients = patients;
+      _patients = List<Map<String, dynamic>>.from(
+        widget.patientSession.patients,
+      );
       _error = null;
     });
-    if (patients.isEmpty) {
+    if (_patients.isEmpty) {
       setState(() {
         _patient = null;
         _case = null;
       });
+      widget.patientSession.clearSelection();
       return;
     }
-    if (selectFirst || _patient == null) {
-      await _selectPatient(patients.first);
+    if (selectFirst) {
+      await _selectPatient(_patients.first);
       return;
     }
-    final currentId = _pid(_patient!);
-    final stillThere = patients.where((p) => _pid(p) == currentId);
-    if (stillThere.isEmpty) {
-      await _selectPatient(patients.first);
-    } else {
-      await _selectPatient(stillThere.first);
-    }
+    final sel = widget.patientSession.selected ?? _patients.first;
+    await _selectPatient(sel, publish: false);
   }
 
-  Future<void> _selectPatient(Map<String, dynamic> patient) async {
+  Future<void> _selectPatient(
+    Map<String, dynamic> patient, {
+    bool publish = true,
+  }) async {
+    if (publish) widget.patientSession.select(patient);
     setState(() {
       _patient = patient;
       _saveStatus = null;
@@ -1345,12 +1397,17 @@ class _ShadePageState extends State<ShadePage> {
       _error = null;
     });
     try {
-      final created = await widget.api.createPatient({
-        'first_name': first,
-        'last_name': last,
+      final created = await widget.patientSession.createPatient(
+        firstName: first,
+        lastName: last,
+      );
+      if (!mounted) return;
+      setState(() {
+        _patients = List<Map<String, dynamic>>.from(
+          widget.patientSession.patients,
+        );
       });
-      await _reloadPatients();
-      await _selectPatient(created);
+      await _selectPatient(created, publish: false);
       if (mounted) {
         setState(() => _saveStatus = 'Patient $first $last ready for shade');
       }
@@ -1755,6 +1812,9 @@ class _ShadePageState extends State<ShadePage> {
 
   Widget _buildShadeMediaStrip() {
     if (_patient == null) return const SizedBox.shrink();
+    if (!_mediaLoading && _shadeItems.isEmpty) {
+      return const SizedBox.shrink();
+    }
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: SizedBox(
@@ -1767,18 +1827,7 @@ class _ShadePageState extends State<ShadePage> {
                   loadingText: 'Loading…',
                 ),
               )
-            : _shadeItems.isEmpty
-                ? Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'No saved shade photos yet',
-                      style: TextStyle(
-                        color: AppColors.muted.withValues(alpha: 0.9),
-                        fontSize: 12.5,
-                      ),
-                    ),
-                  )
-                : ListView.separated(
+            : ListView.separated(
                     scrollDirection: Axis.horizontal,
                     itemCount: _shadeItems.length,
                     separatorBuilder: (_, _) => const SizedBox(width: 10),
@@ -1875,92 +1924,61 @@ class _ShadePageState extends State<ShadePage> {
     }
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(
-        28,
-        MediaQuery.paddingOf(context).top + 32,
-        28,
-        24,
-      ),
+      padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      AppLocalizations.of(context).shadeTitle,
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.navy,
-                      ),
-                    ),
-                    Text(
-                      'Upload a tooth photo → AI detects VITA shade → confirm or override',
-                      style: TextStyle(color: AppColors.muted),
-                    ),
-                  ],
-                ),
+          PageHeader(
+            icon: Icons.palette_outlined,
+            title: AppLocalizations.of(context).shadeTitle,
+            subtitle:
+                'Upload a tooth photo → AI detects VITA shade → confirm or override',
+            actions: [
+              PatientPickerButton(
+                patients: _patients,
+                selected: _patient,
+                caseId: _case?['id'],
+                enabled: !_busy,
+                onSelect: _selectPatient,
+                onAdd: _quickAddPatient,
+                onRefresh: () async {
+                  setState(() => _busy = true);
+                  try {
+                    await _reloadPatients();
+                  } finally {
+                    if (mounted) setState(() => _busy = false);
+                  }
+                },
               ),
-              SizedBox(
-                height: 52,
-                child: PatientPickerButton(
-                  patients: _patients,
-                  selected: _patient,
-                  caseId: _case?['id'],
-                  enabled: !_busy,
-                  onSelect: _selectPatient,
-                  onAdd: _quickAddPatient,
-                  onRefresh: () async {
-                    setState(() => _busy = true);
-                    try {
-                      await _reloadPatients();
-                    } finally {
-                      if (mounted) setState(() => _busy = false);
-                    }
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                height: 52,
-                child: FilledButton.icon(
-                  onPressed: _busy || _patient == null ? null : _runAiFromGallery,
-                  icon: Icon(
-                    _busy ? Icons.hourglass_top : Icons.upload_file,
-                    size: 18,
-                  ),
-                  label: Text(_busy ? 'Detecting…' : 'Upload & detect'),
-                ),
+              FilledButton.icon(
+                onPressed: _busy || _patient == null ? null : _runAiFromGallery,
+                icon: _busy
+                    ? const ToothLoadingIndicator(
+                        size: 16,
+                        compact: true,
+                        color: Colors.white,
+                      )
+                    : const Icon(Icons.upload_file, size: 18),
+                label: Text(_busy ? 'Detecting…' : 'Upload & detect'),
               ),
             ],
           ),
-          SizedBox(
-            height: 28,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: _error != null
-                  ? Text(
-                      _error!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: AppColors.danger),
-                    )
-                  : (_saveStatus != null
-                      ? Text(
-                          _saveStatus!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: AppColors.success),
-                        )
-                      : null),
+          if (_error != null || _saveStatus != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              _error ?? _saveStatus!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: _error != null ? AppColors.danger : AppColors.success,
+              ),
             ),
-          ),
-          _buildShadeMediaStrip(),
-          const SizedBox(height: 8),
+          ],
+          const SizedBox(height: 14),
+          if (_patient != null && (_mediaLoading || _shadeItems.isNotEmpty)) ...[
+            _buildShadeMediaStrip(),
+            const SizedBox(height: 8),
+          ],
           Expanded(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,

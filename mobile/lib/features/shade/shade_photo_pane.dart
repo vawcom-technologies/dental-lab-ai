@@ -304,19 +304,10 @@ class ShadePhotoPane extends StatelessWidget {
                 Container(
                   color: Colors.black45,
                   child: const Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircularProgressIndicator(color: Colors.white),
-                        SizedBox(height: 12),
-                        Text(
-                          'Analyzing shade…',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
+                    child: ToothLoadingIndicator(
+                      size: 48,
+                      color: Colors.white,
+                      loadingText: 'Analyzing shade…',
                     ),
                   ),
                 ),

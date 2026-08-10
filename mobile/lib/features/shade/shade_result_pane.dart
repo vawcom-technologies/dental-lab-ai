@@ -408,13 +408,25 @@ class ShadeResultPane extends StatelessWidget {
                             backgroundColor: AppColors.navy,
                             minimumSize: const Size.fromHeight(40),
                           ),
-                          child: Text(
-                            saving
-                                ? 'Saving…'
-                                : (detected == '—'
-                                    ? 'Accept AI'
-                                    : 'Accept $detected'),
-                          ),
+                          child: saving
+                              ? const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    ToothLoadingIndicator(
+                                      size: 18,
+                                      compact: true,
+                                      color: Colors.white,
+                                    ),
+                                    SizedBox(width: 10),
+                                    Text('Saving…'),
+                                  ],
+                                )
+                              : Text(
+                                  detected == '—'
+                                      ? 'Accept AI'
+                                      : 'Accept $detected',
+                                ),
                         ),
                         const SizedBox(height: 8),
                         OutlinedButton(

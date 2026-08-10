@@ -5,15 +5,23 @@ import 'package:flutter/services.dart';
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/layout/adaptive.dart';
+import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
 
 /// Scan-body diameter → manufacturer / tooth (provisional table until client data).
 class ScanBodyPage extends StatefulWidget {
-  const ScanBodyPage({super.key, required this.api});
+  const ScanBodyPage({
+    super.key,
+    required this.api,
+    required this.patientSession,
+    this.active = true,
+  });
 
   final ApiClient api;
+  final PatientSession patientSession;
+  final bool active;
 
   @override
   State<ScanBodyPage> createState() => _ScanBodyPageState();
@@ -50,20 +58,38 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
   }
 
   @override
+  void didUpdateWidget(covariant ScanBodyPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active) {
+      _onPageActivated();
+    }
+  }
+
+  @override
   void dispose() {
     _diameterCtrl.dispose();
     super.dispose();
   }
 
+  String _pid(Map<String, dynamic> row) => '${row['id'] ?? ''}';
+
   Future<void> _bootstrap() async {
     try {
       final rows = await widget.api.scanBodyTable();
-      final patients = await widget.api.listPatients();
+      await widget.patientSession.ensureLoaded();
+      if (!mounted) return;
       setState(() {
         _table = rows;
-        _patients = patients;
+        _patients = List<Map<String, dynamic>>.from(
+          widget.patientSession.patients,
+        );
       });
-      if (patients.isNotEmpty) await _selectPatient(patients.first);
+      final sel = widget.patientSession.selected;
+      if (sel != null) {
+        await _selectPatient(sel, publish: false);
+      } else if (_patients.isNotEmpty) {
+        await _selectPatient(_patients.first);
+      }
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -71,7 +97,33 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
     }
   }
 
-  Future<void> _selectPatient(Map<String, dynamic> patient) async {
+  Future<void> _onPageActivated() async {
+    if (!widget.patientSession.isLoaded) return;
+    final list = List<Map<String, dynamic>>.from(
+      widget.patientSession.patients,
+    );
+    final sel = widget.patientSession.selected;
+    if (!mounted) return;
+    setState(() => _patients = list);
+    if (sel == null) {
+      if (_patient != null) {
+        setState(() {
+          _patient = null;
+          _case = null;
+        });
+      }
+      return;
+    }
+    if (_patient == null || _pid(_patient!) != _pid(sel)) {
+      await _selectPatient(sel, publish: false);
+    }
+  }
+
+  Future<void> _selectPatient(
+    Map<String, dynamic> patient, {
+    bool publish = true,
+  }) async {
+    if (publish) widget.patientSession.select(patient);
     setState(() {
       _patient = patient;
       _status = null;
@@ -82,28 +134,29 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
     final caseRow = mine.isEmpty
         ? await widget.api.createCase(patient['id'] as int)
         : mine.first;
+    if (!mounted) return;
     setState(() => _case = caseRow);
     await _restoreSaved(caseRow['id'] as int);
   }
 
   Future<void> _reloadPatients() async {
-    final patients = await widget.api.listPatients();
+    await widget.patientSession.refresh();
     if (!mounted) return;
-    setState(() => _patients = patients);
-    if (patients.isEmpty) {
+    setState(() {
+      _patients = List<Map<String, dynamic>>.from(
+        widget.patientSession.patients,
+      );
+    });
+    if (_patients.isEmpty) {
       setState(() {
         _patient = null;
         _case = null;
       });
+      widget.patientSession.clearSelection();
       return;
     }
-    final currentId = _patient?['id'];
-    final stillThere = patients.where((p) => p['id'] == currentId);
-    if (_patient == null || stillThere.isEmpty) {
-      await _selectPatient(patients.first);
-    } else {
-      await _selectPatient(stillThere.first);
-    }
+    final sel = widget.patientSession.selected ?? _patients.first;
+    await _selectPatient(sel, publish: false);
   }
 
   Future<void> _quickAddPatient() async {
@@ -161,12 +214,17 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
       _error = null;
     });
     try {
-      final created = await widget.api.createPatient({
-        'first_name': first,
-        'last_name': last,
+      final created = await widget.patientSession.createPatient(
+        firstName: first,
+        lastName: last,
+      );
+      if (!mounted) return;
+      setState(() {
+        _patients = List<Map<String, dynamic>>.from(
+          widget.patientSession.patients,
+        );
       });
-      await _reloadPatients();
-      await _selectPatient(created);
+      await _selectPatient(created, publish: false);
       if (mounted) {
         setState(() => _status = 'Patient $first $last ready for scan body');
       }
@@ -473,34 +531,24 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) {
+      return const ToothPageLoader(message: 'Loading scan body…');
+    }
 
-    return Padding(
+    return BusyBarrier(
+      busy: _busy || _saving,
+      message: _saving ? 'Saving…' : 'Working…',
+      child: Padding(
       padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      AppLocalizations.of(context).scanBodyTitle,
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.navy,
-                      ),
-                    ),
-                    const Text(
-                      'Platform Ø in millimetres (mm) — typically 3–6 mm, not metres',
-                      style: TextStyle(color: AppColors.muted),
-                    ),
-                  ],
-                ),
-              ),
+          PageHeader(
+            icon: Icons.radio_button_checked_outlined,
+            title: AppLocalizations.of(context).scanBodyTitle,
+            subtitle:
+                'Platform Ø in millimetres (mm) — typically 3–6 mm, not metres',
+            actions: [
               PatientPickerButton(
                 patients: _patients,
                 selected: _patient,
@@ -517,15 +565,20 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                   }
                 },
               ),
-              const SizedBox(width: 8),
               FilledButton.icon(
                 onPressed: _saving || _match == null ? null : _save,
-                icon: const Icon(Icons.save_outlined, size: 18),
+                icon: _saving
+                    ? const ToothLoadingIndicator(
+                        size: 16,
+                        compact: true,
+                        color: Colors.white,
+                      )
+                    : const Icon(Icons.save_outlined, size: 18),
                 label: Text(_saving ? 'Saving…' : 'Save to case'),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 14),
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(12),
@@ -608,7 +661,13 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                               Expanded(
                                 child: FilledButton.icon(
                                   onPressed: _busy ? null : _matchManual,
-                                  icon: const Icon(Icons.search, size: 18),
+                                  icon: _busy
+                                      ? const ToothLoadingIndicator(
+                                          size: 16,
+                                          compact: true,
+                                          color: Colors.white,
+                                        )
+                                      : const Icon(Icons.search, size: 18),
                                   label: Text(_busy ? 'Working…' : 'Match table'),
                                 ),
                               ),
@@ -616,7 +675,12 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                               Expanded(
                                 child: OutlinedButton.icon(
                                   onPressed: _busy ? null : () => _detectFromPhoto(),
-                                  icon: const Icon(Icons.image_search_outlined, size: 18),
+                                  icon: _busy
+                                      ? const ToothLoadingIndicator(
+                                          size: 16,
+                                          compact: true,
+                                        )
+                                      : const Icon(Icons.image_search_outlined, size: 18),
                                   label: Text(
                                     _previewBytes == null
                                         ? 'Detect from photo'
@@ -998,6 +1062,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
           ),
         ],
       ),
+    ),
     );
   }
 }

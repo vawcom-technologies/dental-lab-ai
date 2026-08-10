@@ -41,11 +41,18 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
-    _chat?.setViewingThread(false);
+    final chat = _chat;
+    _chat = null;
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
     _compose.dispose();
     super.dispose();
+    // Notify after unmount so ListenableBuilders aren't rebuilt while locked.
+    if (chat != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        chat.setViewingThread(false);
+      });
+    }
   }
 
   void _onScroll() {

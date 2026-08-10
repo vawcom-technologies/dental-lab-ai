@@ -129,7 +129,9 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
                     onPressed: _controller.loading || _controller.actionBusy
                         ? null
                         : _controller.refresh,
-                    icon: const Icon(Icons.refresh, size: 20),
+                    icon: _controller.loading
+                        ? const ToothLoadingIndicator(size: 18, compact: true)
+                        : const Icon(Icons.refresh, size: 20),
                   ),
                 ],
               ),
@@ -188,31 +190,38 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
                   padding: EdgeInsets.zero,
                   child: _controller.loading && _controller.users.isEmpty
                       ? const ToothPageLoader(message: 'Loading users…')
-                      : visible.isEmpty
-                          ? Center(
-                              child: Text(
-                                _controller.users.isEmpty
-                                    ? loc.labsEmpty
-                                    : loc.labsEmptyFilter,
-                                style: const TextStyle(color: AppColors.muted),
-                              ),
-                            )
-                          : ListView.separated(
-                              itemCount: visible.length,
-                              separatorBuilder: (_, _) => Divider(
-                                height: 1,
-                                color: AppColors.border.withValues(alpha: 0.7),
-                              ),
-                              itemBuilder: (context, i) {
-                                final user = visible[i];
-                                return _UserTile(
-                                  user: user,
-                                  busy: _controller.actionBusy,
-                                  onVerify: () => _verify(user),
-                                  onDelete: () => _confirmDelete(user),
-                                );
-                              },
-                            ),
+                      : BusyBarrier(
+                          busy: _controller.loading || _controller.actionBusy,
+                          message: _controller.actionBusy
+                              ? 'Updating…'
+                              : 'Loading users…',
+                          child: visible.isEmpty
+                              ? Center(
+                                  child: Text(
+                                    _controller.users.isEmpty
+                                        ? loc.labsEmpty
+                                        : loc.labsEmptyFilter,
+                                    style: const TextStyle(color: AppColors.muted),
+                                  ),
+                                )
+                              : ListView.separated(
+                                  itemCount: visible.length,
+                                  separatorBuilder: (_, _) => Divider(
+                                    height: 1,
+                                    color:
+                                        AppColors.border.withValues(alpha: 0.7),
+                                  ),
+                                  itemBuilder: (context, i) {
+                                    final user = visible[i];
+                                    return _UserTile(
+                                      user: user,
+                                      busy: _controller.actionBusy,
+                                      onVerify: () => _verify(user),
+                                      onDelete: () => _confirmDelete(user),
+                                    );
+                                  },
+                                ),
+                        ),
                 ),
               ),
             ],

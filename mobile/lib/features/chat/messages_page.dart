@@ -56,12 +56,14 @@ class _MessagesPageState extends State<MessagesPage> {
 
   @override
   void dispose() {
-    _controller.setViewingThread(false);
     _controller.removeListener(_onControllerChanged);
-    if (_ownsController) {
-      _controller.dispose();
-    }
+    final controller = _controller;
+    final owns = _ownsController;
     super.dispose();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller.setViewingThread(false);
+      if (owns) controller.dispose();
+    });
   }
 
   Future<void> _openNewChat() async {
@@ -101,8 +103,9 @@ class _MessagesPageState extends State<MessagesPage> {
               listenable: _controller,
               builder: (context, _) {
                 return PageHeader(
+                  icon: Icons.chat_bubble_outline_rounded,
                   title: loc.messagesTitle,
-
+                  subtitle: 'Inbox and conversations with the lab',
                 );
               },
             ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dental_lab_ai/core/api/api_client.dart';
 import 'package:dental_lab_ai/core/l10n/locale_controller.dart';
+import 'package:dental_lab_ai/core/session/patient_session.dart';
 import 'package:dental_lab_ai/features/shade/shade_page.dart';
 import 'package:dental_lab_ai/features/shade/tooth_overlay.dart';
 import 'package:dental_lab_ai/main.dart';
@@ -88,11 +89,17 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
+    final api = _EmptyApi();
     await tester.pumpWidget(
       LocaleScope(
         controller: LocaleController(),
         child: MaterialApp(
-          home: Scaffold(body: ShadePage(api: _EmptyApi())),
+          home: Scaffold(
+            body: ShadePage(
+              api: api,
+              patientSession: PatientSession(api),
+            ),
+          ),
         ),
       ),
     );
