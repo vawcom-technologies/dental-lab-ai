@@ -607,21 +607,6 @@ class _ScansPageState extends State<ScansPage> {
                             ),
                           ),
                         ] else ...[
-                          Row(
-                            children: [
-                              const Text('Validation',
-                                  style: TextStyle(fontWeight: FontWeight.w600)),
-                              const Spacer(),
-                              Text(
-                                result.toUpperCase(),
-                                style: const TextStyle(
-                                  color: AppColors.muted,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
                           const SizedBox(height: 12),
                           if (_issuesFor(scan, _lastResult).isNotEmpty) ...[
                             Wrap(
@@ -657,30 +642,6 @@ class _ScansPageState extends State<ScansPage> {
                             ),
                             const SizedBox(height: 12),
                           ],
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: needsRescan
-                                  ? AppColors.dangerSoft
-                                  : result == 'good' || result == 'ok'
-                                      ? AppColors.successSoft
-                                      : AppColors.warningSoft,
-                              borderRadius: AppRadii.border,
-                            ),
-                            child: Text(
-                              _messageFor(result, _lastResult),
-                              style: TextStyle(
-                                color: needsRescan
-                                    ? AppColors.danger
-                                    : result == 'good' || result == 'ok'
-                                        ? AppColors.success
-                                        : AppColors.warning,
-                                fontWeight: FontWeight.w600,
-                                height: 1.35,
-                              ),
-                            ),
-                          ),
                           if (needsRescan) ...[
                             const SizedBox(height: 10),
                             SizedBox(
