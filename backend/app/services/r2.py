@@ -313,3 +313,119 @@ def delete_patient_asset(*, kind: PatientAssetKind, file_key: str) -> None:
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"R2 delete failed: {str(exc).strip() or 'unknown error'}",
         ) from exc
+
+
+# ── Patient clinical camera photos ────────────────────────────────────────────
+
+
+def _require_patient_images_bucket() -> tuple[str, str]:
+    bucket = (settings.r2_patient_images_bucket or "").strip()
+    public = (settings.r2_patient_images_public_url or "").strip().rstrip("/")
+    if not bucket:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Missing R2_PATIENT_IMAGES_BUCKET in environment",
+        )
+    if not public:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Missing R2_PATIENT_IMAGES_PUBLIC_URL in environment",
+        )
+    return bucket, public
+
+
+def upload_patient_photo_bytes(
+    *,
+    patient_id: str,
+    filename: str,
+    data: bytes,
+    content_type: str = "image/jpeg",
+) -> str:
+    """Upload raw photo bytes to the patient-images R2 bucket; return public URL."""
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Empty photo file",
+        )
+    bucket, public_base = _require_patient_images_bucket()
+    ext = Path(filename or "").suffix.lower() or ".jpg"
+    if ext not in _IMAGE_EXTENSIONS:
+        ext = ".jpg"
+    key = f"patients/{patient_id}/photos/{uuid.uuid4().hex}{ext}"
+    ctype = (content_type or "").strip() or mimetypes.guess_type(filename or "")[0] or (
+        "image/jpeg"
+    )
+    if not ctype.startswith("image/"):
+        ctype = "image/jpeg"
+
+    client = get_r2_client()
+    try:
+        client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=data,
+            ContentType=ctype,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("R2 photo upload failed patient_id=%s", patient_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"R2 upload failed: {str(exc).strip() or 'unknown error'}",
+        ) from exc
+
+    public_url = f"{public_base}/{key}"
+    logger.debug("R2 photo upload ok bucket=%s key=%s", bucket, key)
+    return public_url
+
+
+def delete_patient_photo_object(file_url: str) -> None:
+    """Delete a patient photo from R2 using its public URL (no-op if empty/unknown)."""
+    url = (file_url or "").strip()
+    if not url:
+        return
+
+    key = file_key_from_patient_photo_url(url)
+    if not key:
+        logger.warning("R2 photo delete skipped — could not derive key from url=%s", url)
+        return
+
+    bucket, _ = _require_patient_images_bucket()
+    client = get_r2_client()
+    try:
+        client.delete_object(Bucket=bucket, Key=key)
+    except Exception as exc:
+        logger.exception("R2 photo delete failed key=%s detail=%s", key, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"R2 delete failed: {str(exc).strip() or 'unknown error'}",
+        ) from exc
+
+
+def is_patient_images_url(file_url: str) -> bool:
+    """True when URL points at the clinical camera photos CDN."""
+    url = (file_url or "").strip()
+    if not url:
+        return False
+    public = (settings.r2_patient_images_public_url or "").strip().rstrip("/")
+    if public and url.startswith(f"{public}/"):
+        return True
+    # Path convention used by upload_patient_photo_bytes
+    return "/patients/" in url and "/photos/" in url
+
+
+def file_key_from_patient_photo_url(file_url: str) -> str:
+    """Derive R2 object key from a patient photo public URL."""
+    url = (file_url or "").strip()
+    if not url:
+        return ""
+    public = (settings.r2_patient_images_public_url or "").strip().rstrip("/")
+    if public and url.startswith(f"{public}/"):
+        return url[len(public) + 1 :]
+    try:
+        from urllib.parse import urlparse
+
+        return (urlparse(url).path or "").lstrip("/")
+    except Exception:
+        return ""

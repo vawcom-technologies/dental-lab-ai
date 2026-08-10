@@ -264,6 +264,39 @@ class _CameraPageState extends State<CameraPage> {
     });
   }
 
+  Future<void> _copyPhotoToShade(Map<String, dynamic> photo) async {
+    final photoId = '${photo['id'] ?? ''}';
+    if (photoId.isEmpty) return;
+    final label = _photoName(photo);
+    await _runBusy('Copying to Shade Detection…', () async {
+      await widget.api.copyToShadeDetection(photoId);
+      return 'Copied “$label” to Shade Detection';
+    });
+  }
+
+  Future<void> _copyPhotoToSmile(Map<String, dynamic> photo) async {
+    final photoId = '${photo['id'] ?? ''}';
+    if (photoId.isEmpty) return;
+    final label = _photoName(photo);
+    await _runBusy('Copying to Smile Preview…', () async {
+      await widget.api.copyToSmilePreview(photoId);
+      return 'Copied “$label” to Smile Preview';
+    });
+  }
+
+  void _onPhotoMenuSelected(_PhotoMenuAction action, Map<String, dynamic> photo) {
+    switch (action) {
+      case _PhotoMenuAction.rename:
+        _renamePhoto(photo);
+      case _PhotoMenuAction.copyToShade:
+        _copyPhotoToShade(photo);
+      case _PhotoMenuAction.copyToSmile:
+        _copyPhotoToSmile(photo);
+      case _PhotoMenuAction.delete:
+        _deletePhoto(photo);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final canCapture = !_busy && _patient != null && _photos.length < maxPhotos;
@@ -511,29 +544,63 @@ class _CameraPageState extends State<CameraPage> {
                                       color: AppColors.muted,
                                     ),
                                   ),
-                                  trailing: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      IconButton(
-                                        tooltip: 'Rename photo',
-                                        onPressed: _busy
-                                            ? null
-                                            : () => _renamePhoto(p),
-                                        icon: const Icon(
-                                          Icons.edit_outlined,
-                                          size: 18,
-                                          color: AppColors.muted,
+                                  trailing: PopupMenuButton<_PhotoMenuAction>(
+                                    tooltip: 'Photo options',
+                                    enabled: !_busy,
+                                    icon: const Icon(
+                                      Icons.more_vert,
+                                      color: AppColors.muted,
+                                    ),
+                                    onSelected: (action) =>
+                                        _onPhotoMenuSelected(action, p),
+                                    itemBuilder: (context) => const [
+                                      PopupMenuItem(
+                                        value: _PhotoMenuAction.rename,
+                                        child: ListTile(
+                                          dense: true,
+                                          contentPadding: EdgeInsets.zero,
+                                          leading: Icon(Icons.edit_outlined),
+                                          title: Text('Rename'),
                                         ),
                                       ),
-                                      IconButton(
-                                        tooltip: 'Delete photo',
-                                        onPressed: _busy
-                                            ? null
-                                            : () => _deletePhoto(p),
-                                        icon: const Icon(
-                                          Icons.delete_outline,
-                                          size: 18,
-                                          color: AppColors.danger,
+                                      PopupMenuItem(
+                                        value: _PhotoMenuAction.copyToShade,
+                                        child: ListTile(
+                                          dense: true,
+                                          contentPadding: EdgeInsets.zero,
+                                          leading: Icon(
+                                            Icons.palette_outlined,
+                                          ),
+                                          title: Text('Copy to Shade Detection'),
+                                        ),
+                                      ),
+                                      PopupMenuItem(
+                                        value: _PhotoMenuAction.copyToSmile,
+                                        child: ListTile(
+                                          dense: true,
+                                          contentPadding: EdgeInsets.zero,
+                                          leading: Icon(
+                                            Icons.sentiment_satisfied_alt_outlined,
+                                          ),
+                                          title: Text('Copy to Smile Preview'),
+                                        ),
+                                      ),
+                                      PopupMenuDivider(),
+                                      PopupMenuItem(
+                                        value: _PhotoMenuAction.delete,
+                                        child: ListTile(
+                                          dense: true,
+                                          contentPadding: EdgeInsets.zero,
+                                          leading: Icon(
+                                            Icons.delete_outline,
+                                            color: AppColors.danger,
+                                          ),
+                                          title: Text(
+                                            'Delete',
+                                            style: TextStyle(
+                                              color: AppColors.danger,
+                                            ),
+                                          ),
                                         ),
                                       ),
                                     ],
@@ -644,6 +711,13 @@ class _CameraPageState extends State<CameraPage> {
       ),
     );
   }
+}
+
+enum _PhotoMenuAction {
+  rename,
+  copyToShade,
+  copyToSmile,
+  delete,
 }
 
 class _RenamePhotoDialog extends StatefulWidget {

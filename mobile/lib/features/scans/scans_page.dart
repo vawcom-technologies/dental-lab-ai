@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
@@ -219,21 +218,6 @@ class _ScansPageState extends State<ScansPage> {
         _previewError = e.toString().replaceFirst('Exception: ', '');
         _previewLoading = false;
       });
-    }
-  }
-
-  Future<int?> _ensureCaseId() async {
-    final existing = _caseIdInt();
-    if (existing != null) return existing;
-    if (_patient == null) return null;
-    final asInt = int.tryParse(_pid(_patient!));
-    if (asInt == null) return null;
-    try {
-      final row = await widget.api.createCase(asInt);
-      if (mounted) setState(() => _case = row);
-      return _asInt(row['id']);
-    } catch (_) {
-      return null;
     }
   }
 

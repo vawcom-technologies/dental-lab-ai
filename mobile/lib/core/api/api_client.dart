@@ -418,6 +418,32 @@ class ApiClient {
     return payload;
   }
 
+  /// Copy a camera photo into shade_detections (no re-upload).
+  Future<bool> copyToShadeDetection(String photoId) async {
+    final res = await http.post(
+      Uri.parse('$baseUrl/api/patient-photos/$photoId/copy-to-shade'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 201) {
+      throw Exception(_errorMessage(res));
+    }
+    AppHaptics.success();
+    return true;
+  }
+
+  /// Copy a camera photo into smile_previews (no re-upload).
+  Future<bool> copyToSmilePreview(String photoId) async {
+    final res = await http.post(
+      Uri.parse('$baseUrl/api/patient-photos/$photoId/copy-to-smile'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 201) {
+      throw Exception(_errorMessage(res));
+    }
+    AppHaptics.success();
+    return true;
+  }
+
   Future<List<Map<String, dynamic>>> listCases() async {
     final res = await http.get(Uri.parse('$baseUrl/api/cases'), headers: _jsonHeaders);
     // Cases router is not always mounted (GDPR cutover) — treat as empty.

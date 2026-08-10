@@ -16,6 +16,7 @@ from app.api import (
     patient_scans,
     shade_detections,
     smile_previews,
+    camera_photos,
 )
 from app.core.debug_middleware import DebugRequestMiddleware, configure_api_logging
 from app.openapi_docs import attach_custom_openapi
@@ -93,6 +94,12 @@ app.include_router(
     smile_previews.smiles_router,
     prefix="/api/smile-previews",
     tags=["Smile Previews"],
+)
+# Copy camera captures → shade / smile (metadata only, no re-upload)
+app.include_router(
+    camera_photos.router,
+    prefix="/api/patient-photos",
+    tags=["Camera Photos"],
 )
 # Chat WebSocket: /ws/chat?token=<access_token>
 app.include_router(chat.ws_router, tags=["chat"])

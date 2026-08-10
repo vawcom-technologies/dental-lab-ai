@@ -10,7 +10,12 @@ from fastapi import HTTPException, UploadFile, status
 
 from app.core.supabase_client import get_supabase_admin
 from app.services import patient_access as pa
-from app.services.r2 import PatientAssetKind, delete_patient_asset, upload_patient_asset
+from app.services.r2 import (
+    PatientAssetKind,
+    delete_patient_asset,
+    is_patient_images_url,
+    upload_patient_asset,
+)
 
 logger = logging.getLogger("app.patient_media")
 
@@ -138,7 +143,15 @@ def delete_record_and_file(
     require_patient_access(patient_id, user_id)
 
     file_key = str(row.get("file_key") or "")
-    if file_key:
+    file_url = str(row.get("file_url") or "")
+    # Camera-photo copies share R2 objects with patient_photos — drop DB row only.
+    if file_key and not is_patient_images_url(file_url):
         delete_patient_asset(kind=kind, file_key=file_key)
+    elif is_patient_images_url(file_url):
+        logger.debug(
+            "skip R2 delete for shared camera photo table=%s id=%s",
+            table,
+            row_id,
+        )
     delete_row(table, row_id)
     return row
