@@ -5,7 +5,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, health, admin, chat, users, media, patients_gdpr
+from app.api import (
+    auth,
+    health,
+    admin,
+    chat,
+    users,
+    media,
+    patients_gdpr,
+    patient_scans,
+    shade_detections,
+    smile_previews,
+)
 from app.core.debug_middleware import DebugRequestMiddleware, configure_api_logging
 from app.openapi_docs import attach_custom_openapi
 
@@ -50,6 +61,38 @@ app.include_router(
     patients_gdpr.router,
     prefix="/api/patients",
     tags=["Patients (GDPR)"],
+)
+# Patient clinical media (list/upload nested under /api/patients)
+app.include_router(
+    patient_scans.patients_router,
+    prefix="/api/patients",
+    tags=["Patient Scans"],
+)
+app.include_router(
+    shade_detections.patients_router,
+    prefix="/api/patients",
+    tags=["Shade Detections"],
+)
+app.include_router(
+    smile_previews.patients_router,
+    prefix="/api/patients",
+    tags=["Smile Previews"],
+)
+# Patient clinical media deletes
+app.include_router(
+    patient_scans.scans_router,
+    prefix="/api/scans",
+    tags=["Patient Scans"],
+)
+app.include_router(
+    shade_detections.shades_router,
+    prefix="/api/shade-detections",
+    tags=["Shade Detections"],
+)
+app.include_router(
+    smile_previews.smiles_router,
+    prefix="/api/smile-previews",
+    tags=["Smile Previews"],
 )
 # Chat WebSocket: /ws/chat?token=<access_token>
 app.include_router(chat.ws_router, tags=["chat"])

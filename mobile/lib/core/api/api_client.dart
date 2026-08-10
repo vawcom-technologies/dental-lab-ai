@@ -559,6 +559,165 @@ class ApiClient {
     AppHaptics.success();
   }
 
+  // ── Patient clinical media (scans / shade-detections / smile-previews) ──
+
+  List<Map<String, dynamic>> _decodeMapList(String body) {
+    final decoded = jsonDecode(body);
+    if (decoded is List) {
+      return decoded
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    }
+    return const [];
+  }
+
+  Map<String, dynamic> _decodeMap(String body) {
+    final decoded = jsonDecode(body);
+    if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    throw Exception('Unexpected response');
+  }
+
+  Future<List<Map<String, dynamic>>> listPatientScans(String patientId) async {
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/patients/$patientId/scans'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return _decodeMapList(res.body);
+  }
+
+  Future<Map<String, dynamic>> uploadPatientScan({
+    required String patientId,
+    required List<int> bytes,
+    required String filename,
+  }) async {
+    final req = http.MultipartRequest(
+      'POST',
+      Uri.parse('$baseUrl/api/patients/$patientId/scans'),
+    );
+    req.headers.addAll(_authHeaders);
+    req.files.add(
+      http.MultipartFile.fromBytes('file', bytes, filename: filename),
+    );
+    final streamed = await req.send();
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(_errorMessage(res));
+    }
+    AppHaptics.success();
+    return _decodeMap(res.body);
+  }
+
+  Future<void> deletePatientScan(String scanId) async {
+    final res = await http.delete(
+      Uri.parse('$baseUrl/api/scans/$scanId'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 204 && res.statusCode != 200) {
+      throw Exception(_errorMessage(res));
+    }
+    AppHaptics.success();
+  }
+
+  Future<List<Map<String, dynamic>>> listShadeDetections(
+    String patientId,
+  ) async {
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/patients/$patientId/shade-detections'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return _decodeMapList(res.body);
+  }
+
+  Future<Map<String, dynamic>> uploadShadeDetection({
+    required String patientId,
+    required List<int> bytes,
+    required String filename,
+  }) async {
+    final req = http.MultipartRequest(
+      'POST',
+      Uri.parse('$baseUrl/api/patients/$patientId/shade-detections'),
+    );
+    req.headers.addAll(_authHeaders);
+    req.files.add(
+      http.MultipartFile.fromBytes('file', bytes, filename: filename),
+    );
+    final streamed = await req.send();
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(_errorMessage(res));
+    }
+    AppHaptics.success();
+    return _decodeMap(res.body);
+  }
+
+  Future<void> deleteShadeDetection(String shadeId) async {
+    final res = await http.delete(
+      Uri.parse('$baseUrl/api/shade-detections/$shadeId'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 204 && res.statusCode != 200) {
+      throw Exception(_errorMessage(res));
+    }
+    AppHaptics.success();
+  }
+
+  Future<List<Map<String, dynamic>>> listSmilePreviews(
+    String patientId,
+  ) async {
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/patients/$patientId/smile-previews'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return _decodeMapList(res.body);
+  }
+
+  Future<Map<String, dynamic>> uploadSmilePreview({
+    required String patientId,
+    required List<int> bytes,
+    required String filename,
+  }) async {
+    final req = http.MultipartRequest(
+      'POST',
+      Uri.parse('$baseUrl/api/patients/$patientId/smile-previews'),
+    );
+    req.headers.addAll(_authHeaders);
+    req.files.add(
+      http.MultipartFile.fromBytes('file', bytes, filename: filename),
+    );
+    final streamed = await req.send();
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(_errorMessage(res));
+    }
+    AppHaptics.success();
+    return _decodeMap(res.body);
+  }
+
+  Future<void> deleteSmilePreview(String smileId) async {
+    final res = await http.delete(
+      Uri.parse('$baseUrl/api/smile-previews/$smileId'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 204 && res.statusCode != 200) {
+      throw Exception(_errorMessage(res));
+    }
+    AppHaptics.success();
+  }
+
+  /// Download media bytes from a public (or signed) URL such as R2 `file_url`.
+  Future<Uint8List> downloadMediaBytes(String url) async {
+    final uri = Uri.parse(url);
+    final res = await http.get(uri, headers: _authHeaders);
+    if (res.statusCode != 200) {
+      throw Exception('Failed to download file (${res.statusCode})');
+    }
+    return res.bodyBytes;
+  }
+
   Future<Map<String, dynamic>> suggestShade(List<int> bytes, String filename) async {
     final name = filename.trim().isEmpty ? 'tooth.jpg' : filename;
     final req = http.MultipartRequest(

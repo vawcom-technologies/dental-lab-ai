@@ -7,6 +7,7 @@ import mimetypes
 import uuid
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 import boto3
 from botocore.client import BaseClient
@@ -160,85 +161,154 @@ def upload_chat_file(
     return public_url
 
 
-def _patient_images_bucket_and_url() -> tuple[str, str]:
-    bucket = (settings.r2_patient_images_bucket or "").strip()
-    public = (settings.r2_patient_images_public_url or "").strip().rstrip("/")
+# ── Patient clinical media (scans / shades / smiles) ──────────────────────────
+
+PatientAssetKind = Literal["scans", "shades", "smiles"]
+
+_SCAN_EXTENSIONS = frozenset({".ply", ".stl", ".obj"})
+_IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".webp", ".heic", ".tif", ".tiff"})
+
+
+def _require_patient_bucket(kind: PatientAssetKind) -> tuple[str, str]:
+    if kind == "scans":
+        bucket = (settings.r2_scans_bucket or "").strip()
+        public = (settings.r2_scans_public_url or "").strip().rstrip("/")
+        bucket_env, url_env = "R2_SCANS_BUCKET", "R2_SCANS_PUBLIC_URL"
+    elif kind == "shades":
+        bucket = (settings.r2_shades_bucket or "").strip()
+        public = (settings.r2_shades_public_url or "").strip().rstrip("/")
+        bucket_env, url_env = "R2_SHADES_BUCKET", "R2_SHADES_PUBLIC_URL"
+    else:
+        bucket = (settings.r2_smiles_bucket or "").strip()
+        public = (settings.r2_smiles_public_url or "").strip().rstrip("/")
+        bucket_env, url_env = "R2_SMILES_BUCKET", "R2_SMILES_PUBLIC_URL"
+
     if not bucket:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Missing R2_PATIENT_IMAGES_BUCKET in environment",
+            detail=f"Missing {bucket_env} in environment",
         )
     if not public:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Missing R2_PATIENT_IMAGES_PUBLIC_URL in environment",
+            detail=f"Missing {url_env} in environment",
         )
     return bucket, public
 
 
-def upload_patient_photo_bytes(
+def build_patient_asset_key(
     *,
+    kind: PatientAssetKind,
     patient_id: str,
-    filename: str,
-    data: bytes,
-    content_type: str = "image/jpeg",
+    filename: str | None,
 ) -> str:
-    """Upload clinical photo bytes to the patient-images bucket; return public URL."""
-    from io import BytesIO
+    ext = Path(filename or "").suffix.lower()
+    if kind == "scans" and ext not in _SCAN_EXTENSIONS:
+        ext = ext if ext else ".ply"
+    elif kind != "scans" and not ext:
+        ext = ".jpg"
+    safe_name = f"{uuid.uuid4().hex}{ext}"
+    return f"patients/{patient_id}/{kind}/{safe_name}"
 
-    bucket, public_base = _patient_images_bucket_and_url()
-    ext = Path(filename or "").suffix.lower() or ".jpg"
-    key = f"patients/{patient_id}/photos/{uuid.uuid4().hex}{ext}"
+
+def validate_patient_upload_filename(
+    *,
+    kind: PatientAssetKind,
+    filename: str | None,
+) -> str:
+    name = (filename or "").strip()
+    if not name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Filename is required",
+        )
+    ext = Path(name).suffix.lower()
+    if kind == "scans":
+        if ext not in _SCAN_EXTENSIONS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Scan file must be .ply, .stl, or .obj",
+            )
+    else:
+        if ext and ext not in _IMAGE_EXTENSIONS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Image must be .jpg, .jpeg, .png, .webp, .heic, .tif, or .tiff",
+            )
+    return name
+
+
+def upload_patient_asset(
+    *,
+    file: UploadFile,
+    kind: PatientAssetKind,
+    patient_id: str,
+) -> tuple[str, str, str]:
+    """
+    Upload a patient clinical file to R2.
+
+    Returns (file_key, public_url, original_filename).
+    """
+    filename = validate_patient_upload_filename(kind=kind, filename=file.filename)
+    bucket, public_base = _require_patient_bucket(kind)
+    key = build_patient_asset_key(
+        kind=kind, patient_id=patient_id, filename=filename
+    )
+    content_type = file.content_type or mimetypes.guess_type(filename)[0] or (
+        "application/octet-stream"
+    )
+    if content_type in ("application/octet-stream", "binary/octet-stream", ""):
+        guessed = mimetypes.guess_type(filename)[0]
+        content_type = guessed or "application/octet-stream"
+    if kind != "scans" and not content_type.startswith("image/"):
+        content_type = mimetypes.guess_type(filename)[0] or "image/jpeg"
+
     client = get_r2_client()
     try:
+        try:
+            file.file.seek(0)
+        except Exception:
+            pass
         client.upload_fileobj(
-            BytesIO(data),
+            file.file,
             bucket,
             key,
-            ExtraArgs={"ContentType": content_type or "image/jpeg"},
+            ExtraArgs={"ContentType": content_type},
         )
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("R2 patient photo upload failed patient_id=%s", patient_id)
+        logger.exception("R2 patient upload failed kind=%s patient_id=%s", kind, patient_id)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"R2 upload failed: {str(exc).strip() or 'unknown error'}",
         ) from exc
-    return f"{public_base}/{key}"
+
+    public_url = f"{public_base}/{key}"
+    logger.debug(
+        "R2 patient upload ok kind=%s bucket=%s key=%s",
+        kind,
+        bucket,
+        key,
+    )
+    return key, public_url, filename
 
 
-def delete_patient_photo_object(file_url: str) -> None:
-    """Delete a clinical photo object from the patient-images bucket."""
-    url = (file_url or "").strip()
-    if not url:
+def delete_patient_asset(*, kind: PatientAssetKind, file_key: str) -> None:
+    """Delete an object from the patient-asset R2 bucket. Missing keys are ignored."""
+    if not (file_key or "").strip():
         return
-
-    bucket, public_base = _patient_images_bucket_and_url()
-    key = ""
-    if url.startswith(public_base + "/"):
-        key = url[len(public_base) + 1 :]
-    else:
-        # Fallback: keep path after /patients/ so older or alternate CDN hosts still work.
-        marker = "/patients/"
-        idx = url.find(marker)
-        if idx >= 0:
-            key = url[idx + 1 :]  # patients/...
-
-    key = key.lstrip("/")
-    if not key.startswith("patients/"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Photo URL is not a patient-images object",
-        )
-
+    bucket, _ = _require_patient_bucket(kind)
     client = get_r2_client()
     try:
-        client.delete_object(Bucket=bucket, Key=key)
-    except HTTPException:
-        raise
+        client.delete_object(Bucket=bucket, Key=file_key)
     except Exception as exc:
-        logger.exception("R2 patient photo delete failed key=%s", key)
+        logger.exception(
+            "R2 patient delete failed kind=%s key=%s detail=%s",
+            kind,
+            file_key,
+            exc,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"R2 delete failed: {str(exc).strip() or 'unknown error'}",
