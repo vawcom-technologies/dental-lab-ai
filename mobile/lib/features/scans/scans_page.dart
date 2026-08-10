@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/layout/adaptive.dart';
 import '../../core/l10n/app_localizations.dart';
-import '../../core/offline/sync_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'mesh_sample.dart';
@@ -22,16 +21,12 @@ class ScansPage extends StatefulWidget {
 }
 
 class _ScansPageState extends State<ScansPage> {
-  late final SyncService _sync = SyncService(api: widget.api);
-
   List<Map<String, dynamic>> _patients = [];
   Map<String, dynamic>? _patient;
-  Map<String, dynamic>? _case;
   List<Map<String, dynamic>> _scans = [];
-  /// Local picks kept while cases/scans APIs are unavailable (GDPR cutover).
-  final List<Map<String, dynamic>> _localScans = [];
   int _selected = 0;
   bool _loading = true;
+  bool _mediaLoading = false;
   bool _busy = false;
   bool _previewLoading = false;
   String? _error;
@@ -80,86 +75,34 @@ class _ScansPageState extends State<ScansPage> {
     return 'ply';
   }
 
-  int? _asInt(Object? value) {
-    if (value is int) return value;
-    return int.tryParse('$value');
+  Map<String, dynamic> _normalizeScan(
+    Map<String, dynamic> row, {
+    Uint8List? bytes,
+  }) {
+    final name = '${row['file_name'] ?? row['filename'] ?? 'scan'}';
+    return {
+      ...row,
+      'filename': name,
+      'format': row['format'] ?? _formatOf(name),
+      'uploaded_at': row['created_at'] ?? row['uploaded_at'],
+      'patient_name': _patientLabel,
+      'validation_result': row['validation_result'] ?? 'saved',
+      'quality_score': row['quality_score'] ?? 1.0,
+      '_bytes': ?bytes,
+    };
   }
 
-  int? _caseIdInt() => _asInt(_case?['id']);
-
-  List<Map<String, dynamic>> _mergeScans(
-    String pid,
-    List<Map<String, dynamic>> server,
-  ) {
-    final locals = _localScans
-        .where((s) => '${s['patient_id']}' == pid)
-        .toList();
-    return [...locals, ...server];
-  }
-
-  Future<List<Map<String, dynamic>>> _scansForPatient(Object patientId) async {
-    final pid = '$patientId';
-    final cases = await widget.api.listCases();
-    final mine = cases.where((c) => '${c['patient_id']}' == pid).toList()
-      ..sort((a, b) {
-        final ta = DateTime.tryParse('${a['updated_at'] ?? ''}') ?? DateTime(1970);
-        final tb = DateTime.tryParse('${b['updated_at'] ?? ''}') ?? DateTime(1970);
-        return tb.compareTo(ta);
-      });
-
-    Map<String, dynamic>? caseRow;
-    if (mine.isEmpty) {
-      // Legacy createCase only accepts numeric patient ids.
-      final asInt = int.tryParse(pid);
-      if (asInt != null) {
-        try {
-          caseRow = await widget.api.createCase(asInt);
-        } catch (_) {
-          caseRow = null;
-        }
-      }
-    } else {
-      caseRow = mine.first;
-    }
-    if (mounted) setState(() => _case = caseRow);
-
-    final all = <Map<String, dynamic>>[];
-    final caseList = <Map<String, dynamic>>[
-      if (caseRow != null) caseRow,
-      ...mine.where((c) => !identical(c, caseRow)),
-    ];
-    // Deduplicate by case id while preserving order.
-    final seen = <Object?>{};
-    for (final c in caseList) {
-      final cid = c['id'];
-      if (cid == null || seen.contains(cid)) continue;
-      seen.add(cid);
-      if (cid is! int) continue;
-      try {
-        final rows = await widget.api.listScans(cid);
-        for (final s in rows) {
-          s['patient_id'] = pid;
-          s['patient_name'] ??= _patientLabel;
-          s['case_id'] ??= cid;
-          all.add(s);
-        }
-      } catch (_) {
-        // Cases/scans routes may be unavailable during GDPR cutover.
-      }
-    }
-    all.sort((a, b) {
-      final ta = DateTime.tryParse('${a['uploaded_at'] ?? ''}') ?? DateTime(1970);
-      final tb = DateTime.tryParse('${b['uploaded_at'] ?? ''}') ?? DateTime(1970);
-      return tb.compareTo(ta);
-    });
-    return all;
+  Future<List<Map<String, dynamic>>> _scansForPatient(String patientId) async {
+    final rows = await widget.api.listPatientScans(patientId);
+    return rows.map(_normalizeScan).toList();
   }
 
   Future<void> _selectPatient(Map<String, dynamic> patient) async {
     setState(() {
       _patient = patient;
-      _case = null;
       _scans = [];
+      _mediaLoading = true;
+      _error = null;
       _lastResult = null;
       _vertices = const [];
       _previewBytes = null;
@@ -168,16 +111,27 @@ class _ScansPageState extends State<ScansPage> {
       _previewScanId = null;
     });
     final pid = _pid(patient);
-    if (pid.isEmpty) return;
-    final server = await _scansForPatient(pid);
-    if (!mounted) return;
-    final scans = _mergeScans(pid, server);
-    setState(() {
-      _scans = scans;
-      _selected = 0;
-    });
-    if (scans.isNotEmpty) {
-      await _loadPreviewFor(scans.first);
+    if (pid.isEmpty) {
+      if (mounted) setState(() => _mediaLoading = false);
+      return;
+    }
+    try {
+      final scans = await _scansForPatient(pid);
+      if (!mounted) return;
+      setState(() {
+        _scans = scans;
+        _selected = 0;
+        _mediaLoading = false;
+      });
+      if (scans.isNotEmpty) {
+        await _loadPreviewFor(scans.first);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _mediaLoading = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
     }
   }
 
@@ -228,14 +182,13 @@ class _ScansPageState extends State<ScansPage> {
       return;
     }
 
-    final caseId = _asInt(scan['case_id']) ?? _caseIdInt();
-    final serverScanId = _asInt(scanId);
-    if (caseId == null || serverScanId == null) {
+    final fileUrl = '${scan['file_url'] ?? ''}'.trim();
+    if (fileUrl.isEmpty) {
       setState(() {
         _previewBytes = null;
         _previewFilename = null;
         _vertices = const [];
-        _previewError = 'Scan preview unavailable (no local bytes)';
+        _previewError = 'Scan preview unavailable';
         _previewLoading = false;
         _previewScanId = scanId;
       });
@@ -248,40 +201,16 @@ class _ScansPageState extends State<ScansPage> {
       _previewScanId = scanId;
       _previewBytes = null;
       _previewFilename = '${scan['filename'] ?? 'scan.ply'}';
-      if (_case == null || _case!['id'] != caseId) {
-        _case = {
-          'id': caseId,
-          'patient_id': scan['patient_id'] ?? _patient?['id'],
-        };
-      }
     });
     try {
-      final preview = await widget.api.fetchScanPreview(
-        caseId: caseId,
-        scanId: serverScanId,
-      );
+      final bytes = await widget.api.downloadMediaBytes(fileUrl);
       if (!mounted || _previewScanId != scanId) return;
-      final raw = preview['vertices'];
-      final verts = <List<double>>[];
-      if (raw is List) {
-        for (final row in raw) {
-          if (row is List && row.length >= 3) {
-            verts.add([
-              (row[0] as num).toDouble(),
-              (row[1] as num).toDouble(),
-              (row[2] as num).toDouble(),
-            ]);
-          }
-        }
-      }
-      setState(() {
-        _vertices = verts;
-        _vertexCount = (preview['vertex_count'] as num?)?.toInt();
-        _previewError = verts.isEmpty
-            ? (preview['error']?.toString() ?? 'Preview has no points')
-            : null;
-        _previewLoading = false;
-      });
+      scan['_bytes'] = bytes;
+      await _applyLocalPreview(
+        scanId: scanId,
+        bytes: bytes,
+        filename: '${scan['filename'] ?? 'scan.ply'}',
+      );
     } catch (e) {
       if (!mounted || _previewScanId != scanId) return;
       setState(() {
@@ -294,15 +223,11 @@ class _ScansPageState extends State<ScansPage> {
 
   Future<void> _upload() async {
     if (_busy || _patient == null) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
+    setState(() => _error = null);
     try {
       final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: const ['ply', 'stl', 'obj'],
-        // Always request bytes so native iPad can preview + validate offline.
         withData: true,
       );
       if (result == null || result.files.isEmpty) return;
@@ -313,12 +238,28 @@ class _ScansPageState extends State<ScansPage> {
         if (mounted) AppSnackBars.error(context, 'Could not read file bytes');
         return;
       }
+
+      if (!mounted) return;
+      final confirmed = await confirmPatientMediaUpload(context);
+      if (!confirmed || !mounted) return;
+
       final data = Uint8List.fromList(bytes);
       final name = file.name;
       final pid = _pid(_patient!);
-      final localId = 'local_${DateTime.now().microsecondsSinceEpoch}';
 
-      Map<String, dynamic>? validation;
+      setState(() => _busy = true);
+      final uploaded = await runWithToothLoadingDialog(
+        context,
+        message: 'Uploading scan…',
+        action: () => widget.api.uploadPatientScan(
+          patientId: pid,
+          bytes: data,
+          filename: name,
+        ),
+      );
+      if (!mounted) return;
+
+      late final Map<String, dynamic> validation;
       try {
         validation = await widget.api.validateScan(data, name);
       } catch (_) {
@@ -331,156 +272,75 @@ class _ScansPageState extends State<ScansPage> {
             if (sampled.error == null)
               'Local parse OK (${_formatOf(name).toUpperCase()})',
           ],
-          'note': 'Validated on device (server quality API unavailable)',
+          'note': 'Validated on device',
           'issues': const [],
           'prompt_rescan': sampled.error != null,
         };
       }
 
-      final localScan = <String, dynamic>{
-        'id': localId,
-        'filename': name,
-        'format': _formatOf(name),
-        'validation_result':
-            validation['result'] ?? validation['validation_result'] ?? 'ok',
-        'quality_score': validation['quality_score'] ?? 0.85,
-        'reasons': validation['reasons'] ?? const [],
-        'issues': validation['issues'] ?? const [],
-        'prompt_rescan': validation['prompt_rescan'] == true,
-        'note': validation['note'],
-        'patient_id': pid,
-        'patient_name': _patientLabel,
-        'uploaded_at': DateTime.now().toIso8601String(),
-        '_bytes': data,
-        '_local': true,
-      };
+      final item = _normalizeScan(
+        {
+          ...uploaded,
+          'validation_result':
+              validation['result'] ?? validation['validation_result'] ?? 'ok',
+          'quality_score': validation['quality_score'] ?? 0.85,
+          'reasons': validation['reasons'] ?? const [],
+          'issues': validation['issues'] ?? const [],
+          'prompt_rescan': validation['prompt_rescan'] == true,
+          'note': validation['note'],
+        },
+        bytes: data,
+      );
 
-      // Optional server persist when legacy int case exists.
-      final caseId = _caseIdInt();
-      Map<String, dynamic>? upload;
-      if (caseId != null) {
-        try {
-          upload = await _sync.captureScan(
-            caseId: caseId,
-            bytes: data,
-            filename: name,
-          );
-          await _sync.flush();
-          localScan['case_id'] = caseId;
-          if (upload['id'] != null) {
-            localScan['server_id'] = upload['id'];
-          }
-          if (upload['quality_score'] != null) {
-            localScan['quality_score'] = upload['quality_score'];
-          }
-          if (upload['validation_result'] != null) {
-            localScan['validation_result'] = upload['validation_result'];
-          }
-          if (upload['issues'] != null) {
-            localScan['issues'] = upload['issues'];
-          }
-          if (upload['prompt_rescan'] != null) {
-            localScan['prompt_rescan'] = upload['prompt_rescan'];
-          }
-        } catch (_) {
-          // Keep local preview when cases/scans API is down.
-        }
-      }
-
-      _localScans.insert(0, localScan);
-      if (!mounted) return;
       setState(() {
-        _lastResult = upload ?? validation;
-        _scans = _mergeScans(pid, _scans.where((s) => s['_local'] != true).toList());
-        // Re-merge against fresh server list when possible.
+        _scans = [item, ..._scans];
         _selected = 0;
+        _lastResult = validation;
+        _busy = false;
       });
-
-      // Refresh server list in background-friendly way, then keep locals.
-      final server = await _scansForPatient(pid);
-      if (!mounted) return;
-      setState(() {
-        _scans = _mergeScans(pid, server);
-        _selected = 0;
-      });
-      await _loadPreviewFor(_scans.first);
+      await _loadPreviewFor(item);
       if (mounted) {
-        final fmt = _formatOf(name).toUpperCase();
         AppSnackBars.success(
           context,
-          caseId != null && upload != null
-              ? '$fmt scan uploaded'
-              : '$fmt scan ready (local preview)',
+          '${_formatOf(name).toUpperCase()} scan uploaded',
         );
       }
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
-      if (mounted) {
-        AppSnackBars.error(
-          context,
-          e.toString().replaceFirst('Exception: ', ''),
-        );
-      }
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
+      AppSnackBars.error(
+        context,
+        e.toString().replaceFirst('Exception: ', ''),
+      );
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted && _busy) setState(() => _busy = false);
     }
   }
 
   Future<void> _deleteScan(Map<String, dynamic> scan) async {
     if (_busy) return;
-    final scanId = scan['id'];
-    final isLocal = scan['_local'] == true;
-    final caseId = _asInt(scan['case_id']) ?? _caseIdInt();
-    final serverScanId = _asInt(scanId);
+    final scanId = '${scan['id'] ?? ''}';
+    if (scanId.isEmpty) return;
 
-    if (!isLocal && (caseId == null || serverScanId == null)) return;
-
-    final filename = '${scan['filename'] ?? 'Scan #$scanId'}';
-    final patient = '${scan['patient_name'] ?? _patientLabel}';
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete scan?'),
-        content: Text(
-          'Remove $filename for $patient?\nThis cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
+    final ok = await confirmPatientMediaDelete(context);
+    if (ok != true || !mounted) return;
 
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      if (isLocal) {
-        _localScans.removeWhere((s) => s['id'] == scanId);
-      } else if (caseId != null && serverScanId != null) {
-        await widget.api.deleteScan(caseId: caseId, scanId: serverScanId);
-      }
-      final p = _patient;
-      if (p == null) return;
-      final pid = _pid(p);
-      if (pid.isEmpty) return;
-      final server = isLocal ? _scans.where((s) => s['_local'] != true).toList() : await _scansForPatient(pid);
+      await widget.api.deletePatientScan(scanId);
       if (!mounted) return;
-      final scans = _mergeScans(pid, server.where((s) => s['_local'] != true).toList());
+      final next = _scans.where((s) => '${s['id']}' != scanId).toList();
       setState(() {
-        _scans = scans;
+        _scans = next;
         _selected = 0;
         _lastResult = null;
-        if (scans.isEmpty) {
+        if (next.isEmpty) {
           _vertices = const [];
           _previewBytes = null;
           _previewFilename = null;
@@ -488,8 +348,8 @@ class _ScansPageState extends State<ScansPage> {
           _previewScanId = null;
         }
       });
-      if (scans.isNotEmpty) {
-        await _loadPreviewFor(scans.first);
+      if (next.isNotEmpty) {
+        await _loadPreviewFor(next.first);
       }
       if (mounted) AppSnackBars.success(context, 'Scan deleted');
     } catch (e) {
@@ -614,7 +474,14 @@ class _ScansPageState extends State<ScansPage> {
                       Expanded(
                         child: SectionCard(
                           padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: _scans.isEmpty
+                          child: _mediaLoading
+                              ? const Center(
+                                  child: ToothLoadingIndicator(
+                                    size: 40,
+                                    loadingText: 'Loading scans…',
+                                  ),
+                                )
+                              : _scans.isEmpty
                               ? Center(
                                   child: Text(
                                     _patient == null

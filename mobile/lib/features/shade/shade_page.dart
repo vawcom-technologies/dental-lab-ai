@@ -9,7 +9,9 @@ import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_snackbar.dart';
+import '../../core/widgets/patient_media_dialogs.dart';
 import '../../core/widgets/patient_picker.dart';
+import '../../core/widgets/tooth_loader.dart';
 import 'shade_action_bar.dart';
 import 'shade_override_pane.dart';
 import 'shade_photo_pane.dart';
@@ -49,6 +51,10 @@ class _ShadePageState extends State<ShadePage> {
   /// Aggregated across all teeth/zones for the Result card (not zone-similar).
   List<Map<String, dynamic>> _overallTopMatches = [];
   List<Map<String, dynamic>> _history = [];
+  /// Saved shade-detection images for the selected patient.
+  List<Map<String, dynamic>> _shadeItems = [];
+  bool _mediaLoading = false;
+  String? _selectedShadeId;
 
   // Per-tooth / per-zone analysis (added onto existing UI)
   List<Map<String, dynamic>> _teeth = [];
@@ -1159,6 +1165,9 @@ class _ShadePageState extends State<ShadePage> {
       _patient = patient;
       _saveStatus = null;
       _error = null;
+      _shadeItems = [];
+      _selectedShadeId = null;
+      _mediaLoading = true;
     });
     // Cases API is optional for Upload & detect. GDPR patient ids are UUIDs;
     // legacy createCase(int) only works for numeric ids when cases are mounted.
@@ -1180,6 +1189,104 @@ class _ShadePageState extends State<ShadePage> {
     } catch (_) {
       if (!mounted) return;
       setState(() => _case = null);
+    }
+    await _loadShadeDetections();
+  }
+
+  Future<void> _loadShadeDetections() async {
+    final patient = _patient;
+    if (patient == null) {
+      if (mounted) {
+        setState(() {
+          _shadeItems = [];
+          _mediaLoading = false;
+        });
+      }
+      return;
+    }
+    final pid = _pid(patient);
+    if (pid.isEmpty) {
+      if (mounted) setState(() => _mediaLoading = false);
+      return;
+    }
+    if (mounted) setState(() => _mediaLoading = true);
+    try {
+      final rows = await widget.api.listShadeDetections(pid);
+      if (!mounted) return;
+      setState(() {
+        _shadeItems = rows;
+        _mediaLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _mediaLoading = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  Future<void> _openShadeItem(Map<String, dynamic> item) async {
+    final id = '${item['id'] ?? ''}';
+    final url = '${item['file_url'] ?? ''}'.trim();
+    final name = '${item['file_name'] ?? 'tooth.jpg'}';
+    if (url.isEmpty) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+      _selectedShadeId = id;
+    });
+    try {
+      final bytes = await widget.api.downloadMediaBytes(url);
+      if (!mounted) return;
+      _photoTransformController.value = Matrix4.identity();
+      setState(() {
+        _previewBytes = bytes;
+        _previewFilename = name;
+        _exitOutlineEdit(clearStatus: false);
+        _teeth = [];
+        _rememberTeeth();
+        _isolatedToothIndex = null;
+        _selectedToothIndex = null;
+        _finalShade = null;
+        _detected = '—';
+        _confidence = 0;
+        _topMatches = [];
+        _overallTopMatches = [];
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _deleteShadeItem(Map<String, dynamic> item) async {
+    final id = '${item['id'] ?? ''}';
+    if (id.isEmpty || _busy) return;
+    final ok = await confirmPatientMediaDelete(context);
+    if (!ok || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await widget.api.deleteShadeDetection(id);
+      if (!mounted) return;
+      setState(() {
+        _shadeItems = _shadeItems.where((e) => '${e['id']}' != id).toList();
+        if (_selectedShadeId == id) _selectedShadeId = null;
+        _busy = false;
+      });
+      AppSnackBars.success(context, 'Shade detection deleted');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
+      AppSnackBars.error(
+        context,
+        e.toString().replaceFirst('Exception: ', ''),
+      );
     }
   }
 
@@ -1257,8 +1364,11 @@ class _ShadePageState extends State<ShadePage> {
   }
 
   Future<void> _runAiFromGallery() async {
+    if (_patient == null) {
+      setState(() => _error = 'Select a patient first.');
+      return;
+    }
     setState(() {
-      _busy = true;
       _error = null;
       _saveStatus = null;
       _photoMenuVisible = false;
@@ -1278,15 +1388,36 @@ class _ShadePageState extends State<ShadePage> {
         return;
       }
 
+      if (!mounted) return;
+      final confirmed = await confirmPatientMediaUpload(context);
+      if (!confirmed || !mounted) return;
+
       final name = file.name.isNotEmpty ? file.name : 'tooth.jpg';
-      _photoTransformController.value = Matrix4.identity();
+      final data = Uint8List.fromList(bytes);
+      final pid = _pid(_patient!);
+
+      setState(() => _busy = true);
+      final uploaded = await runWithToothLoadingDialog(
+        context,
+        message: 'Uploading…',
+        action: () => widget.api.uploadShadeDetection(
+          patientId: pid,
+          bytes: data,
+          filename: name,
+        ),
+      );
+      if (!mounted) return;
+
       setState(() {
-        _previewBytes = Uint8List.fromList(bytes);
+        _shadeItems = [uploaded, ..._shadeItems];
+        _selectedShadeId = '${uploaded['id'] ?? ''}';
+        _previewBytes = data;
         _previewFilename = name;
+        _photoTransformController.value = Matrix4.identity();
         _exitOutlineEdit(clearStatus: false);
       });
 
-      final result = await widget.api.suggestShade(bytes, name);
+      final result = await widget.api.suggestShade(data, name);
       final teeth = _parseTeeth(result['teeth']);
       Map<String, dynamic>? first;
       for (final t in teeth) {
@@ -1300,7 +1431,6 @@ class _ShadePageState extends State<ShadePage> {
       setState(() {
         _teeth = teeth;
         _rememberTeeth();
-        // After upload: show every tooth highlighted; isolate only via triple-tap.
         _isolatedToothIndex = null;
         _selectedToothIndex = (first?['tooth_index'] as num?)?.toInt();
         _focusZone = 'middle';
@@ -1309,11 +1439,16 @@ class _ShadePageState extends State<ShadePage> {
         _analysisImageSize = (iw > 0 && ih > 0) ? Size(iw, ih) : Size.zero;
         _finalShade = null;
         _syncUiFromSelection();
+        _busy = false;
       });
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted && _busy) setState(() => _busy = false);
     }
   }
 
@@ -1618,10 +1753,126 @@ class _ShadePageState extends State<ShadePage> {
     AppHaptics.selection();
   }
 
+  Widget _buildShadeMediaStrip() {
+    if (_patient == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: SizedBox(
+        height: 88,
+        child: _mediaLoading
+            ? const Center(
+                child: ToothLoadingIndicator(
+                  size: 32,
+                  compact: true,
+                  loadingText: 'Loading…',
+                ),
+              )
+            : _shadeItems.isEmpty
+                ? Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'No saved shade photos yet',
+                      style: TextStyle(
+                        color: AppColors.muted.withValues(alpha: 0.9),
+                        fontSize: 12.5,
+                      ),
+                    ),
+                  )
+                : ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _shadeItems.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 10),
+                    itemBuilder: (context, i) {
+                      final item = _shadeItems[i];
+                      final id = '${item['id'] ?? ''}';
+                      final url = '${item['file_url'] ?? ''}';
+                      final selected = id == _selectedShadeId;
+                      return Material(
+                        color: selected
+                            ? AppColors.dentalBlue.withValues(alpha: 0.12)
+                            : Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: _busy ? null : () => _openShadeItem(item),
+                          child: Container(
+                            width: 120,
+                            padding: const EdgeInsets.fromLTRB(8, 8, 4, 8),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: selected
+                                    ? AppColors.dentalBlue
+                                    : AppColors.border,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: url.isEmpty
+                                      ? Container(
+                                          width: 56,
+                                          height: 56,
+                                          color: AppColors.sidebarActive,
+                                          child: const Icon(
+                                            Icons.image_outlined,
+                                            size: 22,
+                                            color: AppColors.muted,
+                                          ),
+                                        )
+                                      : Image.network(
+                                          url,
+                                          width: 56,
+                                          height: 56,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, _, _) => Container(
+                                            width: 56,
+                                            height: 56,
+                                            color: AppColors.sidebarActive,
+                                            child: const Icon(
+                                              Icons.broken_image_outlined,
+                                              size: 20,
+                                              color: AppColors.muted,
+                                            ),
+                                          ),
+                                        ),
+                                ),
+                                const Spacer(),
+                                IconButton(
+                                  tooltip: 'Delete',
+                                  visualDensity: VisualDensity.compact,
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 32,
+                                    minHeight: 32,
+                                  ),
+                                  onPressed: _busy
+                                      ? null
+                                      : () => _deleteShadeItem(item),
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    size: 18,
+                                    color: AppColors.danger,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+      ),
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) {
+      return const ToothPageLoader(message: 'Loading shade detection…');
+    }
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -1677,7 +1928,7 @@ class _ShadePageState extends State<ShadePage> {
               SizedBox(
                 height: 52,
                 child: FilledButton.icon(
-                  onPressed: _busy ? null : _runAiFromGallery,
+                  onPressed: _busy || _patient == null ? null : _runAiFromGallery,
                   icon: Icon(
                     _busy ? Icons.hourglass_top : Icons.upload_file,
                     size: 18,
@@ -1708,6 +1959,7 @@ class _ShadePageState extends State<ShadePage> {
                       : null),
             ),
           ),
+          _buildShadeMediaStrip(),
           const SizedBox(height: 8),
           Expanded(
             child: Row(

@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     r2_documents_bucket: str = ""
     r2_documents_public_url: str = ""
 
+    # Cloudflare R2 buckets for patient clinical media
+    r2_scans_bucket: str = ""
+    r2_scans_public_url: str = ""
+    r2_shades_bucket: str = ""
+    r2_shades_public_url: str = ""
+    r2_smiles_bucket: str = ""
+    r2_smiles_public_url: str = ""
+
     # Fernet key material for patient clinical notes (GDPR at-rest encryption)
     # Prefer a long random secret; derived via SHA-256 → Fernet key.
     patient_notes_encryption_key: str = ""
