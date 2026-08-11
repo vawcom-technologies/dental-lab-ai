@@ -1,14 +1,211 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-/// Clinical design tokens for the dental date picker.
+import '../theme/app_theme.dart';
+import 'app_buttons.dart';
+
+/// Form field that stores ISO `yyyy-MM-dd` while showing a friendly DOB label.
+class DobPickerField extends StatelessWidget {
+  const DobPickerField({
+    super.key,
+    required this.controller,
+    required this.labelText,
+    this.onChanged,
+  });
+
+  final TextEditingController controller;
+  final String labelText;
+  final ValueChanged<String>? onChanged;
+
+  static String formatDisplay(DateTime dob) {
+    final age = DentalDatePickerDialog.ageInYears(dob);
+    final date = DateFormat('MMM d, yyyy').format(dob);
+    final ageLabel = age == 1 ? '1 year old' : '$age years old';
+    return '$date · $ageLabel';
+  }
+
+  Future<void> _pick(BuildContext context) async {
+    final current = DateTime.tryParse(controller.text.trim());
+    final picked = await DentalDatePickerDialog.showForDateOfBirth(
+      context: context,
+      currentDob: current,
+    );
+    if (picked == null) return;
+    final iso = DateFormat('yyyy-MM-dd').format(picked);
+    controller.text = iso;
+    onChanged?.call(iso);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FormField<String>(
+      initialValue: controller.text,
+      validator: (_) {
+        final value = controller.text.trim();
+        if (value.isEmpty) return 'Required';
+        if (DateTime.tryParse(value) == null) return 'Invalid date';
+        return null;
+      },
+      builder: (state) {
+        final parsed = DateTime.tryParse(controller.text.trim());
+        final hasValue = parsed != null;
+        return InkWell(
+          onTap: () async {
+            await _pick(context);
+            state.didChange(controller.text);
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: InputDecorator(
+            isEmpty: !hasValue,
+            decoration: InputDecoration(
+              labelText: labelText,
+              hintText: 'Tap to select',
+              errorText: state.errorText,
+              suffixIcon: const Icon(Icons.calendar_today_outlined, size: 18),
+            ),
+            // Empty child when unset so label/hint don't collide.
+            child: Text(
+              hasValue ? formatDisplay(parsed) : '',
+              style: AppFonts.style(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: AppColors.text,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Simple scroll-wheel DOB picker (month / day / year).
+class _DobWheelDialog extends StatefulWidget {
+  const _DobWheelDialog({
+    required this.initialDate,
+    required this.firstDate,
+    required this.lastDate,
+    required this.title,
+  });
+
+  final DateTime initialDate;
+  final DateTime firstDate;
+  final DateTime lastDate;
+  final String title;
+
+  @override
+  State<_DobWheelDialog> createState() => _DobWheelDialogState();
+}
+
+class _DobWheelDialogState extends State<_DobWheelDialog> {
+  late DateTime _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = DentalDatePickerDialog.dateOnly(widget.initialDate);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final age = DentalDatePickerDialog.ageInYears(_selected);
+    final header = DateFormat('MMM d, yyyy').format(_selected);
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      backgroundColor: DentalDatePickerColors.white,
+      surfaceTintColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.title.toUpperCase(),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.2,
+                        color: DentalDatePickerColors.muted,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      header,
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        color: DentalDatePickerColors.text,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      age == 1 ? 'Age 1 year' : 'Age $age years',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: DentalDatePickerColors.active,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Divider(height: 1, color: DentalDatePickerColors.border),
+              SizedBox(
+                height: 216,
+                child: CupertinoDatePicker(
+                  mode: CupertinoDatePickerMode.date,
+                  initialDateTime: _selected,
+                  minimumDate: widget.firstDate,
+                  maximumDate: widget.lastDate,
+                  onDateTimeChanged: (value) {
+                    setState(() {
+                      _selected = DentalDatePickerDialog.dateOnly(value);
+                    });
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  AppButtons.ghost(
+                    onPressed: () => Navigator.of(context).pop(),
+                    label: 'Cancel',
+                  ),
+                  const SizedBox(width: 8),
+                  AppButtons.primary(
+                    onPressed: () => Navigator.of(context).pop(_selected),
+                    label: 'Use this date',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Date picker colors — aliased to app tokens for a consistent iPad look.
 class DentalDatePickerColors {
-  static const primary = Color(0xFF1E3A8A);
-  static const active = Color(0xFF2563EB);
-  static const surface = Color(0xFFF1F5F9);
-  static const text = Color(0xFF0F172A);
-  static const muted = Color(0xFF64748B);
-  static const border = Color(0xFFE2E8F0);
+  static const primary = AppColors.navy;
+  static const active = AppColors.dentalBlue;
+  static const surface = AppColors.inset;
+  static const text = AppColors.text;
+  static const muted = AppColors.muted;
+  static const border = AppColors.border;
   static const white = Colors.white;
 }
 
@@ -21,6 +218,7 @@ class DentalDatePickerDialog extends StatefulWidget {
     required this.lastDate,
     this.title = 'Select Date',
     this.showQuickPresets = true,
+    this.forDateOfBirth = false,
     this.selectableDayPredicate,
   });
 
@@ -29,11 +227,31 @@ class DentalDatePickerDialog extends StatefulWidget {
   final DateTime lastDate;
   final String title;
   final bool showQuickPresets;
+
+  /// Year-first flow with age readout — used for patient DOB.
+  final bool forDateOfBirth;
   final bool Function(DateTime day)? selectableDayPredicate;
 
   static DateTime dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
   static DateTime get today => dateOnly(DateTime.now());
+
+  /// Typical adult starting point when no DOB is set yet.
+  static DateTime defaultDobAnchor({int ageYears = 35}) {
+    final now = today;
+    return DateTime(now.year - ageYears, now.month, now.day);
+  }
+
+  static int ageInYears(DateTime dob, [DateTime? onDate]) {
+    final on = dateOnly(onDate ?? DateTime.now());
+    final birth = dateOnly(dob);
+    var age = on.year - birth.year;
+    if (on.month < birth.month ||
+        (on.month == birth.month && on.day < birth.day)) {
+      age -= 1;
+    }
+    return age < 0 ? 0 : age;
+  }
 
   /// Shows the clinical date picker and returns the chosen day (date-only).
   static Future<DateTime?> show({
@@ -43,6 +261,7 @@ class DentalDatePickerDialog extends StatefulWidget {
     DateTime? lastDate,
     String title = 'Select Date',
     bool showQuickPresets = true,
+    bool forDateOfBirth = false,
     bool Function(DateTime day)? selectableDayPredicate,
   }) {
     final first = dateOnly(firstDate ?? DateTime(1900));
@@ -60,6 +279,7 @@ class DentalDatePickerDialog extends StatefulWidget {
         lastDate: last,
         title: title,
         showQuickPresets: showQuickPresets,
+        forDateOfBirth: forDateOfBirth,
         selectableDayPredicate: selectableDayPredicate,
       ),
     );
@@ -85,21 +305,27 @@ class DentalDatePickerDialog extends StatefulWidget {
     );
   }
 
-  /// Patient date of birth — past dates only; opens on existing DOB or **today**
-  /// (use the year grid to jump quickly, not a hardcoded ~30y offset).
+  /// Patient date of birth — scroll wheels; defaults to ~35 years ago.
   static Future<DateTime?> showForDateOfBirth({
     required BuildContext context,
     DateTime? currentDob,
     String title = 'Date of Birth',
   }) {
     final now = today;
-    return show(
+    final first = DateTime(1900);
+    var initial = dateOnly(currentDob ?? defaultDobAnchor());
+    if (initial.isBefore(first)) initial = first;
+    if (initial.isAfter(now)) initial = now;
+
+    return showDialog<DateTime>(
       context: context,
-      initialDate: currentDob ?? now,
-      firstDate: DateTime(1900),
-      lastDate: now,
-      title: title,
-      showQuickPresets: false,
+      barrierDismissible: true,
+      builder: (context) => _DobWheelDialog(
+        initialDate: initial,
+        firstDate: first,
+        lastDate: now,
+        title: title,
+      ),
     );
   }
 
@@ -110,7 +336,9 @@ class DentalDatePickerDialog extends StatefulWidget {
 class _DentalDatePickerDialogState extends State<DentalDatePickerDialog> {
   late DateTime _selectedDate;
   late DateTime _focusedMonth;
-  bool _pickingYear = false;
+  late bool _pickingYear;
+  /// 0 = year, 1 = month, 2 = day (DOB flow).
+  late int _dobStep;
 
   static const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   static const _months = [
@@ -127,12 +355,28 @@ class _DentalDatePickerDialogState extends State<DentalDatePickerDialog> {
     'November',
     'December',
   ];
+  static const _monthShort = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
 
   @override
   void initState() {
     super.initState();
     _selectedDate = widget.initialDate;
     _focusedMonth = DateTime(widget.initialDate.year, widget.initialDate.month);
+    _pickingYear = widget.forDateOfBirth;
+    _dobStep = widget.forDateOfBirth ? 0 : 2;
   }
 
   DateTime get _today => DentalDatePickerDialog.today;
@@ -153,6 +397,7 @@ class _DentalDatePickerDialogState extends State<DentalDatePickerDialog> {
       _selectedDate = DentalDatePickerDialog.dateOnly(day);
       _focusedMonth = DateTime(day.year, day.month);
       _pickingYear = false;
+      if (widget.forDateOfBirth) _dobStep = 2;
     });
   }
 
@@ -172,20 +417,87 @@ class _DentalDatePickerDialogState extends State<DentalDatePickerDialog> {
     setState(() {
       _focusedMonth = next;
       _pickingYear = false;
+      if (widget.forDateOfBirth) _dobStep = 2;
+    });
+  }
+
+  void _applyYear(int year) {
+    final month = _focusedMonth.month;
+    var day = _selectedDate.day;
+    final maxDay = DateTime(year, month + 1, 0).day;
+    if (day > maxDay) day = maxDay;
+    final candidate = DateTime(year, month, day);
+    setState(() {
+      _focusedMonth = DateTime(year, month);
+      if (_isSelectable(candidate)) {
+        _selectedDate = candidate;
+      } else {
+        // Clamp into range for this year.
+        final clamped = candidate.isBefore(widget.firstDate)
+            ? widget.firstDate
+            : widget.lastDate;
+        if (clamped.year == year) {
+          _selectedDate = clamped;
+          _focusedMonth = DateTime(clamped.year, clamped.month);
+        }
+      }
+      if (widget.forDateOfBirth) {
+        _dobStep = 1;
+        _pickingYear = false;
+      } else {
+        _pickingYear = false;
+      }
+    });
+  }
+
+  void _applyMonth(int month) {
+    final year = _focusedMonth.year;
+    var day = _selectedDate.day;
+    final maxDay = DateTime(year, month + 1, 0).day;
+    if (day > maxDay) day = maxDay;
+    final candidate = DateTime(year, month, day);
+    setState(() {
+      _focusedMonth = DateTime(year, month);
+      if (_isSelectable(candidate)) {
+        _selectedDate = candidate;
+      }
+      _dobStep = 2;
+      _pickingYear = false;
     });
   }
 
   List<int> get _years {
     final years = <int>[];
-    for (var y = widget.lastDate.year; y >= widget.firstDate.year; y--) {
-      years.add(y);
+    // Ascending for DOB (older → newer reads more naturally when scrolling
+    // from a childhood decade); descending for scheduling.
+    if (widget.forDateOfBirth) {
+      for (var y = widget.firstDate.year; y <= widget.lastDate.year; y++) {
+        years.add(y);
+      }
+    } else {
+      for (var y = widget.lastDate.year; y >= widget.firstDate.year; y--) {
+        years.add(y);
+      }
     }
     return years;
   }
 
+  List<int> get _decadeStarts {
+    final starts = <int>[];
+    final firstDecade = (widget.firstDate.year ~/ 10) * 10;
+    final lastDecade = (widget.lastDate.year ~/ 10) * 10;
+    for (var d = firstDecade; d <= lastDecade; d += 10) {
+      starts.add(d);
+    }
+    return starts;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final headerFmt = DateFormat('EEE, MMM d');
+    final isDob = widget.forDateOfBirth;
+    final headerFmt =
+        DateFormat(isDob ? 'MMM d, yyyy' : 'EEE, MMM d');
+    final age = DentalDatePickerDialog.ageInYears(_selectedDate);
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -235,6 +547,17 @@ class _DentalDatePickerDialogState extends State<DentalDatePickerDialog> {
                           color: DentalDatePickerColors.text,
                         ),
                       ),
+                      if (isDob) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          age == 1 ? 'Age 1 year' : 'Age $age years',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: DentalDatePickerColors.active,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -252,6 +575,18 @@ class _DentalDatePickerDialogState extends State<DentalDatePickerDialog> {
                 ),
               ],
             ),
+            if (isDob) ...[
+              const SizedBox(height: 14),
+              _DobStepBar(
+                step: _dobStep,
+                onStepTap: (step) {
+                  setState(() {
+                    _dobStep = step;
+                    _pickingYear = step == 0;
+                  });
+                },
+              ),
+            ],
             if (widget.showQuickPresets) ...[
               const SizedBox(height: 14),
               SingleChildScrollView(
@@ -288,86 +623,91 @@ class _DentalDatePickerDialogState extends State<DentalDatePickerDialog> {
             const SizedBox(height: 16),
             const Divider(height: 1, color: DentalDatePickerColors.border),
             const SizedBox(height: 12),
-            _MonthYearBar(
-              monthLabel: _months[_focusedMonth.month - 1],
-              year: _focusedMonth.year,
-              pickingYear: _pickingYear,
-              onPrev: () => _shiftMonth(-1),
-              onNext: () => _shiftMonth(1),
-              onToggleYear: () => setState(() => _pickingYear = !_pickingYear),
-            ),
-            const SizedBox(height: 8),
+            if (!isDob || _dobStep == 2)
+              _MonthYearBar(
+                monthLabel: _months[_focusedMonth.month - 1],
+                year: _focusedMonth.year,
+                pickingYear: _pickingYear,
+                onPrev: () => _shiftMonth(-1),
+                onNext: () => _shiftMonth(1),
+                onToggleYear: () {
+                  if (isDob) {
+                    setState(() {
+                      _dobStep = 0;
+                      _pickingYear = true;
+                    });
+                  } else {
+                    setState(() => _pickingYear = !_pickingYear);
+                  }
+                },
+              ),
+            if (isDob && _dobStep == 0)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Choose birth year',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: DentalDatePickerColors.muted,
+                    ),
+                  ),
+                ),
+              ),
+            if (isDob && _dobStep == 1)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Choose birth month · ${_focusedMonth.year}',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: DentalDatePickerColors.muted,
+                    ),
+                  ),
+                ),
+              ),
+            const SizedBox(height: 4),
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 180),
-              child: _pickingYear
-                  ? _YearGrid(
-                      key: const ValueKey('years'),
-                      years: _years,
-                      selectedYear: _focusedMonth.year,
-                      onSelect: (year) {
-                        final month = _focusedMonth.month;
-                        var day = _selectedDate.day;
-                        final maxDay = DateTime(year, month + 1, 0).day;
-                        if (day > maxDay) day = maxDay;
-                        final candidate = DateTime(year, month, day);
-                        setState(() {
-                          _focusedMonth = DateTime(year, month);
-                          if (_isSelectable(candidate)) {
-                            _selectedDate = candidate;
-                          }
-                          _pickingYear = false;
-                        });
-                      },
-                    )
-                  : _CalendarGrid(
-                      key: ValueKey(
-                        '${_focusedMonth.year}-${_focusedMonth.month}',
-                      ),
-                      focusedMonth: _focusedMonth,
-                      selectedDate: _selectedDate,
-                      today: _today,
-                      isSelectable: _isSelectable,
-                      onSelect: _selectDate,
-                      weekdays: _weekdays,
-                    ),
+              child: isDob
+                  ? _buildDobBody()
+                  : (_pickingYear
+                      ? _YearGrid(
+                          key: const ValueKey('years'),
+                          years: _years,
+                          selectedYear: _focusedMonth.year,
+                          decadeStarts: const [],
+                          onSelect: _applyYear,
+                        )
+                      : _CalendarGrid(
+                          key: ValueKey(
+                            '${_focusedMonth.year}-${_focusedMonth.month}',
+                          ),
+                          focusedMonth: _focusedMonth,
+                          selectedDate: _selectedDate,
+                          today: _today,
+                          isSelectable: _isSelectable,
+                          onSelect: _selectDate,
+                          weekdays: _weekdays,
+                        )),
             ),
             const SizedBox(height: 14),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                TextButton(
+                AppButtons.ghost(
                   onPressed: () => Navigator.of(context).pop(),
-                  style: TextButton.styleFrom(
-                    foregroundColor: DentalDatePickerColors.muted,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 12,
-                    ),
-                  ),
-                  child: const Text(
-                    'Cancel',
-                    style: TextStyle(fontWeight: FontWeight.w600),
-                  ),
+                  label: 'Cancel',
                 ),
                 const SizedBox(width: 8),
-                FilledButton(
+                AppButtons.primary(
                   onPressed: () => Navigator.of(context).pop(_selectedDate),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: DentalDatePickerColors.active,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 22,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Text(
-                    'Select Date',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
+                  label: isDob ? 'Use this date' : 'Select Date',
                 ),
               ],
             ),
@@ -377,8 +717,102 @@ class _DentalDatePickerDialogState extends State<DentalDatePickerDialog> {
     );
   }
 
+  Widget _buildDobBody() {
+    switch (_dobStep) {
+      case 0:
+        return _YearGrid(
+          key: const ValueKey('dob-years'),
+          years: _years,
+          selectedYear: _focusedMonth.year,
+          decadeStarts: _decadeStarts,
+          onSelect: _applyYear,
+        );
+      case 1:
+        return _MonthGrid(
+          key: ValueKey('dob-months-${_focusedMonth.year}'),
+          year: _focusedMonth.year,
+          selectedMonth: _focusedMonth.month,
+          monthLabels: _monthShort,
+          firstDate: widget.firstDate,
+          lastDate: widget.lastDate,
+          onSelect: _applyMonth,
+        );
+      default:
+        return _CalendarGrid(
+          key: ValueKey(
+            '${_focusedMonth.year}-${_focusedMonth.month}',
+          ),
+          focusedMonth: _focusedMonth,
+          selectedDate: _selectedDate,
+          today: _today,
+          isSelectable: _isSelectable,
+          onSelect: _selectDate,
+          weekdays: _weekdays,
+        );
+    }
+  }
+
   static bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
+}
+
+class _DobStepBar extends StatelessWidget {
+  const _DobStepBar({
+    required this.step,
+    required this.onStepTap,
+  });
+
+  final int step;
+  final ValueChanged<int> onStepTap;
+
+  @override
+  Widget build(BuildContext context) {
+    const labels = ['Year', 'Month', 'Day'];
+    return Row(
+      children: [
+        for (var i = 0; i < labels.length; i++) ...[
+          if (i > 0)
+            Expanded(
+              child: Container(
+                height: 2,
+                margin: const EdgeInsets.symmetric(horizontal: 6),
+                color: i <= step
+                    ? DentalDatePickerColors.active.withValues(alpha: 0.35)
+                    : DentalDatePickerColors.border,
+              ),
+            ),
+          Material(
+            color: i == step
+                ? DentalDatePickerColors.active
+                : i < step
+                    ? DentalDatePickerColors.active.withValues(alpha: 0.12)
+                    : DentalDatePickerColors.surface,
+            borderRadius: BorderRadius.circular(20),
+            child: InkWell(
+              onTap: () => onStepTap(i),
+              borderRadius: BorderRadius.circular(20),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                child: Text(
+                  labels[i],
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: i == step
+                        ? Colors.white
+                        : i < step
+                            ? DentalDatePickerColors.active
+                            : DentalDatePickerColors.muted,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
 }
 
 class _PresetChip extends StatelessWidget {
@@ -488,50 +922,222 @@ class _MonthYearBar extends StatelessWidget {
   }
 }
 
-class _YearGrid extends StatelessWidget {
+class _YearGrid extends StatefulWidget {
   const _YearGrid({
     super.key,
     required this.years,
     required this.selectedYear,
     required this.onSelect,
+    this.decadeStarts = const [],
   });
 
   final List<int> years;
   final int selectedYear;
   final ValueChanged<int> onSelect;
+  final List<int> decadeStarts;
+
+  @override
+  State<_YearGrid> createState() => _YearGridState();
+}
+
+class _YearGridState extends State<_YearGrid> {
+  final _controller = ScrollController();
+  static const _rowExtent = 48.0; // approx cell + spacing
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToSelected());
+  }
+
+  @override
+  void didUpdateWidget(covariant _YearGrid oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedYear != widget.selectedYear) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToSelected());
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _scrollToSelected({int? year}) {
+    if (!_controller.hasClients) return;
+    final target = year ?? widget.selectedYear;
+    final index = widget.years.indexOf(target);
+    if (index < 0) return;
+    final row = index ~/ 4;
+    final offset = (row * _rowExtent)
+        .clamp(0.0, _controller.position.maxScrollExtent);
+    _controller.jumpTo(offset);
+  }
+
+  void _jumpToDecade(int decadeStart) {
+    for (final y in widget.years) {
+      if (y >= decadeStart && y < decadeStart + 10) {
+        _scrollToSelected(year: y);
+        return;
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 280,
+      height: 300,
+      child: Column(
+        children: [
+          if (widget.decadeStarts.isNotEmpty) ...[
+            SizedBox(
+              height: 36,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: widget.decadeStarts.length,
+                separatorBuilder: (context, index) => const SizedBox(width: 6),
+                itemBuilder: (context, i) {
+                  final decade = widget.decadeStarts[i];
+                  final inDecade = widget.selectedYear >= decade &&
+                      widget.selectedYear < decade + 10;
+                  return Material(
+                    color: inDecade
+                        ? DentalDatePickerColors.active.withValues(alpha: 0.12)
+                        : DentalDatePickerColors.surface,
+                    borderRadius: BorderRadius.circular(8),
+                    child: InkWell(
+                      onTap: () => _jumpToDecade(decade),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                        child: Text(
+                          '${decade}s',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: inDecade
+                                ? DentalDatePickerColors.active
+                                : DentalDatePickerColors.muted,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+          Expanded(
+            child: GridView.builder(
+              controller: _controller,
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 4,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+                childAspectRatio: 1.7,
+              ),
+              itemCount: widget.years.length,
+              itemBuilder: (context, i) {
+                final year = widget.years[i];
+                final selected = year == widget.selectedYear;
+                return Material(
+                  color: selected
+                      ? DentalDatePickerColors.active
+                      : DentalDatePickerColors.surface,
+                  borderRadius: BorderRadius.circular(10),
+                  child: InkWell(
+                    onTap: () => widget.onSelect(year),
+                    borderRadius: BorderRadius.circular(10),
+                    child: Center(
+                      child: Text(
+                        '$year',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: selected
+                              ? Colors.white
+                              : DentalDatePickerColors.text,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MonthGrid extends StatelessWidget {
+  const _MonthGrid({
+    super.key,
+    required this.year,
+    required this.selectedMonth,
+    required this.monthLabels,
+    required this.firstDate,
+    required this.lastDate,
+    required this.onSelect,
+  });
+
+  final int year;
+  final int selectedMonth;
+  final List<String> monthLabels;
+  final DateTime firstDate;
+  final DateTime lastDate;
+  final ValueChanged<int> onSelect;
+
+  bool _monthEnabled(int month) {
+    final start = DateTime(year, month, 1);
+    final end = DateTime(year, month + 1, 0);
+    if (end.isBefore(firstDate) || start.isAfter(lastDate)) return false;
+    return true;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 220,
       child: GridView.builder(
-        padding: const EdgeInsets.symmetric(vertical: 4),
+        physics: const NeverScrollableScrollPhysics(),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 4,
-          mainAxisSpacing: 8,
-          crossAxisSpacing: 8,
-          childAspectRatio: 1.7,
+          crossAxisCount: 3,
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          childAspectRatio: 2.2,
         ),
-        itemCount: years.length,
+        itemCount: 12,
         itemBuilder: (context, i) {
-          final year = years[i];
-          final selected = year == selectedYear;
+          final month = i + 1;
+          final enabled = _monthEnabled(month);
+          final selected = month == selectedMonth;
           return Material(
-            color: selected
-                ? DentalDatePickerColors.active
-                : DentalDatePickerColors.surface,
+            color: !enabled
+                ? DentalDatePickerColors.surface.withValues(alpha: 0.5)
+                : selected
+                    ? DentalDatePickerColors.active
+                    : DentalDatePickerColors.surface,
             borderRadius: BorderRadius.circular(10),
             child: InkWell(
-              onTap: () => onSelect(year),
+              onTap: enabled ? () => onSelect(month) : null,
               borderRadius: BorderRadius.circular(10),
               child: Center(
                 child: Text(
-                  '$year',
+                  monthLabels[i],
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
-                    color: selected
-                        ? Colors.white
-                        : DentalDatePickerColors.text,
+                    color: !enabled
+                        ? DentalDatePickerColors.muted.withValues(alpha: 0.45)
+                        : selected
+                            ? Colors.white
+                            : DentalDatePickerColors.text,
                   ),
                 ),
               ),

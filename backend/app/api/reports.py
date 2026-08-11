@@ -1,55 +1,185 @@
-"""Clinic reports / analytics summary for the dentist dashboard."""
+"""Clinic reports summary — Supabase-backed analytics for the Reports page.
+
+Returns the same JSON shape the Flutter Reports UI already expects.
+Case pipeline fields are derived from appointments (current work queue);
+clinical coverage is patient-media based (scans / photos / shade / smile).
+"""
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func
-from sqlalchemy.orm import Session
 
-from app.core.database import get_db
-from app.core.security import require_dentist
-from app.models import (
-    User,
-    Patient,
-    Case,
-    Scan,
-    Photo,
-    ShadeSelection,
-    ShapeSelection,
-    ScanBodySelection,
-    Message,
-    Notification,
-)
+from app.core.security import AuthUser, require_dentist
+from app.core.supabase_client import get_supabase_admin
+from app.services import patient_access as pa
+
+logger = logging.getLogger("app.api.reports")
 
 router = APIRouter()
 
-_STATUSES = ("pending", "in_progress", "in_review", "completed", "rejected")
+_CASE_STATUSES = ("pending", "in_progress", "in_review", "completed", "rejected")
+
+# Appointment status → Reports pipeline status (legacy UI labels).
+_APPT_TO_CASE = {
+    "scheduled": "pending",
+    "confirmed": "in_progress",
+    "completed": "completed",
+    "cancelled": "rejected",
+    "no_show": "rejected",
+}
 
 
-def _normalize_status(raw: str | None) -> str:
-    s = (raw or "pending").strip().lower()
-    if s == "awaiting_scan":
-        return "pending"
-    if s == "complete":
-        return "completed"
-    if s in _STATUSES:
-        return s
-    return "pending"
-
-
-def _dentist_patient_ids(db: Session, user: User) -> set[int] | None:
-    if user.role == "lab":
+def _parse_dt(raw: Any) -> datetime | None:
+    if raw is None:
         return None
-    rows = db.query(Patient.id).filter(Patient.dentist_id == user.id).all()
-    return {r[0] for r in rows}
+    if isinstance(raw, datetime):
+        dt = raw
+    else:
+        text = str(raw).strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def _week_start(dt: datetime) -> datetime:
-    local = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    local = dt.astimezone(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
     return local - timedelta(days=local.weekday())
+
+
+def _accessible_patients(user_id: str) -> list[dict[str, Any]]:
+    try:
+        owned = (
+            get_supabase_admin()
+            .table("patients")
+            .select("*")
+            .eq("created_by", user_id)
+            .eq("deleted", False)
+            .execute()
+        )
+        shared_ids_res = (
+            get_supabase_admin()
+            .table("patient_access")
+            .select("patient_id")
+            .eq("user_id", user_id)
+            .eq("status", "approved")
+            .execute()
+        )
+    except Exception as exc:
+        raise pa.db_error(exc) from exc
+
+    rows = list(getattr(owned, "data", None) or [])
+    seen = {str(r.get("id")) for r in rows}
+    shared_ids = [
+        str(r["patient_id"])
+        for r in (getattr(shared_ids_res, "data", None) or [])
+        if str(r.get("patient_id")) not in seen
+    ]
+    if shared_ids:
+        try:
+            shared = (
+                get_supabase_admin()
+                .table("patients")
+                .select("*")
+                .in_("id", shared_ids)
+                .eq("deleted", False)
+                .execute()
+            )
+            rows.extend(getattr(shared, "data", None) or [])
+        except Exception as exc:
+            raise pa.db_error(exc) from exc
+    return rows
+
+
+def _fetch_rows_for_patients(
+    table: str, patient_ids: list[str], columns: str = "*"
+) -> list[dict[str, Any]]:
+    if not patient_ids:
+        return []
+    try:
+        result = (
+            get_supabase_admin()
+            .table(table)
+            .select(columns)
+            .in_("patient_id", patient_ids)
+            .execute()
+        )
+    except Exception as exc:
+        logger.warning("reports: %s query failed: %s", table, exc)
+        return []
+    return list(getattr(result, "data", None) or [])
+
+
+def _patient_name(row: dict[str, Any]) -> str:
+    name = f"{row.get('first_name') or ''} {row.get('last_name') or ''}".strip()
+    return name or f"Patient #{row.get('id')}"
+
+
+def _message_stats(user_id: str) -> tuple[int, int]:
+    """Return (threads_with_messages, unread)."""
+    try:
+        as_a = (
+            get_supabase_admin()
+            .table("conversations")
+            .select("id")
+            .eq("user_a", user_id)
+            .execute()
+        )
+        as_b = (
+            get_supabase_admin()
+            .table("conversations")
+            .select("id")
+            .eq("user_b", user_id)
+            .execute()
+        )
+    except Exception as exc:
+        logger.warning("reports: conversations query failed: %s", exc)
+        return 0, 0
+
+    conv_ids = [
+        str(r["id"])
+        for r in (getattr(as_a, "data", None) or [])
+        + (getattr(as_b, "data", None) or [])
+    ]
+    if not conv_ids:
+        return 0, 0
+
+    unread = 0
+    threads = 0
+    for cid in conv_ids:
+        try:
+            msgs = (
+                get_supabase_admin()
+                .table("messages")
+                .select("id,sender_id,read_at")
+                .eq("conversation_id", cid)
+                .limit(200)
+                .execute()
+            )
+        except Exception:
+            continue
+        rows = getattr(msgs, "data", None) or []
+        if not rows:
+            continue
+        threads += 1
+        for m in rows:
+            if str(m.get("sender_id")) != user_id and not m.get("read_at"):
+                unread += 1
+    return threads, unread
 
 
 @router.get("/summary")
@@ -60,135 +190,100 @@ def clinic_summary(
         le=3650,
         description="Lookback window in days. Pass 0 for all-time.",
     ),
-    user: User = Depends(require_dentist),
-    db: Session = Depends(get_db),
+    user: AuthUser = Depends(require_dentist),
 ):
-    """Aggregate clinic KPIs, pipeline, clinical AI coverage, and weekly throughput."""
-    # days=0 means all-time (handy for Flutter "All" chip)
+    """Aggregate clinic KPIs for the Reports page."""
     all_time = days == 0
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     since = None if all_time else now - timedelta(days=days)
 
-    allowed = _dentist_patient_ids(db, user)
-    patients_q = db.query(Patient)
-    cases_q = db.query(Case)
-    if allowed is not None:
-        patients_q = patients_q.filter(Patient.id.in_(allowed or {-1}))
-        cases_q = cases_q.filter(Case.patient_id.in_(allowed or {-1}))
-
-    patients = patients_q.all()
-    cases = cases_q.all()
-    case_ids = {c.id for c in cases}
+    patients = _accessible_patients(user.id)
+    patient_ids = [str(p["id"]) for p in patients if p.get("id")]
+    patients_by_id = {str(p["id"]): p for p in patients}
 
     patients_new = 0
     if since is not None:
-        patients_new = sum(1 for p in patients if p.created_at and p.created_at >= since)
+        for p in patients:
+            created = _parse_dt(p.get("created_at"))
+            if created and created >= since:
+                patients_new += 1
 
-    by_status = {s: 0 for s in _STATUSES}
+    appointments = _fetch_rows_for_patients("appointments", patient_ids)
+    scans = _fetch_rows_for_patients(
+        "patient_scans", patient_ids, "id,patient_id,created_at"
+    )
+    photos = _fetch_rows_for_patients(
+        "patient_photos", patient_ids, "id,patient_id,created_at"
+    )
+    shades = _fetch_rows_for_patients(
+        "shade_detections", patient_ids, "id,patient_id,created_at"
+    )
+    smiles = _fetch_rows_for_patients(
+        "smile_previews", patient_ids, "id,patient_id,created_at"
+    )
+
+    by_status = {s: 0 for s in _CASE_STATUSES}
     created_in_period = 0
     completed_in_period = 0
     processing_hours: list[float] = []
     week_created: dict[str, int] = defaultdict(int)
     week_completed: dict[str, int] = defaultdict(int)
 
-    for c in cases:
-        status = _normalize_status(c.status)
+    for appt in appointments:
+        status = _APPT_TO_CASE.get(
+            str(appt.get("status") or "").strip().lower(), "pending"
+        )
         by_status[status] = by_status.get(status, 0) + 1
 
-        if c.created_at:
-            if since is None or c.created_at >= since:
+        created = _parse_dt(appt.get("created_at")) or _parse_dt(appt.get("start_time"))
+        updated = _parse_dt(appt.get("updated_at")) or _parse_dt(appt.get("end_time"))
+
+        if created is not None:
+            if since is None or created >= since:
                 created_in_period += 1
-            wk = _week_start(c.created_at).date().isoformat()
-            if since is None or c.created_at >= since:
+            wk = _week_start(created).date().isoformat()
+            if since is None or created >= since:
                 week_created[wk] += 1
 
-        if status == "completed" and c.created_at and c.updated_at:
-            hours = (c.updated_at - c.created_at).total_seconds() / 3600.0
+        if status == "completed" and created is not None and updated is not None:
+            hours = (updated - created).total_seconds() / 3600.0
             if hours >= 0:
                 processing_hours.append(hours)
-            if since is None or c.updated_at >= since:
+            if since is None or updated >= since:
                 completed_in_period += 1
-                wk = _week_start(c.updated_at).date().isoformat()
-                week_completed[wk] += 1
+                week_completed[_week_start(updated).date().isoformat()] += 1
 
-    total_cases = len(cases)
+    total_cases = len(appointments)
     rejected = by_status.get("rejected", 0)
     rejection_rate = (rejected / total_cases) if total_cases else 0.0
     avg_hours = (
         sum(processing_hours) / len(processing_hours) if processing_hours else None
     )
 
-    # Clinical coverage (distinct cases with at least one artifact)
-    def _case_ids_with(model) -> set[int]:
-        if not case_ids:
-            return set()
-        rows = (
-            db.query(model.case_id)
-            .filter(model.case_id.in_(case_ids))
-            .distinct()
-            .all()
-        )
-        return {r[0] for r in rows}
+    patients_with_scans = {str(r["patient_id"]) for r in scans if r.get("patient_id")}
+    patients_with_photos = {str(r["patient_id"]) for r in photos if r.get("patient_id")}
+    patients_with_shade = {str(r["patient_id"]) for r in shades if r.get("patient_id")}
+    patients_with_shape = {str(r["patient_id"]) for r in smiles if r.get("patient_id")}
 
-    cases_with_scans = _case_ids_with(Scan)
-    cases_with_photos = _case_ids_with(Photo)
-    cases_with_shade = _case_ids_with(ShadeSelection)
-    cases_with_shape = _case_ids_with(ShapeSelection)
-    cases_with_scan_body = _case_ids_with(ScanBodySelection)
+    covered = (
+        patients_with_scans
+        | patients_with_shade
+        | patients_with_shape
+        | patients_with_photos
+    )
+    coverage_pct = (
+        round(len(covered) / len(patient_ids) * 100, 1) if patient_ids else 0.0
+    )
 
-    total_scans = 0
-    total_photos = 0
-    total_shades = 0
-    if case_ids:
-        total_scans = (
-            db.query(func.count(Scan.id)).filter(Scan.case_id.in_(case_ids)).scalar()
-            or 0
-        )
-        total_photos = (
-            db.query(func.count(Photo.id)).filter(Photo.case_id.in_(case_ids)).scalar()
-            or 0
-        )
-        total_shades = (
-            db.query(func.count(ShadeSelection.id))
-            .filter(ShadeSelection.case_id.in_(case_ids))
-            .scalar()
-            or 0
-        )
-
-    # Messages / notifications
-    unread_messages = 0
-    threads_with_messages = 0
-    if case_ids:
-        msg_rows = (
-            db.query(Message.case_id, Message.read_at, Message.sender_id)
-            .filter(Message.case_id.in_(case_ids))
-            .all()
-        )
-        by_case: dict[int, list] = defaultdict(list)
-        for row in msg_rows:
-            by_case[row.case_id].append(row)
-        threads_with_messages = len(by_case)
-        for rows in by_case.values():
-            for m in rows:
-                if m.read_at is None and m.sender_id != user.id:
-                    unread_messages += 1
-
-    notif_q = db.query(Notification).filter(Notification.user_id == user.id)
-    notifications_total = notif_q.count()
-    notifications_unread = notif_q.filter(Notification.read.is_(False)).count()
-
-    # Weekly throughput buckets (last 8 weeks intersecting the window)
-    weeks: list[dict] = []
+    # Weekly throughput buckets
+    weeks: list[dict[str, Any]] = []
     if all_time:
-        # Use up to last 8 calendar weeks that have any activity, else last 8 weeks
         keys = sorted(set(week_created) | set(week_completed))
         if len(keys) > 8:
             keys = keys[-8:]
         if not keys:
             start = _week_start(now) - timedelta(weeks=7)
-            keys = [
-                (start + timedelta(weeks=i)).date().isoformat() for i in range(8)
-            ]
+            keys = [(start + timedelta(weeks=i)).date().isoformat() for i in range(8)]
         for k in keys:
             weeks.append(
                 {
@@ -214,61 +309,72 @@ def clinic_summary(
         if len(weeks) > 12:
             weeks = weeks[-12:]
 
-    # Attention queue — open / rejected cases newest first
-    attention_statuses = {"pending", "in_progress", "in_review", "rejected"}
-    patients_by_id = {p.id: p for p in patients}
-    attention = []
-    for c in sorted(
-        cases,
-        key=lambda x: x.updated_at or datetime(1970, 1, 1),
+    # Attention queue — open appointments + patients missing clinical work
+    attention: list[dict[str, Any]] = []
+    open_statuses = {"pending", "in_progress", "in_review"}
+    for appt in sorted(
+        appointments,
+        key=lambda a: _parse_dt(a.get("updated_at"))
+        or _parse_dt(a.get("start_time"))
+        or datetime(1970, 1, 1, tzinfo=timezone.utc),
         reverse=True,
     ):
-        st = _normalize_status(c.status)
-        if st not in attention_statuses:
-            continue
-        p = patients_by_id.get(c.patient_id)
-        name = (
-            f"{p.first_name} {p.last_name}".strip()
-            if p
-            else f"Patient #{c.patient_id}"
+        status = _APPT_TO_CASE.get(
+            str(appt.get("status") or "").strip().lower(), "pending"
         )
+        if status not in open_statuses and status != "rejected":
+            continue
+        pid = str(appt.get("patient_id") or "")
+        p = patients_by_id.get(pid) or {}
         attention.append(
             {
-                "case_id": c.id,
-                "patient_id": c.patient_id,
-                "patient_name": name,
-                "status": st,
-                "updated_at": c.updated_at.isoformat() if c.updated_at else None,
-                "created_at": c.created_at.isoformat() if c.created_at else None,
-                "has_scan": c.id in cases_with_scans,
-                "has_shade": c.id in cases_with_shade,
-                "has_shape": c.id in cases_with_shape,
-                "has_scan_body": c.id in cases_with_scan_body,
+                "case_id": str(appt.get("id") or ""),
+                "patient_id": pid,
+                "patient_name": _patient_name(p) if p else f"Patient #{pid}",
+                "status": status,
+                "updated_at": appt.get("updated_at") or appt.get("start_time"),
+                "created_at": appt.get("created_at") or appt.get("start_time"),
+                "has_scan": pid in patients_with_scans,
+                "has_shade": pid in patients_with_shade,
+                "has_shape": pid in patients_with_shape,
+                "has_scan_body": False,
             }
         )
         if len(attention) >= 12:
             break
 
-    # Top patients by case volume
-    case_count_by_patient: dict[int, int] = defaultdict(int)
-    for c in cases:
-        case_count_by_patient[c.patient_id] += 1
-    top_patients = []
-    for pid, count in sorted(
-        case_count_by_patient.items(), key=lambda x: x[1], reverse=True
-    )[:8]:
+    # Top patients by appointment volume (fallback: clinical asset count)
+    appt_count: dict[str, int] = defaultdict(int)
+    for appt in appointments:
+        pid = str(appt.get("patient_id") or "")
+        if pid:
+            appt_count[pid] += 1
+    if not appt_count:
+        for pid in patient_ids:
+            score = (
+                (1 if pid in patients_with_scans else 0)
+                + (1 if pid in patients_with_photos else 0)
+                + (1 if pid in patients_with_shade else 0)
+                + (1 if pid in patients_with_shape else 0)
+            )
+            if score:
+                appt_count[pid] = score
+
+    top_patients: list[dict[str, Any]] = []
+    for pid, count in sorted(appt_count.items(), key=lambda x: x[1], reverse=True)[:8]:
         p = patients_by_id.get(pid)
         if not p:
             continue
         top_patients.append(
             {
                 "patient_id": pid,
-                "name": f"{p.first_name} {p.last_name}".strip(),
+                "name": _patient_name(p),
                 "cases": count,
-                "health_insurance": p.health_insurance,
+                "health_insurance": p.get("health_insurance"),
             }
         )
 
+    threads, unread = _message_stats(user.id)
     active = (
         by_status["pending"]
         + by_status["in_progress"]
@@ -277,7 +383,7 @@ def clinic_summary(
     )
 
     return {
-        "generated_at": now.isoformat() + "Z",
+        "generated_at": now.isoformat().replace("+00:00", "Z"),
         "period_days": None if all_time else (days or 30),
         "clinic_name": user.clinic_name,
         "dentist_name": user.name,
@@ -291,41 +397,30 @@ def clinic_summary(
             "created_in_period": created_in_period,
             "completed_in_period": completed_in_period,
             "by_status": by_status,
-            "avg_processing_hours": round(avg_hours, 1) if avg_hours is not None else None,
+            "avg_processing_hours": round(avg_hours, 1)
+            if avg_hours is not None
+            else None,
             "rejection_rate": round(rejection_rate, 4),
         },
         "clinical": {
-            "cases_with_scans": len(cases_with_scans),
-            "cases_with_photos": len(cases_with_photos),
-            "cases_with_shade": len(cases_with_shade),
-            "cases_with_shape": len(cases_with_shape),
-            "cases_with_scan_body": len(cases_with_scan_body),
-            "total_scans": int(total_scans),
-            "total_photos": int(total_photos),
-            "total_shade_saves": int(total_shades),
-            "coverage_pct": round(
-                (
-                    len(
-                        cases_with_scans
-                        | cases_with_shade
-                        | cases_with_shape
-                        | cases_with_scan_body
-                    )
-                    / total_cases
-                    * 100
-                )
-                if total_cases
-                else 0.0,
-                1,
-            ),
+            # Keys keep legacy names; values are patient coverage counts.
+            "cases_with_scans": len(patients_with_scans),
+            "cases_with_photos": len(patients_with_photos),
+            "cases_with_shade": len(patients_with_shade),
+            "cases_with_shape": len(patients_with_shape),
+            "cases_with_scan_body": 0,
+            "total_scans": len(scans),
+            "total_photos": len(photos),
+            "total_shade_saves": len(shades),
+            "coverage_pct": coverage_pct,
         },
         "messages": {
-            "threads_with_messages": threads_with_messages,
-            "unread": unread_messages,
+            "threads_with_messages": threads,
+            "unread": unread,
         },
         "notifications": {
-            "total": notifications_total,
-            "unread": notifications_unread,
+            "total": 0,
+            "unread": 0,
         },
         "throughput": weeks,
         "attention": attention,

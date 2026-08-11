@@ -39,18 +39,18 @@ class InboxScreen extends StatelessWidget {
                 subtitle: controller.socketConnected
                     ? 'Live · ${controller.totalUnread} unread'
                     : 'Reconnecting…',
-                actions: [
-                  IconButton(
+                chromeActions: [
+                  AppButtons.icon(
                     tooltip: loc.refresh,
                     onPressed:
                         controller.loadingInbox ? null : controller.loadInbox,
-                    icon: const Icon(Icons.refresh, size: 20),
+                    icon: Icons.refresh_rounded,
                   ),
                   if (onNewChat != null)
-                    IconButton(
+                    AppButtons.icon(
                       tooltip: 'New chat',
                       onPressed: onNewChat,
-                      icon: const Icon(Icons.edit_square, size: 20),
+                      icon: Icons.edit_square,
                     ),
                 ],
               ),

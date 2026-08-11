@@ -18,6 +18,7 @@ from app.api import (
     smile_previews,
     camera_photos,
     appointments,
+    reports,
 )
 from app.core.debug_middleware import DebugRequestMiddleware, configure_api_logging
 from app.openapi_docs import attach_custom_openapi
@@ -107,6 +108,12 @@ app.include_router(
     appointments.router,
     prefix="/api/appointments",
     tags=["Appointments"],
+)
+# Clinic reports / analytics
+app.include_router(
+    reports.router,
+    prefix="/api/reports",
+    tags=["Reports"],
 )
 # Chat WebSocket: /ws/chat?token=<access_token>
 app.include_router(chat.ws_router, tags=["chat"])

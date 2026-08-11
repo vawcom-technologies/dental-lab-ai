@@ -1,10 +1,10 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/touchable.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../../shell/app_sidebar.dart';
 
@@ -23,7 +23,7 @@ class ReportsPage extends StatefulWidget {
 }
 
 class _ReportsPageState extends State<ReportsPage> {
-  bool _loading = true;
+  bool _loading = false;
   String? _error;
   int _days = 30;
   Map<String, dynamic>? _summary;
@@ -66,22 +66,10 @@ class _ReportsPageState extends State<ReportsPage> {
       (_summary?['cases'] as Map<String, dynamic>?) ?? const {};
   Map<String, dynamic> get _patientsBlock =>
       (_summary?['patients'] as Map<String, dynamic>?) ?? const {};
-  Map<String, dynamic> get _clinical =>
-      (_summary?['clinical'] as Map<String, dynamic>?) ?? const {};
-  Map<String, dynamic> get _messages =>
-      (_summary?['messages'] as Map<String, dynamic>?) ?? const {};
-  Map<String, dynamic> get _notifications =>
-      (_summary?['notifications'] as Map<String, dynamic>?) ?? const {};
   Map<String, dynamic> get _byStatus =>
       (_cases['by_status'] as Map<String, dynamic>?) ?? const {};
-  List<Map<String, dynamic>> get _throughput =>
-      ((_summary?['throughput'] as List?) ?? const [])
-          .cast<Map<String, dynamic>>();
   List<Map<String, dynamic>> get _attention =>
       ((_summary?['attention'] as List?) ?? const [])
-          .cast<Map<String, dynamic>>();
-  List<Map<String, dynamic>> get _topPatients =>
-      ((_summary?['top_patients'] as List?) ?? const [])
           .cast<Map<String, dynamic>>();
 
   int _n(dynamic v) => (v as num?)?.toInt() ?? 0;
@@ -94,46 +82,52 @@ class _ReportsPageState extends State<ReportsPage> {
     return '${(hours / 24).toStringAsFixed(1)}d';
   }
 
-  String _rejectionLabel() {
-    final rate = _d(_cases['rejection_rate']) ?? 0;
-    return '${(rate * 100).toStringAsFixed(rate > 0 && rate < 0.01 ? 1 : 0)}%';
-  }
-
-  String _periodSubtitle(AppLocalizations loc) {
-    final clinic = '${_summary?['clinic_name'] ?? ''}'.trim();
-    final prefix = clinic.isEmpty ? loc.reportsSubtitle : clinic;
-    final period = switch (_days) {
+  String _periodLabel(AppLocalizations loc) {
+    return switch (_days) {
       7 => loc.reportsPeriod7,
       90 => loc.reportsPeriod90,
       0 => loc.reportsPeriodAll,
       _ => loc.reportsPeriod30,
     };
-    return '$prefix · $period';
   }
 
-  Future<void> _showClinicSummary() async {
+  String _headerSubtitle(AppLocalizations loc) {
+    if (_loading && _summary == null) return loc.reportsLoading;
+    final clinic = '${_summary?['clinic_name'] ?? ''}'.trim();
+    if (clinic.isEmpty) return _periodLabel(loc);
+    return '$clinic · ${_periodLabel(loc)}';
+  }
+
+  Future<void> _exportSummary() async {
     final loc = AppLocalizations.of(context);
     final text = _buildSummaryText(loc);
-    await showDialog<void>(
+    await showCupertinoDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => CupertinoAlertDialog(
         title: Text(loc.reportsSummaryTitle),
-        content: SizedBox(
-          width: 520,
-          height: 380,
-          child: SingleChildScrollView(
-            child: SelectableText(text, style: const TextStyle(fontSize: 13, height: 1.4)),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 10),
+          child: SizedBox(
+            height: 280,
+            child: SingleChildScrollView(
+              child: Text(
+                text,
+                style: AppFonts.style(fontSize: 13, height: 1.4),
+                textAlign: TextAlign.left,
+              ),
+            ),
           ),
         ),
         actions: [
-          TextButton(
+          CupertinoDialogAction(
             onPressed: () async {
               await Clipboard.setData(ClipboardData(text: text));
               if (ctx.mounted) Navigator.pop(ctx);
             },
             child: const Text('Copy'),
           ),
-          TextButton(
+          CupertinoDialogAction(
+            isDefaultAction: true,
             onPressed: () => Navigator.pop(ctx),
             child: Text(loc.reportsClose),
           ),
@@ -145,48 +139,35 @@ class _ReportsPageState extends State<ReportsPage> {
   String _buildSummaryText(AppLocalizations loc) {
     final clinic = '${_summary?['clinic_name'] ?? 'Elite Dent'}';
     final dentist = '${_summary?['dentist_name'] ?? ''}';
-    final period = switch (_days) {
-      7 => loc.reportsPeriod7,
-      90 => loc.reportsPeriod90,
-      0 => loc.reportsPeriodAll,
-      _ => loc.reportsPeriod30,
-    };
     final buf = StringBuffer()
       ..writeln('$clinic — $dentist')
-      ..writeln('Period: $period')
-      ..writeln('Generated: ${_summary?['generated_at'] ?? ''}')
+      ..writeln('Period: ${_periodLabel(loc)}')
       ..writeln()
-      ..writeln('${loc.reportsPatients}: ${_n(_patientsBlock['total'])} '
-          '(${_n(_patientsBlock['new_in_period'])} ${loc.reportsNewInPeriod})')
+      ..writeln(
+        '${loc.reportsPatients}: ${_n(_patientsBlock['total'])} '
+        '(${_n(_patientsBlock['new_in_period'])} ${loc.reportsNewInPeriod})',
+      )
       ..writeln('${loc.reportsActiveCases}: ${_n(_cases['active'])}')
-      ..writeln('${loc.reportsCompleted}: ${_n(_cases['by_status'] is Map ? (_byStatus['completed'] ?? 0) : 0)} '
-          '(${_n(_cases['completed_in_period'])} ${loc.reportsCompletedInPeriod})')
+      ..writeln(
+        '${loc.reportsCompleted}: ${_n(_byStatus['completed'])} '
+        '(${_n(_cases['completed_in_period'])} ${loc.reportsCompletedInPeriod})',
+      )
       ..writeln('${loc.reportsAvgTime}: ${_avgLabel()}')
-      ..writeln('${loc.reportsRejectionRate}: ${_rejectionLabel()}')
       ..writeln()
       ..writeln('${loc.reportsPipeline}:');
     for (final s in CaseStatuses.all) {
       buf.writeln('  · ${loc.statusLabel(s)}: ${_n(_byStatus[s])}');
     }
-    buf
-      ..writeln()
-      ..writeln('${loc.reportsClinical}: ${_d(_clinical['coverage_pct'])?.toStringAsFixed(0) ?? '0'}%')
-      ..writeln('  · ${loc.reportsWithScans}: ${_n(_clinical['cases_with_scans'])}')
-      ..writeln('  · ${loc.reportsWithShade}: ${_n(_clinical['cases_with_shade'])}')
-      ..writeln('  · ${loc.reportsWithShape}: ${_n(_clinical['cases_with_shape'])}')
-      ..writeln('  · ${loc.reportsWithScanBody}: ${_n(_clinical['cases_with_scan_body'])}')
-      ..writeln()
-      ..writeln('${loc.reportsLabInbox}:')
-      ..writeln('  · ${loc.reportsUnreadMessages}: ${_n(_messages['unread'])}')
-      ..writeln('  · ${loc.reportsThreads}: ${_n(_messages['threads_with_messages'])}')
-      ..writeln('  · ${loc.reportsUnreadNotifs}: ${_n(_notifications['unread'])}');
     return buf.toString();
   }
 
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
-    final totalCases = _n(_cases['total']);
+    final totalCases = CaseStatuses.all.fold<int>(
+      0,
+      (sum, s) => sum + _n(_byStatus[s]),
+    );
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
@@ -194,223 +175,104 @@ class _ReportsPageState extends State<ReportsPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           PageHeader(
-            icon: Icons.bar_chart_rounded,
+            icon: Icons.insights_rounded,
             title: loc.reportsTitle,
-            subtitle: _loading ? loc.reportsLoading : _periodSubtitle(loc),
-            actions: [
-              IconButton(
+            subtitle: _headerSubtitle(loc),
+            chromeActions: [
+              AppButtons.icon(
                 tooltip: loc.refresh,
                 onPressed: _loading ? null : _load,
-                icon: const Icon(Icons.refresh, size: 20),
+                icon: Icons.refresh_rounded,
               ),
-              OutlinedButton.icon(
-                onPressed: _loading || _summary == null ? null : _showClinicSummary,
-                icon: const Icon(Icons.description_outlined, size: 18),
-                label: Text(loc.reportsSummaryExport),
+            ],
+            actions: [
+              AppButtons.secondary(
+                onPressed:
+                    _loading || _summary == null ? null : _exportSummary,
+                icon: Icons.ios_share_rounded,
+                label: loc.reportsSummaryExport,
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              SoftFilterChip(
-                label: loc.reportsPeriod7,
-                selected: _days == 7,
-                enabled: !_loading,
-                onTap: () => _setPeriod(7),
-              ),
-              SoftFilterChip(
-                label: loc.reportsPeriod30,
-                selected: _days == 30,
-                enabled: !_loading,
-                onTap: () => _setPeriod(30),
-              ),
-              SoftFilterChip(
-                label: loc.reportsPeriod90,
-                selected: _days == 90,
-                enabled: !_loading,
-                onTap: () => _setPeriod(90),
-              ),
-              SoftFilterChip(
-                label: loc.reportsPeriodAll,
-                selected: _days == 0,
-                enabled: !_loading,
-                onTap: () => _setPeriod(0),
-              ),
-            ],
-          ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(
-                _error!,
-                style: const TextStyle(color: AppColors.danger, fontSize: 13),
-              ),
+          const SizedBox(height: 18),
+          _PeriodControl(
+            days: _days,
+            enabled: !_loading,
+            labels: (
+              loc.reportsPeriod7,
+              loc.reportsPeriod30,
+              loc.reportsPeriod90,
+              loc.reportsPeriodAll,
             ),
-          const SizedBox(height: 16),
+            onChanged: _setPeriod,
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 14),
+            _ErrorBanner(message: _error!, onRetry: _loading ? null : _load),
+          ],
+          const SizedBox(height: 20),
           Expanded(
             child: _loading && _summary == null
                 ? const ToothPageLoader(message: 'Loading reports…')
-                : SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _KpiRow(
-                          loading: _loading,
-                          items: [
-                            _KpiData(
-                              title: loc.reportsPatients,
-                              value: '${_n(_patientsBlock['total'])}',
-                              hint:
-                                  '${_n(_patientsBlock['new_in_period'])} ${loc.reportsNewInPeriod}',
-                              hintColor: AppColors.dentalBlue,
-                            ),
-                            _KpiData(
-                              title: loc.reportsActiveCases,
-                              value: '${_n(_cases['active'])}',
-                              hint:
-                                  '${_n(_cases['created_in_period'])} ${loc.reportsCreatedInPeriod}',
-                              hintColor: AppColors.warning,
-                            ),
-                            _KpiData(
-                              title: loc.reportsCompleted,
-                              value: '${_n(_byStatus['completed'])}',
-                              hint:
-                                  '${_n(_cases['completed_in_period'])} ${loc.reportsCompletedInPeriod}',
-                              hintColor: AppColors.success,
-                            ),
-                            _KpiData(
-                              title: loc.reportsAvgTime,
-                              value: _avgLabel(),
-                              hint: loc.dashBasedOnCompleted,
-                              hintColor: AppColors.muted,
-                            ),
-                            _KpiData(
-                              title: loc.reportsRejectionRate,
-                              value: _rejectionLabel(),
-                              hint: _n(_byStatus['rejected']) == 0
-                                  ? loc.dashNoRejections
-                                  : loc.dashNeedRescan,
-                              hintColor: _n(_byStatus['rejected']) > 0
-                                  ? AppColors.danger
-                                  : AppColors.success,
+                : LayoutBuilder(
+                    builder: (context, constraints) {
+                      final landscape = constraints.maxWidth >= 780;
+                      final hero = _HeroMetrics(
+                        loading: _loading,
+                        forceHorizontal: landscape,
+                        patients: _n(_patientsBlock['total']),
+                        patientsHint:
+                            '${_n(_patientsBlock['new_in_period'])} new',
+                        active: _n(_cases['active']),
+                        completed: _n(_cases['completed_in_period']),
+                        completedHint: loc.reportsCompletedInPeriod,
+                        avgTime: _avgLabel(),
+                      );
+                      final pipeline = _PipelineSection(
+                        loc: loc,
+                        byStatus: _byStatus,
+                        total: totalCases,
+                        expand: landscape,
+                      );
+                      final attention = _AttentionSection(
+                        loc: loc,
+                        rows: _attention,
+                        expand: landscape,
+                        onOpenPatients: () =>
+                            widget.onNavigate(AppNavItem.patients),
+                      );
+
+                      // Landscape: full-width KPI strip, then equal-height columns.
+                      if (landscape) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            hero,
+                            const SizedBox(height: 18),
+                            Expanded(
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Expanded(child: pipeline),
+                                  const SizedBox(width: 18),
+                                  Expanded(child: attention),
+                                ],
+                              ),
                             ),
                           ],
-                        ),
-                        const SizedBox(height: 14),
-                        LayoutBuilder(
-                          builder: (context, constraints) {
-                            final wide = constraints.maxWidth >= 980;
-                            final pipeline = _PipelineCard(
-                              loc: loc,
-                              byStatus: _byStatus,
-                              total: totalCases,
-                            );
-                            final throughput = _ThroughputCard(
-                              loc: loc,
-                              weeks: _throughput,
-                            );
-                            if (wide) {
-                              return Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(flex: 3, child: pipeline),
-                                  const SizedBox(width: 12),
-                                  Expanded(flex: 2, child: throughput),
-                                ],
-                              );
-                            }
-                            return Column(
-                              children: [
-                                pipeline,
-                                const SizedBox(height: 12),
-                                throughput,
-                              ],
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 14),
-                        LayoutBuilder(
-                          builder: (context, constraints) {
-                            final wide = constraints.maxWidth >= 980;
-                            final clinical = _ClinicalCard(
-                              loc: loc,
-                              clinical: _clinical,
-                              totalCases: totalCases,
-                            );
-                            final inbox = _InboxCard(
-                              loc: loc,
-                              messages: _messages,
-                              notifications: _notifications,
-                              onMessages: () =>
-                                  widget.onNavigate(AppNavItem.messages),
-                              onNotifications: () =>
-                                  widget.onNavigate(AppNavItem.notifications),
-                            );
-                            if (wide) {
-                              return Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(flex: 3, child: clinical),
-                                  const SizedBox(width: 12),
-                                  Expanded(flex: 2, child: inbox),
-                                ],
-                              );
-                            }
-                            return Column(
-                              children: [
-                                clinical,
-                                const SizedBox(height: 12),
-                                inbox,
-                              ],
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 14),
-                        LayoutBuilder(
-                          builder: (context, constraints) {
-                            final wide = constraints.maxWidth >= 980;
-                            final attention = _AttentionCard(
-                              loc: loc,
-                              rows: _attention,
-                              onPatients: () =>
-                                  widget.onNavigate(AppNavItem.patients),
-                            );
-                            final top = _TopPatientsCard(
-                              loc: loc,
-                              rows: _topPatients,
-                              onPatients: () =>
-                                  widget.onNavigate(AppNavItem.patients),
-                            );
-                            if (wide) {
-                              return Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(flex: 3, child: attention),
-                                  const SizedBox(width: 12),
-                                  Expanded(flex: 2, child: top),
-                                ],
-                              );
-                            }
-                            return Column(
-                              children: [
-                                attention,
-                                const SizedBox(height: 12),
-                                top,
-                              ],
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 14),
-                        _ExportsCard(
-                          loc: loc,
-                          onSummary: _showClinicSummary,
-                        ),
-                        const SizedBox(height: 8),
-                      ],
-                    ),
+                        );
+                      }
+
+                      return ListView(
+                        children: [
+                          hero,
+                          const SizedBox(height: 18),
+                          pipeline,
+                          const SizedBox(height: 18),
+                          attention,
+                        ],
+                      );
+                    },
                   ),
           ),
         ],
@@ -419,98 +281,236 @@ class _ReportsPageState extends State<ReportsPage> {
   }
 }
 
-class _KpiData {
-  const _KpiData({
-    required this.title,
-    required this.value,
-    required this.hint,
-    required this.hintColor,
-  });
+class _ErrorBanner extends StatelessWidget {
+  const _ErrorBanner({required this.message, this.onRetry});
 
-  final String title;
-  final String value;
-  final String hint;
-  final Color hintColor;
-}
-
-class _KpiRow extends StatelessWidget {
-  const _KpiRow({required this.items, required this.loading});
-
-  final List<_KpiData> items;
-  final bool loading;
+  final String message;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final wrap = constraints.maxWidth < 1100;
-        if (wrap) {
-          return Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              for (final item in items)
-                SizedBox(
-                  width: (constraints.maxWidth - 12) / 2,
-                  child: _KpiCard(data: item, loading: loading),
-                ),
-            ],
-          );
-        }
-        return Row(
-          children: [
-            for (var i = 0; i < items.length; i++) ...[
-              if (i > 0) const SizedBox(width: 12),
-              Expanded(child: _KpiCard(data: items[i], loading: loading)),
-            ],
-          ],
-        );
-      },
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.dangerSoft,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.info_outline_rounded,
+              size: 18, color: AppColors.danger),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: AppFonts.style(
+                color: AppColors.danger,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          if (onRetry != null)
+            AppButtons.ghost(
+              onPressed: onRetry,
+              label: 'Retry',
+              compact: true,
+            ),
+        ],
+      ),
     );
   }
 }
 
-class _KpiCard extends StatelessWidget {
-  const _KpiCard({required this.data, required this.loading});
+class _PeriodControl extends StatelessWidget {
+  const _PeriodControl({
+    required this.days,
+    required this.enabled,
+    required this.labels,
+    required this.onChanged,
+  });
 
-  final _KpiData data;
-  final bool loading;
+  final int days;
+  final bool enabled;
+  final (String, String, String, String) labels;
+  final ValueChanged<int> onChanged;
 
   @override
   Widget build(BuildContext context) {
+    final values = const [7, 30, 90, 0];
+    final selected = values.indexOf(days).clamp(0, 3);
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: SizedBox(
+        width: 420,
+        child: IgnorePointer(
+          ignoring: !enabled,
+          child: Opacity(
+            opacity: enabled ? 1 : 0.55,
+            child: CupertinoSlidingSegmentedControl<int>(
+              groupValue: selected,
+              backgroundColor: AppColors.inset,
+              thumbColor: Colors.white,
+              children: {
+                0: _seg(labels.$1),
+                1: _seg(labels.$2),
+                2: _seg(labels.$3),
+                3: _seg(labels.$4),
+              },
+              onValueChanged: (index) {
+                if (index == null) return;
+                onChanged(values[index]);
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _seg(String label) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      child: Text(
+        label,
+        style: AppFonts.style(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: AppColors.navy,
+        ),
+      ),
+    );
+  }
+}
+
+class _HeroMetrics extends StatelessWidget {
+  const _HeroMetrics({
+    required this.loading,
+    required this.forceHorizontal,
+    required this.patients,
+    required this.patientsHint,
+    required this.active,
+    required this.completed,
+    required this.completedHint,
+    required this.avgTime,
+  });
+
+  final bool loading;
+  final bool forceHorizontal;
+  final int patients;
+  final String patientsHint;
+  final int active;
+  final int completed;
+  final String completedHint;
+  final String avgTime;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      (label: 'Patients', value: '$patients', hint: patientsHint),
+      (label: 'Active', value: '$active', hint: 'In pipeline'),
+      (label: 'Completed', value: '$completed', hint: completedHint),
+      (label: 'Avg. time', value: avgTime, hint: 'To complete'),
+    ];
+
     return SectionCard(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      depth: 0.85,
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      depth: 0.7,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final horizontal =
+              forceHorizontal || constraints.maxWidth >= 560;
+          if (!horizontal) {
+            return Column(
+              children: [
+                for (var i = 0; i < items.length; i++) ...[
+                  if (i > 0)
+                    Divider(
+                      height: 1,
+                      color: AppColors.border.withValues(alpha: 0.55),
+                    ),
+                  _HeroCell(item: items[i], loading: loading, compact: false),
+                ],
+              ],
+            );
+          }
+          return IntrinsicHeight(
+            child: Row(
+              children: [
+                for (var i = 0; i < items.length; i++) ...[
+                  if (i > 0)
+                    VerticalDivider(
+                      width: 1,
+                      thickness: 1,
+                      color: AppColors.border.withValues(alpha: 0.55),
+                    ),
+                  Expanded(
+                    child: _HeroCell(
+                      item: items[i],
+                      loading: loading,
+                      compact: true,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _HeroCell extends StatelessWidget {
+  const _HeroCell({
+    required this.item,
+    required this.loading,
+    required this.compact,
+  });
+
+  final ({String label, String value, String hint}) item;
+  final bool loading;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 18 : 20,
+        vertical: compact ? 18 : 20,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            data.title,
-            style: const TextStyle(
+            item.label.toUpperCase(),
+            style: AppFonts.style(
               color: AppColors.muted,
-              fontSize: 12.5,
+              fontSize: 11,
               fontWeight: FontWeight.w600,
+              letterSpacing: 0.8,
             ),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: compact ? 8 : 10),
           Text(
-            loading ? '…' : data.value,
-            style: const TextStyle(
+            loading ? '—' : item.value,
+            style: AppFonts.style(
               color: AppColors.navy,
-              fontSize: 28,
+              fontSize: compact ? 30 : 34,
               fontWeight: FontWeight.w700,
-              letterSpacing: -0.6,
-              height: 1.05,
+              letterSpacing: -1,
+              height: 1,
             ),
           ),
           const SizedBox(height: 6),
           Text(
-            data.hint,
-            maxLines: 2,
+            item.hint,
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: data.hintColor,
-              fontSize: 12,
+            style: AppFonts.style(
+              color: AppColors.muted,
+              fontSize: 13,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -520,782 +520,267 @@ class _KpiCard extends StatelessWidget {
   }
 }
 
-class _PipelineCard extends StatelessWidget {
-  const _PipelineCard({
+class _PipelineSection extends StatelessWidget {
+  const _PipelineSection({
     required this.loc,
     required this.byStatus,
     required this.total,
+    this.expand = false,
   });
 
   final AppLocalizations loc;
   final Map<String, dynamic> byStatus;
   final int total;
+  final bool expand;
 
   int _n(String key) => (byStatus[key] as num?)?.toInt() ?? 0;
 
   @override
   Widget build(BuildContext context) {
-    return SectionCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            loc.reportsPipeline,
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 16,
-              color: AppColors.navy,
-            ),
+    final header = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          loc.reportsPipeline,
+          style: AppFonts.style(
+            fontWeight: FontWeight.w700,
+            fontSize: 18,
+            color: AppColors.navy,
           ),
-          const SizedBox(height: 4),
-          Text(
-            total == 0 ? loc.reportsNoData : '$total ${loc.reportsCasesCol.toLowerCase()}',
-            style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
-          ),
-          const SizedBox(height: 16),
-          for (final status in CaseStatuses.all) ...[
-            _StatusBar(
-              label: loc.statusLabel(status),
-              count: _n(status),
-              total: total,
-              color: StatusStyle.of(status).fg,
-            ),
-            const SizedBox(height: 10),
-          ],
-        ],
-      ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          total == 0
+              ? loc.reportsNoData
+              : '$total ${loc.reportsCasesCol.toLowerCase()}',
+          style: AppFonts.style(color: AppColors.muted, fontSize: 14),
+        ),
+      ],
     );
+
+    final list = Column(
+      children: [
+        if (total > 0) ...[
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: SizedBox(
+              height: 12,
+              child: Row(
+                children: [
+                  for (final status in CaseStatuses.all)
+                    if (_n(status) > 0)
+                      Expanded(
+                        flex: _n(status),
+                        child: Container(
+                          color: StatusStyle.of(status).fg,
+                        ),
+                      ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+        ],
+        for (final status in CaseStatuses.all)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: StatusStyle.of(status).fg,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    loc.statusLabel(status),
+                    style: AppFonts.style(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.text,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${_n(status)}',
+                  style: AppFonts.style(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.navy,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        header,
+        const SizedBox(height: 22),
+        if (expand)
+          Expanded(child: SingleChildScrollView(child: list))
+        else
+          list,
+      ],
+    );
+
+    final card = SectionCard(
+      padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+      child: expand ? SizedBox.expand(child: body) : body,
+    );
+    return expand ? SizedBox.expand(child: card) : card;
   }
 }
 
-class _StatusBar extends StatelessWidget {
-  const _StatusBar({
-    required this.label,
-    required this.count,
-    required this.total,
-    required this.color,
+class _AttentionSection extends StatelessWidget {
+  const _AttentionSection({
+    required this.loc,
+    required this.rows,
+    required this.onOpenPatients,
+    this.expand = false,
   });
 
-  final String label;
-  final int count;
-  final int total;
-  final Color color;
+  final AppLocalizations loc;
+  final List<Map<String, dynamic>> rows;
+  final VoidCallback onOpenPatients;
+  final bool expand;
 
   @override
   Widget build(BuildContext context) {
-    final pct = total == 0 ? 0.0 : count / total;
-    return Column(
+    final header = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
             Expanded(
               child: Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.text,
+                loc.reportsAttention,
+                style: AppFonts.style(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 18,
+                  color: AppColors.navy,
                 ),
               ),
             ),
-            Text(
-              '$count · ${(pct * 100).toStringAsFixed(0)}%',
-              style: const TextStyle(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w600,
-                color: AppColors.muted,
+              AppButtons.ghost(
+                onPressed: onOpenPatients,
+                label: loc.reportsOpenPatients,
+                compact: true,
               ),
-            ),
           ],
         ),
         const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(6),
-          child: SizedBox(
-            height: 8,
-            child: Stack(
-              children: [
-                Container(color: AppColors.inset),
-                FractionallySizedBox(
-                  widthFactor: pct.clamp(0.0, 1.0),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: color,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+        Text(
+          rows.isEmpty
+              ? loc.reportsAttentionEmpty
+              : 'Cases that need a follow-up',
+          style: AppFonts.style(color: AppColors.muted, fontSize: 14),
         ),
       ],
     );
-  }
-}
 
-class _ThroughputCard extends StatelessWidget {
-  const _ThroughputCard({required this.loc, required this.weeks});
-
-  final AppLocalizations loc;
-  final List<Map<String, dynamic>> weeks;
-
-  @override
-  Widget build(BuildContext context) {
-    var maxVal = 1;
-    for (final w in weeks) {
-      final c = (w['created'] as num?)?.toInt() ?? 0;
-      final d = (w['completed'] as num?)?.toInt() ?? 0;
-      if (c > maxVal) maxVal = c;
-      if (d > maxVal) maxVal = d;
-    }
-
-    return SectionCard(
+    final empty = Center(
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
+          Icon(
+            Icons.check_circle_outline_rounded,
+            size: 40,
+            color: AppColors.success.withValues(alpha: 0.85),
+          ),
+          const SizedBox(height: 12),
           Text(
-            loc.reportsThroughput,
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 16,
+            'All clear',
+            style: AppFonts.style(
+              fontWeight: FontWeight.w600,
+              fontSize: 17,
               color: AppColors.navy,
             ),
           ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              _LegendDot(color: AppColors.dentalBlue, label: loc.reportsCreated),
-              const SizedBox(width: 14),
-              _LegendDot(color: AppColors.success, label: loc.reportsCompleted),
-            ],
-          ),
-          const SizedBox(height: 18),
-          if (weeks.isEmpty)
-            Text(
-              loc.reportsNoData,
-              style: const TextStyle(color: AppColors.muted, fontSize: 13),
-            )
-          else
-            SizedBox(
-              height: 160,
+        ],
+      ),
+    );
+
+    final list = Column(
+      children: [
+        for (final r in rows.take(8))
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppColors.neo,
+                borderRadius: BorderRadius.circular(14),
+              ),
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  for (final w in weeks)
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 3),
-                        child: _WeekBars(
-                          created: (w['created'] as num?)?.toInt() ?? 0,
-                          completed: (w['completed'] as num?)?.toInt() ?? 0,
-                          maxVal: maxVal,
-                          label: _weekLabel('${w['week_start'] ?? ''}'),
+                  InitialsAvatar(
+                    name: '${r['patient_name'] ?? 'Patient'}',
+                    size: 38,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${r['patient_name'] ?? 'Patient'}',
+                          style: AppFonts.style(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                            color: AppColors.navy,
+                          ),
                         ),
-                      ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'CASE-${((r['case_id'] as num?)?.toInt() ?? 0).toString().padLeft(4, '0')}',
+                          style: AppFonts.style(
+                            fontSize: 12,
+                            color: AppColors.muted,
+                          ),
+                        ),
+                      ],
                     ),
+                  ),
+                  StatusChip(
+                    statusKey: CaseStatuses.normalize('${r['status']}'),
+                  ),
                 ],
               ),
             ),
-        ],
-      ),
-    );
-  }
-
-  static String _weekLabel(String iso) {
-    final dt = DateTime.tryParse(iso);
-    if (dt == null) return '';
-    return '${dt.day}.${dt.month.toString().padLeft(2, '0')}';
-  }
-}
-
-class _LegendDot extends StatelessWidget {
-  const _LegendDot({required this.color, required this.label});
-
-  final Color color;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12, color: AppColors.muted),
-        ),
+          ),
       ],
     );
-  }
-}
 
-class _WeekBars extends StatelessWidget {
-  const _WeekBars({
-    required this.created,
-    required this.completed,
-    required this.maxVal,
-    required this.label,
-  });
-
-  final int created;
-  final int completed;
-  final int maxVal;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final hCreated = (created / maxVal).clamp(0.05, 1.0) * 120;
-    final hDone = (completed / maxVal).clamp(0.05, 1.0) * 120;
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.end,
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Expanded(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                child: Container(
-                  height: created == 0 ? 4 : hCreated,
-                  decoration: BoxDecoration(
-                    color: AppColors.dentalBlue.withValues(alpha: 0.85),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 3),
-              Expanded(
-                child: Container(
-                  height: completed == 0 ? 4 : hDone,
-                  decoration: BoxDecoration(
-                    color: AppColors.success.withValues(alpha: 0.85),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 10, color: AppColors.muted),
-        ),
+        header,
+        const SizedBox(height: 16),
+        if (expand)
+          Expanded(child: rows.isEmpty ? empty : SingleChildScrollView(child: list))
+        else if (rows.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 28),
+            child: empty,
+          )
+        else
+          list,
       ],
     );
-  }
-}
 
-class _ClinicalCard extends StatelessWidget {
-  const _ClinicalCard({
-    required this.loc,
-    required this.clinical,
-    required this.totalCases,
-  });
-
-  final AppLocalizations loc;
-  final Map<String, dynamic> clinical;
-  final int totalCases;
-
-  int _n(String key) => (clinical[key] as num?)?.toInt() ?? 0;
-
-  @override
-  Widget build(BuildContext context) {
-    final coverage = (clinical['coverage_pct'] as num?)?.toDouble() ?? 0;
-    final items = [
-      (loc.reportsWithScans, _n('cases_with_scans'), Icons.view_in_ar_outlined),
-      (loc.reportsWithPhotos, _n('cases_with_photos'), Icons.photo_camera_outlined),
-      (loc.reportsWithShade, _n('cases_with_shade'), Icons.palette_outlined),
-      (loc.reportsWithShape, _n('cases_with_shape'), Icons.sentiment_satisfied_alt_outlined),
-      (loc.reportsWithScanBody, _n('cases_with_scan_body'), Icons.architecture_outlined),
-    ];
-
-    return SectionCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      loc.reportsClinical,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 16,
-                        color: AppColors.navy,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      loc.reportsClinicalHint,
-                      style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: AppColors.neo,
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: NeoShadows.soft(depth: 0.35),
-                ),
-                child: Column(
-                  children: [
-                    Text(
-                      '${coverage.toStringAsFixed(0)}%',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 20,
-                        color: AppColors.navy,
-                      ),
-                    ),
-                    Text(
-                      loc.reportsCoverage,
-                      style: const TextStyle(fontSize: 10.5, color: AppColors.muted),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              for (final item in items)
-                _MetricTile(
-                  icon: item.$3,
-                  label: item.$1,
-                  value: totalCases == 0
-                      ? '0'
-                      : '${item.$2}/$totalCases',
-                ),
-              _MetricTile(
-                icon: Icons.folder_copy_outlined,
-                label: loc.reportsTotalScans,
-                value: '${_n('total_scans')}',
-              ),
-              _MetricTile(
-                icon: Icons.colorize_outlined,
-                label: loc.reportsTotalShades,
-                value: '${_n('total_shade_saves')}',
-              ),
-            ],
-          ),
-        ],
-      ),
+    final card = SectionCard(
+      padding: const EdgeInsets.fromLTRB(22, 20, 22, 16),
+      child: expand ? SizedBox.expand(child: body) : body,
     );
-  }
-}
-
-class _MetricTile extends StatelessWidget {
-  const _MetricTile({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 148,
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-      decoration: BoxDecoration(
-        color: AppColors.neo,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: NeoShadows.soft(depth: 0.3),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 18, color: AppColors.dentalBlue),
-          const SizedBox(height: 10),
-          Text(
-            value,
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 18,
-              color: AppColors.navy,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 11.5, color: AppColors.muted),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InboxCard extends StatelessWidget {
-  const _InboxCard({
-    required this.loc,
-    required this.messages,
-    required this.notifications,
-    required this.onMessages,
-    required this.onNotifications,
-  });
-
-  final AppLocalizations loc;
-  final Map<String, dynamic> messages;
-  final Map<String, dynamic> notifications;
-  final VoidCallback onMessages;
-  final VoidCallback onNotifications;
-
-  int _n(Map<String, dynamic> m, String key) => (m[key] as num?)?.toInt() ?? 0;
-
-  @override
-  Widget build(BuildContext context) {
-    return SectionCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            loc.reportsLabInbox,
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 16,
-              color: AppColors.navy,
-            ),
-          ),
-          const SizedBox(height: 16),
-          _InboxStat(
-            label: loc.reportsUnreadMessages,
-            value: '${_n(messages, 'unread')}',
-            color: _n(messages, 'unread') > 0 ? AppColors.warning : AppColors.success,
-          ),
-          const SizedBox(height: 10),
-          _InboxStat(
-            label: loc.reportsThreads,
-            value: '${_n(messages, 'threads_with_messages')}',
-            color: AppColors.dentalBlue,
-          ),
-          const SizedBox(height: 10),
-          _InboxStat(
-            label: loc.reportsUnreadNotifs,
-            value: '${_n(notifications, 'unread')}',
-            color: _n(notifications, 'unread') > 0
-                ? AppColors.review
-                : AppColors.success,
-          ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                onPressed: onMessages,
-                icon: const Icon(Icons.chat_bubble_outline, size: 16),
-                label: Text(loc.reportsOpenMessages),
-              ),
-              OutlinedButton.icon(
-                onPressed: onNotifications,
-                icon: const Icon(Icons.notifications_none, size: 16),
-                label: Text(loc.navNotifications),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InboxStat extends StatelessWidget {
-  const _InboxStat({
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  final String label;
-  final String value;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            style: const TextStyle(fontSize: 13, color: AppColors.muted),
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-            color: color,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _AttentionCard extends StatelessWidget {
-  const _AttentionCard({
-    required this.loc,
-    required this.rows,
-    required this.onPatients,
-  });
-
-  final AppLocalizations loc;
-  final List<Map<String, dynamic>> rows;
-  final VoidCallback onPatients;
-
-  @override
-  Widget build(BuildContext context) {
-    return SectionCard(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  loc.reportsAttention,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 16,
-                    color: AppColors.navy,
-                  ),
-                ),
-              ),
-              TextButton(
-                onPressed: onPatients,
-                child: Text(loc.reportsOpenPatients),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (rows.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 20),
-              child: Text(
-                loc.reportsAttentionEmpty,
-                style: const TextStyle(color: AppColors.muted, fontSize: 13),
-              ),
-            )
-          else
-            ...rows.map((r) {
-              final caseId = (r['case_id'] as num?)?.toInt() ?? 0;
-              final name = '${r['patient_name'] ?? 'Patient'}';
-              final status = CaseStatuses.normalize('${r['status']}');
-              final artifacts = <String>[
-                if (r['has_scan'] == true) 'Scan',
-                if (r['has_shade'] == true) 'Shade',
-                if (r['has_shape'] == true) 'Smile',
-                if (r['has_scan_body'] == true) 'Body',
-              ];
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: AppColors.neo,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              name,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.navy,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'CASE-${caseId.toString().padLeft(4, '0')}'
-                              '${artifacts.isEmpty ? '' : ' · ${artifacts.join(' · ')}'}',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: AppColors.muted,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      StatusChip(statusKey: status),
-                    ],
-                  ),
-                ),
-              );
-            }),
-        ],
-      ),
-    );
-  }
-}
-
-class _TopPatientsCard extends StatelessWidget {
-  const _TopPatientsCard({
-    required this.loc,
-    required this.rows,
-    required this.onPatients,
-  });
-
-  final AppLocalizations loc;
-  final List<Map<String, dynamic>> rows;
-  final VoidCallback onPatients;
-
-  @override
-  Widget build(BuildContext context) {
-    return SectionCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  loc.reportsTopPatients,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 16,
-                    color: AppColors.navy,
-                  ),
-                ),
-              ),
-              Touchable(
-                onTap: onPatients,
-                child: Text(
-                  loc.navPatients,
-                  style: const TextStyle(
-                    color: AppColors.dentalBlue,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (rows.isEmpty)
-            Text(
-              loc.reportsTopEmpty,
-              style: const TextStyle(color: AppColors.muted, fontSize: 13),
-            )
-          else
-            ...rows.map((r) {
-              final name = '${r['name'] ?? ''}';
-              final cases = (r['cases'] as num?)?.toInt() ?? 0;
-              final insurance = '${r['health_insurance'] ?? ''}'.trim();
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Row(
-                  children: [
-                    InitialsAvatar(name: name, size: 36),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            name,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.navy,
-                            ),
-                          ),
-                          if (insurance.isNotEmpty)
-                            Text(
-                              insurance,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: AppColors.muted,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    Text(
-                      '$cases ${loc.reportsCasesCol.toLowerCase()}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.dentalBlue,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }),
-        ],
-      ),
-    );
-  }
-}
-
-class _ExportsCard extends StatelessWidget {
-  const _ExportsCard({
-    required this.loc,
-    required this.onSummary,
-  });
-
-  final AppLocalizations loc;
-  final VoidCallback onSummary;
-
-  @override
-  Widget build(BuildContext context) {
-    return SectionCard(
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  loc.reportsExports,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 16,
-                    color: AppColors.navy,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  loc.reportsExportsHint,
-                  style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          FilledButton.icon(
-            onPressed: onSummary,
-            icon: const Icon(Icons.description_outlined, size: 18),
-            label: Text(loc.reportsSummaryExport),
-          ),
-        ],
-      ),
-    );
+    return expand ? SizedBox.expand(child: card) : card;
   }
 }

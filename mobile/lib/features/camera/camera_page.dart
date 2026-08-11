@@ -352,25 +352,14 @@ class _CameraPageState extends State<CameraPage> {
     if (pid.isEmpty || photoId.isEmpty) return;
 
     final angle = '${photo['angle'] ?? 'photo'}'.toUpperCase();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete photo?'),
-        content: Text('Remove this $angle photo from $_patientLabel\'s record.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+    final confirmed = await AppDialogs.confirm(
+      context,
+      title: 'Delete photo?',
+      message: 'Remove this $angle photo from $_patientLabel\'s record.',
+      confirmLabel: 'Delete',
+      isDestructive: true,
     );
-    if (confirmed != true) return;
+    if (!confirmed) return;
 
     await _runBusy('Deleting photo…', () async {
       await widget.api.deletePatientPhoto(patientId: pid, photoId: photoId);

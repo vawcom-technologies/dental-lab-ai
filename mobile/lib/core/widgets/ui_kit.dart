@@ -2,14 +2,20 @@ import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
-import 'touchable.dart';
+import 'glass_surface.dart';
+import 'soft_pill_button.dart';
 
+export 'app_buttons.dart';
+export 'app_dialogs.dart';
 export 'app_snackbar.dart';
 export 'busy_action.dart';
 export 'dental_date_picker.dart';
+export 'glass_surface.dart';
+export 'pressable.dart';
 export 'password_checklist.dart';
 export 'patient_media_dialogs.dart';
 export 'phone_field.dart';
+export 'soft_pill_button.dart';
 export 'tooth_loader.dart';
 
 class StatusChip extends StatelessWidget {
@@ -30,7 +36,7 @@ class StatusChip extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: TextStyle(
+        style: AppFonts.style(
           color: s.fg,
           fontSize: 12,
           fontWeight: FontWeight.w600,
@@ -66,7 +72,7 @@ class InitialsAvatar extends StatelessWidget {
       ),
       child: Text(
         _initials,
-        style: TextStyle(
+        style: AppFonts.style(
           color: AppColors.navy,
           fontWeight: FontWeight.w700,
           fontSize: size * 0.32,
@@ -188,12 +194,18 @@ class PageHeader extends StatelessWidget {
     this.subtitle,
     this.icon,
     this.actions = const [],
+    this.chromeActions = const [],
   });
 
   final String title;
   final String? subtitle;
   final IconData? icon;
+
+  /// Primary / secondary CTAs — never frosted.
   final List<Widget> actions;
+
+  /// Icon / meta chrome — shown in a frosted tray when non-empty.
+  final List<Widget> chromeActions;
 
   @override
   Widget build(BuildContext context) {
@@ -210,20 +222,20 @@ class PageHeader extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: const TextStyle(
-                  fontSize: 26,
+                style: AppFonts.style(
+                  fontSize: 28,
                   fontWeight: FontWeight.w700,
                   color: AppColors.navy,
-                  letterSpacing: -0.4,
+                  letterSpacing: -0.5,
                 ),
               ),
               if (subtitle != null) ...[
                 const SizedBox(height: 2),
                 Text(
                   subtitle!,
-                  style: const TextStyle(
+                  style: AppFonts.style(
                     color: AppColors.muted,
-                    fontSize: 13,
+                    fontSize: 15,
                     height: 1.35,
                   ),
                 ),
@@ -231,11 +243,27 @@ class PageHeader extends StatelessWidget {
             ],
           ),
         ),
+        if (chromeActions.isNotEmpty) ...[
+          const SizedBox(width: 10),
+          GlassSurface(
+            borderRadius: BorderRadius.circular(16),
+            blur: 16,
+            tint: Colors.white.withValues(alpha: 0.48),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: Wrap(
+              spacing: 2,
+              runSpacing: 4,
+              alignment: WrapAlignment.end,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: chromeActions,
+            ),
+          ),
+        ],
         if (actions.isNotEmpty) ...[
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Wrap(
-            spacing: 6,
-            runSpacing: 6,
+            spacing: 8,
+            runSpacing: 8,
             alignment: WrapAlignment.end,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: actions,
@@ -246,6 +274,7 @@ class PageHeader extends StatelessWidget {
   }
 }
 
+/// Soft pill filter / sub-control used across list toolbars.
 class SoftFilterChip extends StatelessWidget {
   const SoftFilterChip({
     super.key,
@@ -262,36 +291,15 @@ class SoftFilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Align widthFactor keeps chips content-sized (not full-width bars).
     return Align(
       alignment: Alignment.centerLeft,
       widthFactor: 1,
       heightFactor: 1,
-      child: Touchable(
-        onTap: onTap,
-        enabled: enabled,
+      child: SoftPillButton(
+        label: label,
+        selected: selected,
+        onPressed: enabled ? onTap : null,
         selectionHaptic: true,
-        borderRadius: BorderRadius.circular(20),
-        minHeight: 32,
-        scale: 0.98,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: selected ? AppColors.navy : AppColors.neo,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: selected ? null : NeoShadows.soft(depth: 0.3),
-          ),
-          child: Text(
-            label,
-            softWrap: false,
-            style: TextStyle(
-              color: selected ? Colors.white : AppColors.muted,
-              fontWeight: FontWeight.w600,
-              fontSize: 12.5,
-            ),
-          ),
-        ),
       ),
     );
   }
@@ -306,11 +314,11 @@ class SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text.toUpperCase(),
-      style: const TextStyle(
-        fontSize: 11,
-        fontWeight: FontWeight.w700,
+      style: AppFonts.style(
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
         color: AppColors.muted,
-        letterSpacing: 0.8,
+        letterSpacing: 0.4,
       ),
     );
   }

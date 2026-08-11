@@ -707,8 +707,6 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
       _case = {..._case!, 'status': 'in_progress'};
       setState(() {
         _dirty = false;
-        _status =
-            'Saved “${_selected.label}” to case #${_case!['id']}';
       });
       if (mounted) {
         AppSnackBars.success(

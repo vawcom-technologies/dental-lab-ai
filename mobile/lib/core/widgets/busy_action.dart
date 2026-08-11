@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_theme.dart';
+import 'glass_surface.dart';
 import 'tooth_loader.dart';
 
 /// Mixin for [State] that serializes async work and exposes [busy].
@@ -62,14 +62,19 @@ class BusyBarrier extends StatelessWidget {
           Positioned.fill(
             child: IgnorePointer(
               ignoring: !blockInteraction,
-              child: ColoredBox(
-                color: dim
-                    ? AppColors.navy.withValues(alpha: 0.05)
-                    : Colors.transparent,
-                child: showSpinner
-                    ? ToothPageLoader(message: message, size: 44)
-                    : const SizedBox.shrink(),
-              ),
+              child: dim
+                  ? GlassSurface(
+                      borderRadius: BorderRadius.zero,
+                      blur: 10,
+                      tint: Colors.white.withValues(alpha: 0.28),
+                      border: Border.all(color: Colors.transparent),
+                      child: showSpinner
+                          ? ToothPageLoader(message: message, size: 44)
+                          : const SizedBox.shrink(),
+                    )
+                  : (showSpinner
+                      ? ToothPageLoader(message: message, size: 44)
+                      : const SizedBox.shrink()),
             ),
           ),
       ],

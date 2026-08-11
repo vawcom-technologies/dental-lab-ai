@@ -116,13 +116,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     const SizedBox(height: 12),
                     Text(_error!, style: const TextStyle(color: AppColors.danger)),
                   ],
-                  if (_success != null) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      _success!,
-                      style: const TextStyle(color: AppColors.success),
-                    ),
-                  ],
                   const SizedBox(height: 20),
                   if (_success == null)
                     FilledButton(

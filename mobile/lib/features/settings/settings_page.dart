@@ -21,7 +21,6 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   AppSettings? _settings;
   bool _loading = true;
-  String? _status;
   String? _error;
 
   @override
@@ -60,14 +59,14 @@ class _SettingsPageState extends State<SettingsPage> {
     mutate(s);
     setState(() {
       _settings = s;
-      _status = null;
       _error = null;
     });
     await s.save();
     if (!mounted) return;
-    final msg = AppLocalizations.of(context).preferenceSaved;
-    setState(() => _status = msg);
-    AppSnackBars.success(context, msg);
+    AppSnackBars.success(
+      context,
+      AppLocalizations.of(context).preferenceSaved,
+    );
   }
 
   Future<void> _setLanguage(String code) async {
@@ -110,21 +109,25 @@ class _SettingsPageState extends State<SettingsPage> {
             title: loc.settingsTitle,
             subtitle: loc.settingsSubtitle,
             actions: [
-              _NeoActionButton(
+              AppButtons.danger(
                 icon: Icons.logout_rounded,
                 label: loc.signOut,
-                danger: true,
+                soft: true,
                 onPressed: _signOut,
               ),
             ],
           ),
-          if (_status != null) ...[
-            const SizedBox(height: 12),
-            _NeoBanner(text: _status!, tone: _BannerTone.success),
-          ],
           if (_error != null) ...[
             const SizedBox(height: 12),
-            _NeoBanner(text: _error!, tone: _BannerTone.danger),
+            // Errors also toast via AppSnackBars; keep a compact inline cue for load failures.
+            Text(
+              _error!,
+              style: AppFonts.style(
+                color: AppColors.danger,
+                fontWeight: FontWeight.w500,
+                fontSize: 13,
+              ),
+            ),
           ],
           const SizedBox(height: 18),
           Expanded(
@@ -536,59 +539,6 @@ class _NeoSwitch extends StatelessWidget {
   }
 }
 
-class _NeoActionButton extends StatelessWidget {
-  const _NeoActionButton({
-    required this.icon,
-    required this.label,
-    this.onPressed,
-    this.danger = false,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback? onPressed;
-  final bool danger;
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = onPressed != null;
-    final fg = danger ? AppColors.danger : AppColors.navy;
-    final bg = danger ? AppColors.dangerSoft : AppColors.neo;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: enabled ? onPressed : null,
-        borderRadius: AppRadii.borderSm,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(10),
-            boxShadow: enabled ? NeoShadows.soft(depth: 0.4) : null,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 16, color: enabled ? fg : AppColors.muted),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  color: enabled ? fg : AppColors.muted,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _NeoDivider extends StatelessWidget {
   const _NeoDivider();
 
@@ -598,40 +548,6 @@ class _NeoDivider extends StatelessWidget {
       height: 1,
       thickness: 1,
       color: AppColors.border.withValues(alpha: 0.7),
-    );
-  }
-}
-
-enum _BannerTone { success, danger }
-
-class _NeoBanner extends StatelessWidget {
-  const _NeoBanner({required this.text, required this.tone});
-
-  final String text;
-  final _BannerTone tone;
-
-  @override
-  Widget build(BuildContext context) {
-    final bg = tone == _BannerTone.success
-        ? AppColors.successSoft
-        : AppColors.dangerSoft;
-    final fg =
-        tone == _BannerTone.success ? AppColors.success : AppColors.danger;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: AppRadii.borderSm,
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: fg,
-          fontWeight: FontWeight.w600,
-          fontSize: 13,
-        ),
-      ),
     );
   }
 }

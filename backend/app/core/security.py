@@ -106,8 +106,12 @@ def get_current_user(
 
 
 def require_dentist(user: AuthUser = Depends(get_current_user)) -> AuthUser:
-    if user.role not in ("clinic", "dentist", "lab"):
-        raise HTTPException(status_code=403, detail="Clinic, dentist, or lab access required")
+    # Accept legacy + current app roles (dentist / laboratory / clinic / lab / admin).
+    role = (user.role or "").strip().lower()
+    if role not in ("clinic", "dentist", "lab", "laboratory", "admin"):
+        raise HTTPException(
+            status_code=403, detail="Clinic, dentist, or lab access required"
+        )
     return user
 
 

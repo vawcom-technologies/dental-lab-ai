@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
@@ -28,16 +27,6 @@ class _NewPatientPageState extends State<NewPatientPage> {
   final _insurance = TextEditingController();
   bool _loading = false;
   String? _error;
-
-  Future<void> _pickDob() async {
-    final current = DateTime.tryParse(_dob.text.trim());
-    final picked = await DentalDatePickerDialog.showForDateOfBirth(
-      context: context,
-      currentDob: current,
-    );
-    if (picked == null) return;
-    setState(() => _dob.text = DateFormat('yyyy-MM-dd').format(picked));
-  }
 
   Future<void> _save() async {
     if (_loading) return;
@@ -89,7 +78,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
             title: loc.newPatientTitle,
             subtitle: loc.newPatientSubtitle,
             actions: [
-              OutlinedButton(
+              AppButtons.secondary(
                 onPressed: _loading
                     ? null
                     : () {
@@ -103,14 +92,13 @@ class _NewPatientPageState extends State<NewPatientPage> {
                         _insurance.clear();
                         setState(() => _error = null);
                       },
-                child: const Text('Clear'),
+                label: 'Clear',
               ),
-              FilledButton.icon(
+              AppButtons.primary(
                 onPressed: _loading ? null : _save,
-                icon: _loading
-                    ? const ToothLoadingIndicator(size: 16, compact: true, color: Colors.white)
-                    : const Icon(Icons.check_rounded, size: 18),
-                label: Text(_loading ? 'Saving…' : loc.createPatient),
+                icon: Icons.check_rounded,
+                label: _loading ? 'Saving…' : loc.createPatient,
+                busy: _loading,
               ),
             ],
           ),
@@ -155,17 +143,10 @@ class _NewPatientPageState extends State<NewPatientPage> {
                       ],
                     ),
                     const SizedBox(height: 14),
-                    TextFormField(
+                    DobPickerField(
                       controller: _dob,
-                      readOnly: true,
-                      onTap: _pickDob,
-                      decoration: InputDecoration(
-                        labelText: '${loc.dateOfBirth} *',
-                        suffixIcon:
-                            const Icon(Icons.calendar_today_outlined, size: 18),
-                      ),
-                      validator: (v) =>
-                          (v == null || v.trim().isEmpty) ? 'Required' : null,
+                      labelText: '${loc.dateOfBirth} *',
+                      onChanged: (_) => setState(() {}),
                     ),
                     const SizedBox(height: 14),
                     TextFormField(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../theme/app_theme.dart';
+import 'app_dialogs.dart';
 import 'tooth_loader.dart';
 
 /// Let the current pointer / mouse-tracker update finish before mutating the
@@ -26,31 +27,17 @@ Future<bool> _showConfirmDialog(
   await _settleGestures();
   if (!context.mounted) return false;
 
-  final ok = await showDialog<bool>(
-    context: context,
-    useRootNavigator: true,
-    builder: (ctx) => AlertDialog(
-      title: Text(title),
-      content: Text(body),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(ctx, true),
-          style: confirmColor == null
-              ? null
-              : FilledButton.styleFrom(backgroundColor: confirmColor),
-          child: Text(confirmLabel),
-        ),
-      ],
-    ),
+  final ok = await AppDialogs.confirm(
+    context,
+    title: title,
+    message: body,
+    confirmLabel: confirmLabel,
+    isDestructive: confirmColor == AppColors.danger,
   );
 
   // Dialog route removal also races the mouse tracker on web.
   await _settleGestures();
-  return ok == true;
+  return ok;
 }
 
 /// Confirm before uploading a picked clinical media file.

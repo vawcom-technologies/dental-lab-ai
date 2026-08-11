@@ -1,54 +1,33 @@
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
 
 import '../haptics/app_haptics.dart';
 
-/// iPad-friendly scroll: Cupertino bounce + touch/stylus/trackpad drag.
-class EliteScrollBehavior extends CupertinoScrollBehavior {
-  const EliteScrollBehavior();
-
-  @override
-  Set<PointerDeviceKind> get dragDevices => {
-        PointerDeviceKind.touch,
-        PointerDeviceKind.mouse,
-        PointerDeviceKind.trackpad,
-        PointerDeviceKind.stylus,
-      };
-
-  @override
-  ScrollPhysics getScrollPhysics(BuildContext context) {
-    return const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics());
-  }
-}
-
-/// Soft press scale + optional haptic — for nav rows, chips, custom controls.
-class Touchable extends StatefulWidget {
-  const Touchable({
+/// Press feedback with scale + optional haptic, exposing [pressed] to the child.
+class Pressable extends StatefulWidget {
+  const Pressable({
     super.key,
     required this.onTap,
-    required this.child,
-    this.borderRadius,
+    required this.builder,
     this.enabled = true,
     this.haptic = true,
     this.selectionHaptic = false,
     this.scale = 0.94,
-    this.minHeight = 40,
+    this.duration = const Duration(milliseconds: 120),
   });
 
   final VoidCallback? onTap;
-  final Widget child;
-  final BorderRadius? borderRadius;
+  final Widget Function(BuildContext context, bool pressed) builder;
   final bool enabled;
   final bool haptic;
   final bool selectionHaptic;
   final double scale;
-  final double minHeight;
+  final Duration duration;
 
   @override
-  State<Touchable> createState() => _TouchableState();
+  State<Pressable> createState() => _PressableState();
 }
 
-class _TouchableState extends State<Touchable> {
+class _PressableState extends State<Pressable> {
   bool _pressed = false;
 
   void _setPressed(bool v) {
@@ -72,7 +51,7 @@ class _TouchableState extends State<Touchable> {
   Widget build(BuildContext context) {
     return AnimatedScale(
       scale: _pressed ? widget.scale : 1,
-      duration: const Duration(milliseconds: 110),
+      duration: widget.duration,
       curve: Curves.easeOutCubic,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -80,10 +59,7 @@ class _TouchableState extends State<Touchable> {
         onTapDown: widget.enabled ? (_) => _setPressed(true) : null,
         onTapUp: widget.enabled ? (_) => _setPressed(false) : null,
         onTapCancel: widget.enabled ? () => _setPressed(false) : null,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: widget.minHeight),
-          child: widget.child,
-        ),
+        child: widget.builder(context, _pressed),
       ),
     );
   }

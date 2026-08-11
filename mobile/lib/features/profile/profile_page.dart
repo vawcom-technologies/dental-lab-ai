@@ -39,7 +39,6 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _saving = false;
   bool _changingPassword = false;
   String? _error;
-  String? _status;
 
   @override
   void initState() {
@@ -111,7 +110,6 @@ class _ProfilePageState extends State<ProfilePage> {
     setState(() {
       _saving = true;
       _error = null;
-      _status = null;
     });
     try {
       final updated = await widget.api.updateProfile(
@@ -122,9 +120,10 @@ class _ProfilePageState extends State<ProfilePage> {
       );
       if (!mounted) return;
       widget.onProfileUpdated(updated['name']?.toString() ?? name);
-      final msg = AppLocalizations.of(context).profileSaved;
-      setState(() => _status = msg);
-      AppSnackBars.success(context, msg);
+      AppSnackBars.success(
+        context,
+        AppLocalizations.of(context).profileSaved,
+      );
     } catch (e) {
       if (!mounted) return;
       final msg = e.toString().replaceFirst('Exception: ', '');
@@ -161,7 +160,6 @@ class _ProfilePageState extends State<ProfilePage> {
     setState(() {
       _changingPassword = true;
       _error = null;
-      _status = null;
     });
     try {
       await widget.api.changePassword(
@@ -172,9 +170,10 @@ class _ProfilePageState extends State<ProfilePage> {
       _currentPassword.clear();
       _newPassword.clear();
       _confirmPassword.clear();
-      final msg = AppLocalizations.of(context).passwordUpdated;
-      setState(() => _status = msg);
-      AppSnackBars.success(context, msg);
+      AppSnackBars.success(
+        context,
+        AppLocalizations.of(context).passwordUpdated,
+      );
     } catch (e) {
       if (!mounted) return;
       final msg = e.toString().replaceFirst('Exception: ', '');
@@ -209,11 +208,6 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ],
           ),
-          if (_status != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(_status!, style: const TextStyle(color: AppColors.success)),
-            ),
           if (_error != null)
             Padding(
               padding: const EdgeInsets.only(top: 8),

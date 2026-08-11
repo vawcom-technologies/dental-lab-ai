@@ -1604,9 +1604,7 @@ class _ShadePageState extends State<ShadePage> {
           summaryShade: saved['summary_shade']?.toString() ?? finalShade,
           hasOverride: overridden || saved['has_override'] == true,
         );
-        _saveStatus = overridden
-            ? 'Saved override $finalShade on case #${_case!['id']}'
-            : 'Accepted AI $finalShade on case #${_case!['id']}';
+        _saveStatus = null;
       });
       try {
         await widget.api.markCaseInProgressIfPending(
@@ -1640,25 +1638,14 @@ class _ShadePageState extends State<ShadePage> {
     if (_busy || index < 0 || index >= _history.length) return;
     final entry = _history[index];
     final shade = entry['shade']?.toString() ?? 'shade';
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Remove save?'),
-        content: Text('Delete $shade from this session.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+    final ok = await AppDialogs.confirm(
+      context,
+      title: 'Remove save?',
+      message: 'Delete $shade from this session.',
+      confirmLabel: 'Delete',
+      isDestructive: true,
     );
-    if (ok != true || !mounted) return;
+    if (!ok || !mounted) return;
 
     final shadeId = entry['id'];
     final caseId = entry['case_id'] ?? _case?['id'];
@@ -1682,7 +1669,7 @@ class _ShadePageState extends State<ShadePage> {
       if (!mounted) return;
       setState(() {
         _history.removeAt(index);
-        _saveStatus = 'Removed $shade from session';
+        _saveStatus = null;
         _error = null;
       });
       if (mounted) AppSnackBars.success(context, 'Removed $shade from session');

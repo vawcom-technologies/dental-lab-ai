@@ -499,11 +499,6 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
         _case!['status']?.toString(),
       );
       _case = {..._case!, 'status': 'in_progress'};
-      setState(
-        () => _status =
-            'Saved ${_match!['matched_manufacturer']} · '
-            'tooth ${_match!['matched_tooth_position']} on case #${_case!['id']}',
-      );
       if (mounted) {
         AppSnackBars.success(
           context,

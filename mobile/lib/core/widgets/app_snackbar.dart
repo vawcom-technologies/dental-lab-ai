@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../haptics/app_haptics.dart';
 import '../theme/app_theme.dart';
 
-/// App-wide floating snackbars: green for success, red for errors/rejections.
+/// App-wide floating soft-pill toasts (success / error / info).
+///
+/// Prefer this over inline banners so feedback stays consistent.
 class AppSnackBars {
   AppSnackBars._();
 
@@ -18,9 +20,10 @@ class AppSnackBars {
     _show(
       context,
       message: message,
-      background: AppColors.success,
-      foreground: Colors.white,
-      icon: Icons.check_circle_outline_rounded,
+      background: AppColors.successSoft,
+      foreground: AppColors.success,
+      border: AppColors.success.withValues(alpha: 0.22),
+      icon: Icons.check_circle_rounded,
       haptic: haptic ? AppHaptics.success : null,
     );
   }
@@ -34,8 +37,9 @@ class AppSnackBars {
     _show(
       context,
       message: message,
-      background: AppColors.danger,
-      foreground: Colors.white,
+      background: AppColors.dangerSoft,
+      foreground: AppColors.danger,
+      border: AppColors.danger.withValues(alpha: 0.22),
       icon: Icons.error_outline_rounded,
       haptic: haptic ? AppHaptics.warn : null,
     );
@@ -46,8 +50,9 @@ class AppSnackBars {
     _show(
       context,
       message: message,
-      background: AppColors.navy,
-      foreground: Colors.white,
+      background: const Color(0xFFEAF3FC),
+      foreground: AppColors.navy,
+      border: AppColors.dentalBlue.withValues(alpha: 0.22),
       icon: Icons.info_outline_rounded,
     );
   }
@@ -57,6 +62,7 @@ class AppSnackBars {
     required String message,
     required Color background,
     required Color foreground,
+    required Color border,
     required IconData icon,
     Future<void> Function()? haptic,
   }) {
@@ -71,26 +77,35 @@ class AppSnackBars {
       SnackBar(
         behavior: SnackBarBehavior.floating,
         duration: _duration,
-        backgroundColor: background,
+        backgroundColor: Colors.transparent,
         elevation: 0,
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        content: Row(
-          children: [
-            Icon(icon, color: foreground, size: 20),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                text,
-                style: TextStyle(
-                  color: foreground,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13.5,
-                  height: 1.3,
+        padding: EdgeInsets.zero,
+        margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+        content: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: border),
+            boxShadow: NeoShadows.soft(depth: 0.45),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, color: foreground, size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  text,
+                  style: AppFonts.style(
+                    color: foreground,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                    height: 1.3,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

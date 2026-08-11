@@ -206,12 +206,14 @@ class _NotificationsPageState extends State<NotificationsPage> {
             subtitle: _unreadCount > 0
                 ? loc.notificationsUnreadCount(_unreadCount)
                 : loc.notificationsSubtitle,
-            actions: [
+            chromeActions: [
               _HeaderIconButton(
                 icon: Icons.refresh_rounded,
                 tooltip: loc.refresh,
                 onPressed: _loading ? null : _bootstrap,
               ),
+            ],
+            actions: [
               if (_unreadCount > 0)
                 _HeaderTextButton(
                   label: _markingAll

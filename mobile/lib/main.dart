@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
@@ -29,6 +30,9 @@ class _DentalLabAppState extends State<DentalLabApp> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = AppTheme.light();
+    final cupertino = AppTheme.cupertino();
+
     return LocaleScope(
       controller: widget.localeController,
       child: ListenableBuilder(
@@ -38,7 +42,7 @@ class _DentalLabAppState extends State<DentalLabApp> {
             title: 'Elite Dentist Pro',
             debugShowCheckedModeBanner: false,
             navigatorKey: SessionCoordinator.navigatorKey,
-            theme: AppTheme.light(),
+            theme: theme,
             scrollBehavior: const EliteScrollBehavior(),
             locale: widget.localeController.locale,
             supportedLocales: const [
@@ -50,6 +54,19 @@ class _DentalLabAppState extends State<DentalLabApp> {
               GlobalWidgetsLocalizations.delegate,
               GlobalCupertinoLocalizations.delegate,
             ],
+            builder: (context, child) {
+              return CupertinoTheme(
+                data: cupertino,
+                child: DefaultTextStyle(
+                  style: AppFonts.style(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w400,
+                    color: AppColors.text,
+                  ),
+                  child: child ?? const SizedBox.shrink(),
+                ),
+              );
+            },
             home: LoginScreen(api: _api),
           );
         },

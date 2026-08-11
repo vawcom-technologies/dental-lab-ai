@@ -262,46 +262,33 @@ class _PatientsPageState extends State<PatientsPage> {
                   icon: Icons.people_alt_outlined,
                   title: loc.patientsTitle,
                   subtitle: loc.patientsSubtitle,
-                  actions: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: AppColors.sidebarActive,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
+                  chromeActions: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: Text(
                         '${_controller.shownCount} shown · ${_controller.totalCount} total',
-                        style: const TextStyle(
+                        style: AppFonts.style(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
                           color: AppColors.navy,
                         ),
                       ),
                     ),
-                    IconButton(
+                    AppButtons.icon(
                       tooltip: loc.refresh,
                       onPressed: _controller.loading || blocked
                           ? null
                           : () => _controller.load(),
-                      icon: _controller.loading
-                          ? const ToothLoadingIndicator(
-                              size: 18,
-                              compact: true,
-                              color: AppColors.navy,
-                            )
-                          : const Icon(Icons.refresh, size: 20),
+                      icon: Icons.refresh_rounded,
+                      busy: _controller.loading,
                     ),
                     Stack(
                       clipBehavior: Clip.none,
                       children: [
-                        IconButton(
+                        AppButtons.icon(
                           tooltip: 'Pending access requests',
                           onPressed: blocked ? null : _openPendingRequests,
-                          icon: const Icon(
-                            Icons.mark_email_unread_outlined,
-                            size: 22,
-                          ),
+                          icon: Icons.mark_email_unread_outlined,
                         ),
                         if (_controller.pendingCount > 0)
                           Positioned(
@@ -318,7 +305,7 @@ class _PatientsPageState extends State<PatientsPage> {
                               ),
                               child: Text(
                                 '${_controller.pendingCount}',
-                                style: const TextStyle(
+                                style: AppFonts.style(
                                   color: Colors.white,
                                   fontSize: 10,
                                   fontWeight: FontWeight.w700,
@@ -328,10 +315,12 @@ class _PatientsPageState extends State<PatientsPage> {
                           ),
                       ],
                     ),
-                    FilledButton.icon(
+                  ],
+                  actions: [
+                    AppButtons.primary(
                       onPressed: blocked ? null : _openCreate,
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text('New Patient'),
+                      icon: Icons.add_rounded,
+                      label: 'New Patient',
                     ),
                   ],
                 ),
@@ -641,16 +630,6 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
     super.dispose();
   }
 
-  Future<void> _pickDob() async {
-    final current = DateTime.tryParse(_dob.text.trim());
-    final picked = await DentalDatePickerDialog.showForDateOfBirth(
-      context: context,
-      currentDob: current,
-    );
-    if (picked == null) return;
-    _dob.text = DateFormat('yyyy-MM-dd').format(picked);
-  }
-
   Future<void> _submit() async {
     setState(() => _error = null);
     if (!(_formKey.currentState?.validate() ?? false)) return;
@@ -725,16 +704,10 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
                       (v == null || v.trim().isEmpty) ? 'Required' : null,
                 ),
                 const SizedBox(height: 10),
-                TextFormField(
+                DobPickerField(
                   controller: _dob,
-                  readOnly: true,
-                  onTap: _pickDob,
-                  decoration: const InputDecoration(
-                    labelText: 'Date of birth *',
-                    suffixIcon: Icon(Icons.calendar_today_outlined, size: 18),
-                  ),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  labelText: 'Date of birth *',
+                  onChanged: (_) => setState(() {}),
                 ),
                 const SizedBox(height: 10),
                 TextFormField(

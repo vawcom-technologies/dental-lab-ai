@@ -1,20 +1,19 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
-
-const _actionBtnText = TextStyle(
-  fontSize: 11,
-  fontWeight: FontWeight.w600,
-);
+import '../../core/widgets/app_buttons.dart';
+import '../../core/widgets/glass_surface.dart';
 
 ButtonStyle compactActionFilled(Color bg, {double minH = 34, double fontSize = 11}) =>
-    FilledButton.styleFrom(
-      backgroundColor: bg,
-      visualDensity: VisualDensity.compact,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      minimumSize: Size(0, minH),
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      textStyle: _actionBtnText.copyWith(fontSize: fontSize),
+    AppButtons.primaryStyle(compact: true).merge(
+      FilledButton.styleFrom(
+        backgroundColor: bg,
+        minimumSize: Size(0, minH),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        shape: const StadiumBorder(),
+        overlayColor: Colors.white.withValues(alpha: 0.14),
+        textStyle: AppFonts.style(fontSize: fontSize, fontWeight: FontWeight.w600),
+      ),
     );
 
 ButtonStyle compactActionOutlined({
@@ -23,14 +22,17 @@ ButtonStyle compactActionOutlined({
   double minH = 34,
   double fontSize = 11,
 }) =>
-    OutlinedButton.styleFrom(
-      foregroundColor: fg,
-      side: BorderSide(color: side),
-      visualDensity: VisualDensity.compact,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      minimumSize: Size(0, minH),
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      textStyle: _actionBtnText.copyWith(fontSize: fontSize),
+    AppButtons.secondaryStyle(compact: true).merge(
+      OutlinedButton.styleFrom(
+        foregroundColor: fg,
+        backgroundColor: Colors.white.withValues(alpha: 0.45),
+        side: BorderSide(color: side),
+        minimumSize: Size(0, minH),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        shape: const StadiumBorder(),
+        overlayColor: fg.withValues(alpha: 0.08),
+        textStyle: AppFonts.style(fontSize: fontSize, fontWeight: FontWeight.w600),
+      ),
     );
 
 class ShadeActionBar extends StatelessWidget {
@@ -181,16 +183,12 @@ class ShadeActionBar extends StatelessWidget {
       );
     }
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.neo,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
-        child: actions,
-      ),
+    return GlassSurface(
+      borderRadius: BorderRadius.circular(14),
+      blur: 16,
+      tint: Colors.white.withValues(alpha: 0.52),
+      padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
+      child: actions,
     );
   }
 }

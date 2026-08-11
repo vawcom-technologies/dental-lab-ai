@@ -227,53 +227,33 @@ class _DashboardPageState extends State<DashboardPage> {
             icon: Icons.grid_view_rounded,
             title: _greetingTitle(loc),
             subtitle: _loading ? loc.dashLoading : _subtitleText(loc),
-            actions: [
-              IconButton(
+            chromeActions: [
+              AppButtons.icon(
                 tooltip: 'Refresh',
                 onPressed: _loading ? null : _load,
-                icon: const Icon(Icons.refresh, size: 20),
+                icon: Icons.refresh_rounded,
               ),
-              OutlinedButton.icon(
+            ],
+            actions: [
+              AppButtons.primary(
                 onPressed: () => widget.onNavigate(AppNavItem.newPatient),
-                icon: const Icon(Icons.add, size: 18),
-                label: Text(loc.navNewPatient),
-                style: OutlinedButton.styleFrom(
-                  backgroundColor: AppColors.navy,
-                  foregroundColor: Colors.white,
-                ),
+                icon: Icons.add_rounded,
+                label: loc.navNewPatient,
               ),
-              OutlinedButton.icon(
+              AppButtons.secondary(
                 onPressed: () => widget.onNavigate(AppNavItem.messages),
-                icon: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    const Icon(Icons.chat_bubble_outline, size: 18),
-                    if (_unreadMessages > 0)
-                      Positioned(
-                        right: -3,
-                        top: -3,
-                        child: Container(
-                          width: 9,
-                          height: 9,
-                          decoration: BoxDecoration(
-                            color: AppColors.danger,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 1.5),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                label: Text(loc.navMessages),
+                icon: Icons.chat_bubble_outline_rounded,
+                label: _unreadMessages > 0
+                    ? '${loc.navMessages} ($_unreadMessages)'
+                    : loc.navMessages,
               ),
               if (widget.api.isDentist)
-                OutlinedButton.icon(
+                AppButtons.secondary(
                   onPressed: () =>
                       widget.onNavigate(AppNavItem.laboratories),
-                  icon: const Icon(Icons.biotech_outlined, size: 18),
-                  label: Text(loc.navLaboratories),
+                  icon: Icons.biotech_outlined,
+                  label: loc.navLaboratories,
                 ),
-
             ],
           ),
           const SizedBox(height: 20),
