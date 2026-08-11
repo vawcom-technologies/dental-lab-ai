@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS public.patients (
   first_name       TEXT NOT NULL,
   last_name        TEXT NOT NULL,
   date_of_birth    DATE NOT NULL,
+  email            TEXT NOT NULL,
   address          TEXT NOT NULL DEFAULT '',
   phone            TEXT NOT NULL DEFAULT '',
   health_insurance TEXT NOT NULL DEFAULT '',

@@ -83,6 +83,7 @@ class GdprPatient {
     required this.firstName,
     required this.lastName,
     required this.dateOfBirth,
+    required this.email,
     required this.address,
     required this.phone,
     required this.healthInsurance,
@@ -97,6 +98,7 @@ class GdprPatient {
   final String firstName;
   final String lastName;
   final String dateOfBirth; // YYYY-MM-DD
+  final String email;
   final String address;
   final String phone;
   final String healthInsurance;
@@ -117,6 +119,7 @@ class GdprPatient {
     String? firstName,
     String? lastName,
     String? dateOfBirth,
+    String? email,
     String? address,
     String? phone,
     String? healthInsurance,
@@ -130,6 +133,7 @@ class GdprPatient {
       firstName: firstName ?? this.firstName,
       lastName: lastName ?? this.lastName,
       dateOfBirth: dateOfBirth ?? this.dateOfBirth,
+      email: email ?? this.email,
       address: address ?? this.address,
       phone: phone ?? this.phone,
       healthInsurance: healthInsurance ?? this.healthInsurance,
@@ -147,6 +151,7 @@ class GdprPatient {
       firstName: (json['first_name'] as String?)?.trim() ?? '',
       lastName: (json['last_name'] as String?)?.trim() ?? '',
       dateOfBirth: _dateString(json['date_of_birth']),
+      email: (json['email'] as String?)?.trim() ?? '',
       address: (json['address'] as String?)?.trim() ?? '',
       phone: (json['phone'] as String?)?.trim() ?? '',
       healthInsurance: (json['health_insurance'] as String?)?.trim() ?? '',
@@ -157,6 +162,22 @@ class GdprPatient {
     );
   }
 
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'created_by': createdBy,
+        'first_name': firstName,
+        'last_name': lastName,
+        'date_of_birth': dateOfBirth,
+        'email': email,
+        'address': address,
+        'phone': phone,
+        'health_insurance': healthInsurance,
+        'deleted': deleted,
+        if (deletedAt != null) 'deleted_at': deletedAt!.toIso8601String(),
+        if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+        if (updatedAt != null) 'updated_at': updatedAt!.toIso8601String(),
+      };
+
   Map<String, dynamic> toLegacyMap() => {
         'id': id,
         'created_by': createdBy,
@@ -164,11 +185,24 @@ class GdprPatient {
         'last_name': lastName,
         'date_of_birth': dateOfBirth,
         'dob': dateOfBirth,
+        'email': email,
         'address': address,
         'phone': phone,
         'health_insurance': healthInsurance,
         'deleted': deleted,
       };
+}
+
+/// Strict patient email validation for create/edit forms.
+String? validatePatientEmail(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return 'Email address is required';
+  }
+  final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+  if (!emailRegex.hasMatch(value.trim())) {
+    return 'Enter a valid email address';
+  }
+  return null;
 }
 
 class PatientNote {

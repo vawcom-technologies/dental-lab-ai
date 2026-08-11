@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -45,11 +46,18 @@ _EDITABLE_FIELDS = frozenset(
         "first_name",
         "last_name",
         "date_of_birth",
+        "email",
         "address",
         "phone",
         "health_insurance",
     }
 )
+
+_ILIKE_SPECIAL = re.compile(r"([%_\\])")
+
+
+def _escape_ilike(value: str) -> str:
+    return _ILIKE_SPECIAL.sub(r"\\\1", value)
 
 
 def _ok(
@@ -117,6 +125,7 @@ def _patient_public(row: dict[str, Any]) -> dict[str, Any]:
         first_name=row.get("first_name") or "",
         last_name=row.get("last_name") or "",
         date_of_birth=row.get("date_of_birth"),
+        email=str(row.get("email") or "").strip(),
         address=row.get("address") or "",
         phone=row.get("phone") or "",
         health_insurance=row.get("health_insurance") or "",
@@ -178,18 +187,33 @@ def _patient_display_name(patient: dict[str, Any]) -> str:
 
 
 @router.get("", summary="List accessible patients")
-def list_patients(user: AuthUser = Depends(get_current_user)):
+def list_patients(
+    q: str | None = Query(
+        default=None,
+        description="Search first_name, last_name, phone, or email (ILIKE)",
+    ),
+    user: AuthUser = Depends(get_current_user),
+):
     action = "list_patients"
+    search = (q or "").strip()
     try:
-        owned = (
+        owned_q = (
             get_supabase_admin()
             .table("patients")
             .select("*")
             .eq("created_by", user.id)
             .eq("deleted", False)
             .order("updated_at", desc=True)
-            .execute()
         )
+        if search:
+            pattern = f"%{_escape_ilike(search)}%"
+            owned_q = owned_q.or_(
+                f"first_name.ilike.{pattern},"
+                f"last_name.ilike.{pattern},"
+                f"phone.ilike.{pattern},"
+                f"email.ilike.{pattern}"
+            )
+        owned = owned_q.execute()
         shared_ids_res = (
             get_supabase_admin()
             .table("patient_access")
@@ -213,14 +237,22 @@ def list_patients(user: AuthUser = Depends(get_current_user)):
     ]
     if shared_ids:
         try:
-            shared = (
+            shared_q = (
                 get_supabase_admin()
                 .table("patients")
                 .select("*")
                 .in_("id", shared_ids)
                 .eq("deleted", False)
-                .execute()
             )
+            if search:
+                pattern = f"%{_escape_ilike(search)}%"
+                shared_q = shared_q.or_(
+                    f"first_name.ilike.{pattern},"
+                    f"last_name.ilike.{pattern},"
+                    f"phone.ilike.{pattern},"
+                    f"email.ilike.{pattern}"
+                )
+            shared = shared_q.execute()
             for r in getattr(shared, "data", None) or []:
                 if str(r.get("created_by")) != user.id:
                     rows.append(r)
@@ -661,6 +693,7 @@ def create_patient(
         "first_name": payload.first_name.strip(),
         "last_name": payload.last_name.strip(),
         "date_of_birth": payload.date_of_birth.isoformat(),
+        "email": str(payload.email).strip().lower(),
         "address": payload.address.strip(),
         "phone": payload.phone.strip(),
         "health_insurance": payload.health_insurance.strip(),
@@ -684,7 +717,11 @@ def create_patient(
             actor_id=user.id,
             action=action,
             patient_id=patient_id,
-            details={"first_name": row["first_name"], "last_name": row["last_name"]},
+            details={
+                "first_name": row["first_name"],
+                "last_name": row["last_name"],
+                "email": row["email"],
+            },
         )
     except HTTPException as exc:
         return _from_http(action=action, user_id=user.id, exc=exc)
@@ -747,6 +784,17 @@ def edit_patient(
                 message=f"Field '{key}' cannot be updated",
                 patient_id=patient_id,
             )
+        if key == "email":
+            if value is None or not str(value).strip():
+                return _err(
+                    action=action,
+                    user_id=user.id,
+                    http_code=400,
+                    code="VALIDATION_ERROR",
+                    message="email cannot be null or empty",
+                    patient_id=patient_id,
+                )
+            value = str(value).strip().lower()
         if isinstance(value, str):
             value = value.strip()
         if hasattr(value, "isoformat"):

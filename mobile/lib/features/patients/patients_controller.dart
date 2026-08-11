@@ -58,7 +58,8 @@ class PatientsController extends ChangeNotifier {
     final q = _query.trim().toLowerCase();
     if (q.isEmpty) return patients;
     return _patients.where((p) {
-      final blob = '${p.firstName} ${p.lastName} ${p.phone}'.toLowerCase();
+      final blob =
+          '${p.firstName} ${p.lastName} ${p.email} ${p.phone}'.toLowerCase();
       return blob.contains(q);
     }).toList();
   }
@@ -152,6 +153,7 @@ class PatientsController extends ChangeNotifier {
     required String firstName,
     required String lastName,
     required String dateOfBirth,
+    required String email,
     required String address,
     required String phone,
     required String healthInsurance,
@@ -166,6 +168,7 @@ class PatientsController extends ChangeNotifier {
         firstName: firstName,
         lastName: lastName,
         dateOfBirth: dateOfBirth,
+        email: email,
         address: address,
         phone: phone,
         healthInsurance: healthInsurance,

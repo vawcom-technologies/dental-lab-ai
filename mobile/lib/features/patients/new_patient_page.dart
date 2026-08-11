@@ -5,6 +5,7 @@ import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
+import 'patient_models.dart';
 
 class NewPatientPage extends StatefulWidget {
   const NewPatientPage({super.key, required this.api, required this.onCreated});
@@ -21,6 +22,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
   final _first = TextEditingController();
   final _last = TextEditingController();
   final _dob = TextEditingController();
+  final _email = TextEditingController();
   final _phone = TextEditingController();
   final _address = TextEditingController();
   final _insurance = TextEditingController();
@@ -49,6 +51,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
         'first_name': _first.text.trim(),
         'last_name': _last.text.trim(),
         'date_of_birth': _dob.text.trim(),
+        'email': _email.text.trim(),
         'phone': PhoneNumbers.compose(_phone.text),
         'address': _address.text.trim(),
         'health_insurance': _insurance.text.trim(),
@@ -66,6 +69,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
     _first.dispose();
     _last.dispose();
     _dob.dispose();
+    _email.dispose();
     _phone.dispose();
     _address.dispose();
     _insurance.dispose();
@@ -93,6 +97,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
                         _first.clear();
                         _last.clear();
                         _dob.clear();
+                        _email.clear();
                         _phone.clear();
                         _address.clear();
                         _insurance.clear();
@@ -161,6 +166,16 @@ class _NewPatientPageState extends State<NewPatientPage> {
                       ),
                       validator: (v) =>
                           (v == null || v.trim().isEmpty) ? 'Required' : null,
+                    ),
+                    const SizedBox(height: 14),
+                    TextFormField(
+                      controller: _email,
+                      keyboardType: TextInputType.emailAddress,
+                      autofillHints: const [AutofillHints.email],
+                      decoration: const InputDecoration(
+                        labelText: 'Email Address *',
+                      ),
+                      validator: validatePatientEmail,
                     ),
                     const SizedBox(height: 14),
                     PhoneField(

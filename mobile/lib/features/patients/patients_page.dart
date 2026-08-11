@@ -81,6 +81,7 @@ class _PatientsPageState extends State<PatientsPage> {
           firstName: fields.firstName,
           lastName: fields.lastName,
           dateOfBirth: fields.dateOfBirth,
+          email: fields.email,
           address: fields.address,
           phone: fields.phone,
           healthInsurance: fields.healthInsurance,
@@ -112,6 +113,7 @@ class _PatientsPageState extends State<PatientsPage> {
             'first_name': fields.firstName,
             'last_name': fields.lastName,
             'date_of_birth': fields.dateOfBirth,
+            'email': fields.email,
             'address': fields.address,
             'phone': fields.phone,
             'health_insurance': fields.healthInsurance,
@@ -464,6 +466,7 @@ class _PatientTile extends StatelessWidget {
       subtitle: Text(
         [
           if (patient.dateOfBirth.isNotEmpty) 'DOB ${patient.dateOfBirth}',
+          patient.email,
           if (patient.phone.isNotEmpty) patient.phone,
           if (patient.healthInsurance.isNotEmpty) patient.healthInsurance,
         ].join(' · '),
@@ -548,6 +551,7 @@ class _PatientFormFields {
     required this.firstName,
     required this.lastName,
     required this.dateOfBirth,
+    required this.email,
     required this.address,
     required this.phone,
     required this.healthInsurance,
@@ -556,6 +560,7 @@ class _PatientFormFields {
   final String firstName;
   final String lastName;
   final String dateOfBirth;
+  final String email;
   final String address;
   final String phone;
   final String healthInsurance;
@@ -581,9 +586,11 @@ class _PatientFormDialog extends StatefulWidget {
 }
 
 class _PatientFormDialogState extends State<_PatientFormDialog> {
+  final _formKey = GlobalKey<FormState>();
   late final TextEditingController _first;
   late final TextEditingController _last;
   late final TextEditingController _dob;
+  late final TextEditingController _email;
   late final TextEditingController _address;
   late final TextEditingController _phone;
   late final TextEditingController _insurance;
@@ -597,6 +604,7 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
     _first = TextEditingController(text: p?.firstName ?? '');
     _last = TextEditingController(text: p?.lastName ?? '');
     _dob = TextEditingController(text: p?.dateOfBirth ?? '');
+    _email = TextEditingController(text: p?.email ?? '');
     _address = TextEditingController(text: p?.address ?? '');
     _phone = TextEditingController(text: PhoneNumbers.localDigits(p?.phone));
     _insurance = TextEditingController(text: p?.healthInsurance ?? '');
@@ -607,6 +615,7 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
     _first.dispose();
     _last.dispose();
     _dob.dispose();
+    _email.dispose();
     _address.dispose();
     _phone.dispose();
     _insurance.dispose();
@@ -624,6 +633,9 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
   }
 
   Future<void> _submit() async {
+    setState(() => _error = null);
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
     final phoneLocal = _phone.text.trim();
     final phoneError = PhoneNumbers.validateRequired(phoneLocal);
     if (phoneError != null) {
@@ -634,6 +646,7 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
       firstName: _first.text.trim(),
       lastName: _last.text.trim(),
       dateOfBirth: _dob.text.trim(),
+      email: _email.text.trim(),
       address: _address.text.trim(),
       phone: PhoneNumbers.compose(phoneLocal),
       healthInsurance: _insurance.text.trim(),
@@ -673,52 +686,79 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
       title: Text(widget.title),
       content: SizedBox(
         width: 420,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: _first,
-                decoration: const InputDecoration(labelText: 'First name'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _last,
-                decoration: const InputDecoration(labelText: 'Last name'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _dob,
-                readOnly: true,
-                onTap: _pickDob,
-                decoration: const InputDecoration(
-                  labelText: 'Date of birth',
-                  suffixIcon: Icon(Icons.calendar_today_outlined, size: 18),
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: _first,
+                  decoration: const InputDecoration(labelText: 'First name *'),
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Required' : null,
                 ),
-              ),
-              const SizedBox(height: 10),
-              PhoneField(
-                controller: _phone,
-                labelText: 'Phone',
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _insurance,
-                decoration:
-                    const InputDecoration(labelText: 'Health insurance'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _address,
-                minLines: 2,
-                maxLines: 3,
-                decoration: const InputDecoration(labelText: 'Address'),
-              ),
-              if (_error != null) ...[
-                const SizedBox(height: 12),
-                Text(_error!, style: const TextStyle(color: AppColors.danger)),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _last,
+                  decoration: const InputDecoration(labelText: 'Last name *'),
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Required' : null,
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _dob,
+                  readOnly: true,
+                  onTap: _pickDob,
+                  decoration: const InputDecoration(
+                    labelText: 'Date of birth *',
+                    suffixIcon: Icon(Icons.calendar_today_outlined, size: 18),
+                  ),
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Required' : null,
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _email,
+                  keyboardType: TextInputType.emailAddress,
+                  autofillHints: const [AutofillHints.email],
+                  decoration: const InputDecoration(
+                    labelText: 'Email Address *',
+                  ),
+                  validator: validatePatientEmail,
+                ),
+                const SizedBox(height: 10),
+                PhoneField(
+                  controller: _phone,
+                  labelText: 'Phone *',
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _insurance,
+                  decoration: const InputDecoration(
+                    labelText: 'Health insurance *',
+                  ),
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Required' : null,
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _address,
+                  minLines: 2,
+                  maxLines: 3,
+                  decoration: const InputDecoration(labelText: 'Address *'),
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Required' : null,
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    _error!,
+                    style: const TextStyle(color: AppColors.danger),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -730,7 +770,11 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
         FilledButton(
           onPressed: _saving ? null : _submit,
           child: _saving
-              ? const ToothLoadingIndicator(size: 18, compact: true, color: Colors.white)
+              ? const ToothLoadingIndicator(
+                  size: 18,
+                  compact: true,
+                  color: Colors.white,
+                )
               : Text(widget.submitLabel),
         ),
       ],
@@ -1479,6 +1523,15 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                     _AccessBadge(isOwner: owner),
                   ],
                 ),
+                const SizedBox(height: 4),
+                Text(
+                  p.email,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.muted,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
                 if (!owner)
                   const Padding(
                     padding: EdgeInsets.only(top: 6),
@@ -1536,6 +1589,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                         padding: const EdgeInsets.only(top: 12),
                         children: [
                           _info('Date of birth', p.dateOfBirth),
+                          _info('Email', p.email),
                           _info('Phone', p.phone),
                           _info('Health insurance', p.healthInsurance),
                           _info('Address', p.address),

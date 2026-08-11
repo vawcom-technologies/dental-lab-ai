@@ -5,23 +5,53 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class PatientCreateRequest(BaseModel):
     first_name: str = Field(min_length=1, max_length=120)
     last_name: str = Field(min_length=1, max_length=120)
     date_of_birth: date
+    email: EmailStr
     address: str = Field(min_length=1)
     phone: str = Field(min_length=1, max_length=64)
     health_insurance: str = Field(min_length=1, max_length=255)
+
+    @field_validator("email")
+    @classmethod
+    def _email_required(cls, v: EmailStr) -> str:
+        email = str(v).strip()
+        if not email:
+            raise ValueError("email is required")
+        return email.lower()
 
 
 class PatientUpdateRequest(BaseModel):
     fields_to_update: dict[str, Any] = Field(
         ...,
-        description="Subset of: first_name, last_name, date_of_birth, address, phone, health_insurance",
+        description=(
+            "Subset of: first_name, last_name, date_of_birth, email, "
+            "address, phone, health_insurance"
+        ),
     )
+
+    @field_validator("fields_to_update")
+    @classmethod
+    def _validate_email_if_present(cls, fields: dict[str, Any]) -> dict[str, Any]:
+        if "email" not in fields:
+            return fields
+        raw = fields.get("email")
+        if raw is None:
+            raise ValueError("email cannot be null")
+        email = str(raw).strip()
+        if not email:
+            raise ValueError("email cannot be empty")
+        from pydantic import TypeAdapter
+
+        validated = TypeAdapter(EmailStr).validate_python(email)
+        out = dict(fields)
+        out["email"] = str(validated).strip().lower()
+        return out
 
 
 class PatientDeleteRequest(BaseModel):
@@ -85,6 +115,7 @@ class PatientOut(BaseModel):
     first_name: str
     last_name: str
     date_of_birth: date | str
+    email: str
     address: str
     phone: str
     health_insurance: str

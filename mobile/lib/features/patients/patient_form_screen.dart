@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
+import 'patient_models.dart';
 
 class PatientFormScreen extends StatefulWidget {
   const PatientFormScreen({super.key, required this.api});
@@ -17,6 +18,7 @@ class _PatientFormScreenState extends State<PatientFormScreen> {
   final _formKey = GlobalKey<FormState>();
   final _first = TextEditingController();
   final _last = TextEditingController();
+  final _email = TextEditingController();
   final _phone = TextEditingController();
   final _address = TextEditingController();
   final _insurance = TextEditingController();
@@ -38,6 +40,7 @@ class _PatientFormScreenState extends State<PatientFormScreen> {
       await widget.api.createPatient({
         'first_name': _first.text.trim(),
         'last_name': _last.text.trim(),
+        'email': _email.text.trim(),
         'phone': phone,
         'address': _address.text.trim().isEmpty ? null : _address.text.trim(),
         'health_insurance':
@@ -57,6 +60,7 @@ class _PatientFormScreenState extends State<PatientFormScreen> {
   void dispose() {
     _first.dispose();
     _last.dispose();
+    _email.dispose();
     _phone.dispose();
     _address.dispose();
     _insurance.dispose();
@@ -89,6 +93,16 @@ class _PatientFormScreenState extends State<PatientFormScreen> {
                     decoration: const InputDecoration(labelText: 'Last name *'),
                     validator: (v) =>
                         (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _email,
+                    keyboardType: TextInputType.emailAddress,
+                    autofillHints: const [AutofillHints.email],
+                    decoration: const InputDecoration(
+                      labelText: 'Email Address *',
+                    ),
+                    validator: validatePatientEmail,
                   ),
                   const SizedBox(height: 12),
                   PhoneField(
@@ -127,7 +141,11 @@ class _PatientFormScreenState extends State<PatientFormScreen> {
                           ? const SizedBox(
                               height: 18,
                               width: 18,
-                              child: ToothLoadingIndicator(size: 28, compact: true, color: Colors.white),
+                              child: ToothLoadingIndicator(
+                                size: 28,
+                                compact: true,
+                                color: Colors.white,
+                              ),
                             )
                           : const Text('Save patient'),
                     ),
