@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import '../../features/appointments/models/appointment.dart';
 import '../../features/laboratories/admin_user.dart';
 import '../auth/app_roles.dart';
+import '../auth/auth_aware_http_client.dart';
+import '../auth/session_coordinator.dart';
 import '../haptics/app_haptics.dart';
 
 class ApiClient {
@@ -14,9 +16,21 @@ class ApiClient {
       'API_BASE',
       defaultValue: 'http://127.0.0.1:8000',
     ),
-  });
+    http.Client? httpClient,
+  }) {
+    _http = httpClient ??
+        AuthAwareHttpClient(
+          inner: http.Client(),
+          onUnauthorized: () => SessionCoordinator.onUnauthorized(this),
+          isAuthExempt: SessionCoordinator.isAuthExemptUri,
+        );
+  }
 
   final String baseUrl;
+  late final http.Client _http;
+
+  /// Shared client for feature services (patients, chat, …).
+  http.Client get httpClient => _http;
   String? _token;
   String? _refreshToken;
   String? _userId;
@@ -89,7 +103,7 @@ class ApiClient {
       };
 
   Future<Map<String, dynamic>> signIn(String email, String password) async {
-    final res = await http.post(
+    final res = await _http.post(
       Uri.parse('$baseUrl/api/auth/signin'),
       headers: const {'Content-Type': 'application/json'},
       body: jsonEncode({
@@ -115,7 +129,7 @@ class ApiClient {
     String? clinicName,
     String? phone,
   }) async {
-    final res = await http.post(
+    final res = await _http.post(
       Uri.parse('$baseUrl/api/auth/signup'),
       headers: const {'Content-Type': 'application/json'},
       body: jsonEncode({
@@ -154,7 +168,7 @@ class ApiClient {
       );
 
   Future<Map<String, dynamic>> forgotPassword(String email) async {
-    final res = await http.post(
+    final res = await _http.post(
       Uri.parse('$baseUrl/api/auth/forgot-password'),
       headers: const {'Content-Type': 'application/json'},
       body: jsonEncode({'email': email}),
@@ -164,7 +178,7 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> fetchMe() async {
-    final res = await http.get(
+    final res = await _http.get(
       Uri.parse('$baseUrl/api/auth/me'),
       headers: _jsonHeaders,
     );
@@ -185,7 +199,7 @@ class ApiClient {
     if (email != null) body['email'] = email;
     if (clinicName != null) body['clinic_name'] = clinicName;
     if (phone != null) body['phone'] = phone;
-    final res = await http.patch(
+    final res = await _http.patch(
       Uri.parse('$baseUrl/api/auth/me'),
       headers: _jsonHeaders,
       body: jsonEncode(body),
@@ -201,7 +215,7 @@ class ApiClient {
     required String currentPassword,
     required String newPassword,
   }) async {
-    final res = await http.post(
+    final res = await _http.post(
       Uri.parse('$baseUrl/api/auth/me/password'),
       headers: _jsonHeaders,
       body: jsonEncode({
@@ -221,7 +235,7 @@ class ApiClient {
   }
 
   Future<List<Map<String, dynamic>>> listPatients() async {
-    final res = await http.get(Uri.parse('$baseUrl/api/patients'), headers: _jsonHeaders);
+    final res = await _http.get(Uri.parse('$baseUrl/api/patients'), headers: _jsonHeaders);
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     final decoded = jsonDecode(res.body);
     // GDPR AgentResponse envelope
@@ -255,7 +269,7 @@ class ApiClient {
     final uri = Uri.parse('$baseUrl/api/users').replace(
       queryParameters: {'limit': '$limit'},
     );
-    final res = await http.get(uri, headers: _jsonHeaders);
+    final res = await _http.get(uri, headers: _jsonHeaders);
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     final body = jsonDecode(res.body);
     if (body is! List) return const [];
@@ -266,7 +280,7 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> createPatient(Map<String, dynamic> body) async {
-    final res = await http.post(
+    final res = await _http.post(
       Uri.parse('$baseUrl/api/patients'),
       headers: _jsonHeaders,
       body: jsonEncode(body),
@@ -297,7 +311,7 @@ class ApiClient {
     final uri = Uri.parse('$baseUrl/api/patients/$id').replace(
       queryParameters: {'delete_type': hard ? 'hard' : 'soft'},
     );
-    final res = await http.delete(uri, headers: _jsonHeaders);
+    final res = await _http.delete(uri, headers: _jsonHeaders);
     if (res.statusCode != 200 && res.statusCode != 204) {
       throw Exception(_errorMessage(res));
     }
@@ -336,7 +350,7 @@ class ApiClient {
   }
 
   Future<List<Map<String, dynamic>>> listPatientPhotos(String patientId) async {
-    final res = await http.get(
+    final res = await _http.get(
       Uri.parse('$baseUrl/api/patients/$patientId/photos'),
       headers: _jsonHeaders,
     );
@@ -363,7 +377,7 @@ class ApiClient {
     req.headers.addAll(_authHeaders);
     req.fields['angle'] = angle;
     req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
-    final streamed = await req.send();
+    final streamed = await _http.send(req);
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200 && res.statusCode != 201) {
       // Prefer GDPR AgentResponse error message when present.
@@ -389,7 +403,7 @@ class ApiClient {
     required String patientId,
     required String photoId,
   }) async {
-    final res = await http.delete(
+    final res = await _http.delete(
       Uri.parse('$baseUrl/api/patients/$patientId/photos/$photoId'),
       headers: _jsonHeaders,
     );
@@ -407,7 +421,7 @@ class ApiClient {
     required String photoId,
     required String filename,
   }) async {
-    final res = await http.patch(
+    final res = await _http.patch(
       Uri.parse('$baseUrl/api/patients/$patientId/photos/$photoId'),
       headers: _jsonHeaders,
       body: jsonEncode({'filename': filename}),
@@ -421,7 +435,7 @@ class ApiClient {
 
   /// Copy a camera photo into shade_detections (no re-upload).
   Future<bool> copyToShadeDetection(String photoId) async {
-    final res = await http.post(
+    final res = await _http.post(
       Uri.parse('$baseUrl/api/patient-photos/$photoId/copy-to-shade'),
       headers: _jsonHeaders,
     );
@@ -434,7 +448,7 @@ class ApiClient {
 
   /// Copy a camera photo into smile_previews (no re-upload).
   Future<bool> copyToSmilePreview(String photoId) async {
-    final res = await http.post(
+    final res = await _http.post(
       Uri.parse('$baseUrl/api/patient-photos/$photoId/copy-to-smile'),
       headers: _jsonHeaders,
     );
@@ -446,7 +460,7 @@ class ApiClient {
   }
 
   Future<List<Map<String, dynamic>>> listCases() async {
-    final res = await http.get(Uri.parse('$baseUrl/api/cases'), headers: _jsonHeaders);
+    final res = await _http.get(Uri.parse('$baseUrl/api/cases'), headers: _jsonHeaders);
     // Cases router is not always mounted (GDPR cutover) — treat as empty.
     if (res.statusCode == 404) return const [];
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
@@ -456,7 +470,7 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> createCase(int patientId) async {
-    final res = await http.post(
+    final res = await _http.post(
       Uri.parse('$baseUrl/api/cases'),
       headers: _jsonHeaders,
       body: jsonEncode({'patient_id': patientId}),
@@ -466,7 +480,7 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> updateCaseStatus(int caseId, String status) async {
-    final res = await http.patch(
+    final res = await _http.patch(
       Uri.parse('$baseUrl/api/cases/$caseId'),
       headers: _jsonHeaders,
       body: jsonEncode({'status': status}),
@@ -484,7 +498,7 @@ class ApiClient {
   }
 
   Future<List<Map<String, dynamic>>> listPhotos(int caseId) async {
-    final res = await http.get(
+    final res = await _http.get(
       Uri.parse('$baseUrl/api/cases/$caseId/photos'),
       headers: _jsonHeaders,
     );
@@ -505,7 +519,7 @@ class ApiClient {
     req.headers.addAll(_authHeaders);
     req.fields['angle'] = angle;
     req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
-    final streamed = await req.send();
+    final streamed = await _http.send(req);
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200 && res.statusCode != 201) {
       throw Exception(_errorMessage(res));
@@ -514,7 +528,7 @@ class ApiClient {
   }
 
   Future<List<Map<String, dynamic>>> listScans(int caseId) async {
-    final res = await http.get(
+    final res = await _http.get(
       Uri.parse('$baseUrl/api/cases/$caseId/scans'),
       headers: _jsonHeaders,
     );
@@ -527,7 +541,7 @@ class ApiClient {
     required int caseId,
     required int scanId,
   }) async {
-    final res = await http.get(
+    final res = await _http.get(
       Uri.parse('$baseUrl/api/cases/$caseId/scans/$scanId/preview'),
       headers: _jsonHeaders,
     );
@@ -540,7 +554,7 @@ class ApiClient {
     required int caseId,
     required int scanId,
   }) async {
-    final res = await http.get(
+    final res = await _http.get(
       Uri.parse('$baseUrl/api/cases/$caseId/scans/$scanId/file'),
       headers: _authHeaders,
     );
@@ -567,7 +581,7 @@ class ApiClient {
     );
     req.headers.addAll(_authHeaders);
     req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
-    final streamed = await req.send();
+    final streamed = await _http.send(req);
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200 && res.statusCode != 201) {
       throw Exception(_errorMessage(res));
@@ -576,7 +590,7 @@ class ApiClient {
   }
 
   Future<void> deleteScan({required int caseId, required int scanId}) async {
-    final res = await http.delete(
+    final res = await _http.delete(
       Uri.parse('$baseUrl/api/cases/$caseId/scans/$scanId'),
       headers: _jsonHeaders,
     );
@@ -606,7 +620,7 @@ class ApiClient {
   }
 
   Future<List<Map<String, dynamic>>> listPatientScans(String patientId) async {
-    final res = await http.get(
+    final res = await _http.get(
       Uri.parse('$baseUrl/api/patients/$patientId/scans'),
       headers: _jsonHeaders,
     );
@@ -627,7 +641,7 @@ class ApiClient {
     req.files.add(
       http.MultipartFile.fromBytes('file', bytes, filename: filename),
     );
-    final streamed = await req.send();
+    final streamed = await _http.send(req);
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200 && res.statusCode != 201) {
       throw Exception(_errorMessage(res));
@@ -637,7 +651,7 @@ class ApiClient {
   }
 
   Future<void> deletePatientScan(String scanId) async {
-    final res = await http.delete(
+    final res = await _http.delete(
       Uri.parse('$baseUrl/api/scans/$scanId'),
       headers: _jsonHeaders,
     );
@@ -650,7 +664,7 @@ class ApiClient {
   Future<List<Map<String, dynamic>>> listShadeDetections(
     String patientId,
   ) async {
-    final res = await http.get(
+    final res = await _http.get(
       Uri.parse('$baseUrl/api/patients/$patientId/shade-detections'),
       headers: _jsonHeaders,
     );
@@ -671,7 +685,7 @@ class ApiClient {
     req.files.add(
       http.MultipartFile.fromBytes('file', bytes, filename: filename),
     );
-    final streamed = await req.send();
+    final streamed = await _http.send(req);
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200 && res.statusCode != 201) {
       throw Exception(_errorMessage(res));
@@ -681,7 +695,7 @@ class ApiClient {
   }
 
   Future<void> deleteShadeDetection(String shadeId) async {
-    final res = await http.delete(
+    final res = await _http.delete(
       Uri.parse('$baseUrl/api/shade-detections/$shadeId'),
       headers: _jsonHeaders,
     );
@@ -694,7 +708,7 @@ class ApiClient {
   Future<List<Map<String, dynamic>>> listSmilePreviews(
     String patientId,
   ) async {
-    final res = await http.get(
+    final res = await _http.get(
       Uri.parse('$baseUrl/api/patients/$patientId/smile-previews'),
       headers: _jsonHeaders,
     );
@@ -715,7 +729,7 @@ class ApiClient {
     req.files.add(
       http.MultipartFile.fromBytes('file', bytes, filename: filename),
     );
-    final streamed = await req.send();
+    final streamed = await _http.send(req);
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200 && res.statusCode != 201) {
       throw Exception(_errorMessage(res));
@@ -725,7 +739,7 @@ class ApiClient {
   }
 
   Future<void> deleteSmilePreview(String smileId) async {
-    final res = await http.delete(
+    final res = await _http.delete(
       Uri.parse('$baseUrl/api/smile-previews/$smileId'),
       headers: _jsonHeaders,
     );
@@ -738,7 +752,7 @@ class ApiClient {
   /// Download media bytes from a public (or signed) URL such as R2 `file_url`.
   Future<Uint8List> downloadMediaBytes(String url) async {
     final uri = Uri.parse(url);
-    final res = await http.get(uri, headers: _authHeaders);
+    final res = await _http.get(uri, headers: _authHeaders);
     if (res.statusCode != 200) {
       throw Exception('Failed to download file (${res.statusCode})');
     }
@@ -759,7 +773,7 @@ class ApiClient {
         filename: name,
       ),
     );
-    final streamed = await req.send();
+    final streamed = await _http.send(req);
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return jsonDecode(res.body) as Map<String, dynamic>;
@@ -783,7 +797,7 @@ class ApiClient {
     );
     req.fields['outline_json'] = jsonEncode(outline);
     req.fields['tooth_index'] = '$toothIndex';
-    final streamed = await req.send();
+    final streamed = await _http.send(req);
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return jsonDecode(res.body) as Map<String, dynamic>;
@@ -794,7 +808,7 @@ class ApiClient {
     required List<Map<String, dynamic>> teeth,
     int selectedToothIndex = 0,
   }) async {
-    final res = await http.post(
+    final res = await _http.post(
       Uri.parse('$baseUrl/api/cases/$caseId/shade/analysis'),
       headers: _jsonHeaders,
       body: jsonEncode({
@@ -815,7 +829,7 @@ class ApiClient {
     required int zoneId,
     String? overrideShade,
   }) async {
-    final res = await http.patch(
+    final res = await _http.patch(
       Uri.parse(
         '$baseUrl/api/cases/$caseId/shade/analysis/$analysisId/zones/$zoneId',
       ),
@@ -831,7 +845,7 @@ class ApiClient {
     required int caseId,
     required int analysisId,
   }) async {
-    final res = await http.delete(
+    final res = await _http.delete(
       Uri.parse('$baseUrl/api/cases/$caseId/shade/analysis/$analysisId'),
       headers: _jsonHeaders,
     );
@@ -848,7 +862,7 @@ class ApiClient {
     required String finalShade,
     required bool overridden,
   }) async {
-    final res = await http.post(
+    final res = await _http.post(
       Uri.parse('$baseUrl/api/cases/$caseId/shade'),
       headers: _jsonHeaders,
       body: jsonEncode({
@@ -866,7 +880,7 @@ class ApiClient {
   }
 
   Future<void> deleteShade({required int caseId, required int shadeId}) async {
-    final res = await http.delete(
+    final res = await _http.delete(
       Uri.parse('$baseUrl/api/cases/$caseId/shade/$shadeId'),
       headers: _jsonHeaders,
     );
@@ -881,7 +895,7 @@ class ApiClient {
     final uri = Uri.parse('$baseUrl/api/reports/summary').replace(
       queryParameters: {'days': '$days'},
     );
-    final res = await http.get(uri, headers: _jsonHeaders);
+    final res = await _http.get(uri, headers: _jsonHeaders);
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
@@ -892,7 +906,7 @@ class ApiClient {
       Uri.parse('$baseUrl/api/ai/scan/validate'),
     );
     req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
-    final streamed = await req.send();
+    final streamed = await _http.send(req);
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return jsonDecode(res.body) as Map<String, dynamic>;
@@ -906,7 +920,7 @@ class ApiClient {
     required double rotation,
     required double scale,
   }) async {
-    final res = await http.post(
+    final res = await _http.post(
       Uri.parse('$baseUrl/api/cases/$caseId/shape'),
       headers: _jsonHeaders,
       body: jsonEncode({
@@ -925,7 +939,7 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>?> latestShape(int caseId) async {
-    final res = await http.get(
+    final res = await _http.get(
       Uri.parse('$baseUrl/api/cases/$caseId/shape'),
       headers: _jsonHeaders,
     );
@@ -935,7 +949,7 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> matchScanBody(double diameterMm) async {
-    final res = await http.post(
+    final res = await _http.post(
       Uri.parse('$baseUrl/api/ai/scan-body/match'),
       headers: {
         ..._authHeaders,
@@ -965,14 +979,14 @@ class ApiClient {
       req.fields['known_diameter_mm'] = knownDiameterMm.toString();
     }
     req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
-    final streamed = await req.send();
+    final streamed = await _http.send(req);
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
   Future<List<Map<String, dynamic>>> scanBodyTable() async {
-    final res = await http.get(
+    final res = await _http.get(
       Uri.parse('$baseUrl/api/ai/scan-body/table'),
       headers: _jsonHeaders,
     );
@@ -992,7 +1006,7 @@ class ApiClient {
     bool overridden = false,
     String? detectionMethod,
   }) async {
-    final res = await http.post(
+    final res = await _http.post(
       Uri.parse('$baseUrl/api/cases/$caseId/scan-body'),
       headers: _jsonHeaders,
       body: jsonEncode({
@@ -1014,7 +1028,7 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>?> latestScanBody(int caseId) async {
-    final res = await http.get(
+    final res = await _http.get(
       Uri.parse('$baseUrl/api/cases/$caseId/scan-body'),
       headers: _jsonHeaders,
     );
@@ -1024,7 +1038,7 @@ class ApiClient {
   }
 
   Future<List<Map<String, dynamic>>> listMessageThreads() async {
-    final res = await http.get(
+    final res = await _http.get(
       Uri.parse('$baseUrl/api/messages/threads'),
       headers: _jsonHeaders,
     );
@@ -1033,7 +1047,7 @@ class ApiClient {
   }
 
   Future<List<Map<String, dynamic>>> listMessages(int caseId) async {
-    final res = await http.get(
+    final res = await _http.get(
       Uri.parse('$baseUrl/api/cases/$caseId/messages'),
       headers: _jsonHeaders,
     );
@@ -1046,7 +1060,7 @@ class ApiClient {
     required String body,
     String type = 'text',
   }) async {
-    final res = await http.post(
+    final res = await _http.post(
       Uri.parse('$baseUrl/api/cases/$caseId/messages'),
       headers: _jsonHeaders,
       body: jsonEncode({'type': type, 'body': body}),
@@ -1059,7 +1073,7 @@ class ApiClient {
   }
 
   Future<void> markThreadRead(int caseId) async {
-    final res = await http.post(
+    final res = await _http.post(
       Uri.parse('$baseUrl/api/cases/$caseId/messages/read'),
       headers: _jsonHeaders,
     );
@@ -1076,13 +1090,13 @@ class ApiClient {
     final uri = Uri.parse('$baseUrl/api/notifications').replace(
       queryParameters: params.isEmpty ? null : params,
     );
-    final res = await http.get(uri, headers: _jsonHeaders);
+    final res = await _http.get(uri, headers: _jsonHeaders);
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
   }
 
   Future<int> notificationsUnreadCount() async {
-    final res = await http.get(
+    final res = await _http.get(
       Uri.parse('$baseUrl/api/notifications/unread-count'),
       headers: _jsonHeaders,
     );
@@ -1092,7 +1106,7 @@ class ApiClient {
   }
 
   Future<void> markNotificationRead(int id) async {
-    final res = await http.post(
+    final res = await _http.post(
       Uri.parse('$baseUrl/api/notifications/$id/read'),
       headers: _jsonHeaders,
     );
@@ -1100,7 +1114,7 @@ class ApiClient {
   }
 
   Future<void> markAllNotificationsRead() async {
-    final res = await http.post(
+    final res = await _http.post(
       Uri.parse('$baseUrl/api/notifications/read-all'),
       headers: _jsonHeaders,
     );
@@ -1126,7 +1140,7 @@ class ApiClient {
     final uri = Uri.parse('$baseUrl/api/appointments').replace(
       queryParameters: params,
     );
-    final res = await http.get(uri, headers: _jsonHeaders);
+    final res = await _http.get(uri, headers: _jsonHeaders);
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     final decoded = jsonDecode(res.body);
     if (decoded is! List) return const [];
@@ -1142,7 +1156,7 @@ class ApiClient {
     required DateTime endTime,
     String? description,
   }) async {
-    final res = await http.post(
+    final res = await _http.post(
       Uri.parse('$baseUrl/api/appointments'),
       headers: _jsonHeaders,
       body: jsonEncode({
@@ -1178,7 +1192,7 @@ class ApiClient {
     }
     if (status != null) body['status'] = status;
 
-    final res = await http.patch(
+    final res = await _http.patch(
       Uri.parse('$baseUrl/api/appointments/$appointmentId'),
       headers: _jsonHeaders,
       body: jsonEncode(body),
@@ -1191,7 +1205,7 @@ class ApiClient {
   }
 
   Future<void> deleteAppointment(String appointmentId) async {
-    final res = await http.delete(
+    final res = await _http.delete(
       Uri.parse('$baseUrl/api/appointments/$appointmentId'),
       headers: _jsonHeaders,
     );
@@ -1213,7 +1227,7 @@ class ApiClient {
         'limit': '$limit',
       },
     );
-    final res = await http.get(uri, headers: _jsonHeaders);
+    final res = await _http.get(uri, headers: _jsonHeaders);
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     final rawItems = data['items'];
@@ -1236,7 +1250,7 @@ class ApiClient {
   }
 
   Future<AdminUserActionResult> verifyAdminUser(String userId) async {
-    final res = await http.patch(
+    final res = await _http.patch(
       Uri.parse('$baseUrl/api/admin/users/$userId/verify'),
       headers: _jsonHeaders,
     );
@@ -1245,7 +1259,7 @@ class ApiClient {
   }
 
   Future<AdminUserActionResult> softDeleteAdminUser(String userId) async {
-    final res = await http.delete(
+    final res = await _http.delete(
       Uri.parse('$baseUrl/api/admin/users/$userId/soft-delete'),
       headers: _jsonHeaders,
     );
@@ -1255,7 +1269,7 @@ class ApiClient {
   }
 
   Future<AdminUserActionResult> hardDeleteAdminUser(String userId) async {
-    final res = await http.delete(
+    final res = await _http.delete(
       Uri.parse('$baseUrl/api/admin/users/$userId/hard-delete'),
       headers: _jsonHeaders,
     );

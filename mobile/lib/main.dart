@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'core/api/api_client.dart';
+import 'core/auth/session_coordinator.dart';
 import 'core/l10n/locale_controller.dart';
 import 'core/theme/app_theme.dart';
 import 'core/widgets/touchable.dart';
@@ -36,6 +37,7 @@ class _DentalLabAppState extends State<DentalLabApp> {
           return MaterialApp(
             title: 'Elite Dentist Pro',
             debugShowCheckedModeBanner: false,
+            navigatorKey: SessionCoordinator.navigatorKey,
             theme: AppTheme.light(),
             scrollBehavior: const EliteScrollBehavior(),
             locale: widget.localeController.locale,

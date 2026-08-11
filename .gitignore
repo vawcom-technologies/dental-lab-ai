@@ -6,6 +6,7 @@ backend/dental_lab.db
 backend/data/
 backend/debug/
 backend/.env
+backend/firebase-service-account.json
 
 # Flutter
 mobile/.dart_tool/

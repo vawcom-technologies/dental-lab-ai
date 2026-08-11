@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/auth/session_coordinator.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/brand_logo.dart';
 import '../../core/widgets/ui_kit.dart';
-import '../auth/login_screen.dart';
 
 class ChangePasswordScreen extends StatefulWidget {
   const ChangePasswordScreen({super.key, required this.api});
@@ -88,10 +88,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       );
 
       if (!mounted) return;
-      widget.api.logout();
-      Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => LoginScreen(api: widget.api)),
-        (_) => false,
+      SessionCoordinator.signOut(
+        widget.api,
+        message: 'Password updated. Please log in again.',
       );
     } catch (e) {
       if (!mounted) return;

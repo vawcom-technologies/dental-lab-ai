@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../core/api/api_client.dart';
+import '../../core/auth/auth_aware_http_client.dart';
+import '../../core/auth/session_coordinator.dart';
 import 'patient_models.dart';
 
 /// GDPR patient REST client — all `/api/patients*` endpoints.
@@ -23,6 +25,12 @@ class PatientsApiService {
     Future<http.Response> Function() call,
   ) async {
     final res = await call();
+    // AuthAwareHttpClient already fires on 401; keep an explicit guard for
+    // envelope-shaped auth failures that still arrive with a 401 transport code.
+    if (res.statusCode == 401 ||
+        AuthAwareHttpClient.looksLikeCredentialFailure(res.body)) {
+      SessionCoordinator.onUnauthorized(_api);
+    }
     Map<String, dynamic> body;
     try {
       final decoded = jsonDecode(res.body);
@@ -58,7 +66,7 @@ class PatientsApiService {
 
   Future<List<GdprPatient>> listPatients() async {
     final env = await _send(
-      () => http.get(Uri.parse('$_base/api/patients'), headers: _headers),
+      () => _api.httpClient.get(Uri.parse('$_base/api/patients'), headers: _headers),
     );
     final raw = env.payload['patients'];
     if (raw is! List) return const [];
@@ -70,7 +78,7 @@ class PatientsApiService {
 
   Future<GdprPatient> getPatient(String patientId) async {
     final env = await _send(
-      () => http.get(
+      () => _api.httpClient.get(
         Uri.parse('$_base/api/patients/$patientId'),
         headers: _headers,
       ),
@@ -96,7 +104,7 @@ class PatientsApiService {
     required String healthInsurance,
   }) async {
     final env = await _send(
-      () => http.post(
+      () => _api.httpClient.post(
         Uri.parse('$_base/api/patients'),
         headers: _headers,
         body: jsonEncode({
@@ -126,7 +134,7 @@ class PatientsApiService {
     Map<String, dynamic> fieldsToUpdate,
   ) async {
     final env = await _send(
-      () => http.patch(
+      () => _api.httpClient.patch(
         Uri.parse('$_base/api/patients/$patientId'),
         headers: _headers,
         body: jsonEncode({'fields_to_update': fieldsToUpdate}),
@@ -148,7 +156,7 @@ class PatientsApiService {
     required bool hard,
   }) async {
     await _send(
-      () => http.delete(
+      () => _api.httpClient.delete(
         Uri.parse('$_base/api/patients/$patientId').replace(
           queryParameters: {'delete_type': hard ? 'hard' : 'soft'},
         ),
@@ -164,7 +172,7 @@ class PatientsApiService {
     required bool asOwner,
   }) async {
     final env = await _send(
-      () => http.post(
+      () => _api.httpClient.post(
         Uri.parse('$_base/api/patients/$patientId/access'),
         headers: _headers,
         body: jsonEncode({'target_user_id': targetUserId}),
@@ -186,7 +194,7 @@ class PatientsApiService {
     required String targetUserId,
   }) async {
     await _send(
-      () => http.delete(
+      () => _api.httpClient.delete(
         Uri.parse('$_base/api/patients/$patientId/access/$targetUserId'),
         headers: _headers,
       ),
@@ -195,7 +203,7 @@ class PatientsApiService {
 
   Future<List<PendingAccessRequest>> listPendingAccessRequests() async {
     final env = await _send(
-      () => http.get(
+      () => _api.httpClient.get(
         Uri.parse('$_base/api/patients/access/pending'),
         headers: _headers,
       ),
@@ -210,7 +218,7 @@ class PatientsApiService {
 
   Future<List<EligibleAccessUser>> listEligibleUsers(String patientId) async {
     final env = await _send(
-      () => http.get(
+      () => _api.httpClient.get(
         Uri.parse('$_base/api/patients/$patientId/eligible-users'),
         headers: _headers,
       ),
@@ -228,7 +236,7 @@ class PatientsApiService {
     required String action,
   }) async {
     final env = await _send(
-      () => http.patch(
+      () => _api.httpClient.patch(
         Uri.parse('$_base/api/patients/access/requests/$requestId'),
         headers: _headers,
         body: jsonEncode({'action': action}),
@@ -247,7 +255,7 @@ class PatientsApiService {
 
   Future<PatientAccessSnapshot> listPatientAccess(String patientId) async {
     final env = await _send(
-      () => http.get(
+      () => _api.httpClient.get(
         Uri.parse('$_base/api/patients/$patientId/access'),
         headers: _headers,
       ),
@@ -280,7 +288,7 @@ class PatientsApiService {
 
   Future<List<PatientNote>> listNotes(String patientId) async {
     final env = await _send(
-      () => http.get(
+      () => _api.httpClient.get(
         Uri.parse('$_base/api/patients/$patientId/notes'),
         headers: _headers,
       ),
@@ -298,7 +306,7 @@ class PatientsApiService {
     required String noteContent,
   }) async {
     final env = await _send(
-      () => http.post(
+      () => _api.httpClient.post(
         Uri.parse('$_base/api/patients/$patientId/notes'),
         headers: _headers,
         body: jsonEncode({'note_content': noteContent}),
@@ -320,7 +328,7 @@ class PatientsApiService {
     required String newNoteContent,
   }) async {
     final env = await _send(
-      () => http.patch(
+      () => _api.httpClient.patch(
         Uri.parse('$_base/api/patients/notes/$noteId'),
         headers: _headers,
         body: jsonEncode({'new_note_content': newNoteContent}),
@@ -339,7 +347,7 @@ class PatientsApiService {
 
   Future<void> deleteNote(String noteId) async {
     await _send(
-      () => http.delete(
+      () => _api.httpClient.delete(
         Uri.parse('$_base/api/patients/notes/$noteId'),
         headers: _headers,
       ),

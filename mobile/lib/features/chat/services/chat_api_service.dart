@@ -26,7 +26,7 @@ class ChatApiService {
       };
 
   Future<List<Conversation>> fetchConversations() async {
-    final res = await http.get(
+    final res = await _api.httpClient.get(
       Uri.parse('$_base/api/conversations'),
       headers: _headers,
     );
@@ -42,7 +42,7 @@ class ChatApiService {
   }
 
   Future<Conversation> getOrCreateConversation(String targetUserId) async {
-    final res = await http.post(
+    final res = await _api.httpClient.post(
       Uri.parse('$_base/api/conversations/get-or-create'),
       headers: _headers,
       body: jsonEncode({'target_user_id': targetUserId}),
@@ -71,7 +71,7 @@ class ChatApiService {
       if (role != null && role.trim().isNotEmpty) 'role': role.trim(),
     };
     final uri = Uri.parse('$_base/api/users').replace(queryParameters: params);
-    final res = await http.get(uri, headers: _headers);
+    final res = await _api.httpClient.get(uri, headers: _headers);
     if (res.statusCode != 200) {
       throw Exception(_errorMessage(res));
     }
@@ -94,7 +94,7 @@ class ChatApiService {
     };
     final uri = Uri.parse('$_base/api/conversations/$conversationId/messages')
         .replace(queryParameters: params);
-    final res = await http.get(uri, headers: _headers);
+    final res = await _api.httpClient.get(uri, headers: _headers);
     if (res.statusCode != 200) {
       throw Exception(_errorMessage(res));
     }
@@ -141,7 +141,7 @@ class ChatApiService {
       ),
     );
 
-    final streamed = await request.send();
+    final streamed = await _api.httpClient.send(request);
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200 && res.statusCode != 201) {
       throw Exception(_errorMessage(res));

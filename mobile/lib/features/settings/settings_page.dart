@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/auth/session_coordinator.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/l10n/locale_controller.dart';
 import '../../core/settings/app_settings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
-import '../auth/login_screen.dart';
 import 'change_password_screen.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -76,11 +76,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   void _signOut() {
-    widget.api.logout();
-    Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => LoginScreen(api: widget.api)),
-      (_) => false,
-    );
+    SessionCoordinator.signOut(widget.api);
   }
 
   @override
