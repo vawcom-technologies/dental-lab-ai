@@ -22,7 +22,7 @@ from app.services.email import send_appointment_confirmation, send_appointment_u
 router = APIRouter()
 logger = logging.getLogger("app.api.appointments")
 
-_ACTIVE_STATUSES = ("scheduled", "confirmed")
+_ACTIVE_STATUSES = ("scheduled",)
 
 
 def _patient_display_name(patient: dict[str, Any]) -> str:

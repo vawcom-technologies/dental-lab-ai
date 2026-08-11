@@ -5,14 +5,12 @@ import '../../../core/theme/app_theme.dart';
 /// Appointment workflow statuses (matches backend `AppointmentStatus`).
 class AppointmentStatuses {
   static const scheduled = 'scheduled';
-  static const confirmed = 'confirmed';
   static const completed = 'completed';
   static const cancelled = 'cancelled';
   static const noShow = 'no_show';
 
   static const all = <String>[
     scheduled,
-    confirmed,
     completed,
     cancelled,
     noShow,
@@ -21,7 +19,6 @@ class AppointmentStatuses {
   static const filters = <({String key, String label})>[
     (key: 'all', label: 'All'),
     (key: scheduled, label: 'Scheduled'),
-    (key: confirmed, label: 'Confirmed'),
     (key: completed, label: 'Completed'),
     (key: cancelled, label: 'Cancelled'),
     (key: noShow, label: 'No Show'),
@@ -30,14 +27,14 @@ class AppointmentStatuses {
   static String normalize(String? raw) {
     final s = (raw ?? scheduled).trim().toLowerCase();
     if (s == 'noshow' || s == 'no-show') return noShow;
+    // Legacy "confirmed" rows map to scheduled (status removed from product).
+    if (s == 'confirmed') return scheduled;
     if (all.contains(s)) return s;
     return scheduled;
   }
 
   static String label(String? raw) {
     switch (normalize(raw)) {
-      case confirmed:
-        return 'Confirmed';
       case completed:
         return 'Completed';
       case cancelled:
@@ -60,12 +57,6 @@ class AppointmentStatusStyle {
 
   static AppointmentStatusStyle of(String? raw) {
     switch (AppointmentStatuses.normalize(raw)) {
-      case AppointmentStatuses.confirmed:
-        return const AppointmentStatusStyle(
-          'Confirmed',
-          AppColors.success,
-          AppColors.successSoft,
-        );
       case AppointmentStatuses.completed:
         return const AppointmentStatusStyle(
           'Completed',

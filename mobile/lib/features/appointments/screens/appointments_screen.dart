@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/api/api_client.dart';
@@ -62,13 +63,26 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 
   void _onPatientsChanged() {
     if (!mounted) return;
-    setState(() {});
-    // Drop stale filter if patient was deleted / list refreshed without them.
-    final id = _patientFilterId;
-    if (id != null &&
-        !_patients.any((p) => widget.patientSession.pidOf(p) == id)) {
-      _patientFilterId = null;
-      _loadAppointments(soft: true);
+    // PatientSession may notify while a dialog is mounting — defer setState.
+    final phase = SchedulerBinding.instance.schedulerPhase;
+    final duringBuild = phase == SchedulerPhase.transientCallbacks ||
+        phase == SchedulerPhase.midFrameMicrotasks ||
+        phase == SchedulerPhase.persistentCallbacks;
+    void apply() {
+      if (!mounted) return;
+      setState(() {});
+      final id = _patientFilterId;
+      if (id != null &&
+          !_patients.any((p) => widget.patientSession.pidOf(p) == id)) {
+        _patientFilterId = null;
+        _loadAppointments(soft: true);
+      }
+    }
+
+    if (duringBuild) {
+      SchedulerBinding.instance.addPostFrameCallback((_) => apply());
+    } else {
+      apply();
     }
   }
 
@@ -177,10 +191,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   }
 
   Future<void> _openBookModal({Appointment? existing}) async {
-    // Always refresh patients before opening so newly created patients appear.
-    await _refreshPatients(showIndicator: false);
-    if (!mounted) return;
-
+    // Open immediately — do not block on a network patient refresh.
+    // Create mode refreshes patients inside the modal after the first frame.
     final saved = await showDialog<Appointment>(
       context: context,
       barrierDismissible: false,
@@ -591,7 +603,22 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
     } else {
       _start = _roundToNextQuarter(DateTime.now().add(const Duration(hours: 1)));
     }
-    _loadPatients();
+    // Seed from cache immediately; refresh after this frame so we never
+    // notify PatientSession listeners while the dialog is still mounting.
+    _patients =
+        List<Map<String, dynamic>>.from(widget.patientSession.patients);
+    if (!_isEdit && _patients.isNotEmpty) {
+      _patientId = widget.patientSession.pidOf(_patients.first);
+      if (_patientId != null && _patientId!.isEmpty) _patientId = null;
+    }
+    _loadingPatients = false;
+    // Edit mode does not need the patient list (read-only name). Create mode
+    // refreshes in the background without delaying the dialog open.
+    if (!_isEdit) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadPatients();
+      });
+    }
   }
 
   @override

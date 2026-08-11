@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../api/api_client.dart';
 
@@ -17,6 +18,7 @@ class PatientSession extends ChangeNotifier {
   bool _loading = false;
   bool _loaded = false;
   Future<void>? _inFlight;
+  bool _notifyScheduled = false;
 
   List<Map<String, dynamic>> get patients => _patients;
   Map<String, dynamic>? get selected => _selected;
@@ -24,6 +26,25 @@ class PatientSession extends ChangeNotifier {
   bool get isLoaded => _loaded;
 
   String pidOf(Map<String, dynamic> row) => '${row['id'] ?? ''}';
+
+  /// Avoid "notifyListeners during build" when refresh is kicked off from
+  /// [State.initState] / dialog mount (common on Appointments modal open).
+  void _notify() {
+    final phase = SchedulerBinding.instance.schedulerPhase;
+    final duringBuild = phase == SchedulerPhase.transientCallbacks ||
+        phase == SchedulerPhase.midFrameMicrotasks ||
+        phase == SchedulerPhase.persistentCallbacks;
+    if (!duringBuild) {
+      notifyListeners();
+      return;
+    }
+    if (_notifyScheduled) return;
+    _notifyScheduled = true;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _notifyScheduled = false;
+      notifyListeners();
+    });
+  }
 
   Future<void> ensureLoaded() async {
     if (_loaded) return;
@@ -47,7 +68,7 @@ class PatientSession extends ChangeNotifier {
 
   Future<void> _doRefresh({required bool keepSelection}) async {
     _loading = true;
-    notifyListeners();
+    _notify();
     try {
       final rows = await api.listPatients();
       _patients = rows;
@@ -63,7 +84,7 @@ class PatientSession extends ChangeNotifier {
       }
     } finally {
       _loading = false;
-      notifyListeners();
+      _notify();
     }
   }
 
@@ -75,13 +96,13 @@ class PatientSession extends ChangeNotifier {
       return;
     }
     _selected = patient;
-    notifyListeners();
+    _notify();
   }
 
   void clearSelection() {
     if (_selected == null) return;
     _selected = null;
-    notifyListeners();
+    _notify();
   }
 
   Future<Map<String, dynamic>> createPatient({

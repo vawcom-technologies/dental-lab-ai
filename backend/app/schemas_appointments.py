@@ -9,7 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 AppointmentStatus = Literal[
-    "scheduled", "confirmed", "completed", "cancelled", "no_show"
+    "scheduled", "completed", "cancelled", "no_show"
 ]
 
 
