@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/api/api_client.dart';
 import '../core/session/patient_session.dart';
 import '../core/theme/app_theme.dart';
+import '../features/appointments/screens/appointments_screen.dart';
 import '../features/camera/camera_page.dart';
 import '../features/chat/messages_page.dart';
 import '../features/chat/state/chat_controller.dart';
@@ -193,12 +194,19 @@ class _AppShellState extends State<AppShell> {
         return PatientsPage(
           api: widget.api,
           dentistName: _dentistName,
+          patientSession: _patients,
           onNewPatient: () => _go(AppNavItem.newPatient),
         );
       case AppNavItem.newPatient:
         return NewPatientPage(
           api: widget.api,
           onCreated: _onPatientCreated,
+        );
+      case AppNavItem.appointments:
+        return AppointmentsScreen(
+          api: widget.api,
+          patientSession: _patients,
+          active: active,
         );
       case AppNavItem.camera:
         return CameraPage(

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import '../../features/appointments/models/appointment.dart';
 import '../../features/laboratories/admin_user.dart';
 import '../auth/app_roles.dart';
 import '../haptics/app_haptics.dart';
@@ -1104,6 +1105,100 @@ class ApiClient {
       headers: _jsonHeaders,
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
+  }
+
+  // ── Appointments ─────────────────────────────────────────────────────────
+
+  Future<List<Appointment>> listAppointments({
+    String? status,
+    String? patientId,
+    bool upcomingOnly = true,
+  }) async {
+    final params = <String, String>{
+      'upcoming_only': '$upcomingOnly',
+    };
+    if (status != null && status.isNotEmpty && status != 'all') {
+      params['status'] = status;
+    }
+    if (patientId != null && patientId.isNotEmpty) {
+      params['patient_id'] = patientId;
+    }
+    final uri = Uri.parse('$baseUrl/api/appointments').replace(
+      queryParameters: params,
+    );
+    final res = await http.get(uri, headers: _jsonHeaders);
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    final decoded = jsonDecode(res.body);
+    if (decoded is! List) return const [];
+    return decoded
+        .whereType<Map>()
+        .map((e) => Appointment.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
+
+  Future<Appointment> createAppointment({
+    required String patientId,
+    required DateTime startTime,
+    required DateTime endTime,
+    String? description,
+  }) async {
+    final res = await http.post(
+      Uri.parse('$baseUrl/api/appointments'),
+      headers: _jsonHeaders,
+      body: jsonEncode({
+        'patient_id': patientId,
+        'start_time': startTime.toUtc().toIso8601String(),
+        'end_time': endTime.toUtc().toIso8601String(),
+        'description': ?description,
+      }),
+    );
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(_errorMessage(res));
+    }
+    AppHaptics.success();
+    return Appointment.fromJson(
+      Map<String, dynamic>.from(jsonDecode(res.body) as Map),
+    );
+  }
+
+  Future<Appointment> updateAppointment({
+    required String appointmentId,
+    String? description,
+    DateTime? startTime,
+    DateTime? endTime,
+    String? status,
+  }) async {
+    final body = <String, dynamic>{};
+    if (description != null) body['description'] = description;
+    if (startTime != null) {
+      body['start_time'] = startTime.toUtc().toIso8601String();
+    }
+    if (endTime != null) {
+      body['end_time'] = endTime.toUtc().toIso8601String();
+    }
+    if (status != null) body['status'] = status;
+
+    final res = await http.patch(
+      Uri.parse('$baseUrl/api/appointments/$appointmentId'),
+      headers: _jsonHeaders,
+      body: jsonEncode(body),
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    AppHaptics.success();
+    return Appointment.fromJson(
+      Map<String, dynamic>.from(jsonDecode(res.body) as Map),
+    );
+  }
+
+  Future<void> deleteAppointment(String appointmentId) async {
+    final res = await http.delete(
+      Uri.parse('$baseUrl/api/appointments/$appointmentId'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200 && res.statusCode != 204) {
+      throw Exception(_errorMessage(res));
+    }
+    AppHaptics.warn();
   }
 
   // ── Admin users ──────────────────────────────────────────────────────────

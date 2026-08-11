@@ -753,6 +753,7 @@ class _ScansPageState extends State<ScansPage> {
                                 final color = sev == 'high'
                                     ? AppColors.danger
                                     : sev == 'medium'
+
                                         ? AppColors.warning
                                         : AppColors.muted;
                                 return Container(

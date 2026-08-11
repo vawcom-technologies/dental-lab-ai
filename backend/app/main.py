@@ -17,6 +17,7 @@ from app.api import (
     shade_detections,
     smile_previews,
     camera_photos,
+    appointments,
 )
 from app.core.debug_middleware import DebugRequestMiddleware, configure_api_logging
 from app.openapi_docs import attach_custom_openapi
@@ -100,6 +101,12 @@ app.include_router(
     camera_photos.router,
     prefix="/api/patient-photos",
     tags=["Camera Photos"],
+)
+# Patient appointments
+app.include_router(
+    appointments.router,
+    prefix="/api/appointments",
+    tags=["Appointments"],
 )
 # Chat WebSocket: /ws/chat?token=<access_token>
 app.include_router(chat.ws_router, tags=["chat"])

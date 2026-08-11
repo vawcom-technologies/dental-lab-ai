@@ -23,6 +23,7 @@ class AppLocalizations {
   String get navDashboard => _t('nav.dashboard');
   String get navPatients => _t('nav.patients');
   String get navNewPatient => _t('nav.newPatient');
+  String get navAppointments => _t('nav.appointments');
   String get navCamera => _t('nav.camera');
   String get navScans => _t('nav.scans');
   String get navShade => _t('nav.shade');
@@ -349,6 +350,7 @@ class AppLocalizations {
     'nav.dashboard': 'Dashboard',
     'nav.patients': 'Patients',
     'nav.newPatient': 'New Patient',
+    'nav.appointments': 'Appointments',
     'nav.camera': 'Camera',
     'nav.scans': 'Scans',
     'nav.shade': 'Shade Detection',
@@ -630,6 +632,7 @@ class AppLocalizations {
     'nav.dashboard': 'Übersicht',
     'nav.patients': 'Patienten',
     'nav.newPatient': 'Neuer Patient',
+    'nav.appointments': 'Termine',
     'nav.camera': 'Kamera',
     'nav.scans': 'Scans',
     'nav.shade': 'Farbbestimmung',

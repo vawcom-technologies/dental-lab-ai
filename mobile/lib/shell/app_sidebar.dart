@@ -10,6 +10,7 @@ enum AppNavItem {
   dashboard,
   patients,
   newPatient,
+  appointments,
   camera,
   scans,
   shade,
@@ -132,6 +133,11 @@ class AppSidebar extends StatelessWidget {
                           s.navPatients,
                           // New Patient is opened from Patients — keep Patients highlighted there.
                           selectedOverride: active == AppNavItem.newPatient,
+                        ),
+                        _item(
+                          AppNavItem.appointments,
+                          Icons.calendar_today_outlined,
+                          s.navAppointments,
                         ),
                         _item(AppNavItem.camera, Icons.photo_camera_outlined, s.navCamera),
                         _item(AppNavItem.scans, Icons.view_in_ar_outlined, s.navScans),

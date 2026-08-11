@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'patient_models.dart';
@@ -13,11 +14,13 @@ class PatientsPage extends StatefulWidget {
     super.key,
     required this.api,
     required this.dentistName,
+    this.patientSession,
     this.onNewPatient,
   });
 
   final ApiClient api;
   final String dentistName;
+  final PatientSession? patientSession;
   final VoidCallback? onNewPatient;
 
   @override
@@ -68,6 +71,16 @@ class _PatientsPageState extends State<PatientsPage> {
     return e.toString().replaceFirst('Exception: ', '');
   }
 
+  Future<void> _syncSharedPatientSession() async {
+    final session = widget.patientSession;
+    if (session == null) return;
+    try {
+      await session.refresh(keepSelection: true);
+    } catch (_) {
+      // Appointments/media will re-fetch on focus if this fails.
+    }
+  }
+
   Future<void> _openCreate() async {
     if (_controller.mutating) return;
     final created = await showDialog<GdprPatient>(
@@ -89,6 +102,8 @@ class _PatientsPageState extends State<PatientsPage> {
       ),
     );
     if (created == null || !mounted) return;
+    await _syncSharedPatientSession();
+    if (!mounted) return;
     _toast('Patient created successfully');
   }
 
@@ -121,6 +136,8 @@ class _PatientsPageState extends State<PatientsPage> {
         ),
       );
       if (updated == null || !mounted) return;
+      await _syncSharedPatientSession();
+      if (!mounted) return;
       _toast('Patient updated');
     } catch (e) {
       _toast(_friendlyError(e), error: true);
@@ -143,6 +160,8 @@ class _PatientsPageState extends State<PatientsPage> {
     if (hard == null || !mounted) return;
     try {
       await _controller.deletePatient(patient.id, hard: hard);
+      await _syncSharedPatientSession();
+      if (!mounted) return;
       _toast(hard ? 'Patient permanently deleted' : 'Patient archived');
     } catch (e) {
       _toast(_friendlyError(e), error: true);
