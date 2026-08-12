@@ -95,11 +95,18 @@ class _ChatScreenState extends State<ChatScreen> {
     final active = controller.activeConversation;
 
     if (active == null) {
-      return SectionCard(
+      return GlassSurface(
+        borderRadius: BorderRadius.circular(28),
+        blur: 28,
+        tint: Colors.white.withValues(alpha: 0.42),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
         child: Center(
           child: Text(
             'Select a conversation to start messaging',
-            style: TextStyle(color: AppColors.muted.withValues(alpha: 0.9)),
+            style: AppFonts.style(
+              color: AppColors.muted,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ),
       );
@@ -108,7 +115,11 @@ class _ChatScreenState extends State<ChatScreen> {
     final partner = active.partner;
     final messages = controller.messages;
 
-    return SectionCard(
+    return GlassSurface(
+      borderRadius: BorderRadius.circular(28),
+      blur: 28,
+      tint: Colors.white.withValues(alpha: 0.42),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
       padding: EdgeInsets.zero,
       child: Column(
         children: [
@@ -118,11 +129,15 @@ class _ChatScreenState extends State<ChatScreen> {
             showBack: widget.showBack,
             onBack: widget.onBack,
           ),
-          Container(height: 0.5, color: const Color(0xFFC6C6C8)),
+          Container(
+            height: 0.6,
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            color: Colors.white.withValues(alpha: 0.45),
+          ),
           if (controller.threadError != null)
             Container(
               width: double.infinity,
-              color: AppColors.dangerSoft,
+              color: AppColors.dangerSoft.withValues(alpha: 0.7),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               child: Text(
                 controller.threadError!,

@@ -72,8 +72,17 @@ class _ReportsPageState extends State<ReportsPage> {
       ((_summary?['attention'] as List?) ?? const [])
           .cast<Map<String, dynamic>>();
 
-  int _n(dynamic v) => (v as num?)?.toInt() ?? 0;
-  double? _d(dynamic v) => (v as num?)?.toDouble();
+  int _n(dynamic v) {
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v) ?? 0;
+    return 0;
+  }
+
+  double? _d(dynamic v) {
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v);
+    return null;
+  }
 
   String _avgLabel() {
     final hours = _d(_cases['avg_processing_hours']);
@@ -533,7 +542,12 @@ class _PipelineSection extends StatelessWidget {
   final int total;
   final bool expand;
 
-  int _n(String key) => (byStatus[key] as num?)?.toInt() ?? 0;
+  int _n(String key) {
+    final v = byStatus[key];
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v) ?? 0;
+    return 0;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -652,6 +666,21 @@ class _AttentionSection extends StatelessWidget {
   final VoidCallback onOpenPatients;
   final bool expand;
 
+  /// Backend now sends patient UUID strings; older payloads used numeric ids.
+  String _caseLabel(dynamic caseId) {
+    if (caseId is num) {
+      return 'CASE-${caseId.toInt().toString().padLeft(4, '0')}';
+    }
+    final raw = '$caseId'.trim();
+    if (raw.isEmpty || raw == 'null') return 'CASE-—';
+    final asInt = int.tryParse(raw);
+    if (asInt != null) {
+      return 'CASE-${asInt.toString().padLeft(4, '0')}';
+    }
+    final short = raw.length > 8 ? raw.substring(0, 8) : raw;
+    return 'CASE-$short';
+  }
+
   @override
   Widget build(BuildContext context) {
     final header = Column(
@@ -741,7 +770,7 @@ class _AttentionSection extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'CASE-${((r['case_id'] as num?)?.toInt() ?? 0).toString().padLeft(4, '0')}',
+                          _caseLabel(r['case_id']),
                           style: AppFonts.style(
                             fontSize: 12,
                             color: AppColors.muted,

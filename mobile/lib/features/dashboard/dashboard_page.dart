@@ -575,8 +575,8 @@ class _TableHeader extends StatelessWidget {
         children: [
           Expanded(flex: 2, child: Text(loc.colCaseId, style: _h)),
           Expanded(flex: 3, child: Text(loc.colPatient, style: _h)),
-          Expanded(flex: 3, child: Text(loc.colDentist, style: _h)),
-          Expanded(flex: 2, child: Text(loc.colStatus, style: _h)),
+          Expanded(flex: 2, child: Text(loc.colDentist, style: _h)),
+          Expanded(flex: 3, child: Text(loc.colStatus, style: _h)),
           Expanded(flex: 2, child: Text(loc.colUpdated, style: _h)),
         ],
       ),
@@ -619,7 +619,10 @@ class _PatientRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Expanded(flex: 2, child: Text(id, style: const TextStyle(fontWeight: FontWeight.w600))),
+          Expanded(
+            flex: 2,
+            child: Text(id, style: const TextStyle(fontWeight: FontWeight.w600)),
+          ),
           Expanded(
             flex: 3,
             child: Row(
@@ -631,11 +634,15 @@ class _PatientRow extends StatelessWidget {
             ),
           ),
           Expanded(
-            flex: 3,
-            child: Text(dentist, style: const TextStyle(color: AppColors.muted)),
+            flex: 2,
+            child: Text(
+              dentist,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: AppColors.muted),
+            ),
           ),
           Expanded(
-            flex: 2,
+            flex: 3,
             child: Align(
               alignment: Alignment.centerLeft,
               child: PatientStatusMenu(
@@ -649,6 +656,7 @@ class _PatientRow extends StatelessWidget {
             flex: 2,
             child: Text(
               updated,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: AppColors.muted, fontSize: 12),
             ),
           ),

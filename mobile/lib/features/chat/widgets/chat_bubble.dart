@@ -292,18 +292,31 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
   StreamSubscription<Duration?>? _durSub;
   bool _ready = false;
   bool _failed = false;
+  bool _scrubbing = false;
+  bool _resumeAfterScrub = false;
+  double _scrubProgress = 0;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
+
+  Duration get _effectiveDuration {
+    if (_duration.inMilliseconds > 0) return _duration;
+    final fallbackMs =
+        ((widget.durationSeconds ?? 0) * 1000).round().clamp(0, 36000000);
+    return Duration(milliseconds: fallbackMs);
+  }
 
   @override
   void initState() {
     super.initState();
     _player = AudioPlayer();
+    // Slight boost for older quiet notes; new recordings are peak-normalized.
+    unawaited(_player.setVolume(1.6));
     _stateSub = _player.playerStateStream.listen((_) {
       if (mounted) setState(() {});
     });
     _posSub = _player.positionStream.listen((pos) {
-      if (mounted) setState(() => _position = pos);
+      if (!mounted || _scrubbing) return;
+      setState(() => _position = pos);
     });
     _durSub = _player.durationStream.listen((d) {
       if (!mounted || d == null) return;
@@ -314,6 +327,7 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
 
   Future<void> _prepare() async {
     try {
+      await _player.setVolume(1.6);
       final d = await _player.setUrl(widget.url);
       if (!mounted) return;
       setState(() {
@@ -353,15 +367,70 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
     }
   }
 
+  Future<void> _seekToFraction(double fraction) async {
+    if (!_ready) return;
+    final total = _effectiveDuration;
+    if (total.inMilliseconds <= 0) return;
+    final clamped = fraction.clamp(0.0, 1.0);
+    final target = Duration(
+      milliseconds: (total.inMilliseconds * clamped).round(),
+    );
+    setState(() {
+      _position = target;
+      _scrubProgress = clamped;
+    });
+    await _player.seek(target);
+  }
+
+  void _beginScrub(double fraction) {
+    if (!_ready || _effectiveDuration.inMilliseconds <= 0) return;
+    _resumeAfterScrub = _player.playing;
+    if (_resumeAfterScrub) unawaited(_player.pause());
+    setState(() {
+      _scrubbing = true;
+      _scrubProgress = fraction.clamp(0.0, 1.0);
+      _position = Duration(
+        milliseconds:
+            (_effectiveDuration.inMilliseconds * _scrubProgress).round(),
+      );
+    });
+  }
+
+  void _updateScrub(double fraction) {
+    if (!_scrubbing) return;
+    setState(() {
+      _scrubProgress = fraction.clamp(0.0, 1.0);
+      _position = Duration(
+        milliseconds:
+            (_effectiveDuration.inMilliseconds * _scrubProgress).round(),
+      );
+    });
+  }
+
+  Future<void> _endScrub([double? fraction]) async {
+    if (!_scrubbing && fraction == null) return;
+    final target = (fraction ?? _scrubProgress).clamp(0.0, 1.0);
+    final shouldResume = _resumeAfterScrub;
+    setState(() {
+      _scrubbing = false;
+      _resumeAfterScrub = false;
+      _scrubProgress = target;
+      _position = Duration(
+        milliseconds: (_effectiveDuration.inMilliseconds * target).round(),
+      );
+    });
+    await _seekToFraction(target);
+    if (shouldResume && mounted) await _player.play();
+  }
+
   @override
   Widget build(BuildContext context) {
     final accent = widget.mine ? Colors.white : AppColors.dentalBlue;
-    final labelSeconds = _duration.inMilliseconds > 0
-        ? _duration.inMilliseconds / 1000.0
-        : widget.durationSeconds;
-    final progressLabel = _player.playing
-        ? formatVoiceDuration(_position.inMilliseconds / 1000.0)
-        : formatVoiceDuration(labelSeconds);
+    final totalSeconds = _effectiveDuration.inMilliseconds / 1000.0;
+    final displaySeconds = _scrubbing || _player.playing || _position > Duration.zero
+        ? _position.inMilliseconds / 1000.0
+        : totalSeconds;
+    final progressLabel = formatVoiceDuration(displaySeconds);
 
     if (_failed) {
       return SizedBox(
@@ -387,10 +456,12 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
       );
     }
 
-    final maxMs = _duration.inMilliseconds <= 0
+    final maxMs = _effectiveDuration.inMilliseconds <= 0
         ? 1.0
-        : _duration.inMilliseconds.toDouble();
-    final progress = (_position.inMilliseconds / maxMs).clamp(0.0, 1.0);
+        : _effectiveDuration.inMilliseconds.toDouble();
+    final progress = _scrubbing
+        ? _scrubProgress
+        : (_position.inMilliseconds / maxMs).clamp(0.0, 1.0);
 
     return SizedBox(
       width: 210,
@@ -432,7 +503,11 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
                 _VoiceWaveform(
                   progress: progress,
                   mine: widget.mine,
-                  playing: _player.playing,
+                  playing: _player.playing && !_scrubbing,
+                  enabled: _ready && _effectiveDuration.inMilliseconds > 0,
+                  onScrubStart: _beginScrub,
+                  onScrubUpdate: _updateScrub,
+                  onScrubEnd: (fraction) => unawaited(_endScrub(fraction)),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -459,11 +534,24 @@ class _VoiceWaveform extends StatelessWidget {
     required this.progress,
     required this.mine,
     required this.playing,
+    required this.enabled,
+    required this.onScrubStart,
+    required this.onScrubUpdate,
+    required this.onScrubEnd,
   });
 
   final double progress;
   final bool mine;
   final bool playing;
+  final bool enabled;
+  final ValueChanged<double> onScrubStart;
+  final ValueChanged<double> onScrubUpdate;
+  final ValueChanged<double> onScrubEnd;
+
+  double _fractionFor(Offset local, double width) {
+    if (width <= 0) return 0;
+    return (local.dx / width).clamp(0.0, 1.0);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -473,35 +561,62 @@ class _VoiceWaveform extends StatelessWidget {
         ? Colors.white.withValues(alpha: 0.35)
         : const Color(0xFFC7C7CC);
 
-    return SizedBox(
-      height: 22,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: List.generate(count, (i) {
-          final t = i / (count - 1);
-          final wave = 0.35 +
-              0.65 *
-                  (0.55 +
-                      0.45 *
-                          math.sin(i * 0.9) *
-                          math.cos(i * 0.35));
-          final h = (22 * wave).clamp(4.0, 22.0);
-          final filled = t <= progress;
-          return Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 0.8),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 120),
-                height: playing && filled ? h * 1.05 : h,
-                decoration: BoxDecoration(
-                  color: filled ? active : idle,
-                  borderRadius: BorderRadius.circular(1.5),
-                ),
-              ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: enabled
+              ? (details) {
+                  final f = _fractionFor(details.localPosition, width);
+                  onScrubStart(f);
+                  onScrubEnd(f);
+                }
+              : null,
+          onHorizontalDragStart: enabled
+              ? (details) =>
+                  onScrubStart(_fractionFor(details.localPosition, width))
+              : null,
+          onHorizontalDragUpdate: enabled
+              ? (details) =>
+                  onScrubUpdate(_fractionFor(details.localPosition, width))
+              : null,
+          onHorizontalDragEnd: enabled
+              ? (_) => onScrubEnd(progress)
+              : null,
+          onHorizontalDragCancel: enabled ? () => onScrubEnd(progress) : null,
+          child: SizedBox(
+            height: 28,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: List.generate(count, (i) {
+                final t = i / (count - 1);
+                final wave = 0.35 +
+                    0.65 *
+                        (0.55 +
+                            0.45 *
+                                math.sin(i * 0.9) *
+                                math.cos(i * 0.35));
+                final h = (22 * wave).clamp(4.0, 22.0);
+                final filled = t <= progress;
+                return Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 0.8),
+                    child: AnimatedContainer(
+                      duration: Duration(milliseconds: playing ? 120 : 0),
+                      height: playing && filled ? h * 1.05 : h,
+                      decoration: BoxDecoration(
+                        color: filled ? active : idle,
+                        borderRadius: BorderRadius.circular(1.5),
+                      ),
+                    ),
+                  ),
+                );
+              }),
             ),
-          );
-        }),
-      ),
+          ),
+        );
+      },
     );
   }
 }

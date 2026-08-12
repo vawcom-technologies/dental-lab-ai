@@ -9,10 +9,9 @@ import '../../../core/widgets/ui_kit.dart';
 import '../models/chat_models.dart';
 import '../state/chat_controller.dart';
 
-/// Soft list selection (iPadOS Messages-style).
-const _kSelectedRow = Color(0xFFE8F1FB);
-const _kSeparator = Color(0xFFC6C6C8);
-const _kSearchFill = Color(0xFFE5E5EA);
+/// Soft glass selection (iPadOS Messages / liquid glass).
+const _kSelectedGlass = Color(0x66FFFFFF);
+const _kHairline = Color(0x33FFFFFF);
 
 class InboxScreen extends StatelessWidget {
   const InboxScreen({
@@ -60,36 +59,35 @@ class InboxScreen extends StatelessWidget {
           ),
         if (!embedded) const SizedBox(height: 12),
         Expanded(
-          child: SectionCard(
+          child: GlassSurface(
+            borderRadius: BorderRadius.circular(28),
+            blur: 28,
+            tint: Colors.white.withValues(alpha: 0.42),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.72),
+              width: 1.1,
+            ),
             padding: EdgeInsets.zero,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 12, 8, 8),
+                  padding: const EdgeInsets.fromLTRB(14, 14, 10, 10),
                   child: Row(
                     children: [
                       Expanded(
-                        child: CupertinoSearchTextField(
-                          placeholder: 'Search',
-                          backgroundColor: _kSearchFill,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            color: AppColors.navy,
-                          ),
+                        child: _GlassSearchField(
                           onChanged: controller.setInboxQuery,
                         ),
                       ),
-                      if (onNewChat != null)
-                        CupertinoButton(
-                          padding: const EdgeInsets.only(left: 4),
+                      if (onNewChat != null) ...[
+                        const SizedBox(width: 6),
+                        _GlassIconButton(
+                          tooltip: 'New chat',
+                          icon: CupertinoIcons.square_pencil,
                           onPressed: onNewChat,
-                          child: const Icon(
-                            CupertinoIcons.square_pencil,
-                            size: 24,
-                            color: AppColors.dentalBlue,
-                          ),
                         ),
+                      ],
                     ],
                   ),
                 ),
@@ -98,9 +96,10 @@ class InboxScreen extends StatelessWidget {
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                     child: Text(
                       controller.error!,
-                      style: const TextStyle(
+                      style: AppFonts.style(
                         color: AppColors.danger,
                         fontSize: 13,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ),
@@ -114,32 +113,48 @@ class InboxScreen extends StatelessWidget {
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    const Icon(
-                                      CupertinoIcons.bubble_left_bubble_right,
-                                      size: 40,
-                                      color: Color(0xFFC7C7CC),
+                                    Container(
+                                      width: 72,
+                                      height: 72,
+                                      alignment: Alignment.center,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: Colors.white.withValues(
+                                          alpha: 0.45,
+                                        ),
+                                        border: Border.all(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.7,
+                                          ),
+                                        ),
+                                      ),
+                                      child: const Icon(
+                                        CupertinoIcons
+                                            .bubble_left_bubble_right,
+                                        size: 34,
+                                        color: Color(0xFF8E8E93),
+                                      ),
                                     ),
-                                    const SizedBox(height: 12),
+                                    const SizedBox(height: 14),
                                     Text(
                                       controller.inboxQuery.isEmpty
                                           ? 'No conversations yet.'
                                           : 'No conversations match your search.',
                                       textAlign: TextAlign.center,
-                                      style: const TextStyle(
+                                      style: AppFonts.style(
                                         color: AppColors.muted,
                                         fontSize: 16,
+                                        fontWeight: FontWeight.w500,
                                       ),
                                     ),
                                     if (onNewChat != null &&
                                         controller.inboxQuery.isEmpty) ...[
                                       const SizedBox(height: 16),
-                                      CupertinoButton.filled(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 18,
-                                          vertical: 10,
-                                        ),
+                                      AppButtons.primary(
                                         onPressed: onNewChat,
-                                        child: const Text('Start a chat'),
+                                        icon: Icons.edit_square,
+                                        label: 'Start a chat',
+                                        compact: true,
                                       ),
                                     ],
                                   ],
@@ -150,21 +165,29 @@ class InboxScreen extends StatelessWidget {
                               color: AppColors.dentalBlue,
                               onRefresh: controller.loadInbox,
                               child: ListView.builder(
+                                padding: const EdgeInsets.fromLTRB(
+                                  10,
+                                  0,
+                                  10,
+                                  12,
+                                ),
                                 itemCount: rows.length,
                                 itemBuilder: (context, i) {
                                   final c = rows[i];
                                   final selected =
                                       controller.activeConversation?.id ==
                                           c.id;
-                                  return _ConversationTile(
-                                    conversation: c,
-                                    selected: selected,
-                                    showDivider: i < rows.length - 1,
-                                    enabled: !controller.loadingMessages,
-                                    onTap: () async {
-                                      await controller.openConversation(c);
-                                      onConversationSelected?.call(c);
-                                    },
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 6),
+                                    child: _ConversationTile(
+                                      conversation: c,
+                                      selected: selected,
+                                      enabled: !controller.loadingMessages,
+                                      onTap: () async {
+                                        await controller.openConversation(c);
+                                        onConversationSelected?.call(c);
+                                      },
+                                    ),
                                   );
                                 },
                               ),
@@ -179,19 +202,93 @@ class InboxScreen extends StatelessWidget {
   }
 }
 
+class _GlassSearchField extends StatelessWidget {
+  const _GlassSearchField({required this.onChanged});
+
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.68),
+        ),
+      ),
+      child: CupertinoSearchTextField(
+        placeholder: 'Search',
+        backgroundColor: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        prefixIcon: const Icon(
+          CupertinoIcons.search,
+          color: Color(0xFF8E8E93),
+        ),
+        style: AppFonts.style(
+          fontSize: 16,
+          color: AppColors.navy,
+          fontWeight: FontWeight.w500,
+        ),
+        placeholderStyle: AppFonts.style(
+          fontSize: 16,
+          color: const Color(0xFF8E8E93),
+        ),
+        onChanged: onChanged,
+      ),
+    );
+  }
+}
+
+class _GlassIconButton extends StatelessWidget {
+  const _GlassIconButton({
+    required this.icon,
+    required this.onPressed,
+    this.tooltip,
+  });
+
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final String? tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    final button = Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(14),
+        splashFactory: NoSplash.splashFactory,
+        child: Ink(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.7),
+            ),
+          ),
+          child: Icon(icon, size: 22, color: AppColors.dentalBlue),
+        ),
+      ),
+    );
+    if (tooltip == null) return button;
+    return Tooltip(message: tooltip!, child: button);
+  }
+}
+
 class _ConversationTile extends StatelessWidget {
   const _ConversationTile({
     required this.conversation,
     required this.selected,
     required this.onTap,
-    required this.showDivider,
     this.enabled = true,
   });
 
   final Conversation conversation;
   final bool selected;
   final VoidCallback onTap;
-  final bool showDivider;
   final bool enabled;
 
   @override
@@ -208,141 +305,204 @@ class _ConversationTile extends StatelessWidget {
     final previewLine = subtitle.isEmpty ? preview : '$subtitle · $preview';
 
     return Material(
-      color: selected ? _kSelectedRow : Colors.white,
+      color: Colors.transparent,
       child: InkWell(
         onTap: enabled ? onTap : null,
-        splashColor: AppColors.dentalBlue.withValues(alpha: 0.08),
-        highlightColor: AppColors.dentalBlue.withValues(alpha: 0.04),
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  CircleAvatar(
-                    radius: 26,
-                    backgroundColor:
-                        AppColors.dentalBlue.withValues(alpha: 0.14),
-                    child: Text(
-                      partner.displayName.isNotEmpty
-                          ? partner.displayName.characters.first.toUpperCase()
-                          : '?',
-                      style: const TextStyle(
-                        color: AppColors.dentalBlue,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 18,
-                      ),
+        borderRadius: BorderRadius.circular(20),
+        splashFactory: NoSplash.splashFactory,
+        highlightColor: AppColors.dentalBlue.withValues(alpha: 0.06),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+          decoration: BoxDecoration(
+            color: selected
+                ? _kSelectedGlass
+                : Colors.white.withValues(alpha: 0.22),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: selected
+                  ? Colors.white.withValues(alpha: 0.85)
+                  : _kHairline,
+              width: selected ? 1.2 : 1,
+            ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: AppColors.dentalBlue.withValues(alpha: 0.1),
+                      blurRadius: 16,
+                      offset: const Offset(0, 4),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  ]
+                : null,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _GlassAvatar(name: partner.displayName),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.baseline,
-                          textBaseline: TextBaseline.alphabetic,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                partner.displayName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontWeight: unread > 0
-                                      ? FontWeight.w700
-                                      : FontWeight.w600,
-                                  color: AppColors.navy,
-                                  fontSize: 17,
-                                  letterSpacing: -0.2,
-                                ),
-                              ),
+                        Expanded(
+                          child: Text(
+                            partner.displayName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppFonts.style(
+                              fontWeight: unread > 0
+                                  ? FontWeight.w700
+                                  : FontWeight.w600,
+                              color: AppColors.navy,
+                              fontSize: 17,
+                              letterSpacing: -0.25,
                             ),
-                            if (time != null) ...[
-                              const SizedBox(width: 8),
-                              Text(
-                                _formatInboxTime(time),
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: unread > 0
-                                      ? AppColors.dentalBlue
-                                      : const Color(0xFF8E8E93),
-                                  fontWeight: unread > 0
-                                      ? FontWeight.w600
-                                      : FontWeight.w400,
-                                ),
-                              ),
-                              const SizedBox(width: 2),
-                              const Icon(
-                                CupertinoIcons.chevron_forward,
-                                size: 14,
-                                color: Color(0xFFC7C7CC),
-                              ),
-                            ],
-                          ],
+                          ),
                         ),
-                        const SizedBox(height: 3),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                previewLine,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  height: 1.25,
-                                  color: unread > 0
-                                      ? const Color(0xFF3A3A3C)
-                                      : const Color(0xFF8E8E93),
-                                  fontWeight: unread > 0
-                                      ? FontWeight.w500
-                                      : FontWeight.w400,
-                                ),
-                              ),
+                        if (time != null) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            _formatInboxTime(time),
+                            style: AppFonts.style(
+                              fontSize: 13,
+                              color: unread > 0
+                                  ? AppColors.dentalBlue
+                                  : const Color(0xFF8E8E93),
+                              fontWeight: unread > 0
+                                  ? FontWeight.w600
+                                  : FontWeight.w500,
                             ),
-                            if (unread > 0) ...[
-                              const SizedBox(width: 8),
-                              Container(
-                                constraints: const BoxConstraints(
-                                  minWidth: 20,
-                                  minHeight: 20,
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  color: AppColors.dentalBlue,
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  unread > 99 ? '99+' : '$unread',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
+                          ),
+                          const SizedBox(width: 2),
+                          Icon(
+                            CupertinoIcons.chevron_forward,
+                            size: 13,
+                            color: Colors.black.withValues(alpha: 0.22),
+                          ),
+                        ],
                       ],
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 4),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            previewLine,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppFonts.style(
+                              fontSize: 14.5,
+                              height: 1.28,
+                              color: unread > 0
+                                  ? const Color(0xFF3A3A3C)
+                                  : const Color(0xFF8E8E93),
+                              fontWeight: unread > 0
+                                  ? FontWeight.w500
+                                  : FontWeight.w400,
+                            ),
+                          ),
+                        ),
+                        if (unread > 0) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            constraints: const BoxConstraints(
+                              minWidth: 22,
+                              minHeight: 22,
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 3,
+                            ),
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  AppColors.dentalBlue,
+                                  AppColors.dentalBlue.withValues(alpha: 0.85),
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(11),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.dentalBlue.withValues(
+                                    alpha: 0.28,
+                                  ),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Text(
+                              unread > 99 ? '99+' : '$unread',
+                              style: AppFonts.style(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-            if (showDivider)
-              const Padding(
-                padding: EdgeInsets.only(left: 66),
-                child: Divider(height: 0.5, thickness: 0.5, color: _kSeparator),
-              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GlassAvatar extends StatelessWidget {
+  const _GlassAvatar({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final initial = name.trim().isNotEmpty
+        ? name.trim().characters.first.toUpperCase()
+        : '?';
+    return Container(
+      width: 52,
+      height: 52,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.dentalBlue.withValues(alpha: 0.28),
+            AppColors.navy.withValues(alpha: 0.18),
           ],
+        ),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.75),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.dentalBlue.withValues(alpha: 0.12),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Text(
+        initial,
+        style: AppFonts.style(
+          color: AppColors.navy,
+          fontWeight: FontWeight.w700,
+          fontSize: 18,
         ),
       ),
     );

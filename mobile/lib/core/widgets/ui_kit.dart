@@ -25,6 +25,39 @@ class StatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final key = CaseStatuses.normalize(statusKey);
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 320),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) {
+        final slide = Tween<Offset>(
+          begin: const Offset(0, 0.65),
+          end: Offset.zero,
+        ).animate(animation);
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: FadeTransition(
+            opacity: animation,
+            child: SlideTransition(position: slide, child: child),
+          ),
+        );
+      },
+      child: _StatusChipFace(
+        key: ValueKey<String>(key),
+        statusKey: key,
+      ),
+    );
+  }
+}
+
+class _StatusChipFace extends StatelessWidget {
+  const _StatusChipFace({super.key, required this.statusKey});
+
+  final String statusKey;
+
+  @override
+  Widget build(BuildContext context) {
     final s = StatusStyle.of(statusKey);
     final label = AppLocalizations.of(context).statusLabel(statusKey);
     return Container(
@@ -32,7 +65,6 @@ class StatusChip extends StatelessWidget {
       decoration: BoxDecoration(
         color: s.bg,
         borderRadius: BorderRadius.circular(12),
-        boxShadow: NeoShadows.soft(depth: 0.35),
       ),
       child: Text(
         label,
@@ -59,18 +91,24 @@ class PatientStatusMenu extends StatelessWidget {
   final bool enabled;
   final ValueChanged<String>? onSelected;
 
-  @override
-  Widget build(BuildContext context) {
-    final chip = StatusChip(statusKey: status);
-    if (!enabled || onSelected == null) return chip;
-
-    return PopupMenuButton<String>(
-      tooltip: 'Change status',
-      padding: EdgeInsets.zero,
-      offset: const Offset(0, 36),
+  Future<void> _pickStatus(BuildContext context) async {
+    if (!enabled || onSelected == null) return;
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+    final origin = box.localToGlobal(Offset.zero);
+    final size = box.size;
+    final selected = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        origin.dx,
+        origin.dy + size.height + 6,
+        origin.dx + size.width,
+        origin.dy,
+      ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      onSelected: onSelected,
-      itemBuilder: (context) => [
+      color: Colors.white.withValues(alpha: 0.96),
+      elevation: 8,
+      items: [
         for (final key in CaseStatuses.all)
           PopupMenuItem<String>(
             value: key,
@@ -96,7 +134,27 @@ class PatientStatusMenu extends StatelessWidget {
             ),
           ),
       ],
-      child: chip,
+    );
+    if (selected == null) return;
+    onSelected!(selected);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final chip = StatusChip(statusKey: status);
+    if (!enabled || onSelected == null) return chip;
+
+    // GestureDetector avoids PopupMenuButton's rectangular Material/ink chrome.
+    return Tooltip(
+      message: 'Change status',
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _pickStatus(context),
+          child: chip,
+        ),
+      ),
     );
   }
 }

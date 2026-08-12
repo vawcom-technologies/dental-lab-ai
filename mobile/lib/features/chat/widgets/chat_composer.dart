@@ -1,8 +1,8 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:record/record.dart';
@@ -10,6 +10,7 @@ import 'package:record/record.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_snackbar.dart';
 import '../../../core/widgets/tooth_loader.dart';
+import '../utils/voice_gain.dart';
 import '../utils/voice_record_path.dart';
 import '../widgets/chat_bubble.dart';
 
@@ -44,7 +45,9 @@ class _ChatComposerState extends State<ChatComposer> {
   final AudioRecorder _audioRecorder = AudioRecorder();
   StreamSubscription<Amplitude>? _ampSub;
   Timer? _tick;
+  Timer? _holdArm;
   bool _recording = false;
+  bool _holdActive = false;
   double _elapsedSeconds = 0;
   double _amplitudeNorm = 0;
   DateTime? _recordStartedAt;
@@ -54,6 +57,7 @@ class _ChatComposerState extends State<ChatComposer> {
   void dispose() {
     _ampSub?.cancel();
     _tick?.cancel();
+    _holdArm?.cancel();
     if (_recording) {
       unawaited(_audioRecorder.stop());
     }
@@ -161,16 +165,12 @@ class _ChatComposerState extends State<ChatComposer> {
   }
 
   Future<AudioEncoder> _resolveEncoder() async {
-    final preferred = kIsWeb
-        ? const [
-            AudioEncoder.wav,
-            AudioEncoder.opus,
-            AudioEncoder.aacLc,
-          ]
-        : const [
-            AudioEncoder.aacLc,
-            AudioEncoder.wav,
-          ];
+    // Prefer WAV so we can peak-normalize quiet mic input before upload.
+    const preferred = [
+      AudioEncoder.wav,
+      AudioEncoder.aacLc,
+      AudioEncoder.opus,
+    ];
     for (final encoder in preferred) {
       if (await _audioRecorder.isEncoderSupported(encoder)) {
         return encoder;
@@ -194,7 +194,20 @@ class _ChatComposerState extends State<ChatComposer> {
     }
   }
 
+  Future<void>? _startInFlight;
+
   Future<void> _startRecording() async {
+    if (_recording) return;
+    final op = _doStartRecording();
+    _startInFlight = op;
+    try {
+      await op;
+    } finally {
+      if (identical(_startInFlight, op)) _startInFlight = null;
+    }
+  }
+
+  Future<void> _doStartRecording() async {
     if (_recording) return;
     try {
       final hasPermission = await _audioRecorder.hasPermission();
@@ -203,9 +216,24 @@ class _ChatComposerState extends State<ChatComposer> {
         return;
       }
       _activeEncoder = await _resolveEncoder();
-      final path = await resolveVoiceRecordPath();
+      final path = await resolveVoiceRecordPath(
+        extension: _extensionFor(_activeEncoder),
+      );
       await _audioRecorder.start(
-        RecordConfig(encoder: _activeEncoder),
+        RecordConfig(
+          encoder: _activeEncoder,
+          bitRate: 128000,
+          sampleRate: 44100,
+          numChannels: 1,
+          // Helps Android (and iOS stream path). Keep echo/noise off —
+          // those processors often attenuate quiet speech.
+          autoGain: true,
+          echoCancel: false,
+          noiseSuppress: false,
+          androidConfig: const AndroidRecordConfig(
+            audioSource: AndroidAudioSource.mic,
+          ),
+        ),
         path: path,
       );
       if (!mounted) return;
@@ -238,6 +266,8 @@ class _ChatComposerState extends State<ChatComposer> {
   }
 
   Future<void> _stopRecordingAndSend({bool cancel = false}) async {
+    final pendingStart = _startInFlight;
+    if (pendingStart != null) await pendingStart;
     if (!_recording) return;
     _tick?.cancel();
     _tick = null;
@@ -266,11 +296,12 @@ class _ChatComposerState extends State<ChatComposer> {
         _toast('Hold a bit longer to record a voice note.');
         return;
       }
-      final bytes = await XFile(path).readAsBytes();
-      if (bytes.isEmpty) {
+      final raw = await XFile(path).readAsBytes();
+      if (raw.isEmpty) {
         _toast('Could not read the recorded audio.');
         return;
       }
+      final bytes = amplifyVoiceWav(raw);
       final ext = _extensionFor(_activeEncoder);
       await widget.onSendMedia(
         fileBytes: bytes,
@@ -291,6 +322,47 @@ class _ChatComposerState extends State<ChatComposer> {
     }
   }
 
+  void _onMicPointerDown() {
+    if (widget.sending) return;
+    _holdArm?.cancel();
+    _holdActive = false;
+    // Already recording from a previous tap — wait for pointer up to send.
+    if (_recording) return;
+    _holdArm = Timer(const Duration(milliseconds: 180), () {
+      if (!mounted) return;
+      _holdActive = true;
+      unawaited(_startRecording());
+    });
+  }
+
+  Future<void> _onMicPointerUp() async {
+    _holdArm?.cancel();
+    _holdArm = null;
+    if (widget.sending) return;
+
+    if (_holdActive) {
+      _holdActive = false;
+      await _stopRecordingAndSend();
+      return;
+    }
+
+    // Short tap while recording → send. Short tap idle → start (tap mode).
+    if (_recording) {
+      await _stopRecordingAndSend();
+      return;
+    }
+    await _startRecording();
+  }
+
+  Future<void> _onMicPointerCancel() async {
+    _holdArm?.cancel();
+    _holdArm = null;
+    if (_holdActive) {
+      _holdActive = false;
+      await _stopRecordingAndSend(cancel: true);
+    }
+  }
+
   void _toast(String message) {
     if (!mounted) return;
     AppSnackBars.error(context, message);
@@ -299,10 +371,10 @@ class _ChatComposerState extends State<ChatComposer> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.72),
         border: Border(
-          top: BorderSide(color: Color(0xFFE5E5EA)),
+          top: BorderSide(color: Colors.white.withValues(alpha: 0.55)),
         ),
       ),
       child: Column(
@@ -331,19 +403,17 @@ class _ChatComposerState extends State<ChatComposer> {
               ),
             ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(6, 8, 8, 10),
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                CupertinoButton(
-                  padding: const EdgeInsets.all(6),
+                _ComposerCircleButton(
+                  icon: CupertinoIcons.add,
+                  color: AppColors.dentalBlue,
+                  background: AppColors.dentalBlue.withValues(alpha: 0.12),
                   onPressed: _recording ? null : _showAttachSheet,
-                  child: const Icon(
-                    CupertinoIcons.add_circled,
-                    size: 30,
-                    color: AppColors.dentalBlue,
-                  ),
                 ),
+                const SizedBox(width: 6),
                 Expanded(
                   child: _recording
                       ? Container(
@@ -352,6 +422,9 @@ class _ChatComposerState extends State<ChatComposer> {
                           decoration: BoxDecoration(
                             color: AppColors.dangerSoft,
                             borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: AppColors.danger.withValues(alpha: 0.2),
+                            ),
                           ),
                           child: Row(
                             children: [
@@ -398,10 +471,10 @@ class _ChatComposerState extends State<ChatComposer> {
                                 color: AppColors.navy,
                               ),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFF2F2F7),
+                                color: Colors.white.withValues(alpha: 0.55),
                                 borderRadius: BorderRadius.circular(20),
                                 border: Border.all(
-                                  color: const Color(0xFFD1D1D6),
+                                  color: Colors.white.withValues(alpha: 0.75),
                                 ),
                               ),
                               onSubmitted: (_) => widget.onSend(),
@@ -409,74 +482,104 @@ class _ChatComposerState extends State<ChatComposer> {
                           },
                         ),
                 ),
-                const SizedBox(width: 2),
-                if (_recording)
-                  CupertinoButton(
-                    padding: const EdgeInsets.all(6),
+                const SizedBox(width: 6),
+                if (_recording) ...[
+                  _ComposerCircleButton(
+                    icon: CupertinoIcons.xmark,
+                    color: const Color(0xFF636366),
+                    background: const Color(0xFFE5E5EA),
                     onPressed: () => _stopRecordingAndSend(cancel: true),
-                    child: const Icon(
-                      CupertinoIcons.xmark_circle_fill,
-                      size: 28,
-                      color: Color(0xFFC7C7CC),
+                  ),
+                  const SizedBox(width: 6),
+                  _ComposerCircleButton(
+                    icon: CupertinoIcons.paperplane_fill,
+                    color: Colors.white,
+                    background: AppColors.dentalBlue,
+                    onPressed: () => _stopRecordingAndSend(),
+                  ),
+                ] else ...[
+                  Listener(
+                    behavior: HitTestBehavior.opaque,
+                    onPointerDown: (_) => _onMicPointerDown(),
+                    onPointerUp: (_) => unawaited(_onMicPointerUp()),
+                    onPointerCancel: (_) => unawaited(_onMicPointerCancel()),
+                    child: const _ComposerCircleButton(
+                      icon: CupertinoIcons.mic_fill,
+                      color: AppColors.navy,
+                      background: Color(0xFFE8EDF4),
                     ),
                   ),
-                GestureDetector(
-                  onLongPressStart: (_) => _startRecording(),
-                  onLongPressEnd: (_) => _stopRecordingAndSend(),
-                  onLongPressCancel: () =>
-                      _stopRecordingAndSend(cancel: true),
-                  onTap: _recording ? () => _stopRecordingAndSend() : null,
-                  child: Padding(
-                    padding: const EdgeInsets.all(6),
-                    child: Icon(
-                      _recording
-                          ? CupertinoIcons.paperplane_fill
-                          : CupertinoIcons.mic,
-                      size: 26,
-                      color: _recording
-                          ? AppColors.dentalBlue
-                          : AppColors.navy,
-                    ),
+                  const SizedBox(width: 6),
+                  ListenableBuilder(
+                    listenable: widget.controller,
+                    builder: (context, _) {
+                      final canSend =
+                          widget.controller.text.trim().isNotEmpty &&
+                              !widget.sending;
+                      return _ComposerCircleButton(
+                        icon: CupertinoIcons.arrow_up,
+                        color: Colors.white,
+                        background: canSend
+                            ? AppColors.dentalBlue
+                            : const Color(0xFFC7C7CC),
+                        onPressed: canSend ? widget.onSend : null,
+                      );
+                    },
                   ),
-                ),
-                ListenableBuilder(
-                  listenable: widget.controller,
-                  builder: (context, _) {
-                    final canSend =
-                        !_recording && widget.controller.text.trim().isNotEmpty;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 2, left: 2),
-                      child: AnimatedOpacity(
-                        opacity: canSend ? 1 : 0.35,
-                        duration: const Duration(milliseconds: 120),
-                        child: CupertinoButton(
-                          padding: EdgeInsets.zero,
-                          onPressed: canSend ? widget.onSend : null,
-                          child: Container(
-                            width: 34,
-                            height: 34,
-                            decoration: BoxDecoration(
-                              color: canSend
-                                  ? AppColors.dentalBlue
-                                  : const Color(0xFFC7C7CC),
-                              shape: BoxShape.circle,
-                            ),
-                            alignment: Alignment.center,
-                            child: const Icon(
-                              CupertinoIcons.arrow_up,
-                              size: 18,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                ],
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ComposerCircleButton extends StatelessWidget {
+  const _ComposerCircleButton({
+    required this.icon,
+    required this.color,
+    required this.background,
+    this.onPressed,
+  });
+
+  final IconData icon;
+  final Color color;
+  final Color background;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onPressed != null;
+    return SizedBox(
+      width: 36,
+      height: 36,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          customBorder: const CircleBorder(),
+          splashFactory: NoSplash.splashFactory,
+          child: Ink(
+            decoration: BoxDecoration(
+              color: enabled
+                  ? background
+                  : Color.alphaBlend(
+                      background.withValues(alpha: 0.45),
+                      Colors.white,
+                    ),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Icon(
+                icon,
+                size: 20,
+                color: enabled ? color : color.withValues(alpha: 0.45),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
