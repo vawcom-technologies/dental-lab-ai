@@ -1,7 +1,9 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/auth/app_roles.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
@@ -86,6 +88,7 @@ class _PatientsPageState extends State<PatientsPage> {
     final created = await showDialog<GdprPatient>(
       context: context,
       barrierDismissible: false,
+      barrierColor: Colors.black.withValues(alpha: 0.28),
       builder: (ctx) => _PatientFormDialog(
         title: 'New Patient',
         submitLabel: 'Create patient',
@@ -120,6 +123,7 @@ class _PatientsPageState extends State<PatientsPage> {
       final updated = await showDialog<GdprPatient>(
         context: context,
         barrierDismissible: false,
+        barrierColor: Colors.black.withValues(alpha: 0.28),
         builder: (ctx) => _PatientFormDialog(
           title: 'Edit Patient',
           submitLabel: 'Save changes',
@@ -155,6 +159,7 @@ class _PatientsPageState extends State<PatientsPage> {
     }
     final hard = await showDialog<bool>(
       context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.28),
       builder: (ctx) => _DeletePatientDialog(patientName: patient.fullName),
     );
     if (hard == null || !mounted) return;
@@ -173,10 +178,8 @@ class _PatientsPageState extends State<PatientsPage> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: AppColors.card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.28),
       builder: (ctx) => _ShareAccessSheet(
         patient: patient,
         controller: _controller,
@@ -212,10 +215,8 @@ class _PatientsPageState extends State<PatientsPage> {
       await showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
-        backgroundColor: AppColors.card,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-        ),
+        backgroundColor: Colors.transparent,
+        barrierColor: Colors.black.withValues(alpha: 0.28),
         builder: (ctx) => _PatientDetailSheet(
           controller: _controller,
           patient: detailed,
@@ -324,18 +325,32 @@ class _PatientsPageState extends State<PatientsPage> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
-                SectionCard(
+                const SizedBox(height: 18),
+                GlassSurface(
+                  borderRadius: BorderRadius.circular(16),
+                  blur: 14,
+                  tint: Colors.white.withValues(alpha: 0.55),
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                  depth: 0.7,
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   child: TextField(
                     controller: _search,
                     onChanged: _controller.setQuery,
                     enabled: !blocked,
-                    decoration: const InputDecoration(
+                    style: AppFonts.style(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.navy,
+                    ),
+                    decoration: InputDecoration(
                       hintText: 'Search patients…',
-                      prefixIcon: Icon(Icons.search, color: AppColors.muted),
+                      hintStyle: AppFonts.style(
+                        color: AppColors.muted,
+                        fontSize: 15,
+                      ),
+                      prefixIcon: const Icon(
+                        Icons.search_rounded,
+                        color: AppColors.muted,
+                      ),
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,
                       focusedBorder: InputBorder.none,
@@ -344,46 +359,43 @@ class _PatientsPageState extends State<PatientsPage> {
                   ),
                 ),
                 if (_controller.error != null) ...[
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 12),
                   Text(
                     _controller.error!,
-                    style:
-                        const TextStyle(color: AppColors.danger, fontSize: 13),
+                    style: AppFonts.style(
+                      color: AppColors.danger,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ],
-                const SizedBox(height: 14),
+                const SizedBox(height: 16),
                 Expanded(
-                  child: SectionCard(
-                    padding: EdgeInsets.zero,
-                    child: _controller.loading && rows.isEmpty
-                        ? const ToothPageLoader(message: 'Loading patients…')
-                        : rows.isEmpty
-                            ? const _EmptyPatients()
-                            : ListView.separated(
-                                itemCount: rows.length,
-                                separatorBuilder: (_, _) => Divider(
-                                  height: 1,
-                                  color:
-                                      AppColors.border.withValues(alpha: 0.7),
-                                ),
-                                itemBuilder: (context, i) {
-                                  final p = rows[i];
-                                  final owner = _controller.isOwner(p);
-                                  return _PatientTile(
-                                    patient: p,
-                                    isOwner: owner,
-                                    enabled: !blocked,
-                                    onOpen: () => _openDetails(p),
-                                    onEdit:
-                                        owner ? () => _openEdit(p) : null,
-                                    onShare: () => _openShare(p),
-                                    onDelete: owner
-                                        ? () => _confirmDelete(p)
-                                        : null,
-                                  );
-                                },
-                              ),
-                  ),
+                  child: _controller.loading && rows.isEmpty
+                      ? const ToothPageLoader(message: 'Loading patients…')
+                      : rows.isEmpty
+                          ? const _EmptyPatients()
+                          : ListView.separated(
+                              itemCount: rows.length,
+                              separatorBuilder: (_, _) =>
+                                  const SizedBox(height: 12),
+                              itemBuilder: (context, i) {
+                                final p = rows[i];
+                                final owner = _controller.isOwner(p);
+                                return _PatientCard(
+                                  patient: p,
+                                  isOwner: owner,
+                                  roleLabel: AppRoles.label(widget.api.role),
+                                  enabled: !blocked,
+                                  onOpen: () => _openDetails(p),
+                                  onEdit: owner ? () => _openEdit(p) : null,
+                                  onShare: () => _openShare(p),
+                                  onDelete: owner
+                                      ? () => _confirmDelete(p)
+                                      : null,
+                                );
+                              },
+                            ),
                 ),
               ],
             ),
@@ -399,19 +411,40 @@ class _EmptyPatients extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Padding(
-        padding: EdgeInsets.all(32),
+    return Center(
+      child: GlassSurface(
+        borderRadius: BorderRadius.circular(22),
+        blur: 16,
+        tint: Colors.white.withValues(alpha: 0.5),
+        padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 40),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.person_add_alt_1_outlined,
-                size: 48, color: AppColors.muted),
-            SizedBox(height: 12),
+            NeoIconBadge(
+              icon: Icons.person_add_alt_1_outlined,
+              size: 56,
+              iconSize: 26,
+              color: AppColors.muted,
+            ),
+            const SizedBox(height: 14),
             Text(
-              'No patients yet. Add the first record.',
+              'No patients yet',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.muted, fontSize: 14),
+              style: AppFonts.style(
+                color: AppColors.navy,
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Add the first record to get started.',
+              textAlign: TextAlign.center,
+              style: AppFonts.style(
+                color: AppColors.muted,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ],
         ),
@@ -420,11 +453,12 @@ class _EmptyPatients extends StatelessWidget {
   }
 }
 
-class _PatientTile extends StatelessWidget {
-  const _PatientTile({
+class _PatientCard extends StatelessWidget {
+  const _PatientCard({
     required this.patient,
     required this.isOwner,
     required this.onOpen,
+    this.roleLabel,
     this.enabled = true,
     this.onEdit,
     this.onShare,
@@ -433,6 +467,7 @@ class _PatientTile extends StatelessWidget {
 
   final GdprPatient patient;
   final bool isOwner;
+  final String? roleLabel;
   final bool enabled;
   final VoidCallback onOpen;
   final VoidCallback? onEdit;
@@ -441,115 +476,225 @@ class _PatientTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      onTap: enabled ? onOpen : null,
-      leading: CircleAvatar(
-        backgroundColor: AppColors.dentalBlue.withValues(alpha: 0.15),
-        child: Text(
-          patient.fullName.isNotEmpty
-              ? patient.fullName.characters.first.toUpperCase()
-              : '?',
-          style: const TextStyle(
-            color: AppColors.dentalBlue,
-            fontWeight: FontWeight.w700,
+    return GlassSurface(
+      borderRadius: BorderRadius.circular(20),
+      blur: 16,
+      tint: Colors.white.withValues(alpha: 0.52),
+      padding: EdgeInsets.zero,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: enabled ? onOpen : null,
+          borderRadius: BorderRadius.circular(20),
+          splashFactory: NoSplash.splashFactory,
+          highlightColor: AppColors.dentalBlue.withValues(alpha: 0.06),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 14, 14, 14),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final wide = constraints.maxWidth >= 720;
+                final identity = Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    _PatientAvatar(
+                      name: patient.fullName,
+                      isOwner: isOwner,
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              patient.fullName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppFonts.style(
+                                fontSize: 19,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.navy,
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          _AccessBadge(
+                            isOwner: isOwner,
+                            roleLabel: roleLabel,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+
+                final actions = Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  alignment: WrapAlignment.end,
+                  children: [
+                    AppButtons.ghost(
+                      onPressed: enabled ? onOpen : null,
+                      icon: Icons.notes_outlined,
+                      label: 'Notes',
+                      compact: true,
+                    ),
+                    AppButtons.ghost(
+                      onPressed: enabled ? onEdit : null,
+                      icon: Icons.edit_outlined,
+                      label: 'Edit',
+                      compact: true,
+                    ),
+                    AppButtons.ghost(
+                      onPressed: enabled ? onShare : null,
+                      icon: Icons.share_outlined,
+                      label: isOwner ? 'Share' : 'Request',
+                      compact: true,
+                    ),
+                    AppButtons.danger(
+                      onPressed: enabled ? onDelete : null,
+                      icon: Icons.delete_outline_rounded,
+                      label: 'Delete',
+                      soft: true,
+                      compact: true,
+                    ),
+                  ],
+                );
+
+                if (wide) {
+                  return Row(
+                    children: [
+                      Expanded(child: identity),
+                      const SizedBox(width: 16),
+                      actions,
+                    ],
+                  );
+                }
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    identity,
+                    const SizedBox(height: 14),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: actions,
+                    ),
+                  ],
+                );
+              },
+            ),
           ),
         ),
-      ),
-      title: Row(
-        children: [
-          Flexible(
-            child: Text(
-              patient.fullName,
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
-                color: AppColors.navy,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          _AccessBadge(isOwner: isOwner),
-        ],
-      ),
-      subtitle: Text(
-        [
-          if (patient.dateOfBirth.isNotEmpty) 'DOB ${patient.dateOfBirth}',
-          patient.email,
-          if (patient.phone.isNotEmpty) patient.phone,
-          if (patient.healthInsurance.isNotEmpty) patient.healthInsurance,
-        ].join(' · '),
-        style: const TextStyle(fontSize: 12, color: AppColors.muted),
-      ),
-      trailing: Wrap(
-        spacing: 4,
-        children: [
-          IconButton(
-            tooltip: 'View details / notes',
-            onPressed: enabled ? onOpen : null,
-            icon: const Icon(Icons.notes_outlined, size: 20),
-          ),
-          IconButton(
-            tooltip: 'Edit',
-            onPressed: enabled ? onEdit : null,
-            icon: Icon(
-              Icons.edit_outlined,
-              size: 20,
-              color: (!enabled || onEdit == null)
-                  ? AppColors.border
-                  : AppColors.navy,
-            ),
-          ),
-          IconButton(
-            tooltip: 'Share access',
-            onPressed: enabled ? onShare : null,
-            icon: Icon(
-              Icons.share_outlined,
-              size: 20,
-              color: (!enabled || onShare == null)
-                  ? AppColors.border
-                  : AppColors.navy,
-            ),
-          ),
-          IconButton(
-            tooltip: 'Delete',
-            onPressed: enabled ? onDelete : null,
-            icon: Icon(
-              Icons.delete_outline,
-              size: 20,
-              color: (!enabled || onDelete == null)
-                  ? AppColors.border
-                  : AppColors.danger,
-            ),
-          ),
-        ],
       ),
     );
   }
 }
 
-class _AccessBadge extends StatelessWidget {
-  const _AccessBadge({required this.isOwner});
+class _PatientAvatar extends StatelessWidget {
+  const _PatientAvatar({required this.name, required this.isOwner});
 
+  final String name;
   final bool isOwner;
 
   @override
   Widget build(BuildContext context) {
+    final bg = isOwner
+        ? AppColors.dentalBlue.withValues(alpha: 0.14)
+        : AppColors.reviewSoft;
+    final fg = isOwner ? AppColors.dentalBlue : AppColors.review;
+    final initials = _initials(name);
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      width: 56,
+      height: 56,
+      alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: isOwner
-            ? AppColors.successSoft
-            : AppColors.reviewSoft,
-        borderRadius: BorderRadius.circular(8),
+        color: bg,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: NeoShadows.soft(depth: 0.4),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.75)),
       ),
       child: Text(
-        isOwner ? 'Owner' : 'Shared',
-        style: TextStyle(
-          fontSize: 10,
+        initials,
+        style: AppFonts.style(
+          color: fg,
           fontWeight: FontWeight.w800,
-          color: isOwner ? AppColors.success : AppColors.review,
+          fontSize: 18,
+          letterSpacing: -0.2,
         ),
       ),
+    );
+  }
+
+  static String _initials(String raw) {
+    final t = raw.trim();
+    if (t.isEmpty) return '?';
+    final parts = t.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts[0][0].toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+}
+
+class _AccessBadge extends StatelessWidget {
+  const _AccessBadge({
+    required this.isOwner,
+    this.roleLabel,
+  });
+
+  final bool isOwner;
+  final String? roleLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isOwner ? AppColors.success : AppColors.review;
+    final role = (roleLabel ?? '').trim();
+    final prefix = isOwner ? 'Created by' : 'Access';
+    final pill = isOwner
+        ? (role.isNotEmpty ? role : 'Creator')
+        : 'Shared';
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          prefix,
+          style: AppFonts.style(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: AppColors.muted,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: color.withValues(alpha: 0.22)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                pill,
+                style: AppFonts.style(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -680,96 +825,191 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.title),
-      content: SizedBox(
-        width: 420,
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: _first,
-                  decoration: const InputDecoration(labelText: 'First name *'),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'Required' : null,
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _last,
-                  decoration: const InputDecoration(labelText: 'Last name *'),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'Required' : null,
-                ),
-                const SizedBox(height: 10),
-                DobPickerField(
-                  controller: _dob,
-                  labelText: 'Date of birth *',
-                  onChanged: (_) => setState(() {}),
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _email,
-                  keyboardType: TextInputType.emailAddress,
-                  autofillHints: const [AutofillHints.email],
-                  decoration: const InputDecoration(
-                    labelText: 'Email Address *',
-                  ),
-                  validator: validatePatientEmail,
-                ),
-                const SizedBox(height: 10),
-                PhoneField(
-                  controller: _phone,
-                  labelText: 'Phone *',
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _insurance,
-                  decoration: const InputDecoration(
-                    labelText: 'Health insurance *',
-                  ),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'Required' : null,
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _address,
-                  minLines: 2,
-                  maxLines: 3,
-                  decoration: const InputDecoration(labelText: 'Address *'),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'Required' : null,
-                ),
-                if (_error != null) ...[
-                  const SizedBox(height: 12),
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: GlassSurface(
+          borderRadius: BorderRadius.circular(24),
+          blur: 28,
+          tint: Colors.white.withValues(alpha: 0.78),
+          padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
+          child: Form(
+            key: _formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
                   Text(
-                    _error!,
-                    style: const TextStyle(color: AppColors.danger),
+                    widget.title,
+                    style: AppFonts.style(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.navy,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _InsetGroup(
+                    children: [
+                      _DialogField(
+                        controller: _first,
+                        label: 'First name',
+                        requiredField: true,
+                        validator: (v) =>
+                            (v == null || v.trim().isEmpty) ? 'Required' : null,
+                      ),
+                      const _InsetDivider(),
+                      _DialogField(
+                        controller: _last,
+                        label: 'Last name',
+                        requiredField: true,
+                        validator: (v) =>
+                            (v == null || v.trim().isEmpty) ? 'Required' : null,
+                      ),
+                      const _InsetDivider(),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                        child: DobPickerField(
+                          controller: _dob,
+                          labelText: 'Date of birth',
+                          onChanged: (_) => setState(() {}),
+                        ),
+                      ),
+                      const _InsetDivider(),
+                      _DialogField(
+                        controller: _email,
+                        label: 'Email',
+                        requiredField: true,
+                        keyboardType: TextInputType.emailAddress,
+                        autofillHints: const [AutofillHints.email],
+                        validator: validatePatientEmail,
+                      ),
+                      const _InsetDivider(),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                        child: PhoneField(
+                          controller: _phone,
+                          labelText: 'Phone',
+                        ),
+                      ),
+                      const _InsetDivider(),
+                      _DialogField(
+                        controller: _insurance,
+                        label: 'Health insurance',
+                        requiredField: true,
+                        validator: (v) =>
+                            (v == null || v.trim().isEmpty) ? 'Required' : null,
+                      ),
+                      const _InsetDivider(),
+                      _DialogField(
+                        controller: _address,
+                        label: 'Address',
+                        requiredField: true,
+                        minLines: 2,
+                        maxLines: 3,
+                        validator: (v) =>
+                            (v == null || v.trim().isEmpty) ? 'Required' : null,
+                      ),
+                    ],
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      _error!,
+                      style: AppFonts.style(
+                        color: AppColors.danger,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 18),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      AppButtons.ghost(
+                        onPressed:
+                            _saving ? null : () => Navigator.pop(context),
+                        label: 'Cancel',
+                        compact: true,
+                      ),
+                      const SizedBox(width: 8),
+                      AppButtons.primary(
+                        onPressed: _saving ? null : _submit,
+                        label: widget.submitLabel,
+                        compact: true,
+                        busy: _saving,
+                      ),
+                    ],
                   ),
                 ],
-              ],
+              ),
             ),
           ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _saving ? null : () => Navigator.pop(context),
-          child: const Text('Cancel'),
+    );
+  }
+}
+
+class _DialogField extends StatelessWidget {
+  const _DialogField({
+    required this.controller,
+    required this.label,
+    this.requiredField = false,
+    this.validator,
+    this.keyboardType,
+    this.autofillHints,
+    this.minLines = 1,
+    this.maxLines = 1,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final bool requiredField;
+  final FormFieldValidator<String>? validator;
+  final TextInputType? keyboardType;
+  final Iterable<String>? autofillHints;
+  final int minLines;
+  final int maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+      child: TextFormField(
+        controller: controller,
+        keyboardType: keyboardType,
+        autofillHints: autofillHints,
+        minLines: minLines,
+        maxLines: maxLines,
+        style: AppFonts.style(
+          fontSize: 16,
+          fontWeight: FontWeight.w500,
+          color: AppColors.navy,
         ),
-        FilledButton(
-          onPressed: _saving ? null : _submit,
-          child: _saving
-              ? const ToothLoadingIndicator(
-                  size: 18,
-                  compact: true,
-                  color: Colors.white,
-                )
-              : Text(widget.submitLabel),
+        decoration: InputDecoration(
+          labelText: requiredField ? '$label *' : label,
+          labelStyle: AppFonts.style(
+            color: AppColors.muted,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
+          border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          errorBorder: InputBorder.none,
+          focusedErrorBorder: InputBorder.none,
+          filled: false,
+          isDense: true,
+          contentPadding: EdgeInsets.zero,
         ),
-      ],
+        validator: validator,
+      ),
     );
   }
 }
@@ -796,68 +1036,183 @@ class _DeletePatientDialogState extends State<_DeletePatientDialog> {
   @override
   Widget build(BuildContext context) {
     final canHard = _confirm.text.trim().toUpperCase() == 'DELETE';
-    return AlertDialog(
-      title: const Text('Delete patient?'),
-      content: SizedBox(
-        width: 420,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Choose how to remove ${widget.patientName}.'),
-            const SizedBox(height: 12),
-            const SizedBox(height: 12),
-            ListTile(
-              selected: !_hard,
-              onTap: () => setState(() => _hard = false),
-              leading: Icon(
-                !_hard
-                    ? Icons.radio_button_checked
-                    : Icons.radio_button_off,
-                color: AppColors.dentalBlue,
-              ),
-              title: const Text('Soft Delete (Archive patient record)'),
-              subtitle: const Text('Default — keeps data for recovery'),
-            ),
-            ListTile(
-              selected: _hard,
-              onTap: () => setState(() => _hard = true),
-              leading: Icon(
-                _hard
-                    ? Icons.radio_button_checked
-                    : Icons.radio_button_off,
-                color: AppColors.danger,
-              ),
-              title: const Text(
-                'Hard Delete (Permanent GDPR Art. 17 Erasure)',
-              ),
-            ),
-            if (_hard) ...[
-              const SizedBox(height: 8),
-              TextField(
-                controller: _confirm,
-                onChanged: (_) => setState(() {}),
-                decoration: const InputDecoration(
-                  labelText: 'Type DELETE to confirm',
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: GlassSurface(
+          borderRadius: BorderRadius.circular(24),
+          blur: 28,
+          tint: Colors.white.withValues(alpha: 0.78),
+          padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Delete patient?',
+                style: AppFonts.style(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.navy,
+                  letterSpacing: -0.3,
                 ),
               ),
+              const SizedBox(height: 6),
+              Text(
+                'Choose how to remove ${widget.patientName}.',
+                style: AppFonts.style(
+                  fontSize: 14,
+                  color: AppColors.muted,
+                  fontWeight: FontWeight.w500,
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 16),
+              _InsetGroup(
+                children: [
+                  _DeleteOptionRow(
+                    selected: !_hard,
+                    title: 'Archive patient',
+                    subtitle: 'Soft delete — keeps data for recovery',
+                    accent: AppColors.dentalBlue,
+                    onTap: () => setState(() => _hard = false),
+                  ),
+                  const _InsetDivider(),
+                  _DeleteOptionRow(
+                    selected: _hard,
+                    title: 'Delete forever',
+                    subtitle: 'Hard delete — permanent GDPR Art. 17 erasure',
+                    accent: AppColors.danger,
+                    onTap: () => setState(() => _hard = true),
+                  ),
+                ],
+              ),
+              if (_hard) ...[
+                const SizedBox(height: 12),
+                _InsetGroup(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                  child: TextField(
+                    controller: _confirm,
+                    onChanged: (_) => setState(() {}),
+                    style: AppFonts.style(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.navy,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: 'Type DELETE to confirm',
+                      labelStyle: AppFonts.style(
+                        color: AppColors.muted,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      filled: false,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 18),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  AppButtons.ghost(
+                    onPressed: () => Navigator.pop(context),
+                    label: 'Cancel',
+                    compact: true,
+                  ),
+                  const SizedBox(width: 8),
+                  AppButtons.danger(
+                    onPressed: (!_hard || canHard)
+                        ? () => Navigator.pop(context, _hard)
+                        : null,
+                    label: _hard ? 'Delete forever' : 'Archive',
+                    soft: true,
+                    compact: true,
+                  ),
+                ],
+              ),
             ],
-          ],
+          ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+    );
+  }
+}
+
+class _DeleteOptionRow extends StatelessWidget {
+  const _DeleteOptionRow({
+    required this.selected,
+    required this.title,
+    required this.subtitle,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final bool selected;
+  final String title;
+  final String subtitle;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected
+          ? accent.withValues(alpha: 0.08)
+          : Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        splashFactory: NoSplash.splashFactory,
+        highlightColor: accent.withValues(alpha: 0.06),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: AppFonts.style(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.navy,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: AppFonts.style(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.muted,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Icon(
+                selected
+                    ? Icons.check_circle_rounded
+                    : Icons.circle_outlined,
+                color: selected ? accent : AppColors.border,
+                size: 24,
+              ),
+            ],
+          ),
         ),
-        FilledButton(
-          style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
-          onPressed: (!_hard || canHard)
-              ? () => Navigator.pop(context, _hard)
-              : null,
-          child: Text(_hard ? 'Delete forever' : 'Archive'),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -936,91 +1291,223 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final height = MediaQuery.sizeOf(context).height * 0.7;
-    final actionLabel =
-        _isOwner ? 'Grant Immediate Access' : 'Submit Access Request';
+    final height = MediaQuery.sizeOf(context).height * 0.72;
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    final actionLabel = _isOwner ? 'Grant access' : 'Request access';
     final subtext = _users.isEmpty && !_loading
         ? 'All practice staff members already have access or pending requests for this patient.'
         : (_isOwner
             ? 'As owner, your invitation will immediately allow access.'
             : 'This request will be sent to the patient owner for approval.');
 
-    return SizedBox(
-      height: height,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.border,
-                  borderRadius: BorderRadius.circular(2),
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 0, 16, 12 + bottomInset),
+      child: SizedBox(
+        height: height,
+        child: GlassSurface(
+          borderRadius: BorderRadius.circular(28),
+          blur: 28,
+          tint: Colors.white.withValues(alpha: 0.72),
+          padding: EdgeInsets.zero,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 10),
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: AppColors.muted.withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              'Share ${widget.patient.fullName}',
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 18,
-                color: AppColors.navy,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              subtext,
-              style: const TextStyle(color: AppColors.muted, fontSize: 13),
-            ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: _loading
-                  ? const ToothPageLoader(message: 'Loading eligible staff…')
-                  : _users.isEmpty
-                      ? const Center(
-                          child: Text(
-                            'No eligible staff available to invite.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: AppColors.muted),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _PatientAvatar(
+                      name: widget.patient.fullName,
+                      isOwner: _isOwner,
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Share ${widget.patient.fullName}',
+                            style: AppFonts.style(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 20,
+                              color: AppColors.navy,
+                              letterSpacing: -0.3,
+                            ),
                           ),
-                        )
-                      : ListView.separated(
-                          itemCount: _users.length,
-                          separatorBuilder: (_, _) => const Divider(height: 1),
-                          itemBuilder: (context, i) {
-                            final u = _users[i];
-                            final busy = _busyId == u.userId;
-                            return ListTile(
-                              title: Text(u.fullName),
-                              subtitle: u.email != null ? Text(u.email!) : null,
-                              trailing: busy
-                                  ? const ToothLoadingIndicator(
-                                      size: 20,
-                                      compact: true,
-                                      color: AppColors.dentalBlue,
-                                    )
-                                  : FilledButton(
+                          const SizedBox(height: 4),
+                          Text(
+                            subtext,
+                            style: AppFonts.style(
+                              color: AppColors.muted,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: _loading
+                    ? const ToothPageLoader(
+                        message: 'Loading eligible staff…',
+                      )
+                    : _users.isEmpty
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(28),
+                              child: Text(
+                                'No eligible staff available to invite.',
+                                textAlign: TextAlign.center,
+                                style: AppFonts.style(
+                                  color: AppColors.muted,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(
+                              20,
+                              0,
+                              20,
+                              20,
+                            ),
+                            itemCount: _users.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (context, i) {
+                              final u = _users[i];
+                              final busy = _busyId == u.userId;
+                              final title = u.fullName.trim().isEmpty
+                                  ? (u.email ?? 'Staff member')
+                                  : u.fullName.trim();
+                              final showEmail = u.email != null &&
+                                  u.email!.trim().isNotEmpty &&
+                                  u.email!.trim() != title;
+                              return _InsetGroup(
+                                padding: const EdgeInsets.fromLTRB(
+                                  14,
+                                  12,
+                                  12,
+                                  12,
+                                ),
+                                child: Row(
+                                  children: [
+                                    _StaffAvatar(name: title),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            title,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: AppFonts.style(
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 16,
+                                              color: AppColors.navy,
+                                              letterSpacing: -0.2,
+                                            ),
+                                          ),
+                                          if (showEmail) ...[
+                                            const SizedBox(height: 3),
+                                            Text(
+                                              u.email!,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: AppFonts.style(
+                                                fontSize: 13,
+                                                color: AppColors.muted,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    AppButtons.primary(
                                       onPressed: _busyId != null ||
                                               _users.isEmpty
                                           ? null
                                           : () => _share(u.userId),
-                                      child: Text(
-                                        actionLabel,
-                                        style: const TextStyle(fontSize: 12),
-                                      ),
+                                      label: actionLabel,
+                                      compact: true,
+                                      busy: busy,
                                     ),
-                            );
-                          },
-                        ),
-            ),
-          ],
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+              ),
+            ],
+          ),
         ),
       ),
     );
+  }
+}
+
+class _StaffAvatar extends StatelessWidget {
+  const _StaffAvatar({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final initials = _initials(name);
+    return Container(
+      width: 44,
+      height: 44,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AppColors.dentalBlue.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.75)),
+      ),
+      child: Text(
+        initials,
+        style: AppFonts.style(
+          color: AppColors.dentalBlue,
+          fontWeight: FontWeight.w800,
+          fontSize: 14,
+        ),
+      ),
+    );
+  }
+
+  static String _initials(String raw) {
+    final t = raw.trim();
+    if (t.isEmpty) return '?';
+    if (t.contains('@')) {
+      final local = t.split('@').first;
+      return local.isEmpty ? '?' : local[0].toUpperCase();
+    }
+    final parts = t.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts[0][0].toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
   }
 }
 
@@ -1470,361 +1957,436 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
   Widget build(BuildContext context) {
     final p = widget.patient;
     final owner = widget.controller.isOwner(p);
-    final height = MediaQuery.sizeOf(context).height * 0.85;
+    final height = MediaQuery.sizeOf(context).height * 0.88;
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
 
-    return SizedBox(
-      height: height,
-      child: ListenableBuilder(
-        listenable: widget.controller,
-        builder: (context, _) {
-          final notes = widget.controller.notes;
-          final access = widget.controller.accessEntries;
-          final accessOwner = widget.controller.accessOwner;
-          final accessViewerIsOwner = widget.controller.accessViewerIsOwner;
-          final blocked = widget.controller.mutating;
-          return BusyBarrier(
-            busy: blocked,
-            child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AppColors.border,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 0, 16, 12 + bottomInset),
+      child: SizedBox(
+        height: height,
+        child: GlassSurface(
+          borderRadius: BorderRadius.circular(28),
+          blur: 28,
+          tint: Colors.white.withValues(alpha: 0.72),
+          padding: EdgeInsets.zero,
+          child: ListenableBuilder(
+            listenable: widget.controller,
+            builder: (context, _) {
+              final notes = widget.controller.notes;
+              final access = widget.controller.accessEntries;
+              final accessOwner = widget.controller.accessOwner;
+              final accessViewerIsOwner =
+                  widget.controller.accessViewerIsOwner;
+              final blocked = widget.controller.mutating;
+              return BusyBarrier(
+                busy: blocked,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(
-                      child: Text(
-                        p.fullName,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.navy,
+                    const SizedBox(height: 10),
+                    Center(
+                      child: Container(
+                        width: 36,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: AppColors.muted.withValues(alpha: 0.35),
+                          borderRadius: BorderRadius.circular(999),
                         ),
                       ),
                     ),
-                    _AccessBadge(isOwner: owner),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  p.email,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: AppColors.muted,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                if (!owner)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 6),
-                    child: Text(
-                      'Shared with you',
-                      style: TextStyle(
-                        color: AppColors.review,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    if (owner)
-                      OutlinedButton.icon(
-                        onPressed: blocked ? null : widget.onEdit,
-                        icon: const Icon(Icons.edit_outlined, size: 16),
-                        label: const Text('Edit'),
-                      ),
-                    OutlinedButton.icon(
-                      onPressed: blocked ? null : widget.onShare,
-                      icon: const Icon(Icons.share_outlined, size: 16),
-                      label: Text(owner ? 'Share Patient' : 'Request Access'),
-                    ),
-                    if (owner)
-                      OutlinedButton.icon(
-                        onPressed: blocked ? null : widget.onDelete,
-                        icon: const Icon(Icons.delete_outline,
-                            size: 16, color: AppColors.danger),
-                        label: const Text(
-                          'Delete',
-                          style: TextStyle(color: AppColors.danger),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                TabBar(
-                  controller: _tabs,
-                  labelColor: AppColors.navy,
-                  tabs: const [
-                    Tab(text: 'Demographics'),
-                    Tab(text: 'Clinical Notes'),
-                    Tab(text: 'Access'),
-                  ],
-                ),
-                Expanded(
-                  child: TabBarView(
-                    controller: _tabs,
-                    children: [
-                      ListView(
-                        padding: const EdgeInsets.only(top: 12),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _info('Date of birth', p.dateOfBirth),
-                          _info('Email', p.email),
-                          _info('Phone', p.phone),
-                          _info('Health insurance', p.healthInsurance),
-                          _info('Address', p.address),
-                        ],
-                      ),
-                      Column(
-                        children: [
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: _note,
-                                  enabled: !blocked && !_adding,
-                                  minLines: 1,
-                                  maxLines: 3,
-                                  decoration: const InputDecoration(
-                                    hintText: 'Add a clinical note…',
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              FilledButton(
-                                onPressed:
-                                    blocked || _adding ? null : _addNote,
-                                child: _adding
-                                    ? const ToothLoadingIndicator(
-                                        size: 16,
-                                        compact: true,
-                                        color: Colors.white,
-                                      )
-                                    : const Text('Add Note'),
-                              ),
-                            ],
+                          _PatientAvatar(
+                            name: p.fullName,
+                            isOwner: owner,
                           ),
-                          const SizedBox(height: 10),
+                          const SizedBox(width: 14),
                           Expanded(
-                            child: widget.controller.loadingNotes &&
-                                    notes.isEmpty
-                                ? const ToothPageLoader(
-                                    message: 'Loading notes…',
-                                    size: 40,
-                                  )
-                                : notes.isEmpty
-                                    ? const Center(
-                                        child: Text(
-                                          'No clinical notes yet.',
-                                          style:
-                                              TextStyle(color: AppColors.muted),
-                                        ),
-                                      )
-                                    : ListView.separated(
-                                        itemCount: notes.length,
-                                        separatorBuilder: (_, _) =>
-                                            const SizedBox(height: 8),
-                                        itemBuilder: (context, i) {
-                                          final n = notes[i];
-                                          final me =
-                                              widget.controller.currentUserId;
-                                          final isAuthor =
-                                              me != null && n.authorId == me;
-                                          final canMutate =
-                                              isAuthor && !blocked;
-                                          final when = n.createdAt == null
-                                              ? ''
-                                              : DateFormat.yMMMd()
-                                                  .add_Hm()
-                                                  .format(
-                                                      n.createdAt!.toLocal());
-                                          return SectionCard(
-                                            padding: const EdgeInsets.all(12),
-                                            depth: 0.4,
-                                            child: Row(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Expanded(
-                                                  child: Column(
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment
-                                                            .start,
-                                                    children: [
-                                                      Text(
-                                                        n.noteContent,
-                                                        style: const TextStyle(
-                                                          color: AppColors.navy,
-                                                          height: 1.35,
-                                                        ),
-                                                      ),
-                                                      if (when.isNotEmpty) ...[
-                                                        const SizedBox(
-                                                            height: 8),
-                                                        Text(
-                                                          when,
-                                                          style:
-                                                              const TextStyle(
-                                                            fontSize: 11,
-                                                            color:
-                                                                AppColors.muted,
-                                                          ),
-                                                        ),
-                                                      ],
-                                                    ],
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                Column(
-                                                  crossAxisAlignment:
-                                                      CrossAxisAlignment.end,
-                                                  children: [
-                                                    Text(
-                                                      n.displayAuthorName,
-                                                      textAlign:
-                                                          TextAlign.right,
-                                                      style: const TextStyle(
-                                                        fontSize: 12,
-                                                        fontWeight:
-                                                            FontWeight.w600,
-                                                        color: AppColors.navy,
-                                                      ),
-                                                    ),
-                                                    const SizedBox(height: 4),
-                                                    Row(
-                                                      mainAxisSize:
-                                                          MainAxisSize.min,
-                                                      children: [
-                                                        IconButton(
-                                                          tooltip: isAuthor
-                                                              ? 'Edit note'
-                                                              : 'Only the author can edit',
-                                                          visualDensity:
-                                                              VisualDensity
-                                                                  .compact,
-                                                          onPressed: canMutate
-                                                              ? () =>
-                                                                  _editNote(n)
-                                                              : null,
-                                                          icon: Icon(
-                                                            Icons.edit_outlined,
-                                                            size: 18,
-                                                            color: canMutate
-                                                                ? AppColors.navy
-                                                                : AppColors
-                                                                    .muted
-                                                                    .withValues(
-                                                                  alpha: 0.45,
-                                                                ),
-                                                          ),
-                                                        ),
-                                                        IconButton(
-                                                          tooltip: isAuthor
-                                                              ? 'Delete note'
-                                                              : 'Only the author can delete',
-                                                          visualDensity:
-                                                              VisualDensity
-                                                                  .compact,
-                                                          onPressed: canMutate
-                                                              ? () =>
-                                                                  _deleteNote(
-                                                                      n)
-                                                              : null,
-                                                          icon: Icon(
-                                                            Icons
-                                                                .delete_outline,
-                                                            size: 18,
-                                                            color: canMutate
-                                                                ? AppColors
-                                                                    .danger
-                                                                : AppColors
-                                                                    .muted
-                                                                    .withValues(
-                                                                  alpha: 0.45,
-                                                                ),
-                                                          ),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ],
-                                                ),
-                                              ],
-                                            ),
-                                          );
-                                        },
-                                      ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  p.fullName,
+                                  style: AppFonts.style(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.navy,
+                                    letterSpacing: -0.4,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  p.email,
+                                  style: AppFonts.style(
+                                    fontSize: 14,
+                                    color: AppColors.muted,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          _AccessBadge(
+                            isOwner: owner,
+                            roleLabel: AppRoles.label(
+                              widget.controller.api.role,
+                            ),
                           ),
                         ],
                       ),
-                      widget.controller.loadingAccess && accessOwner == null
-                          ? const ToothPageLoader(message: 'Loading access…')
-                          : accessOwner == null
-                              ? const Center(
-                                  child: Text(
-                                    'No access information available.',
-                                    style: TextStyle(color: AppColors.muted),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (owner)
+                            AppButtons.ghost(
+                              onPressed: blocked ? null : widget.onEdit,
+                              icon: Icons.edit_outlined,
+                              label: 'Edit',
+                              compact: true,
+                            ),
+                          AppButtons.ghost(
+                            onPressed: blocked ? null : widget.onShare,
+                            icon: Icons.share_outlined,
+                            label: owner ? 'Share' : 'Request',
+                            compact: true,
+                          ),
+                          if (owner)
+                            AppButtons.danger(
+                              onPressed: blocked ? null : widget.onDelete,
+                              icon: Icons.delete_outline_rounded,
+                              label: 'Delete',
+                              soft: true,
+                              compact: true,
+                            ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+                      child: AnimatedBuilder(
+                        animation: _tabs,
+                        builder: (context, _) {
+                          return SizedBox(
+                            width: double.infinity,
+                            child: CupertinoSlidingSegmentedControl<int>(
+                              groupValue: _tabs.index,
+                              backgroundColor:
+                                  AppColors.inset.withValues(alpha: 0.7),
+                              thumbColor: Colors.white.withValues(alpha: 0.95),
+                              children: {
+                                0: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 6,
                                   ),
-                                )
-                              : ListView(
-                                  padding: const EdgeInsets.only(top: 12),
-                                  children: [
-                                    _buildOwnerAccessCard(accessOwner),
-                                    if (!accessViewerIsOwner) ...[
-                                      const SizedBox(height: 12),
-                                      const Padding(
-                                        padding: EdgeInsets.symmetric(
-                                          horizontal: 4,
-                                        ),
-                                        child: Text(
-                                          'Only the patient owner can view and manage full staff access permissions.',
-                                          style: TextStyle(
-                                            color: AppColors.muted,
-                                            fontSize: 13,
-                                            height: 1.35,
-                                          ),
-                                        ),
-                                      ),
-                                    ] else ...[
-                                      for (final entry in access) ...[
-                                        const SizedBox(height: 8),
-                                        _buildAccessListCard(
-                                          entry: entry,
-                                          isOwner: true,
-                                          blocked: blocked,
-                                        ),
-                                      ],
-                                    ],
-                                  ],
+                                  child: Text(
+                                    'Info',
+                                    style: AppFonts.style(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.navy,
+                                    ),
+                                  ),
                                 ),
-                    ],
-                  ),
+                                1: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 6,
+                                  ),
+                                  child: Text(
+                                    'Notes',
+                                    style: AppFonts.style(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.navy,
+                                    ),
+                                  ),
+                                ),
+                                2: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 6,
+                                  ),
+                                  child: Text(
+                                    'Access',
+                                    style: AppFonts.style(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.navy,
+                                    ),
+                                  ),
+                                ),
+                              },
+                              onValueChanged: (value) {
+                                if (value == null) return;
+                                _tabs.animateTo(value);
+                              },
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    Expanded(
+                      child: TabBarView(
+                        controller: _tabs,
+                        children: [
+                          _buildDemographicsTab(p),
+                          _buildNotesTab(
+                            notes: notes,
+                            blocked: blocked,
+                          ),
+                          _buildAccessTab(
+                            access: access,
+                            accessOwner: accessOwner,
+                            accessViewerIsOwner: accessViewerIsOwner,
+                            blocked: blocked,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              );
+            },
           ),
-          );
-        },
+        ),
       ),
     );
   }
 
+  Widget _buildDemographicsTab(GdprPatient p) {
+    final rows = [
+      ('Date of birth', p.dateOfBirth),
+      ('Email', p.email),
+      ('Phone', p.phone),
+      ('Health insurance', p.healthInsurance),
+      ('Address', p.address),
+    ];
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+      children: [
+        _InsetGroup(
+          children: [
+            for (var i = 0; i < rows.length; i++) ...[
+              if (i > 0) const _InsetDivider(),
+              _DemoRow(label: rows[i].$1, value: rows[i].$2),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNotesTab({
+    required List<PatientNote> notes,
+    required bool blocked,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+      child: Column(
+        children: [
+          _InsetGroup(
+            padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _note,
+                    enabled: !blocked && !_adding,
+                    minLines: 1,
+                    maxLines: 3,
+                    style: AppFonts.style(
+                      fontSize: 15,
+                      color: AppColors.navy,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: 'Add a clinical note…',
+                      hintStyle: AppFonts.style(
+                        color: AppColors.muted,
+                        fontSize: 15,
+                      ),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      filled: false,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 8,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                AppButtons.primary(
+                  onPressed: blocked || _adding ? null : _addNote,
+                  label: 'Add',
+                  compact: true,
+                  busy: _adding,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: widget.controller.loadingNotes && notes.isEmpty
+                ? const ToothPageLoader(
+                    message: 'Loading notes…',
+                    size: 40,
+                  )
+                : notes.isEmpty
+                    ? Center(
+                        child: Text(
+                          'No clinical notes yet.',
+                          style: AppFonts.style(
+                            color: AppColors.muted,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        itemCount: notes.length,
+                        separatorBuilder: (_, _) =>
+                            const SizedBox(height: 10),
+                        itemBuilder: (context, i) {
+                          final n = notes[i];
+                          final me = widget.controller.currentUserId;
+                          final isAuthor =
+                              me != null && n.authorId == me;
+                          final canMutate = isAuthor && !blocked;
+                          final when = n.createdAt == null
+                              ? ''
+                              : DateFormat.yMMMd()
+                                  .add_Hm()
+                                  .format(n.createdAt!.toLocal());
+                          return _InsetGroup(
+                            padding: const EdgeInsets.fromLTRB(
+                              14,
+                              12,
+                              8,
+                              12,
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        n.noteContent,
+                                        style: AppFonts.style(
+                                          color: AppColors.navy,
+                                          fontSize: 15,
+                                          height: 1.4,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        [
+                                          n.displayAuthorName,
+                                          if (when.isNotEmpty) when,
+                                        ].join(' · '),
+                                        style: AppFonts.style(
+                                          fontSize: 12,
+                                          color: AppColors.muted,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (canMutate)
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      AppButtons.icon(
+                                        tooltip: 'Edit note',
+                                        onPressed: () => _editNote(n),
+                                        icon: Icons.edit_outlined,
+                                      ),
+                                      AppButtons.icon(
+                                        tooltip: 'Delete note',
+                                        onPressed: () => _deleteNote(n),
+                                        icon: Icons.delete_outline_rounded,
+                                      ),
+                                    ],
+                                  ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAccessTab({
+    required List<PatientAccessEntry> access,
+    required PatientAccessOwner? accessOwner,
+    required bool accessViewerIsOwner,
+    required bool blocked,
+  }) {
+    if (widget.controller.loadingAccess && accessOwner == null) {
+      return const ToothPageLoader(message: 'Loading access…');
+    }
+    if (accessOwner == null) {
+      return Center(
+        child: Text(
+          'No access information available.',
+          style: AppFonts.style(color: AppColors.muted),
+        ),
+      );
+    }
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+      children: [
+        _buildOwnerAccessCard(accessOwner),
+        if (!accessViewerIsOwner) ...[
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+              'Only the patient owner can view and manage full staff access permissions.',
+              style: AppFonts.style(
+                color: AppColors.muted,
+                fontSize: 13,
+                height: 1.35,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ] else ...[
+          for (final entry in access) ...[
+            const SizedBox(height: 10),
+            _buildAccessListCard(
+              entry: entry,
+              isOwner: true,
+              blocked: blocked,
+            ),
+          ],
+        ],
+      ],
+    );
+  }
+
   Widget _buildOwnerAccessCard(PatientAccessOwner owner) {
-    return SectionCard(
-      padding: const EdgeInsets.all(12),
-      depth: 0.4,
+    return _InsetGroup(
+      padding: const EdgeInsets.all(14),
       child: Row(
         children: [
           Expanded(
@@ -1833,9 +2395,10 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
               children: [
                 Text(
                   owner.fullName,
-                  style: const TextStyle(
+                  style: AppFonts.style(
                     fontWeight: FontWeight.w700,
                     color: AppColors.navy,
+                    fontSize: 16,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -1863,12 +2426,11 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     switch (entry.status) {
       case PatientAccessStatus.approved:
         if (isOwner) {
-          actions = TextButton(
+          actions = AppButtons.danger(
             onPressed: blocked ? null : () => _revokeAccess(entry),
-            child: const Text(
-              'Revoke Access',
-              style: TextStyle(color: AppColors.danger),
-            ),
+            label: 'Revoke',
+            soft: true,
+            compact: true,
           );
         }
       case PatientAccessStatus.pending:
@@ -1881,22 +2443,17 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
           actions = Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.success,
-                  visualDensity: VisualDensity.compact,
-                ),
+              AppButtons.primary(
                 onPressed: blocked ? null : () => _approveAccess(entry),
-                child: const Text('Approve'),
+                label: 'Approve',
+                compact: true,
               ),
               const SizedBox(width: 8),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.danger,
-                  visualDensity: VisualDensity.compact,
-                ),
+              AppButtons.danger(
                 onPressed: blocked ? null : () => _rejectAccess(entry),
-                child: const Text('Reject'),
+                label: 'Reject',
+                soft: true,
+                compact: true,
               ),
             ],
           );
@@ -1908,16 +2465,16 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
         }
       case PatientAccessStatus.rejected:
         if (isOwner) {
-          actions = OutlinedButton(
+          actions = AppButtons.ghost(
             onPressed: blocked ? null : () => _regrantAccess(entry),
-            child: const Text('Re-grant Access'),
+            label: 'Re-grant',
+            compact: true,
           );
         }
     }
 
-    return SectionCard(
-      padding: const EdgeInsets.all(12),
-      depth: 0.4,
+    return _InsetGroup(
+      padding: const EdgeInsets.all(14),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1927,18 +2484,20 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
               children: [
                 Text(
                   entry.userName,
-                  style: const TextStyle(
+                  style: AppFonts.style(
                     fontWeight: FontWeight.w700,
                     color: AppColors.navy,
+                    fontSize: 16,
                   ),
                 ),
                 if (when.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Text(
                     when,
-                    style: const TextStyle(
-                      fontSize: 11.5,
+                    style: AppFonts.style(
+                      fontSize: 12,
                       color: AppColors.muted,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ],
@@ -1946,9 +2505,10 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                   const SizedBox(height: 4),
                   Text(
                     subtext,
-                    style: const TextStyle(
-                      fontSize: 12.5,
+                    style: AppFonts.style(
+                      fontSize: 13,
                       color: AppColors.muted,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ],
@@ -1965,28 +2525,97 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
       ),
     );
   }
+}
 
-  Widget _info(String label, String value) {
+class _InsetGroup extends StatelessWidget {
+  const _InsetGroup({
+    this.child,
+    this.children,
+    this.padding,
+  }) : assert(child != null || children != null);
+
+  final Widget? child;
+  final List<Widget>? children;
+  final EdgeInsetsGeometry? padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.58),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.78)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF9AADC4).withValues(alpha: 0.12),
+            offset: const Offset(0, 4),
+            blurRadius: 12,
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: child != null
+          ? Padding(
+              padding: padding ?? EdgeInsets.zero,
+              child: child,
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: children!,
+            ),
+    );
+  }
+}
+
+class _InsetDivider extends StatelessWidget {
+  const _InsetDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Divider(
+      height: 1,
+      thickness: 0.5,
+      indent: 16,
+      endIndent: 16,
+      color: AppColors.border.withValues(alpha: 0.7),
+    );
+  }
+}
+
+class _DemoRow extends StatelessWidget {
+  const _DemoRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Column(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label.toUpperCase(),
-            style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: AppColors.muted,
+          SizedBox(
+            width: 140,
+            child: Text(
+              label,
+              style: AppFonts.style(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: AppColors.muted,
+              ),
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            value.isEmpty ? '—' : value,
-            style: const TextStyle(
-              fontSize: 15,
-              color: AppColors.navy,
-              fontWeight: FontWeight.w600,
+          Expanded(
+            child: Text(
+              value.isEmpty ? '—' : value,
+              textAlign: TextAlign.right,
+              style: AppFonts.style(
+                fontSize: 15,
+                color: AppColors.navy,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
