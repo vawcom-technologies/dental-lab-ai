@@ -106,6 +106,7 @@ double _distToSegment(Offset p, Offset a, Offset b) =>
 
 /// Soft-corner / edge-bent closed path. [bulges[i]] bends edge i→i+1
 /// (fraction of image shortest side; + = left of directed edge).
+/// Zero bulge → straight segment (no auto-puff).
 Path curvedPathFromNorm(
   List outline,
   Rect dest, {
@@ -150,9 +151,12 @@ List<List<double>> sampleCurvedOutline(
     final a = Offset(verts[i][0], verts[i][1]);
     final b = Offset(verts[(i + 1) % n][0], verts[(i + 1) % n][1]);
     // Norm space: treat unit length as 1 (square image).
-    final ctrl = _edgeCtrl(a, b, bulges, i, unit: 1.0) ?? a;
+    final ctrl = _edgeCtrl(a, b, bulges, i, unit: 1.0);
     for (var s = 0; s < sp; s++) {
-      final o = _quadBezier(a, ctrl, b, s / sp);
+      final t = s / sp;
+      final o = ctrl == null
+          ? Offset(a.dx + (b.dx - a.dx) * t, a.dy + (b.dy - a.dy) * t)
+          : _quadBezier(a, ctrl, b, t);
       out.add([
         (o.dx * 1e5).round() / 1e5,
         (o.dy * 1e5).round() / 1e5,
@@ -162,7 +166,8 @@ List<List<double>> sampleCurvedOutline(
   return out;
 }
 
-/// Control point for edge a→b, or null if edge is degenerate.
+/// Control point for edge a→b, or null for a straight edge / degenerate.
+/// Only user-set [bulges] bend the edge — no automatic puff.
 Offset? _edgeCtrl(
   Offset a,
   Offset b,
@@ -174,8 +179,8 @@ Offset? _edgeCtrl(
   final len = ab.distance;
   if (len < 1e-9) return null;
   final user = (bulges != null && i < bulges.length) ? bulges[i] : 0.0;
-  final auto = 0.012 * (len / unit);
-  final bulge = (user + auto).clamp(-0.09, 0.09);
+  if (user.abs() < 1e-9) return null;
+  final bulge = user.clamp(-0.09, 0.09);
   final perp = Offset(-ab.dy / len, ab.dx / len);
   final mid = Offset((a.dx + b.dx) * 0.5, (a.dy + b.dy) * 0.5);
   return mid + perp * (bulge * unit);
@@ -214,13 +219,14 @@ int? hitTestOutlineEdge({
   return best;
 }
 
-/// Simplify a dense outline to ~4–6 control points for edge editing.
+/// Simplify a dense outline to ~8–12 control points for edge editing.
 ///
+/// Keep in sync with backend `EDIT_HANDLES_MAX` / `EDIT_HANDLES_MIN`.
 /// Douglas–Peucker style reduction, then midpoints on longest edges if too few.
 List<List<double>> simplifyOutlineForEdit(
   List outline, {
-  int maxPoints = 6,
-  int minPoints = 4,
+  int maxPoints = 12,
+  int minPoints = 8,
 }) {
   var pts = <List<double>>[];
   for (final p in outline) {
@@ -431,6 +437,7 @@ class ToothOverlayPainter extends CustomPainter {
     this.activeHandleIndex,
     this.activeEdgeIndex,
     this.transformationController,
+    this.paintSelectedOnlyWhileDragging = false,
   });
 
   final List<Map<String, dynamic>> teeth;
@@ -445,6 +452,8 @@ class ToothOverlayPainter extends CustomPainter {
   final int? activeHandleIndex;
   final int? activeEdgeIndex;
   final TransformationController? transformationController;
+  /// Loupe: skip other teeth while a handle/edge is active (cheaper frames).
+  final bool paintSelectedOnlyWhileDragging;
 
   static const _zoneColors = {
     'cervical': Color(0xFFE09B2D),
@@ -452,14 +461,39 @@ class ToothOverlayPainter extends CustomPainter {
     'incisal': Color(0xFF1F9D63),
   };
 
+  /// Cached paths for teeth that don't move during a drag.
+  Size? _staticCacheSize;
+  List<_CachedToothStroke>? _staticCache;
+
   @override
   void paint(Canvas canvas, Size size) {
     if (teeth.isEmpty || imageSize.width <= 0) return;
     final dest = containRect(size, imageSize);
-
-    // After upload: draw all. After triple-tap isolate: draw only that tooth.
     final isolateIdx = isolatedToothIndex;
+    final dragging = editMode &&
+        (activeHandleIndex != null || activeEdgeIndex != null);
 
+    if (paintSelectedOnlyWhileDragging && dragging) {
+      _paintSelectedEdit(canvas, dest);
+      return;
+    }
+
+    if (dragging) {
+      _ensureStaticCache(size, dest, isolateIdx);
+      for (final c in _staticCache!) {
+        if (c.selected) continue;
+        canvas.drawPath(c.path, c.fill);
+        canvas.drawPath(c.path, c.stroke);
+        if (c.label != null) {
+          _paintLabel(canvas, c.label!);
+        }
+      }
+      _paintSelectedEdit(canvas, dest);
+      return;
+    }
+
+    _staticCache = null;
+    _staticCacheSize = null;
     for (final t in teeth) {
       final idx = (t['tooth_index'] as num?)?.toInt();
       if (idx == null) continue;
@@ -486,7 +520,6 @@ class ToothOverlayPainter extends CustomPainter {
       }
       if (verts.length >= 3) {
         final path = curvedPathFromNorm(verts, dest, bulges: bulges);
-
         final fill = Paint()
           ..style = PaintingStyle.fill
           ..color = selected
@@ -495,7 +528,6 @@ class ToothOverlayPainter extends CustomPainter {
                   ? AppColors.danger.withValues(alpha: 0.10)
                   : Colors.white.withValues(alpha: 0.06));
         canvas.drawPath(path, fill);
-
         final stroke = Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = selected ? 2.6 : 1.6
@@ -551,79 +583,167 @@ class ToothOverlayPainter extends CustomPainter {
 
       final label = geo['label'];
       if (label is Map && !(editMode && selected)) {
-        final lp = normToLocal([label['x'], label['y']], dest);
-        final text = 'T${idx + 1}';
-        final tp = TextPainter(
-          text: TextSpan(
-            text: text,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: selected ? 13 : 11,
-              fontWeight: FontWeight.w800,
-              shadows: const [
-                Shadow(blurRadius: 4, color: Colors.black54),
-              ],
-            ),
+        _paintLabel(
+          canvas,
+          _LabelPaint(
+            at: normToLocal([label['x'], label['y']], dest),
+            text: 'T${idx + 1}',
+            selected: selected,
           ),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        final bg = RRect.fromRectAndRadius(
-          Rect.fromCenter(
-            center: lp.translate(0, -2),
-            width: tp.width + 10,
-            height: tp.height + 4,
-          ),
-          const Radius.circular(6),
         );
-        canvas.drawRRect(
-          bg,
-          Paint()
-            ..color = selected
-                ? AppColors.dentalBlue
-                : AppColors.navy.withValues(alpha: 0.85),
-        );
-        tp.paint(canvas, Offset(lp.dx - tp.width / 2, lp.dy - tp.height / 2 - 2));
       }
     }
 
     if (editMode && editOutline != null) {
-      final scale =
-          transformationController?.value.getMaxScaleOnAxis().clamp(1.0, 4.0) ??
-              1.0;
-      for (var i = 0; i < editOutline!.length; i++) {
-        final a = normToLocal(editOutline![i], dest);
-        final b = normToLocal(editOutline![(i + 1) % editOutline!.length], dest);
-        final mid = Offset((a.dx + b.dx) * 0.5, (a.dy + b.dy) * 0.5);
-        final active = i == activeEdgeIndex;
-        canvas.drawCircle(
-          mid,
-          (active ? 5.5 : 4.0) / scale,
-          Paint()
-            ..color = active
-                ? AppColors.dentalBlue.withValues(alpha: 0.9)
-                : Colors.white.withValues(alpha: 0.55),
-        );
-      }
-      for (var i = 0; i < editOutline!.length; i++) {
-        final o = normToLocal(editOutline![i], dest);
-        final active = i == activeHandleIndex;
-        canvas.drawCircle(
-          o,
-          (active ? 8 : 7) / scale,
-          Paint()..color = Colors.white.withValues(alpha: 0.35),
-        );
-        canvas.drawCircle(
-          o,
-          (active ? 5 : 4.5) / scale,
-          Paint()..color = Colors.white,
-        );
-        canvas.drawCircle(
-          o,
-          (active ? 3 : 2.5) / scale,
-          Paint()..color = AppColors.dentalBlue,
-        );
-      }
+      _paintEditHandles(canvas, dest);
     }
+  }
+
+  void _ensureStaticCache(Size size, Rect dest, int? isolateIdx) {
+    if (_staticCache != null && _staticCacheSize == size) return;
+    _staticCacheSize = size;
+    final out = <_CachedToothStroke>[];
+    for (final t in teeth) {
+      final idx = (t['tooth_index'] as num?)?.toInt();
+      if (idx == null) continue;
+      if (isolateIdx != null && idx != isolateIdx) continue;
+      final selected = idx == selectedToothIndex;
+      if (selected) continue;
+      final rejected = t['rejected'] == true;
+      final geo = t['geometry'];
+      if (geo is! Map) continue;
+      final raw = geo['outline'];
+      if (raw is! List || raw.length < 3) continue;
+      final verts = [
+        for (final p in raw)
+          if (p is List && p.length >= 2)
+            [(p[0] as num).toDouble(), (p[1] as num).toDouble()],
+      ];
+      if (verts.length < 3) continue;
+      final path = curvedPathFromNorm(verts, dest);
+      _LabelPaint? labelPaint;
+      final label = geo['label'];
+      if (label is Map) {
+        labelPaint = _LabelPaint(
+          at: normToLocal([label['x'], label['y']], dest),
+          text: 'T${idx + 1}',
+          selected: false,
+        );
+      }
+      out.add(
+        _CachedToothStroke(
+          path: path,
+          selected: false,
+          fill: Paint()
+            ..style = PaintingStyle.fill
+            ..color = rejected
+                ? AppColors.danger.withValues(alpha: 0.10)
+                : Colors.white.withValues(alpha: 0.06),
+          stroke: Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.6
+            ..color = rejected ? AppColors.danger : Colors.white70,
+          label: labelPaint,
+        ),
+      );
+    }
+    _staticCache = out;
+  }
+
+  void _paintSelectedEdit(Canvas canvas, Rect dest) {
+    if (editOutline == null || editOutline!.length < 3) return;
+    final path =
+        curvedPathFromNorm(editOutline!, dest, bulges: editBulges);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.fill
+        ..color = AppColors.dentalBlue.withValues(alpha: 0.28),
+    );
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.6
+        ..color = AppColors.dentalBlue,
+    );
+    _paintEditHandles(canvas, dest);
+  }
+
+  void _paintEditHandles(Canvas canvas, Rect dest) {
+    if (editOutline == null) return;
+    final scale =
+        transformationController?.value.getMaxScaleOnAxis().clamp(1.0, 4.0) ??
+            1.0;
+    for (var i = 0; i < editOutline!.length; i++) {
+      final a = normToLocal(editOutline![i], dest);
+      final b = normToLocal(editOutline![(i + 1) % editOutline!.length], dest);
+      final mid = Offset((a.dx + b.dx) * 0.5, (a.dy + b.dy) * 0.5);
+      final active = i == activeEdgeIndex;
+      canvas.drawCircle(
+        mid,
+        (active ? 5.5 : 4.0) / scale,
+        Paint()
+          ..color = active
+              ? AppColors.dentalBlue.withValues(alpha: 0.9)
+              : Colors.white.withValues(alpha: 0.55),
+      );
+    }
+    for (var i = 0; i < editOutline!.length; i++) {
+      final o = normToLocal(editOutline![i], dest);
+      final active = i == activeHandleIndex;
+      canvas.drawCircle(
+        o,
+        (active ? 8 : 7) / scale,
+        Paint()..color = Colors.white.withValues(alpha: 0.35),
+      );
+      canvas.drawCircle(
+        o,
+        (active ? 5 : 4.5) / scale,
+        Paint()..color = Colors.white,
+      );
+      canvas.drawCircle(
+        o,
+        (active ? 3 : 2.5) / scale,
+        Paint()..color = AppColors.dentalBlue,
+      );
+    }
+  }
+
+  void _paintLabel(Canvas canvas, _LabelPaint label) {
+    final tp = TextPainter(
+      text: TextSpan(
+        text: label.text,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: label.selected ? 13 : 11,
+          fontWeight: FontWeight.w800,
+          shadows: const [
+            Shadow(blurRadius: 4, color: Colors.black54),
+          ],
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final bg = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: label.at.translate(0, -2),
+        width: tp.width + 10,
+        height: tp.height + 4,
+      ),
+      const Radius.circular(6),
+    );
+    canvas.drawRRect(
+      bg,
+      Paint()
+        ..color = label.selected
+            ? AppColors.dentalBlue
+            : AppColors.navy.withValues(alpha: 0.85),
+    );
+    tp.paint(
+      canvas,
+      Offset(label.at.dx - tp.width / 2, label.at.dy - tp.height / 2 - 2),
+    );
   }
 
   @override
@@ -635,4 +755,32 @@ class ToothOverlayPainter extends CustomPainter {
         oldDelegate.teeth != teeth ||
         oldDelegate.imageSize != imageSize;
   }
+}
+
+class _CachedToothStroke {
+  const _CachedToothStroke({
+    required this.path,
+    required this.selected,
+    required this.fill,
+    required this.stroke,
+    this.label,
+  });
+
+  final Path path;
+  final bool selected;
+  final Paint fill;
+  final Paint stroke;
+  final _LabelPaint? label;
+}
+
+class _LabelPaint {
+  const _LabelPaint({
+    required this.at,
+    required this.text,
+    required this.selected,
+  });
+
+  final Offset at;
+  final String text;
+  final bool selected;
 }

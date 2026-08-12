@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/haptics/app_haptics.dart';
+import '../../core/images/orient_image.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
@@ -57,8 +58,10 @@ class _ShadePageState extends State<ShadePage> {
   /// Aggregated across all teeth/zones for the Result card (not zone-similar).
   List<Map<String, dynamic>> _overallTopMatches = [];
   List<Map<String, dynamic>> _history = [];
-  /// Saved shade-detection images for the selected patient.
-  List<Map<String, dynamic>> _shadeItems = [];
+  /// All saved shade-detection images for the selected patient (full history).
+  List<Map<String, dynamic>> _allShadeItems = [];
+  /// When false, strip shows only detections from this chairside visit.
+  bool _showAllShadeHistory = false;
   bool _mediaLoading = false;
   String? _selectedShadeId;
 
@@ -84,7 +87,8 @@ class _ShadePageState extends State<ShadePage> {
   List<double>? _editBulgesBackup;
   int? _activeHandleIndex;
   int? _activeEdgeIndex;
-  Offset? _magnifierFocalPoint;
+  /// Loupe follows this without setState — Image.memory stays mounted.
+  final _magnifierFocal = ValueNotifier<Offset?>(null);
   Size? _magnifierViewSize;
   final _outlineHistory = OutlineEditHistory();
   OutlineSnap? _outlineBeforeDrag;
@@ -99,6 +103,27 @@ class _ShadePageState extends State<ShadePage> {
       if ((t['tooth_index'] as num?)?.toInt() == _selectedToothIndex) return t;
     }
     return null;
+  }
+
+  DateTime? _parseCreatedAt(Map<String, dynamic> item) {
+    final raw = item['created_at'];
+    if (raw is String && raw.isNotEmpty) {
+      return DateTime.tryParse(raw)?.toUtc();
+    }
+    return null;
+  }
+
+  /// Visit-scoped strip (Option A). Toggle [_showAllShadeHistory] for full list.
+  List<Map<String, dynamic>> get _visibleShadeItems {
+    if (_showAllShadeHistory) return _allShadeItems;
+    final start = widget.patientSession.visitStartedAt;
+    if (start == null) return _allShadeItems;
+    return _allShadeItems.where((item) {
+      final created = _parseCreatedAt(item);
+      // Keep undated rows visible rather than hiding media.
+      if (created == null) return true;
+      return !created.isBefore(start);
+    }).toList();
   }
 
   List<Map<String, dynamic>> _cloneTeeth(List<Map<String, dynamic>> src) =>
@@ -852,7 +877,7 @@ class _ShadePageState extends State<ShadePage> {
     } else {
       final raw = geo['outline'];
       if (raw is! List || raw.length < 3) return;
-      verts = simplifyOutlineForEdit(raw, maxPoints: 8, minPoints: 4);
+      verts = simplifyOutlineForEdit(raw, maxPoints: 12, minPoints: 8);
     }
     if (verts.length < 3) return;
     final stored = geo['edge_bulges'];
@@ -909,7 +934,7 @@ class _ShadePageState extends State<ShadePage> {
   }
 
   void _clearMagnifier() {
-    _magnifierFocalPoint = null;
+    _magnifierFocal.value = null;
     _magnifierViewSize = null;
   }
 
@@ -1131,6 +1156,7 @@ class _ShadePageState extends State<ShadePage> {
   @override
   void dispose() {
     _dragTick.dispose();
+    _magnifierFocal.dispose();
     _photoTransformController.dispose();
     super.dispose();
   }
@@ -1151,6 +1177,7 @@ class _ShadePageState extends State<ShadePage> {
       } else if (_patients.isNotEmpty) {
         await _selectPatient(_patients.first);
       }
+      await _consumeShadeHandoff();
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -1171,7 +1198,8 @@ class _ShadePageState extends State<ShadePage> {
         setState(() {
           _patient = null;
           _case = null;
-          _shadeItems = [];
+          _allShadeItems = [];
+          _showAllShadeHistory = false;
         });
       }
       return;
@@ -1179,6 +1207,7 @@ class _ShadePageState extends State<ShadePage> {
     if (_patient == null || _pid(_patient!) != _pid(sel)) {
       await _selectPatient(sel, publish: false);
     }
+    await _consumeShadeHandoff();
   }
 
   String _pid(Map<String, dynamic> row) => '${row['id'] ?? ''}';
@@ -1217,7 +1246,8 @@ class _ShadePageState extends State<ShadePage> {
       _patient = patient;
       _saveStatus = null;
       _error = null;
-      _shadeItems = [];
+      _allShadeItems = [];
+      _showAllShadeHistory = false;
       _selectedShadeId = null;
       _mediaLoading = true;
     });
@@ -1250,7 +1280,7 @@ class _ShadePageState extends State<ShadePage> {
     if (patient == null) {
       if (mounted) {
         setState(() {
-          _shadeItems = [];
+          _allShadeItems = [];
           _mediaLoading = false;
         });
       }
@@ -1266,7 +1296,7 @@ class _ShadePageState extends State<ShadePage> {
       final rows = await widget.api.listShadeDetections(pid);
       if (!mounted) return;
       setState(() {
-        _shadeItems = rows;
+        _allShadeItems = rows;
         _mediaLoading = false;
       });
     } catch (e) {
@@ -1278,7 +1308,36 @@ class _ShadePageState extends State<ShadePage> {
     }
   }
 
-  Future<void> _openShadeItem(Map<String, dynamic> item) async {
+  /// Camera handoff: open copied detection and run the same suggest pipeline.
+  Future<void> _consumeShadeHandoff() async {
+    final id = widget.patientSession.takePendingShadeDetectionId();
+    if (id == null || id.isEmpty || _patient == null) return;
+
+    // Ensure the copied row is present (list may be stale after camera copy).
+    await _loadShadeDetections();
+    if (!mounted) return;
+
+    Map<String, dynamic>? item;
+    for (final row in _allShadeItems) {
+      if ('${row['id'] ?? ''}' == id) {
+        item = row;
+        break;
+      }
+    }
+    if (item == null) {
+      setState(
+        () => _error =
+            'Copied photo is not in Shade Detection yet. Pull the list again.',
+      );
+      return;
+    }
+    await _openShadeItem(item, runAi: true);
+  }
+
+  Future<void> _openShadeItem(
+    Map<String, dynamic> item, {
+    bool runAi = false,
+  }) async {
     final id = '${item['id'] ?? ''}';
     final url = '${item['file_url'] ?? ''}'.trim();
     final name = '${item['file_name'] ?? 'tooth.jpg'}';
@@ -1287,13 +1346,15 @@ class _ShadePageState extends State<ShadePage> {
       _busy = true;
       _error = null;
       _selectedShadeId = id;
+      _saveStatus = runAi ? 'Mapping teeth…' : null;
     });
     try {
       final bytes = await widget.api.downloadMediaBytes(url);
       if (!mounted) return;
+      final oriented = bakeExifOrientation(bytes);
       _photoTransformController.value = Matrix4.identity();
       setState(() {
-        _previewBytes = bytes;
+        _previewBytes = oriented;
         _previewFilename = name;
         _exitOutlineEdit(clearStatus: false);
         _teeth = [];
@@ -1306,6 +1367,10 @@ class _ShadePageState extends State<ShadePage> {
         _topMatches = [];
         _overallTopMatches = [];
       });
+      if (runAi) {
+        // Identical endpoint + bytes path as gallery Upload & detect.
+        await _applySuggestFromBytes(oriented, name);
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
@@ -1324,7 +1389,8 @@ class _ShadePageState extends State<ShadePage> {
       await widget.api.deleteShadeDetection(id);
       if (!mounted) return;
       setState(() {
-        _shadeItems = _shadeItems.where((e) => '${e['id']}' != id).toList();
+        _allShadeItems =
+            _allShadeItems.where((e) => '${e['id']}' != id).toList();
         if (_selectedShadeId == id) _selectedShadeId = null;
         _busy = false;
       });
@@ -1420,6 +1486,42 @@ class _ShadePageState extends State<ShadePage> {
     }
   }
 
+  /// Same mapping pipeline as gallery Upload & detect (`POST /api/ai/shade/suggest`).
+  Future<void> _applySuggestFromBytes(Uint8List data, String name) async {
+    // Bake EXIF so preview pixels match backend transpose (camera-roll photos).
+    final oriented = bakeExifOrientation(data);
+    if (mounted && !identical(oriented, _previewBytes)) {
+      setState(() => _previewBytes = oriented);
+    }
+    final result = await widget.api.suggestShade(oriented, name);
+    final teeth = _parseTeeth(result['teeth']);
+    Map<String, dynamic>? first;
+    for (final t in teeth) {
+      if (t['rejected'] != true) {
+        first = t;
+        break;
+      }
+    }
+    first ??= teeth.isEmpty ? null : teeth.first;
+
+    if (!mounted) return;
+    setState(() {
+      _teeth = teeth;
+      _rememberTeeth();
+      _isolatedToothIndex = null;
+      _selectedToothIndex = (first?['tooth_index'] as num?)?.toInt();
+      _focusZone = 'middle';
+      final iw = (result['image_width'] as num?)?.toDouble() ?? 0;
+      final ih = (result['image_height'] as num?)?.toDouble() ?? 0;
+      _analysisImageSize = (iw > 0 && ih > 0) ? Size(iw, ih) : Size.zero;
+      _finalShade = null;
+      _syncUiFromSelection();
+      _saveStatus = teeth.isEmpty
+          ? 'No teeth detected — try another photo'
+          : 'Mapped ${teeth.length} tooth${teeth.length == 1 ? '' : 'teeth'} — Accept or Save override to session';
+    });
+  }
+
   Future<void> _runAiFromGallery() async {
     if (_patient == null) {
       setState(() => _error = 'Select a patient first.');
@@ -1450,7 +1552,7 @@ class _ShadePageState extends State<ShadePage> {
       if (!confirmed || !mounted) return;
 
       final name = file.name.isNotEmpty ? file.name : 'tooth.jpg';
-      final data = Uint8List.fromList(bytes);
+      final data = bakeExifOrientation(Uint8List.fromList(bytes));
       final pid = _pid(_patient!);
 
       setState(() => _busy = true);
@@ -1466,7 +1568,7 @@ class _ShadePageState extends State<ShadePage> {
       if (!mounted) return;
 
       setState(() {
-        _shadeItems = [uploaded, ..._shadeItems];
+        _allShadeItems = [uploaded, ..._allShadeItems];
         _selectedShadeId = '${uploaded['id'] ?? ''}';
         _previewBytes = data;
         _previewFilename = name;
@@ -1474,30 +1576,8 @@ class _ShadePageState extends State<ShadePage> {
         _exitOutlineEdit(clearStatus: false);
       });
 
-      final result = await widget.api.suggestShade(data, name);
-      final teeth = _parseTeeth(result['teeth']);
-      Map<String, dynamic>? first;
-      for (final t in teeth) {
-        if (t['rejected'] != true) {
-          first = t;
-          break;
-        }
-      }
-      first ??= teeth.isEmpty ? null : teeth.first;
-
-      setState(() {
-        _teeth = teeth;
-        _rememberTeeth();
-        _isolatedToothIndex = null;
-        _selectedToothIndex = (first?['tooth_index'] as num?)?.toInt();
-        _focusZone = 'middle';
-        final iw = (result['image_width'] as num?)?.toDouble() ?? 0;
-        final ih = (result['image_height'] as num?)?.toDouble() ?? 0;
-        _analysisImageSize = (iw > 0 && ih > 0) ? Size(iw, ih) : Size.zero;
-        _finalShade = null;
-        _syncUiFromSelection();
-        _busy = false;
-      });
+      await _applySuggestFromBytes(data, name);
+      if (mounted) setState(() => _busy = false);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -1710,10 +1790,10 @@ class _ShadePageState extends State<ShadePage> {
     setState(() {
       _activeHandleIndex = hi;
       _activeEdgeIndex = ei;
-      _magnifierFocalPoint = local;
       _magnifierViewSize = box;
       _outlineBeforeDrag = OutlineEditHistory.snapOf(outline, bulges);
     });
+    _magnifierFocal.value = local;
   }
 
   void _onHandleDragUpdate(Offset local, Size box) {
@@ -1746,8 +1826,7 @@ class _ShadePageState extends State<ShadePage> {
     } else {
       return;
     }
-    _magnifierFocalPoint = local;
-    _magnifierViewSize = box;
+    _magnifierFocal.value = local;
     _dragTick.value++;
   }
 
@@ -1799,106 +1878,158 @@ class _ShadePageState extends State<ShadePage> {
 
   Widget _buildShadeMediaStrip() {
     if (_patient == null) return const SizedBox.shrink();
-    if (!_mediaLoading && _shadeItems.isEmpty) {
+    final visible = _visibleShadeItems;
+    final hasHistoryBeyondVisit =
+        !_showAllShadeHistory &&
+        _allShadeItems.isNotEmpty &&
+        visible.length < _allShadeItems.length;
+    if (!_mediaLoading && _allShadeItems.isEmpty) {
       return const SizedBox.shrink();
     }
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
-      child: SizedBox(
-        height: 88,
-        child: _mediaLoading
-            ? const Center(
-                child: ToothLoadingIndicator(
-                  size: 32,
-                  compact: true,
-                  loadingText: 'Loading…',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                _showAllShadeHistory
+                    ? 'All shade photos'
+                    : 'This visit’s shade photos',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.muted,
                 ),
-              )
-            : ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _shadeItems.length,
-                    separatorBuilder: (_, _) => const SizedBox(width: 10),
-                    itemBuilder: (context, i) {
-                      final item = _shadeItems[i];
-                      final id = '${item['id'] ?? ''}';
-                      final url = '${item['file_url'] ?? ''}';
-                      final selected = id == _selectedShadeId;
-                      return Material(
-                        color: selected
-                            ? AppColors.dentalBlue.withValues(alpha: 0.12)
-                            : Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(12),
-                          onTap: _busy ? null : () => _openShadeItem(item),
-                          child: Container(
-                            width: 120,
-                            padding: const EdgeInsets.fromLTRB(8, 8, 4, 8),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: selected
-                                    ? AppColors.dentalBlue
-                                    : AppColors.border,
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: url.isEmpty
-                                      ? Container(
-                                          width: 56,
-                                          height: 56,
-                                          color: AppColors.sidebarActive,
-                                          child: const Icon(
-                                            Icons.image_outlined,
-                                            size: 22,
-                                            color: AppColors.muted,
-                                          ),
-                                        )
-                                      : Image.network(
-                                          url,
-                                          width: 56,
-                                          height: 56,
-                                          fit: BoxFit.cover,
-                                          errorBuilder: (_, _, _) => Container(
-                                            width: 56,
-                                            height: 56,
-                                            color: AppColors.sidebarActive,
-                                            child: const Icon(
-                                              Icons.broken_image_outlined,
-                                              size: 20,
-                                              color: AppColors.muted,
-                                            ),
-                                          ),
-                                        ),
-                                ),
-                                const Spacer(),
-                                IconButton(
-                                  tooltip: 'Delete',
-                                  visualDensity: VisualDensity.compact,
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(
-                                    minWidth: 32,
-                                    minHeight: 32,
-                                  ),
-                                  onPressed: _busy
-                                      ? null
-                                      : () => _deleteShadeItem(item),
-                                  icon: const Icon(
-                                    Icons.delete_outline,
-                                    size: 18,
-                                    color: AppColors.danger,
-                                  ),
-                                ),
-                              ],
-                            ),
+              ),
+              const Spacer(),
+              if (_allShadeItems.isNotEmpty)
+                TextButton(
+                  onPressed: _busy
+                      ? null
+                      : () => setState(
+                            () => _showAllShadeHistory = !_showAllShadeHistory,
+                          ),
+                  child: Text(
+                    _showAllShadeHistory ? 'This visit only' : 'Show all history',
+                  ),
+                ),
+            ],
+          ),
+          SizedBox(
+            height: 88,
+            child: _mediaLoading
+                ? const Center(
+                    child: ToothLoadingIndicator(
+                      size: 32,
+                      compact: true,
+                      loadingText: 'Loading…',
+                    ),
+                  )
+                : visible.isEmpty
+                    ? Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          hasHistoryBeyondVisit
+                              ? 'No photos in this visit yet — tap Show all history to retrieve earlier ones.'
+                              : 'No shade photos yet.',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppColors.muted,
                           ),
                         ),
-                      );
-                    },
-                  ),
+                      )
+                    : ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: visible.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 10),
+                        itemBuilder: (context, i) {
+                          final item = visible[i];
+                          final id = '${item['id'] ?? ''}';
+                          final url = '${item['file_url'] ?? ''}';
+                          final selected = id == _selectedShadeId;
+                          return Material(
+                            color: selected
+                                ? AppColors.dentalBlue.withValues(alpha: 0.12)
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap:
+                                  _busy ? null : () => _openShadeItem(item),
+                              child: Container(
+                                width: 120,
+                                padding:
+                                    const EdgeInsets.fromLTRB(8, 8, 4, 8),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: selected
+                                        ? AppColors.dentalBlue
+                                        : AppColors.border,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: url.isEmpty
+                                          ? Container(
+                                              width: 56,
+                                              height: 56,
+                                              color: AppColors.sidebarActive,
+                                              child: const Icon(
+                                                Icons.image_outlined,
+                                                size: 22,
+                                                color: AppColors.muted,
+                                              ),
+                                            )
+                                          : Image.network(
+                                              url,
+                                              width: 56,
+                                              height: 56,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (_, _, _) =>
+                                                  Container(
+                                                width: 56,
+                                                height: 56,
+                                                color: AppColors.sidebarActive,
+                                                child: const Icon(
+                                                  Icons.broken_image_outlined,
+                                                  size: 20,
+                                                  color: AppColors.muted,
+                                                ),
+                                              ),
+                                            ),
+                                    ),
+                                    const Spacer(),
+                                    IconButton(
+                                      tooltip: 'Delete',
+                                      visualDensity: VisualDensity.compact,
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(
+                                        minWidth: 32,
+                                        minHeight: 32,
+                                      ),
+                                      onPressed: _busy
+                                          ? null
+                                          : () => _deleteShadeItem(item),
+                                      icon: const Icon(
+                                        Icons.delete_outline,
+                                        size: 18,
+                                        color: AppColors.danger,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+          ),
+        ],
       ),
     );
   }
@@ -1962,7 +2093,8 @@ class _ShadePageState extends State<ShadePage> {
             ),
           ],
           const SizedBox(height: 14),
-          if (_patient != null && (_mediaLoading || _shadeItems.isNotEmpty)) ...[
+          if (_patient != null &&
+              (_mediaLoading || _allShadeItems.isNotEmpty)) ...[
             _buildShadeMediaStrip(),
             const SizedBox(height: 8),
           ],
@@ -2060,7 +2192,7 @@ class _ShadePageState extends State<ShadePage> {
                                     onAcceptAi: () => _persist(acceptAi: true),
                                     onSaveOverride: () =>
                                         _persist(acceptAi: false),
-                                    magnifierFocalPoint: _magnifierFocalPoint,
+                                    magnifierFocal: _magnifierFocal,
                                     magnifierViewSize: _magnifierViewSize,
                                     previewBytes: _previewBytes,
                                     analysisImageSize: _analysisImageSize,
@@ -2079,27 +2211,21 @@ class _ShadePageState extends State<ShadePage> {
                           // a large empty gap before the first upload.
                           SizedBox(
                             height: showActions ? actionSlotH : 12,
+                            width: double.infinity,
                             child: showActions
-                                ? Align(
-                                    alignment: Alignment.center,
-                                    child: LayoutBuilder(
-                                      builder: (context, constraints) {
-                                        return ShadeActionBar(
-                                          editOutlineMode: _editOutlineMode,
-                                          hasPreview: _previewBytes != null,
-                                          canEditTooth:
-                                              _selectedToothIndex != null,
-                                          onCancel: _cancelOutlineEdit,
-                                          onReset: _resetOutlineEdit,
-                                          onApply: _applyOutlineEdit,
-                                          onAdjustEdges: _startOutlineEdit,
-                                          onDelete: _deleteSelectedTooth,
-                                          onAddTooth: _addTooth,
-                                          onUpload: _runAiFromGallery,
-                                          maxWidth: constraints.maxWidth,
-                                        );
-                                      },
-                                    ),
+                                ? ShadeActionBar(
+                                    editOutlineMode: _editOutlineMode,
+                                    hasPreview: _previewBytes != null,
+                                    canEditTooth:
+                                        _selectedToothIndex != null,
+                                    onCancel: _cancelOutlineEdit,
+                                    onReset: _resetOutlineEdit,
+                                    onApply: _applyOutlineEdit,
+                                    onAdjustEdges: _startOutlineEdit,
+                                    onDelete: _deleteSelectedTooth,
+                                    onAddTooth: _addTooth,
+                                    onUpload: _runAiFromGallery,
+                                    maxWidth: colConstraints.maxWidth,
                                   )
                                 : null,
                           ),

@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/haptics/app_haptics.dart';
+import '../../core/images/orient_image.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
@@ -328,7 +329,7 @@ class _CameraPageState extends State<CameraPage> {
         imageQuality: 100,
       );
       if (xfile == null) return;
-      bytes = Uint8List.fromList(await xfile.readAsBytes());
+      bytes = bakeExifOrientation(Uint8List.fromList(await xfile.readAsBytes()));
       if (xfile.name.isNotEmpty) filename = xfile.name;
     }
 
@@ -398,8 +399,12 @@ class _CameraPageState extends State<CameraPage> {
     if (photoId.isEmpty) return;
     final label = _photoName(photo);
     await _runBusy('Copying to Shade Detection…', () async {
-      await widget.api.copyToShadeDetection(photoId);
-      return 'Copied “$label” to Shade Detection';
+      final row = await widget.api.copyToShadeDetection(photoId);
+      final shadeId = '${row['id'] ?? ''}'.trim();
+      if (shadeId.isNotEmpty) {
+        widget.patientSession.requestShadeHandoff(shadeId);
+      }
+      return 'Copied “$label” to Shade Detection — mapping teeth…';
     });
   }
 

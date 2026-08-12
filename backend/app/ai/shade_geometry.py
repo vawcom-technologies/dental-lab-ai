@@ -12,12 +12,18 @@ import numpy as np
 
 from app.ai.shade_zones import ZONES, tooth_long_axis
 
+# Chairside edit budgets — keep Flutter simplifyOutlineForEdit in sync.
+DISPLAY_OUTLINE_MAX = 36
+DISPLAY_OUTLINE_MIN = 16
+EDIT_HANDLES_MAX = 12
+EDIT_HANDLES_MIN = 8
+
 
 def tooth_display_geometry(
     mask: np.ndarray,
     zone_masks: dict[str, np.ndarray] | None = None,
 ) -> dict[str, Any] | None:
-    """Build outline, bbox, zone divider lines, and optional zone outlines."""
+    """Build outline, edit handles, bbox, zone divider lines, zone outlines."""
     import cv2
 
     if mask.dtype != bool:
@@ -27,18 +33,25 @@ def tooth_display_geometry(
         return None
 
     u8 = (mask.astype(np.uint8)) * 255
-    contours, _ = cv2.findContours(u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     if not contours:
         return None
     cnt = max(contours, key=cv2.contourArea)
     if cv2.contourArea(cnt) < 8:
         return None
 
-    # Sparse ring for soft-curve display (~6–12 verts). Flutter rounds corners.
-    epsilon = max(1.0, 0.016 * cv2.arcLength(cnt, True))
+    # Follow mask edge closely — coarse DP made hexagons that ignored anatomy.
+    epsilon = max(0.4, 0.0035 * cv2.arcLength(cnt, True))
     approx = cv2.approxPolyDP(cnt, epsilon, True)
     outline = simplify_normalized_outline(
-        _poly_norm(approx, w, h), max_points=12, min_points=6
+        _poly_norm(approx, w, h),
+        max_points=DISPLAY_OUTLINE_MAX,
+        min_points=DISPLAY_OUTLINE_MIN,
+    )
+    edit_handles = anatomical_edit_handles_from_mask(
+        mask,
+        max_points=EDIT_HANDLES_MAX,
+        min_points=EDIT_HANDLES_MIN,
     )
 
     x, y, bw, bh = cv2.boundingRect(cnt)
@@ -66,11 +79,142 @@ def tooth_display_geometry(
 
     return {
         "outline": outline,
+        "edit_handles": edit_handles,
         "bbox": bbox,
         "label": label,
         "zone_lines": zone_lines,
         "zone_outlines": zone_outlines,
     }
+
+
+def anatomical_edit_handles_from_mask(
+    mask: np.ndarray,
+    *,
+    max_points: int = EDIT_HANDLES_MAX,
+    min_points: int = EDIT_HANDLES_MIN,
+) -> list[list[float]]:
+    """Place edit dots at cervical / incisal / contact landmarks on the mask.
+
+    Pure Douglas–Peucker extrema often miss mesial/distal and cervical corners.
+    Landmarks are taken from the dense contour, ordered around the ring, then
+    capped to [min_points, max_points].
+    """
+    import cv2
+
+    if mask.dtype != bool:
+        mask = mask.astype(bool)
+    h, w = mask.shape
+    if h < 2 or w < 2 or int(mask.sum()) < 8:
+        return []
+
+    u8 = (mask.astype(np.uint8)) * 255
+    # CHAIN_APPROX_NONE keeps every boundary pixel for landmark search.
+    contours, _ = cv2.findContours(u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    if not contours:
+        return []
+    cnt = max(contours, key=cv2.contourArea)
+    pts_xy = cnt.reshape(-1, 2).astype(np.float64)
+    n = int(pts_xy.shape[0])
+    if n < 3:
+        return [[round(float(p[0]) / w, 5), round(float(p[1]) / h, 5)] for p in pts_xy]
+
+    try:
+        axis = tooth_long_axis(mask)
+        direction = np.asarray(axis.direction_yx, dtype=np.float64)
+        centroid = np.asarray(axis.centroid_yx, dtype=np.float64)
+    except ValueError:
+        return simplify_normalized_outline(
+            [[round(float(p[0]) / w, 5), round(float(p[1]) / h, 5)] for p in pts_xy],
+            max_points=max_points,
+            min_points=min_points,
+        )
+
+    pts_yx = np.column_stack([pts_xy[:, 1], pts_xy[:, 0]])
+    proj = (pts_yx - centroid) @ direction
+    perp = np.array([-direction[1], direction[0]], dtype=np.float64)
+    lat = pts_yx @ perp
+    lo = float(proj.min())
+    hi = float(proj.max())
+    span = max(hi - lo, 1e-6)
+
+    landmark: set[int] = set()
+    landmark.add(int(np.argmin(proj)))  # cervical tip
+    landmark.add(int(np.argmax(proj)))  # incisal tip
+    landmark.add(int(np.argmin(lat)))  # contact / side
+    landmark.add(int(np.argmax(lat)))  # contact / side
+
+    # Lateral extrema in cervical → incisal bands (corners + waist).
+    band_cuts = (0.18, 0.40, 0.65, 0.85)
+    prev = lo
+    for cut in band_cuts:
+        hi_b = lo + cut * span
+        band = (proj >= prev) & (proj <= hi_b)
+        idxs = np.flatnonzero(band)
+        if idxs.size >= 2:
+            landmark.add(int(idxs[int(np.argmin(lat[idxs]))]))
+            landmark.add(int(idxs[int(np.argmax(lat[idxs]))]))
+        elif idxs.size == 1:
+            landmark.add(int(idxs[0]))
+        prev = hi_b
+
+    ordered = [i for i in range(n) if i in landmark]
+    if len(ordered) < min_points:
+        step = max(1, n // min_points)
+        for i in range(0, n, step):
+            landmark.add(i)
+        ordered = [i for i in range(n) if i in landmark]
+
+    if len(ordered) > max_points:
+        ordered = _thin_contour_indices(ordered, pts_xy, max_points)
+
+    handles = [
+        [round(float(pts_xy[i][0]) / w, 5), round(float(pts_xy[i][1]) / h, 5)]
+        for i in ordered
+    ]
+    while len(handles) < min_points:
+        best_i, best_len = 0, -1.0
+        m = len(handles)
+        for i in range(m):
+            a = handles[i]
+            b = handles[(i + 1) % m]
+            d = (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+            if d > best_len:
+                best_len = d
+                best_i = i
+        a = handles[best_i]
+        b = handles[(best_i + 1) % m]
+        mid = [round(0.5 * (a[0] + b[0]), 5), round(0.5 * (a[1] + b[1]), 5)]
+        handles = handles[: best_i + 1] + [mid] + handles[best_i + 1 :]
+    return handles
+
+
+def _thin_contour_indices(
+    ordered: list[int],
+    pts_xy: np.ndarray,
+    max_points: int,
+) -> list[int]:
+    """Greedy keep: preserve spread along the ring up to max_points."""
+    if len(ordered) <= max_points:
+        return ordered
+    # Seed with first point, then repeatedly add the index farthest (in arc
+    # steps) from the nearest already-kept neighbor along the ordered ring.
+    keep = [ordered[0]]
+    remaining = ordered[1:]
+    while len(keep) < max_points and remaining:
+        best_j = 0
+        best_score = -1.0
+        for j, idx in enumerate(remaining):
+            px, py = pts_xy[idx]
+            dist = min(
+                (px - pts_xy[k][0]) ** 2 + (py - pts_xy[k][1]) ** 2 for k in keep
+            )
+            if dist > best_score:
+                best_score = dist
+                best_j = j
+        keep.append(remaining.pop(best_j))
+    # Re-order around the original contour
+    keep_set = set(keep)
+    return [i for i in ordered if i in keep_set]
 
 
 def _mask_outline(mask: np.ndarray, w: int, h: int) -> list[list[float]]:
@@ -101,10 +245,10 @@ def _poly_norm(approx: np.ndarray, w: int, h: int) -> list[list[float]]:
 def simplify_normalized_outline(
     outline: list[list[float]],
     *,
-    max_points: int = 6,
-    min_points: int = 4,
+    max_points: int = EDIT_HANDLES_MAX,
+    min_points: int = EDIT_HANDLES_MIN,
 ) -> list[list[float]]:
-    """Reduce a polygon to ~4–6 control points for dentist edge edits.
+    """Reduce a polygon to ~edit-handle count for dentist edge edits.
 
     Uses approxPolyDP on a unit-square embedding, then inserts midpoints of the
     longest edges if below min_points.

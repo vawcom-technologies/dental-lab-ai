@@ -20,12 +20,59 @@ class PatientSession extends ChangeNotifier {
   Future<void>? _inFlight;
   bool _notifyScheduled = false;
 
+  /// Chairside visit window for the currently selected patient (UTC).
+  String? _visitPatientId;
+  DateTime? _visitStartedAt;
+
+  /// Camera → Shade: open this detection and run the same AI suggest path.
+  String? _pendingShadeDetectionId;
+  bool _navigateToShade = false;
+
   List<Map<String, dynamic>> get patients => _patients;
   Map<String, dynamic>? get selected => _selected;
   bool get loading => _loading;
   bool get isLoaded => _loaded;
 
+  /// When the current patient's chairside visit began (for visit-scoped media).
+  DateTime? get visitStartedAt {
+    final sel = _selected;
+    if (sel == null || _visitPatientId == null) return null;
+    if (pidOf(sel) != _visitPatientId) return null;
+    return _visitStartedAt;
+  }
+
+  String? get pendingShadeDetectionId => _pendingShadeDetectionId;
+
   String pidOf(Map<String, dynamic> row) => '${row['id'] ?? ''}';
+
+  void _beginVisitFor(String patientId) {
+    if (patientId.isEmpty) return;
+    _visitPatientId = patientId;
+    _visitStartedAt = DateTime.now().toUtc();
+  }
+
+  /// After copying a camera photo into shade_detections, hand off to Shade.
+  void requestShadeHandoff(String shadeDetectionId) {
+    final id = shadeDetectionId.trim();
+    if (id.isEmpty) return;
+    _pendingShadeDetectionId = id;
+    _navigateToShade = true;
+    _notify();
+  }
+
+  /// Returns and clears the pending shade detection id (one-shot).
+  String? takePendingShadeDetectionId() {
+    final id = _pendingShadeDetectionId;
+    _pendingShadeDetectionId = null;
+    return id;
+  }
+
+  /// Shell consumes this to switch to the Shade tab (one-shot).
+  bool consumeNavigateToShade() {
+    if (!_navigateToShade) return false;
+    _navigateToShade = false;
+    return true;
+  }
 
   /// Avoid "notifyListeners during build" when refresh is kicked off from
   /// [State.initState] / dialog mount (common on Appointments modal open).
@@ -75,12 +122,20 @@ class PatientSession extends ChangeNotifier {
       _loaded = true;
       if (rows.isEmpty) {
         _selected = null;
+        _visitPatientId = null;
+        _visitStartedAt = null;
       } else if (!keepSelection || _selected == null) {
         _selected = rows.first;
+        _beginVisitFor(pidOf(_selected!));
       } else {
         final id = pidOf(_selected!);
         final match = rows.where((p) => pidOf(p) == id);
         _selected = match.isEmpty ? rows.first : match.first;
+        if (match.isEmpty) {
+          _beginVisitFor(pidOf(_selected!));
+        } else if (_visitPatientId != id || _visitStartedAt == null) {
+          _beginVisitFor(id);
+        }
       }
     } finally {
       _loading = false;
@@ -96,12 +151,15 @@ class PatientSession extends ChangeNotifier {
       return;
     }
     _selected = patient;
+    _beginVisitFor(nextId);
     _notify();
   }
 
   void clearSelection() {
     if (_selected == null) return;
     _selected = null;
+    _visitPatientId = null;
+    _visitStartedAt = null;
     _notify();
   }
 

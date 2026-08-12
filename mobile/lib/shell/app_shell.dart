@@ -56,6 +56,7 @@ class _AppShellState extends State<AppShell> {
     _chat = ChatController(api: widget.api);
     _chat.addListener(_onChatChanged);
     _patients = PatientSession(widget.api);
+    _patients.addListener(_onPatientSessionChanged);
     // Warm patient list + chat so the first workflow page opens faster.
     _patients.ensureLoaded();
     _chat.start();
@@ -69,10 +70,18 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
+  void _onPatientSessionChanged() {
+    if (!mounted) return;
+    if (_patients.consumeNavigateToShade()) {
+      _go(AppNavItem.shade);
+    }
+  }
+
   @override
   void dispose() {
     _chat.removeListener(_onChatChanged);
     _chat.dispose();
+    _patients.removeListener(_onPatientSessionChanged);
     _patients.dispose();
     super.dispose();
   }

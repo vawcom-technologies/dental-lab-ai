@@ -144,6 +144,189 @@ class TestArchAndDtMarkers:
         assert v_gap > v_half
 
 
+def _open_mouth_dual_arch(h: int = 480, w: int = 640) -> np.ndarray:
+    """Upper + lower anterior rows with a dark oral cavity between (open mouth).
+
+    Without dual-arch split, a vertical stack of opposing crowns can become one
+    tall instance (clinic T5 failure).
+    """
+    img = np.zeros((h, w, 3), dtype=np.uint8)
+    img[:] = (25, 18, 16)  # dark oral cavity / lips
+    gum = np.array([180, 110, 120], dtype=np.uint8)
+    enamel = np.array(VITA_SHADES["A2"], dtype=np.uint8)
+
+    # Upper gum + crowns
+    img[int(h * 0.18) : int(h * 0.28), int(w * 0.15) : int(w * 0.85)] = gum
+    upper_y0, upper_y1 = int(h * 0.28), int(h * 0.42)
+    for x0 in (170, 240, 310, 380):
+        img[upper_y0:upper_y1, x0 : x0 + 55] = enamel
+
+    # Dark gap (open mouth) — critical
+    # (already dark background)
+
+    # Lower gum + crowns (opposing)
+    lower_y0, lower_y1 = int(h * 0.58), int(h * 0.72)
+    img[int(h * 0.72) : int(h * 0.82), int(w * 0.15) : int(w * 0.85)] = gum
+    for x0 in (175, 245, 315, 385):
+        img[lower_y0:lower_y1, x0 : x0 + 55] = enamel
+
+    # Intentionally connect one upper+lower pair with a thin enamel bridge
+    # (simulates leakage that used to produce a tall merged mask).
+    bridge_x0, bridge_x1 = 318, 328
+    img[upper_y1:lower_y0, bridge_x0:bridge_x1] = enamel
+    return img
+
+
+class TestDualArchSplit:
+    def test_dual_arch_cut_severs_horizontal_gap(self):
+        from app.ai.shade_segment import (
+            _adaptive_enamel_mask,
+            _dental_roi_from_enamel,
+            _split_dual_arches,
+        )
+
+        img = _open_mouth_dual_arch()
+        enamel = _adaptive_enamel_mask(img.astype(float))
+        y0, y1, x0, x1 = _dental_roi_from_enamel(enamel)
+        band = enamel[y0:y1, x0:x1]
+        u8 = (band.astype(np.uint8)) * 255
+        luma = (
+            0.299 * img[y0:y1, x0:x1, 0]
+            + 0.587 * img[y0:y1, x0:x1, 1]
+            + 0.114 * img[y0:y1, x0:x1, 2]
+        )
+        # Bridge should exist in ROI before cut
+        bridge_local_x0 = 318 - x0
+        bridge_local_x1 = 328 - x0
+        mid_y0 = int(0.45 * img.shape[0]) - y0
+        mid_y1 = int(0.55 * img.shape[0]) - y0
+        assert mid_y0 >= 0 and mid_y1 <= band.shape[0]
+        assert int((u8[mid_y0:mid_y1, bridge_local_x0:bridge_local_x1] > 0).sum()) > 0
+        cut = _split_dual_arches(u8, luminance=luma.astype(float))
+        assert int((cut[mid_y0:mid_y1, bridge_local_x0:bridge_local_x1] > 0).sum()) == 0
+
+    def test_open_mouth_does_not_merge_upper_lower_into_tall_tooth(self):
+        img = _open_mouth_dual_arch()
+        teeth = [t for t in detect_teeth(img) if not t.rejected]
+        # Expect teeth from both arches (not a single tall stack).
+        assert len(teeth) >= 6
+        cys = []
+        heights = []
+        widths = []
+        for t in teeth:
+            ys, xs = np.nonzero(t.mask)
+            cys.append(float(ys.mean()))
+            heights.append(int(ys.max() - ys.min() + 1))
+            widths.append(int(xs.max() - xs.min() + 1))
+        # Both arches present
+        assert max(cys) - min(cys) > 0.2 * img.shape[0]
+        # No instance should span most of the open-mouth height.
+        assert max(heights) < 0.40 * img.shape[0]
+        # Anteriors are naturally tall/narrow — guard span, not aspect alone.
+        for ht, wd in zip(heights, widths):
+            assert ht < 0.22 * img.shape[0] + 12 or ht < 3.8 * max(wd, 1)
+
+    def test_single_arch_still_works(self):
+        img = _gapped_smile()
+        teeth = [t for t in detect_teeth(img) if not t.rejected]
+        assert 3 <= len(teeth) <= 7
+
+    def test_clinic_like_bridged_arches_cut_inside_enamel_band(self):
+        """Wide enamel leakage + lips above — gap must be mid-band, not lip strip."""
+        from app.ai.shade_segment import (
+            _adaptive_enamel_mask,
+            _dental_roi_from_enamel,
+            _find_occlusal_gap,
+            _luma_rgb,
+        )
+
+        img = _open_mouth_dual_arch()
+        # Thicken the bridge so enamel row never hits zero between arches.
+        enamel = np.array(VITA_SHADES["A2"], dtype=np.uint8)
+        img[int(img.shape[0] * 0.42) : int(img.shape[0] * 0.58), 300:340] = enamel
+        # Bright lip strip above (false second "peak" for naive ROI search).
+        img[int(img.shape[0] * 0.05) : int(img.shape[0] * 0.12), :] = (220, 170, 160)
+
+        mask = _adaptive_enamel_mask(img.astype(float))
+        y0, y1, x0, x1 = _dental_roi_from_enamel(mask)
+        u8 = (mask[y0:y1, x0:x1].astype(np.uint8)) * 255
+        lum = _luma_rgb(img[y0:y1, x0:x1].astype(float))
+        gap = _find_occlusal_gap(u8, luminance=lum)
+        assert gap is not None
+        y_a, y_b = gap
+        # Cut must sit between upper crowns (~0.28–0.42) and lower (~0.58–0.72).
+        mid = 0.5 * (y_a + y_b) + y0
+        assert 0.42 * img.shape[0] <= mid <= 0.58 * img.shape[0]
+
+        teeth = [t for t in detect_teeth(img) if not t.rejected]
+        assert len(teeth) >= 6
+        for t in teeth:
+            ys, xs = np.nonzero(t.mask)
+            ht = int(ys.max() - ys.min() + 1)
+            assert ht < 0.40 * img.shape[0]
+            # Must not straddle both synthetic arch rows.
+            cy = float(ys.mean())
+            upper = 0.28 * img.shape[0] <= cy <= 0.45 * img.shape[0]
+            lower = 0.55 * img.shape[0] <= cy <= 0.75 * img.shape[0]
+            assert upper or lower
+
+
+class TestLipAboveSmile:
+    def test_bright_blob_above_crowns_is_dropped(self):
+        """Upper-lip gloss must not become T1 on camera frontal crops."""
+        from app.ai.shade_segment import _drop_lip_above_smile
+
+        rows = [
+            {
+                "mask": None,
+                "cy": 40.0,
+                "cx": 100.0,
+                "y0": 20.0,
+                "h": 30.0,
+                "w": 40.0,
+                "area": 800,
+                "med_a": 7.0,
+                "med_L": 190.0,
+            },
+            {
+                "mask": None,
+                "cy": 120.0,
+                "cx": 80.0,
+                "y0": 90.0,
+                "h": 60.0,
+                "w": 35.0,
+                "area": 1800,
+                "med_a": 3.0,
+                "med_L": 210.0,
+            },
+            {
+                "mask": None,
+                "cy": 118.0,
+                "cx": 130.0,
+                "y0": 88.0,
+                "h": 58.0,
+                "w": 36.0,
+                "area": 1700,
+                "med_a": 2.5,
+                "med_L": 208.0,
+            },
+            {
+                "mask": None,
+                "cy": 122.0,
+                "cx": 180.0,
+                "y0": 92.0,
+                "h": 55.0,
+                "w": 34.0,
+                "area": 1600,
+                "med_a": 3.2,
+                "med_L": 205.0,
+            },
+        ]
+        kept = _drop_lip_above_smile(rows, band_h=220)
+        assert len(kept) == 3
+        assert all(d["cy"] > 100 for d in kept)
+
+
 class TestDebugOverlay:
     def test_overlay_has_distinct_colors_per_instance(self):
         img = _gapped_smile()

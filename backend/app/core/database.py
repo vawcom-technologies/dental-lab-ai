@@ -1,8 +1,14 @@
-"""Local SQLAlchemy database removed — auth and data now go through Supabase.
+"""Local SQLAlchemy engine removed — auth and data now go through Supabase.
 
-This module is kept as a stub so older imports fail with a clear message
-until remaining domain APIs are migrated.
+`Base` remains so legacy model modules can still import (and in-memory tests can
+bind their own engines). `get_db` stays a hard fail until those APIs migrate.
 """
+
+from sqlalchemy.orm import DeclarativeBase
+
+
+class Base(DeclarativeBase):
+    pass
 
 
 def get_db():

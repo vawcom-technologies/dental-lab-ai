@@ -434,7 +434,8 @@ class ApiClient {
   }
 
   /// Copy a camera photo into shade_detections (no re-upload).
-  Future<bool> copyToShadeDetection(String photoId) async {
+  /// Copy a camera photo into shade_detections (no re-upload). Returns the new row.
+  Future<Map<String, dynamic>> copyToShadeDetection(String photoId) async {
     final res = await _http.post(
       Uri.parse('$baseUrl/api/patient-photos/$photoId/copy-to-shade'),
       headers: _jsonHeaders,
@@ -443,7 +444,7 @@ class ApiClient {
       throw Exception(_errorMessage(res));
     }
     AppHaptics.success();
-    return true;
+    return _decodeMap(res.body);
   }
 
   /// Copy a camera photo into smile_previews (no re-upload).

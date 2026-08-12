@@ -193,26 +193,28 @@ class ShadePhotoPane extends StatelessWidget {
                                         return null;
                                       }
 
-                                      final paint = CustomPaint(
-                                        painter: ToothOverlayPainter(
-                                          repaint: Listenable.merge([
-                                            dragTick,
-                                            photoTransformController,
-                                          ]),
-                                          teeth: teeth,
-                                          selectedToothIndex:
-                                              selectedToothIndex,
-                                          isolatedToothIndex:
-                                              isolatedToothIndex,
-                                          imageSize: imgSize,
-                                          focusZone: focusZone,
-                                          editMode: editOutlineMode,
-                                          editOutline: editOutline,
-                                          editBulges: editBulges,
-                                          activeHandleIndex: activeHandleIndex,
-                                          activeEdgeIndex: activeEdgeIndex,
-                                          transformationController:
+                                      final paint = RepaintBoundary(
+                                        child: CustomPaint(
+                                          painter: ToothOverlayPainter(
+                                            repaint: Listenable.merge([
+                                              dragTick,
                                               photoTransformController,
+                                            ]),
+                                            teeth: teeth,
+                                            selectedToothIndex:
+                                                selectedToothIndex,
+                                            isolatedToothIndex:
+                                                isolatedToothIndex,
+                                            imageSize: imgSize,
+                                            focusZone: focusZone,
+                                            editMode: editOutlineMode,
+                                            editOutline: editOutline,
+                                            editBulges: editBulges,
+                                            activeHandleIndex: activeHandleIndex,
+                                            activeEdgeIndex: activeEdgeIndex,
+                                            transformationController:
+                                                photoTransformController,
+                                          ),
                                         ),
                                       );
 
