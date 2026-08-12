@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.core.security import AuthUser, require_admin
 from app.core.supabase_client import get_supabase_admin
 from app.schemas import ProfileActionOut, ProfileListOut, ProfileOut
+from app.services.account_deletion import purge_user_account
 
 router = APIRouter()
 logger = logging.getLogger("app.api.admin")
@@ -180,74 +181,11 @@ def soft_delete_user(user_id: str, _: AuthUser = Depends(require_admin)):
 
 @router.delete("/users/{user_id}/hard-delete", response_model=ProfileActionOut)
 def hard_delete_user(user_id: str, _: AuthUser = Depends(require_admin)):
-    """Remove the user from Supabase Auth and delete the profiles row."""
+    """Permanently remove the user, Auth identity, and all owned clinical data."""
     logger.debug("hard_delete_user start user_id=%s", user_id)
-    existing = _fetch_profile(user_id)
-    auth_deleted = False
-    profile_deleted = False
-    errors: list[str] = []
-
-    try:
-        get_supabase_admin().auth.admin.delete_user(user_id)
-        auth_deleted = True
-        logger.debug("hard_delete_user auth deleted user_id=%s", user_id)
-    except Exception as exc:
-        msg = str(exc).strip().lower()
-        # Treat missing auth users as non-fatal if the profile still needs cleanup
-        if "not found" not in msg and "user not found" not in msg:
-            errors.append(f"Auth delete failed: {str(exc).strip() or 'unknown error'}")
-            logger.debug("hard_delete_user auth error user_id=%s detail=%s", user_id, exc)
-        else:
-            logger.debug("hard_delete_user auth user missing user_id=%s", user_id)
-
-    try:
-        result = (
-            get_supabase_admin()
-            .table("profiles")
-            .delete()
-            .eq("id", user_id)
-            .execute()
-        )
-        rows = getattr(result, "data", None) or []
-        profile_deleted = bool(rows) or existing is not None
-        # PostgREST may return [] even on success depending on Prefer header;
-        # if we previously saw the row, consider the delete attempted successfully.
-        if existing is not None:
-            profile_deleted = True
-        logger.debug(
-            "hard_delete_user profile deleted=%s user_id=%s",
-            profile_deleted,
-            user_id,
-        )
-    except Exception as exc:
-        errors.append(f"Profile delete failed: {str(exc).strip() or 'unknown error'}")
-        logger.debug("hard_delete_user profile error user_id=%s detail=%s", user_id, exc)
-
-    if existing is None and not auth_deleted and not profile_deleted:
-        logger.debug("hard_delete_user not found user_id=%s", user_id)
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-
-    if errors and not auth_deleted and not profile_deleted:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="; ".join(errors),
-        )
-
-    if errors:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=(
-                "Partial hard-delete: "
-                + "; ".join(errors)
-                + f" (auth_deleted={auth_deleted}, profile_deleted={profile_deleted})"
-            ),
-        )
-
+    purge_user_account(user_id)
     logger.debug("hard_delete_user ok user_id=%s", user_id)
     return ProfileActionOut(
-        message="User permanently removed from Auth and profiles",
+        message="User permanently removed from Auth, profiles, and related data",
         user=None,
     )

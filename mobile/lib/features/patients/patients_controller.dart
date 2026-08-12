@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/theme/app_theme.dart';
 import 'patient_models.dart';
 import 'patients_api_service.dart';
 
@@ -22,6 +23,7 @@ class PatientsController extends ChangeNotifier {
   PatientAccessOwner? _accessOwner;
   bool _accessViewerIsOwner = false;
   String _query = '';
+  String _statusFilter = 'all';
   bool _loading = false;
   bool _loadingDetail = false;
   bool _loadingNotes = false;
@@ -42,6 +44,7 @@ class PatientsController extends ChangeNotifier {
   PatientAccessOwner? get accessOwner => _accessOwner;
   bool get accessViewerIsOwner => _accessViewerIsOwner;
   String get query => _query;
+  String get statusFilter => _statusFilter;
   bool get loading => _loading;
   bool get loadingDetail => _loadingDetail;
   bool get loadingNotes => _loadingNotes;
@@ -56,8 +59,9 @@ class PatientsController extends ChangeNotifier {
 
   List<GdprPatient> get visiblePatients {
     final q = _query.trim().toLowerCase();
-    if (q.isEmpty) return patients;
     return _patients.where((p) {
+      if (!CaseStatuses.matchesFilter(p.status, _statusFilter)) return false;
+      if (q.isEmpty) return true;
       final blob =
           '${p.firstName} ${p.lastName} ${p.email} ${p.phone}'.toLowerCase();
       return blob.contains(q);
@@ -67,6 +71,19 @@ class PatientsController extends ChangeNotifier {
   int get shownCount => visiblePatients.length;
 
   bool isOwner(GdprPatient p) => p.isOwnedBy(currentUserId);
+
+  void setQuery(String value) {
+    if (value == _query) return;
+    _query = value;
+    notifyListeners();
+  }
+
+  void setStatusFilter(String value) {
+    final next = value.trim().isEmpty ? 'all' : value.trim().toLowerCase();
+    if (next == _statusFilter) return;
+    _statusFilter = next;
+    notifyListeners();
+  }
 
   Future<void> load() async {
     if (_loading) return;
@@ -111,12 +128,6 @@ class PatientsController extends ChangeNotifier {
     }
   }
 
-  void setQuery(String value) {
-    if (value == _query) return;
-    _query = value;
-    notifyListeners();
-  }
-
   Future<GdprPatient?> openPatient(String patientId) async {
     if (_loadingDetail) return null;
     _loadingDetail = true;
@@ -157,6 +168,7 @@ class PatientsController extends ChangeNotifier {
     required String address,
     required String phone,
     required String healthInsurance,
+    String status = 'pending',
   }) async {
     if (_mutating) {
       throw StateError('Another patient change is already in progress');
@@ -172,6 +184,7 @@ class PatientsController extends ChangeNotifier {
         address: address,
         phone: phone,
         healthInsurance: healthInsurance,
+        status: status,
       );
       _patients.insert(0, created);
       return created;

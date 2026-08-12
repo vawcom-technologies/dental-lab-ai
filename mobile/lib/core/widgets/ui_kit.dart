@@ -46,6 +46,61 @@ class StatusChip extends StatelessWidget {
   }
 }
 
+/// Tappable status chip with workflow status menu (owner/edit flows).
+class PatientStatusMenu extends StatelessWidget {
+  const PatientStatusMenu({
+    super.key,
+    required this.status,
+    this.enabled = true,
+    this.onSelected,
+  });
+
+  final String status;
+  final bool enabled;
+  final ValueChanged<String>? onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final chip = StatusChip(statusKey: status);
+    if (!enabled || onSelected == null) return chip;
+
+    return PopupMenuButton<String>(
+      tooltip: 'Change status',
+      padding: EdgeInsets.zero,
+      offset: const Offset(0, 36),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      onSelected: onSelected,
+      itemBuilder: (context) => [
+        for (final key in CaseStatuses.all)
+          PopupMenuItem<String>(
+            value: key,
+            child: Row(
+              children: [
+                Icon(
+                  CaseStatuses.normalize(status) == key
+                      ? Icons.check_rounded
+                      : Icons.circle,
+                  size: CaseStatuses.normalize(status) == key ? 18 : 10,
+                  color: StatusStyle.of(key).fg,
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  StatusStyle.of(key).label,
+                  style: AppFonts.style(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.navy,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+      child: chip,
+    );
+  }
+}
+
 class InitialsAvatar extends StatelessWidget {
   const InitialsAvatar({super.key, required this.name, this.size = 40});
 

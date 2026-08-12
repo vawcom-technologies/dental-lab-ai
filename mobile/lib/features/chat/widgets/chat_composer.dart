@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -62,69 +63,39 @@ class _ChatComposerState extends State<ChatComposer> {
 
   Future<void> _showAttachSheet() async {
     if (_recording) return;
-    await showModalBottomSheet<void>(
+    await showCupertinoModalPopup<void>(
       context: context,
-      backgroundColor: AppColors.card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.border,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                const Text(
-                  'Attach',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.navy,
-                    fontSize: 16,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ListTile(
-                  leading: const Icon(Icons.photo_library_outlined,
-                      color: AppColors.dentalBlue),
-                  title: const Text('Photo library'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _pickImage(ImageSource.gallery);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.photo_camera_outlined,
-                      color: AppColors.dentalBlue),
-                  title: const Text('Camera'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _pickImage(ImageSource.camera);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.attach_file_rounded,
-                      color: AppColors.dentalBlue),
-                  title: const Text('Document'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _pickDocument();
-                  },
-                ),
-              ],
-            ),
+      builder: (ctx) => CupertinoActionSheet(
+        title: const Text('Attach'),
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _pickImage(ImageSource.gallery);
+            },
+            child: const Text('Photo Library'),
           ),
-        );
-      },
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _pickImage(ImageSource.camera);
+            },
+            child: const Text('Camera'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _pickDocument();
+            },
+            child: const Text('Document'),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          isDefaultAction: true,
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Cancel'),
+        ),
+      ),
     );
   }
 
@@ -327,125 +298,186 @@ class _ChatComposerState extends State<ChatComposer> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (widget.sending)
-          const Padding(
-            padding: EdgeInsets.fromLTRB(14, 0, 14, 6),
-            child: Row(
-              children: [
-                ToothLoadingIndicator(
-                  size: 16,
-                  compact: true,
-                  color: kToothLoaderBlue,
-                ),
-                SizedBox(width: 8),
-                Text(
-                  'Uploading… you can keep chatting',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: AppColors.muted,
-                    fontWeight: FontWeight.w500,
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          top: BorderSide(color: Color(0xFFE5E5EA)),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (widget.sending)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Row(
+                children: [
+                  ToothLoadingIndicator(
+                    size: 14,
+                    compact: true,
+                    color: kToothLoaderBlue,
                   ),
+                  SizedBox(width: 8),
+                  Text(
+                    'Uploading…',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.muted,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(6, 8, 8, 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                CupertinoButton(
+                  padding: const EdgeInsets.all(6),
+                  onPressed: _recording ? null : _showAttachSheet,
+                  child: const Icon(
+                    CupertinoIcons.add_circled,
+                    size: 30,
+                    color: AppColors.dentalBlue,
+                  ),
+                ),
+                Expanded(
+                  child: _recording
+                      ? Container(
+                          height: 40,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: AppColors.dangerSoft,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                CupertinoIcons.mic_fill,
+                                color: AppColors.danger,
+                                size: 16,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child:
+                                    _LiveAmplitudeBars(level: _amplitudeNorm),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                formatVoiceDuration(_elapsedSeconds),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.danger,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListenableBuilder(
+                          listenable: widget.controller,
+                          builder: (context, _) {
+                            return CupertinoTextField(
+                              controller: widget.controller,
+                              minLines: 1,
+                              maxLines: 5,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 10,
+                              ),
+                              placeholder: 'Message',
+                              placeholderStyle: const TextStyle(
+                                color: Color(0xFF8E8E93),
+                                fontSize: 16,
+                              ),
+                              style: const TextStyle(
+                                fontSize: 16,
+                                color: AppColors.navy,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF2F2F7),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: const Color(0xFFD1D1D6),
+                                ),
+                              ),
+                              onSubmitted: (_) => widget.onSend(),
+                            );
+                          },
+                        ),
+                ),
+                const SizedBox(width: 2),
+                if (_recording)
+                  CupertinoButton(
+                    padding: const EdgeInsets.all(6),
+                    onPressed: () => _stopRecordingAndSend(cancel: true),
+                    child: const Icon(
+                      CupertinoIcons.xmark_circle_fill,
+                      size: 28,
+                      color: Color(0xFFC7C7CC),
+                    ),
+                  ),
+                GestureDetector(
+                  onLongPressStart: (_) => _startRecording(),
+                  onLongPressEnd: (_) => _stopRecordingAndSend(),
+                  onLongPressCancel: () =>
+                      _stopRecordingAndSend(cancel: true),
+                  onTap: _recording ? () => _stopRecordingAndSend() : null,
+                  child: Padding(
+                    padding: const EdgeInsets.all(6),
+                    child: Icon(
+                      _recording
+                          ? CupertinoIcons.paperplane_fill
+                          : CupertinoIcons.mic,
+                      size: 26,
+                      color: _recording
+                          ? AppColors.dentalBlue
+                          : AppColors.navy,
+                    ),
+                  ),
+                ),
+                ListenableBuilder(
+                  listenable: widget.controller,
+                  builder: (context, _) {
+                    final canSend =
+                        !_recording && widget.controller.text.trim().isNotEmpty;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 2, left: 2),
+                      child: AnimatedOpacity(
+                        opacity: canSend ? 1 : 0.35,
+                        duration: const Duration(milliseconds: 120),
+                        child: CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: canSend ? widget.onSend : null,
+                          child: Container(
+                            width: 34,
+                            height: 34,
+                            decoration: BoxDecoration(
+                              color: canSend
+                                  ? AppColors.dentalBlue
+                                  : const Color(0xFFC7C7CC),
+                              shape: BoxShape.circle,
+                            ),
+                            alignment: Alignment.center,
+                            child: const Icon(
+                              CupertinoIcons.arrow_up,
+                              size: 18,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
           ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              IconButton(
-                tooltip: 'Attach',
-                onPressed: _recording ? null : _showAttachSheet,
-                icon: const Icon(Icons.attach_file_rounded),
-                color: AppColors.navy,
-              ),
-              Expanded(
-                child: _recording
-                    ? Container(
-                        height: 48,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        decoration: BoxDecoration(
-                          color: AppColors.dangerSoft,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.mic,
-                                color: AppColors.danger, size: 18),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: _LiveAmplitudeBars(level: _amplitudeNorm),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              formatVoiceDuration(_elapsedSeconds),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.danger,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : TextField(
-                        controller: widget.controller,
-                        minLines: 1,
-                        maxLines: 4,
-                        textInputAction: TextInputAction.send,
-                        onSubmitted: (_) => widget.onSend(),
-                        decoration: InputDecoration(
-                          hintText: 'Type a message…',
-                          filled: true,
-                          fillColor: AppColors.neo,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide.none,
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 12,
-                          ),
-                        ),
-                      ),
-              ),
-              const SizedBox(width: 4),
-              if (_recording)
-                IconButton(
-                  tooltip: 'Cancel',
-                  onPressed: () => _stopRecordingAndSend(cancel: true),
-                  icon: const Icon(Icons.close_rounded),
-                  color: AppColors.muted,
-                ),
-              GestureDetector(
-                onLongPressStart: (_) => _startRecording(),
-                onLongPressEnd: (_) => _stopRecordingAndSend(),
-                onLongPressCancel: () => _stopRecordingAndSend(cancel: true),
-                child: IconButton(
-                  tooltip: _recording ? 'Release to send' : 'Hold to record',
-                  onPressed: _recording ? () => _stopRecordingAndSend() : () {},
-                  icon: Icon(
-                    _recording ? Icons.send_rounded : Icons.mic_none_rounded,
-                    color: _recording ? AppColors.dentalBlue : AppColors.navy,
-                  ),
-                ),
-              ),
-              FilledButton(
-                onPressed: _recording ? null : widget.onSend,
-                style: FilledButton.styleFrom(
-                  shape: const CircleBorder(),
-                  padding: const EdgeInsets.all(14),
-                ),
-                child: const Icon(Icons.send_rounded, size: 20),
-              ),
-            ],
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

@@ -3,6 +3,7 @@ import 'package:flutter/scheduler.dart';
 
 import '../../features/auth/login_screen.dart';
 import '../api/api_client.dart';
+import '../navigation/app_page_routes.dart';
 import '../widgets/app_snackbar.dart';
 
 /// Global session-expired handling + root navigator for forced re-login.
@@ -42,9 +43,7 @@ class SessionCoordinator {
         return;
       }
       nav.pushAndRemoveUntil(
-        MaterialPageRoute<void>(
-          builder: (_) => LoginScreen(api: api),
-        ),
+        AppPageRoutes.fade(LoginScreen(api: api)),
         (_) => false,
       );
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -76,9 +75,7 @@ class SessionCoordinator {
     final nav = navigatorKey.currentState;
     if (nav == null) return;
     nav.pushAndRemoveUntil(
-      MaterialPageRoute<void>(
-        builder: (_) => LoginScreen(api: api),
-      ),
+      AppPageRoutes.fade(LoginScreen(api: api)),
       (_) => false,
     );
     if (message != null && message.isNotEmpty) {

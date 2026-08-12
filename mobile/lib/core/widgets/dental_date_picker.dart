@@ -270,17 +270,20 @@ class DentalDatePickerDialog extends StatefulWidget {
     if (initial.isBefore(first)) initial = first;
     if (initial.isAfter(last)) initial = last;
 
-    return showDialog<DateTime>(
+    return showCupertinoDialog<DateTime>(
       context: context,
       barrierDismissible: true,
-      builder: (context) => DentalDatePickerDialog(
-        initialDate: initial,
-        firstDate: first,
-        lastDate: last,
-        title: title,
-        showQuickPresets: showQuickPresets,
-        forDateOfBirth: forDateOfBirth,
-        selectableDayPredicate: selectableDayPredicate,
+      builder: (context) => Material(
+        type: MaterialType.transparency,
+        child: DentalDatePickerDialog(
+          initialDate: initial,
+          firstDate: first,
+          lastDate: last,
+          title: title,
+          showQuickPresets: showQuickPresets,
+          forDateOfBirth: forDateOfBirth,
+          selectableDayPredicate: selectableDayPredicate,
+        ),
       ),
     );
   }
@@ -317,14 +320,17 @@ class DentalDatePickerDialog extends StatefulWidget {
     if (initial.isBefore(first)) initial = first;
     if (initial.isAfter(now)) initial = now;
 
-    return showDialog<DateTime>(
+    return showCupertinoDialog<DateTime>(
       context: context,
       barrierDismissible: true,
-      builder: (context) => _DobWheelDialog(
-        initialDate: initial,
-        firstDate: first,
-        lastDate: now,
-        title: title,
+      builder: (context) => Material(
+        type: MaterialType.transparency,
+        child: _DobWheelDialog(
+          initialDate: initial,
+          firstDate: first,
+          lastDate: now,
+          title: title,
+        ),
       ),
     );
   }

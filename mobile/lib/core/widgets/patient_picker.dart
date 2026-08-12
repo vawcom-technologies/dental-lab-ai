@@ -152,7 +152,10 @@ class _PatientPickerButtonState extends State<PatientPickerButton> {
           onPressed: () {
             AppHaptics.light();
             _menu.close();
-            widget.onAdd();
+            // Defer so MenuAnchor can dispose dependents before navigation.
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              widget.onAdd();
+            });
           },
           leadingIcon: const Icon(Icons.person_add_alt_1, size: 18),
           child: Text(AppLocalizations.of(context).addPatient),

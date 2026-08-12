@@ -102,6 +102,7 @@ class PatientsApiService {
     required String address,
     required String phone,
     required String healthInsurance,
+    String status = 'pending',
   }) async {
     final env = await _send(
       () => _api.httpClient.post(
@@ -115,6 +116,7 @@ class PatientsApiService {
           'address': address,
           'phone': phone,
           'health_insurance': healthInsurance,
+          'status': status,
         }),
       ),
     );

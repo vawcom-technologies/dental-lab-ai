@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -215,70 +216,8 @@ class _CameraPageState extends State<CameraPage> {
     await _selectPatient(sel, publish: false);
   }
 
-  Future<void> _quickAddPatient() async {
-    final firstCtrl = TextEditingController();
-    final lastCtrl = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add patient'),
-        content: SizedBox(
-          width: 360,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: firstCtrl,
-                decoration: const InputDecoration(labelText: 'First name *'),
-                autofocus: true,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: lastCtrl,
-                decoration: const InputDecoration(labelText: 'Last name *'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Create'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) {
-      firstCtrl.dispose();
-      lastCtrl.dispose();
-      return;
-    }
-    final first = firstCtrl.text.trim();
-    final last = lastCtrl.text.trim();
-    firstCtrl.dispose();
-    lastCtrl.dispose();
-    if (first.isEmpty || last.isEmpty) {
-      setState(() => _error = 'First and last name are required');
-      return;
-    }
-    await _runBusy('Adding patient…', () async {
-      final created = await widget.patientSession.createPatient(
-        firstName: first,
-        lastName: last,
-      );
-      if (!mounted) return 'Patient $first $last ready for photos';
-      setState(() {
-        _patients = List<Map<String, dynamic>>.from(
-          widget.patientSession.patients,
-        );
-      });
-      await _selectPatient(created, publish: false);
-      return 'Patient $first $last ready for photos';
-    });
+  void _openNewPatientPage() {
+    widget.patientSession.requestNavigateToNewPatient();
   }
 
   Future<void> _selectPatient(
@@ -375,22 +314,26 @@ class _CameraPageState extends State<CameraPage> {
     final photoId = '${photo['id'] ?? ''}';
     if (pid.isEmpty || photoId.isEmpty) return;
 
-    final name = await showDialog<String>(
-      context: context,
-      builder: (ctx) => _RenamePhotoDialog(initialName: _photoName(photo)),
+    final name = await AppDialogs.prompt(
+      context,
+      title: 'Rename photo',
+      initial: _photoName(photo),
+      placeholder: 'e.g. Upper smile',
+      confirmLabel: 'Save',
     );
     if (!mounted) return;
-    if (name == null || name.isEmpty || name == _photoName(photo)) return;
+    final trimmed = name?.trim() ?? '';
+    if (trimmed.isEmpty || trimmed == _photoName(photo)) return;
 
     await _runBusy('Renaming photo…', () async {
       await widget.api.renamePatientPhoto(
         patientId: pid,
         photoId: photoId,
-        filename: name,
+        filename: trimmed,
       );
       AppHaptics.success();
       await _reloadPhotos(pid);
-      return 'Renamed to $name';
+      return 'Renamed to $trimmed';
     });
   }
 
@@ -451,7 +394,7 @@ class _CameraPageState extends State<CameraPage> {
                 selected: _patient,
                 enabled: !_busy,
                 onSelect: _selectPatient,
-                onAdd: _quickAddPatient,
+                onAdd: _openNewPatientPage,
                 onRefresh: () async {
                   setState(() => _busy = true);
                   try {
@@ -683,89 +626,94 @@ class _CameraPageState extends State<CameraPage> {
     final url = '${photo['file_url'] ?? ''}';
     if (url.isEmpty) return;
     final header = _photoHeader(photo);
-    showDialog<void>(
+    showCupertinoDialog<void>(
       context: context,
-      builder: (ctx) => Dialog(
-        insetPadding: const EdgeInsets.all(24),
-        backgroundColor: Colors.black,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 900, maxHeight: 900),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        header,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withValues(alpha: 0.45),
+      builder: (ctx) => Material(
+        type: MaterialType.transparency,
+        child: Dialog(
+          insetPadding: const EdgeInsets.all(24),
+          backgroundColor: Colors.black,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 900, maxHeight: 900),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          header,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
-                    ),
-                    IconButton(
-                      tooltip: 'Rename photo',
-                      onPressed: _busy
-                          ? null
-                          : () {
-                              Navigator.pop(ctx);
-                              // Wait for the viewer route to finish disposing
-                              // before opening the rename dialog.
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                if (!mounted) return;
-                                _renamePhoto(photo);
-                              });
-                            },
-                      icon: const Icon(
-                        Icons.edit_outlined,
-                        color: Colors.white70,
+                      IconButton(
+                        tooltip: 'Rename photo',
+                        onPressed: _busy
+                            ? null
+                            : () {
+                                Navigator.pop(ctx);
+                                // Wait for the viewer route to finish disposing
+                                // before opening the rename dialog.
+                                WidgetsBinding.instance.addPostFrameCallback((_) {
+                                  if (!mounted) return;
+                                  _renamePhoto(photo);
+                                });
+                              },
+                        icon: const Icon(
+                          Icons.edit_outlined,
+                          color: Colors.white70,
+                        ),
                       ),
-                    ),
-                    IconButton(
-                      tooltip: 'Delete photo',
-                      onPressed: _busy
-                          ? null
-                          : () {
-                              Navigator.pop(ctx);
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                if (!mounted) return;
-                                _deletePhoto(photo);
-                              });
-                            },
-                      icon: const Icon(
-                        Icons.delete_outline,
-                        color: Colors.white70,
+                      IconButton(
+                        tooltip: 'Delete photo',
+                        onPressed: _busy
+                            ? null
+                            : () {
+                                Navigator.pop(ctx);
+                                WidgetsBinding.instance.addPostFrameCallback((_) {
+                                  if (!mounted) return;
+                                  _deletePhoto(photo);
+                                });
+                              },
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          color: Colors.white70,
+                        ),
                       ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      icon: const Icon(Icons.close, color: Colors.white),
-                    ),
-                  ],
+                      IconButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: const Icon(Icons.close, color: Colors.white),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              Expanded(
-                child: InteractiveViewer(
-                  minScale: 1,
-                  maxScale: 4,
-                  child: Center(
-                    child: Image.network(
-                      url,
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, _, _) => const Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Text(
-                          'Could not load photo',
-                          style: TextStyle(color: Colors.white70),
+                Expanded(
+                  child: InteractiveViewer(
+                    minScale: 1,
+                    maxScale: 4,
+                    child: Center(
+                      child: Image.network(
+                        url,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, _, _) => const Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Text(
+                            'Could not load photo',
+                            style: TextStyle(color: Colors.white70),
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -778,60 +726,6 @@ enum _PhotoMenuAction {
   copyToShade,
   copyToSmile,
   delete,
-}
-
-class _RenamePhotoDialog extends StatefulWidget {
-  const _RenamePhotoDialog({required this.initialName});
-
-  final String initialName;
-
-  @override
-  State<_RenamePhotoDialog> createState() => _RenamePhotoDialogState();
-}
-
-class _RenamePhotoDialogState extends State<_RenamePhotoDialog> {
-  late final TextEditingController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: widget.initialName);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _submit() => Navigator.pop(context, _controller.text.trim());
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Rename photo'),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        textCapitalization: TextCapitalization.sentences,
-        decoration: const InputDecoration(
-          labelText: 'Name',
-          hintText: 'e.g. Upper smile',
-        ),
-        onSubmitted: (_) => _submit(),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: _submit,
-          child: const Text('Save'),
-        ),
-      ],
-    );
-  }
 }
 
 class _PhotoThumb extends StatelessWidget {

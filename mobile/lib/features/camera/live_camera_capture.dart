@@ -1,9 +1,11 @@
 import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/haptics/app_haptics.dart';
+import '../../core/navigation/app_page_routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/tooth_loader.dart';
 import 'camera_guide.dart';
@@ -147,73 +149,28 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
   Future<void> _pickJawFocus() async {
     if (_capturing) return;
     AppHaptics.selection();
-    final picked = await showModalBottomSheet<JawFocus>(
+    final picked = await showCupertinoModalPopup<JawFocus>(
       context: context,
-      backgroundColor: const Color(0xFF1A1F26),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      builder: (ctx) => CupertinoActionSheet(
+        title: const Text('Capture focus'),
+        message: const Text(
+          'Hold the preview to change. Default is both jaws.',
+        ),
+        actions: [
+          for (final f in JawFocus.values)
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.pop(ctx, f),
+              child: Text(
+                f == _focus ? '${f.label} ✓' : f.label,
+              ),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          isDefaultAction: true,
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Cancel'),
+        ),
       ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 10),
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.white24,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
-                child: Text(
-                  'Capture focus',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 16,
-                  ),
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
-                child: Text(
-                  'Hold the preview to change. Default is both jaws.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-              ),
-              for (final f in JawFocus.values)
-                ListTile(
-                  leading: Icon(
-                    f == JawFocus.both
-                        ? Icons.horizontal_split
-                        : f == JawFocus.top
-                            ? Icons.keyboard_arrow_up
-                            : Icons.keyboard_arrow_down,
-                    color: Colors.white70,
-                  ),
-                  title: Text(
-                    f.label,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight:
-                          f == _focus ? FontWeight.w700 : FontWeight.w500,
-                    ),
-                  ),
-                  trailing: f == _focus
-                      ? const Icon(Icons.check, color: AppColors.dentalBlue)
-                      : null,
-                  onTap: () => Navigator.pop(ctx, f),
-                ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        );
-      },
     );
     if (picked != null && mounted) {
       setState(() => _focus = picked);
@@ -512,9 +469,9 @@ Future<Uint8List?> captureWithLiveCamera(
   String angle = 'frontal',
 }) {
   return Navigator.of(context).push<Uint8List>(
-    MaterialPageRoute(
+    AppPageRoutes.cupertino(
+      LiveCameraCapturePage(hint: hint, angle: angle),
       fullscreenDialog: true,
-      builder: (_) => LiveCameraCapturePage(hint: hint, angle: angle),
     ),
   );
 }

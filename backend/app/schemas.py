@@ -91,6 +91,12 @@ class PasswordChange(BaseModel):
         return validate_password_complexity(v)
 
 
+class DeleteAccountRequest(BaseModel):
+    """Confirm identity before permanent self-service account deletion."""
+
+    password: str = Field(min_length=1, max_length=128)
+
+
 class AuthMessageOut(BaseModel):
     message: str
 

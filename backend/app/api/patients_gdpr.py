@@ -50,7 +50,12 @@ _EDITABLE_FIELDS = frozenset(
         "address",
         "phone",
         "health_insurance",
+        "status",
     }
+)
+
+_PATIENT_STATUSES = frozenset(
+    {"pending", "in_progress", "in_review", "completed", "rejected"}
 )
 
 _ILIKE_SPECIAL = re.compile(r"([%_\\])")
@@ -118,6 +123,17 @@ def _from_http(
     )
 
 
+def _normalize_patient_status(raw: Any) -> str:
+    value = str(raw or "pending").strip().lower()
+    if value == "awaiting_scan":
+        return "pending"
+    if value == "complete":
+        return "completed"
+    if value in _PATIENT_STATUSES:
+        return value
+    return "pending"
+
+
 def _patient_public(row: dict[str, Any]) -> dict[str, Any]:
     return PatientOut(
         id=str(row["id"]),
@@ -129,6 +145,7 @@ def _patient_public(row: dict[str, Any]) -> dict[str, Any]:
         address=row.get("address") or "",
         phone=row.get("phone") or "",
         health_insurance=row.get("health_insurance") or "",
+        status=_normalize_patient_status(row.get("status")),  # type: ignore[arg-type]
         deleted=bool(row.get("deleted") or False),
         deleted_at=row.get("deleted_at"),
         created_at=row.get("created_at"),
@@ -192,10 +209,30 @@ def list_patients(
         default=None,
         description="Search first_name, last_name, phone, or email (ILIKE)",
     ),
+    status: str | None = Query(
+        default=None,
+        description="Filter by workflow status (pending|in_progress|in_review|completed|rejected)",
+    ),
     user: AuthUser = Depends(get_current_user),
 ):
     action = "list_patients"
     search = (q or "").strip()
+    status_filter = (status or "").strip().lower()
+    if status_filter in {"awaiting_scan", "all", ""}:
+        status_filter = "" if status_filter in {"all", ""} else "pending"
+    if status_filter == "complete":
+        status_filter = "completed"
+    if status_filter and status_filter not in _PATIENT_STATUSES:
+        return _err(
+            action=action,
+            user_id=user.id,
+            http_code=400,
+            code="INVALID_STATUS",
+            message=(
+                "status must be one of: pending, in_progress, in_review, "
+                "completed, rejected"
+            ),
+        )
     try:
         owned_q = (
             get_supabase_admin()
@@ -205,6 +242,8 @@ def list_patients(
             .eq("deleted", False)
             .order("updated_at", desc=True)
         )
+        if status_filter:
+            owned_q = owned_q.eq("status", status_filter)
         if search:
             pattern = f"%{_escape_ilike(search)}%"
             owned_q = owned_q.or_(
@@ -213,7 +252,31 @@ def list_patients(
                 f"phone.ilike.{pattern},"
                 f"email.ilike.{pattern}"
             )
-        owned = owned_q.execute()
+        try:
+            owned = owned_q.execute()
+        except Exception as owned_exc:
+            if status_filter and "status" in str(owned_exc):
+                # Column missing — fall back to unfiltered owned list.
+                owned_q = (
+                    get_supabase_admin()
+                    .table("patients")
+                    .select("*")
+                    .eq("created_by", user.id)
+                    .eq("deleted", False)
+                    .order("updated_at", desc=True)
+                )
+                if search:
+                    pattern = f"%{_escape_ilike(search)}%"
+                    owned_q = owned_q.or_(
+                        f"first_name.ilike.{pattern},"
+                        f"last_name.ilike.{pattern},"
+                        f"phone.ilike.{pattern},"
+                        f"email.ilike.{pattern}"
+                    )
+                owned = owned_q.execute()
+                status_filter = ""
+            else:
+                raise
         shared_ids_res = (
             get_supabase_admin()
             .table("patient_access")
@@ -244,6 +307,8 @@ def list_patients(
                 .in_("id", shared_ids)
                 .eq("deleted", False)
             )
+            if status_filter:
+                shared_q = shared_q.eq("status", status_filter)
             if search:
                 pattern = f"%{_escape_ilike(search)}%"
                 shared_q = shared_q.or_(
@@ -697,12 +762,20 @@ def create_patient(
         "address": payload.address.strip(),
         "phone": payload.phone.strip(),
         "health_insurance": payload.health_insurance.strip(),
+        "status": _normalize_patient_status(payload.status),
         "deleted": False,
         "created_at": pa.utc_now_iso(),
         "updated_at": pa.utc_now_iso(),
     }
     try:
-        result = get_supabase_admin().table("patients").insert(row).execute()
+        try:
+            result = get_supabase_admin().table("patients").insert(row).execute()
+        except Exception as insert_exc:
+            # Pre-migration DBs may not have patients.status yet.
+            if "status" not in str(insert_exc):
+                raise
+            row.pop("status", None)
+            result = get_supabase_admin().table("patients").insert(row).execute()
         created = (getattr(result, "data", None) or [None])[0]
         if not created:
             return _err(
@@ -795,6 +868,20 @@ def edit_patient(
                     patient_id=patient_id,
                 )
             value = str(value).strip().lower()
+        if key == "status":
+            value = _normalize_patient_status(value)
+            if value not in _PATIENT_STATUSES:
+                return _err(
+                    action=action,
+                    user_id=user.id,
+                    http_code=400,
+                    code="INVALID_STATUS",
+                    message=(
+                        "status must be one of: pending, in_progress, "
+                        "in_review, completed, rejected"
+                    ),
+                    patient_id=patient_id,
+                )
         if isinstance(value, str):
             value = value.strip()
         if hasattr(value, "isoformat"):
@@ -813,14 +900,40 @@ def edit_patient(
 
     updates["updated_at"] = pa.utc_now_iso()
     try:
-        result = (
-            get_supabase_admin()
-            .table("patients")
-            .update(updates)
-            .eq("id", patient_id)
-            .eq("created_by", user.id)
-            .execute()
-        )
+        try:
+            result = (
+                get_supabase_admin()
+                .table("patients")
+                .update(updates)
+                .eq("id", patient_id)
+                .eq("created_by", user.id)
+                .execute()
+            )
+        except Exception as update_exc:
+            if "status" in updates and "status" in str(update_exc):
+                updates.pop("status", None)
+                if len(updates) <= 1:  # only updated_at left
+                    return _err(
+                        action=action,
+                        user_id=user.id,
+                        http_code=503,
+                        code="MIGRATION_REQUIRED",
+                        message=(
+                            "Patient status is not available yet. "
+                            "Run migration 008_patients_status.sql in Supabase."
+                        ),
+                        patient_id=patient_id,
+                    )
+                result = (
+                    get_supabase_admin()
+                    .table("patients")
+                    .update(updates)
+                    .eq("id", patient_id)
+                    .eq("created_by", user.id)
+                    .execute()
+                )
+            else:
+                raise
         rows = getattr(result, "data", None) or []
         if not rows:
             return _err(

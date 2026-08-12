@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/api/api_client.dart';
+import '../core/navigation/app_page_routes.dart';
 import '../core/session/patient_session.dart';
 import '../core/theme/app_theme.dart';
 import '../features/appointments/screens/appointments_screen.dart';
@@ -43,6 +44,8 @@ class _AppShellState extends State<AppShell> {
   int _notificationBadge = 0;
   int _messageBadge = 0;
   bool _sidebarCollapsed = false;
+  bool _contentVisible = true;
+  bool _navAnimating = false;
   late final ChatController _chat;
   late final PatientSession _patients;
 
@@ -72,9 +75,16 @@ class _AppShellState extends State<AppShell> {
 
   void _onPatientSessionChanged() {
     if (!mounted) return;
-    if (_patients.consumeNavigateToShade()) {
-      _go(AppNavItem.shade);
-    }
+    final toShade = _patients.consumeNavigateToShade();
+    final toNewPatient = _patients.consumeNavigateToNewPatient();
+    if (!toShade && !toNewPatient) return;
+    // Wait a frame so menus/dialogs can finish disposing (avoids
+    // `_dependents.isEmpty` crashes when navigating from pickers).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (toShade) _go(AppNavItem.shade);
+      if (toNewPatient) _go(AppNavItem.newPatient);
+    });
   }
 
   @override
@@ -97,17 +107,32 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _go(AppNavItem item) {
-    if (item == _active) return;
-    setState(() {
+    if (item == _active || _navAnimating) return;
+
+    void apply() {
       _active = item;
       _mountedPages.add(item);
+      if (item == AppNavItem.notifications) {
+        _refreshNotificationBadge();
+      }
+      if (item == AppNavItem.messages) {
+        _chat.loadInbox();
+      }
+    }
+
+    // iPadOS sidebar style: one content pane at a time (fade out → swap → fade in).
+    _navAnimating = true;
+    setState(() => _contentVisible = false);
+    Future<void>.delayed(const Duration(milliseconds: 110), () {
+      if (!mounted) return;
+      setState(() {
+        apply();
+        _contentVisible = true;
+      });
+      Future<void>.delayed(AppMotion.fast, () {
+        if (mounted) _navAnimating = false;
+      });
     });
-    if (item == AppNavItem.notifications) {
-      _refreshNotificationBadge();
-    }
-    if (item == AppNavItem.messages) {
-      _chat.loadInbox();
-    }
   }
 
   Future<void> _onPatientCreated() async {
@@ -119,6 +144,7 @@ class _AppShellState extends State<AppShell> {
       _mountedPages.remove(AppNavItem.newPatient);
       _active = AppNavItem.patients;
       _mountedPages.add(AppNavItem.patients);
+      _contentVisible = true;
     });
     _refreshNotificationBadge();
   }
@@ -158,20 +184,25 @@ class _AppShellState extends State<AppShell> {
               child: SafeArea(
                 left: false,
                 child: ClipRect(
-                  child: IndexedStack(
-                    index: activeIndex < 0 ? 0 : activeIndex,
-                    sizing: StackFit.expand,
-                    children: [
-                      for (final item in _navOrder)
-                        _mountedPages.contains(item)
-                            ? KeyedSubtree(
-                                key: _pageKey(item),
-                                child: RepaintBoundary(
-                                  child: _createPage(item),
-                                ),
-                              )
-                            : const SizedBox.shrink(),
-                    ],
+                  child: AnimatedOpacity(
+                    opacity: _contentVisible ? 1 : 0,
+                    duration: AppMotion.fast,
+                    curve: AppMotion.easeOut,
+                    child: IndexedStack(
+                      index: activeIndex < 0 ? 0 : activeIndex,
+                      sizing: StackFit.expand,
+                      children: [
+                        for (final item in _navOrder)
+                          _mountedPages.contains(item)
+                              ? KeyedSubtree(
+                                  key: _pageKey(item),
+                                  child: RepaintBoundary(
+                                    child: _createPage(item),
+                                  ),
+                                )
+                              : const SizedBox.shrink(),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -198,6 +229,7 @@ class _AppShellState extends State<AppShell> {
           api: widget.api,
           onNavigate: _go,
           unreadMessages: _messageBadge,
+          active: active,
         );
       case AppNavItem.patients:
         return PatientsPage(
@@ -209,6 +241,7 @@ class _AppShellState extends State<AppShell> {
       case AppNavItem.newPatient:
         return NewPatientPage(
           api: widget.api,
+          patientSession: _patients,
           onCreated: _onPatientCreated,
         );
       case AppNavItem.appointments:
@@ -253,7 +286,14 @@ class _AppShellState extends State<AppShell> {
           chatController: _chat,
         );
       case AppNavItem.laboratories:
-        return LaboratoriesPage(api: widget.api);
+        return LaboratoriesPage(
+          api: widget.api,
+          onMessageLab: (lab) async {
+            await _chat.openOrCreateWith(lab.id);
+            if (!mounted) return;
+            _go(AppNavItem.messages);
+          },
+        );
       case AppNavItem.notifications:
         return NotificationsPage(
           api: widget.api,

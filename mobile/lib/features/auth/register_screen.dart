@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/navigation/app_page_routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/brand_logo.dart';
 import '../../core/widgets/ui_kit.dart';
@@ -114,8 +115,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
 
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => AppShell(
+        AppPageRoutes.fade(
+          AppShell(
             api: widget.api,
             dentistName: data['name'] as String? ?? name,
           ),

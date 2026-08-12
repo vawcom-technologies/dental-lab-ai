@@ -174,13 +174,11 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
   Size? _imageSize; // photo px — remap placement when stage size changes
 
   bool _loading = true;
-  bool _mediaLoading = false;
   bool _saving = false;
   bool _dirty = false;
   String? _status;
   String? _error;
   List<Map<String, dynamic>> _smileItems = [];
-  String? _selectedSmileId;
 
   ShapeLibraryItem get _selected => ShapeLibrary.at(_shapeIndex);
 
@@ -282,8 +280,6 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
       _error = null;
       _dirty = false;
       _smileItems = [];
-      _selectedSmileId = null;
-      _mediaLoading = true;
     });
     try {
       final patientId = _pid(patient);
@@ -314,31 +310,18 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
   Future<void> _loadSmilePreviews() async {
     final patient = _patient;
     if (patient == null) {
-      if (mounted) {
-        setState(() {
-          _smileItems = [];
-          _mediaLoading = false;
-        });
-      }
+      if (mounted) setState(() => _smileItems = []);
       return;
     }
     final pid = _pid(patient);
-    if (pid.isEmpty) {
-      if (mounted) setState(() => _mediaLoading = false);
-      return;
-    }
-    if (mounted) setState(() => _mediaLoading = true);
+    if (pid.isEmpty) return;
     try {
       final rows = await widget.api.listSmilePreviews(pid);
       if (!mounted) return;
-      setState(() {
-        _smileItems = rows;
-        _mediaLoading = false;
-      });
+      setState(() => _smileItems = rows);
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _mediaLoading = false;
         _error = e.toString().replaceFirst('Exception: ', '');
       });
     }
@@ -346,12 +329,10 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
 
   Future<void> _applyPhotoBytes(
     Uint8List data, {
-    String? smileId,
     String? status,
   }) async {
     setState(() {
       _photoBytes = data;
-      _selectedSmileId = smileId;
       _imageSize = null;
       _scale = 1.05;
       _width = 1.0;
@@ -366,132 +347,8 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
     await _readImageSize(data);
   }
 
-  Future<void> _openSmileItem(Map<String, dynamic> item) async {
-    final id = '${item['id'] ?? ''}';
-    final url = '${item['file_url'] ?? ''}'.trim();
-    if (url.isEmpty) return;
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-    try {
-      final bytes = await widget.api.downloadMediaBytes(url);
-      if (!mounted) return;
-      await _applyPhotoBytes(
-        bytes,
-        smileId: id,
-        status: 'Loaded saved smile preview.',
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  Future<void> _deleteSmileItem(Map<String, dynamic> item) async {
-    final id = '${item['id'] ?? ''}';
-    if (id.isEmpty || _saving) return;
-    final ok = await confirmPatientMediaDelete(context);
-    if (!ok || !mounted) return;
-    setState(() => _saving = true);
-    try {
-      await widget.api.deleteSmilePreview(id);
-      if (!mounted) return;
-      setState(() {
-        _smileItems = _smileItems.where((e) => '${e['id']}' != id).toList();
-        if (_selectedSmileId == id) _selectedSmileId = null;
-        _saving = false;
-      });
-      AppSnackBars.success(context, 'Smile preview deleted');
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _saving = false;
-        _error = e.toString().replaceFirst('Exception: ', '');
-      });
-      AppSnackBars.error(
-        context,
-        e.toString().replaceFirst('Exception: ', ''),
-      );
-    }
-  }
-
-  Future<void> _quickAddPatient() async {
-    final firstCtrl = TextEditingController();
-    final lastCtrl = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add patient'),
-        content: SizedBox(
-          width: 360,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: firstCtrl,
-                decoration: const InputDecoration(labelText: 'First name *'),
-                autofocus: true,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: lastCtrl,
-                decoration: const InputDecoration(labelText: 'Last name *'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Create'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) {
-      firstCtrl.dispose();
-      lastCtrl.dispose();
-      return;
-    }
-    final first = firstCtrl.text.trim();
-    final last = lastCtrl.text.trim();
-    firstCtrl.dispose();
-    lastCtrl.dispose();
-    if (first.isEmpty || last.isEmpty) {
-      setState(() => _error = 'First and last name are required');
-      return;
-    }
-    if (_saving) return;
-    setState(() => _saving = true);
-    try {
-      final created = await widget.patientSession.createPatient(
-        firstName: first,
-        lastName: last,
-      );
-      if (!mounted) return;
-      setState(() {
-        _patients = List<Map<String, dynamic>>.from(
-          widget.patientSession.patients,
-        );
-      });
-      await _selectPatient(created, publish: false);
-      if (mounted) {
-        setState(() => _status = 'Patient $first $last ready for smile preview');
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
-      }
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
+  void _openNewPatientPage() {
+    widget.patientSession.requestNavigateToNewPatient();
   }
 
   Future<void> _restoreSaved(int caseId) async {
@@ -605,7 +462,6 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
       });
       await _applyPhotoBytes(
         data,
-        smileId: '${uploaded['id'] ?? ''}',
         status: 'Smile preview saved — select a shape from the library.',
       );
     } catch (e) {
@@ -791,7 +647,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
           selected: _patient,
           caseId: _case?['id'],
           onSelect: _selectPatient,
-          onAdd: _quickAddPatient,
+          onAdd: _openNewPatientPage,
           onRefresh: _reloadPatients,
           enabled: !_saving,
           emptyHint: 'No patients yet — add one to save the try-on.',
@@ -1100,119 +956,6 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
     );
   }
 
-  Widget _buildSmileMediaSection() {
-    if (!_mediaLoading && _smileItems.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Saved smile previews',
-          style: TextStyle(
-            fontWeight: FontWeight.w700,
-            fontSize: 14,
-            color: AppColors.navy,
-          ),
-        ),
-        const SizedBox(height: 8),
-        SizedBox(
-          height: 72,
-          child: _mediaLoading
-              ? const Center(
-                  child: ToothLoadingIndicator(size: 28, compact: true),
-                )
-              : ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: _smileItems.length,
-                      separatorBuilder: (_, _) => const SizedBox(width: 8),
-                      itemBuilder: (context, i) {
-                        final item = _smileItems[i];
-                        final id = '${item['id'] ?? ''}';
-                        final url = '${item['file_url'] ?? ''}';
-                        final selected = id == _selectedSmileId;
-                        return Material(
-                          color: selected
-                              ? AppColors.dentalBlue.withValues(alpha: 0.12)
-                              : const Color(0xFFF8FAFC),
-                          borderRadius: BorderRadius.circular(10),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(10),
-                            onTap: _saving ? null : () => _openSmileItem(item),
-                            child: Container(
-                              width: 110,
-                              padding: const EdgeInsets.fromLTRB(6, 6, 2, 6),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(
-                                  color: selected
-                                      ? AppColors.dentalBlue
-                                      : AppColors.border,
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(6),
-                                    child: url.isEmpty
-                                        ? Container(
-                                            width: 48,
-                                            height: 48,
-                                            color: AppColors.sidebarActive,
-                                            child: const Icon(
-                                              Icons.image_outlined,
-                                              size: 18,
-                                              color: AppColors.muted,
-                                            ),
-                                          )
-                                        : Image.network(
-                                            url,
-                                            width: 48,
-                                            height: 48,
-                                            fit: BoxFit.cover,
-                                            errorBuilder: (_, _, _) =>
-                                                Container(
-                                              width: 48,
-                                              height: 48,
-                                              color: AppColors.sidebarActive,
-                                              child: const Icon(
-                                                Icons.broken_image_outlined,
-                                                size: 16,
-                                                color: AppColors.muted,
-                                              ),
-                                            ),
-                                          ),
-                                  ),
-                                  const Spacer(),
-                                  IconButton(
-                                    tooltip: 'Delete',
-                                    visualDensity: VisualDensity.compact,
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(
-                                      minWidth: 28,
-                                      minHeight: 28,
-                                    ),
-                                    onPressed: _saving
-                                        ? null
-                                        : () => _deleteSmileItem(item),
-                                    icon: const Icon(
-                                      Icons.delete_outline,
-                                      size: 16,
-                                      color: AppColors.danger,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildRail() {
     return SectionCard(
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
@@ -1225,10 +968,6 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (_mediaLoading || _smileItems.isNotEmpty) ...[
-                _buildSmileMediaSection(),
-                const SizedBox(height: 12),
-              ],
               Row(
                 children: [
                   const Expanded(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/navigation/app_page_routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/tooth_loader.dart';
 import 'patient_form_screen.dart';
@@ -34,9 +35,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
 
   Future<void> _add() async {
     final created = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => PatientFormScreen(api: widget.api),
-      ),
+      AppPageRoutes.cupertino(PatientFormScreen(api: widget.api)),
     );
     if (created == true) _reload();
   }

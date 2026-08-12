@@ -143,77 +143,8 @@ class _ScansPageState extends State<ScansPage> {
     await _selectPatient(sel, publish: false);
   }
 
-  Future<void> _quickAddPatient() async {
-    final firstCtrl = TextEditingController();
-    final lastCtrl = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add patient'),
-        content: SizedBox(
-          width: 360,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: firstCtrl,
-                decoration: const InputDecoration(labelText: 'First name *'),
-                autofocus: true,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: lastCtrl,
-                decoration: const InputDecoration(labelText: 'Last name *'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Create'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) {
-      firstCtrl.dispose();
-      lastCtrl.dispose();
-      return;
-    }
-    final first = firstCtrl.text.trim();
-    final last = lastCtrl.text.trim();
-    firstCtrl.dispose();
-    lastCtrl.dispose();
-    if (first.isEmpty || last.isEmpty) {
-      setState(() => _error = 'First and last name are required');
-      return;
-    }
-    if (_busy) return;
-    setState(() => _busy = true);
-    try {
-      final created = await widget.patientSession.createPatient(
-        firstName: first,
-        lastName: last,
-      );
-      if (!mounted) return;
-      setState(() {
-        _patients = List<Map<String, dynamic>>.from(
-          widget.patientSession.patients,
-        );
-      });
-      await _selectPatient(created, publish: false);
-    } catch (e) {
-      if (mounted) {
-        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+  void _openNewPatientPage() {
+    widget.patientSession.requestNavigateToNewPatient();
   }
 
   String _formatOf(String filename) {
@@ -553,7 +484,7 @@ class _ScansPageState extends State<ScansPage> {
                 selected: _patient,
                 enabled: !_busy,
                 onSelect: _selectPatient,
-                onAdd: _quickAddPatient,
+                onAdd: _openNewPatientPage,
                 onRefresh: () async {
                   setState(() => _busy = true);
                   try {

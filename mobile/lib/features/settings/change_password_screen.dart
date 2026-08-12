@@ -70,21 +70,11 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
         message.isNotEmpty ? message : loc.changePasswordSuccessBody,
       );
 
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => AlertDialog(
-          title: Text(loc.passwordUpdated),
-          content: Text(
-            message.isNotEmpty ? message : loc.changePasswordSuccessBody,
-          ),
-          actions: [
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: Text(loc.ok),
-            ),
-          ],
-        ),
+      await AppDialogs.alert(
+        context,
+        title: loc.passwordUpdated,
+        message: message.isNotEmpty ? message : loc.changePasswordSuccessBody,
+        okLabel: loc.ok,
       );
 
       if (!mounted) return;

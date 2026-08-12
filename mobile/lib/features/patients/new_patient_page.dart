@@ -2,15 +2,22 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'patient_models.dart';
 
 class NewPatientPage extends StatefulWidget {
-  const NewPatientPage({super.key, required this.api, required this.onCreated});
+  const NewPatientPage({
+    super.key,
+    required this.api,
+    required this.onCreated,
+    this.patientSession,
+  });
 
   final ApiClient api;
   final VoidCallback onCreated;
+  final PatientSession? patientSession;
 
   @override
   State<NewPatientPage> createState() => _NewPatientPageState();
@@ -36,7 +43,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
       _error = null;
     });
     try {
-      await widget.api.createPatient({
+      final created = await widget.api.createPatient({
         'first_name': _first.text.trim(),
         'last_name': _last.text.trim(),
         'date_of_birth': _dob.text.trim(),
@@ -45,8 +52,14 @@ class _NewPatientPageState extends State<NewPatientPage> {
         'address': _address.text.trim(),
         'health_insurance': _insurance.text.trim(),
       });
+      final session = widget.patientSession;
+      if (session != null) {
+        await session.adoptCreatedPatient(created);
+      }
+      if (!mounted) return;
       widget.onCreated();
     } catch (e) {
+      if (!mounted) return;
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _loading = false);

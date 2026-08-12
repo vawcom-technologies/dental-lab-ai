@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/haptics/app_haptics.dart';
 import '../core/l10n/app_localizations.dart';
+import '../core/navigation/app_page_routes.dart';
 import '../core/theme/app_theme.dart';
 import '../core/widgets/app_buttons.dart';
 import '../core/widgets/brand_logo.dart';
@@ -60,7 +61,8 @@ class AppSidebar extends StatelessWidget {
         }
       },
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
+        duration: AppMotion.normal,
+        curve: AppMotion.easeOut,
         width: width,
         margin: const EdgeInsets.fromLTRB(12, 12, 0, 12),
         // Keep content at the target width while the sidebar animates,

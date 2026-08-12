@@ -14,12 +14,14 @@ class DashboardPage extends StatefulWidget {
     required this.api,
     required this.onNavigate,
     this.unreadMessages = 0,
+    this.active = true,
   });
 
   final String dentistName;
   final ApiClient api;
   final ValueChanged<AppNavItem> onNavigate;
   final int unreadMessages;
+  final bool active;
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
@@ -30,12 +32,19 @@ class _DashboardPageState extends State<DashboardPage> {
   String? _error;
 
   List<Map<String, dynamic>> _patients = [];
-  List<Map<String, dynamic>> _cases = [];
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant DashboardPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active) {
+      _load();
+    }
   }
 
   Future<void> _load() async {
@@ -44,14 +53,10 @@ class _DashboardPageState extends State<DashboardPage> {
       _error = null;
     });
     try {
-      final results = await Future.wait([
-        widget.api.listPatients(),
-        widget.api.listCases(),
-      ]);
+      final patients = await widget.api.listPatients();
       if (!mounted) return;
       setState(() {
-        _patients = results[0];
-        _cases = results[1];
+        _patients = patients;
         _loading = false;
       });
     } catch (e) {
@@ -63,13 +68,23 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
-  Map<int, Map<String, dynamic>> get _patientsById {
-    final map = <int, Map<String, dynamic>>{};
-    for (final p in _patients) {
-      final id = p['id'];
-      if (id is int) map[id] = p;
-    }
-    return map;
+  /// Patient records drive the clinic pipeline (legacy /api/cases is unmounted).
+  List<Map<String, dynamic>> get _cases {
+    return _patients.map((p) {
+      final id = '${p['id'] ?? ''}';
+      final short = id.length >= 4 ? id.substring(0, 4).toUpperCase() : id.toUpperCase();
+      return <String, dynamic>{
+        'id': id,
+        'case_label': 'CASE-$short',
+        'patient_id': id,
+        'created_by': '${p['created_by'] ?? ''}',
+        'first_name': p['first_name'],
+        'last_name': p['last_name'],
+        'status': CaseStatuses.normalize('${p['status'] ?? ''}'),
+        'created_at': p['created_at'],
+        'updated_at': p['updated_at'] ?? p['created_at'],
+      };
+    }).toList();
   }
 
   String get _shortName {
@@ -85,23 +100,29 @@ class _DashboardPageState extends State<DashboardPage> {
     return loc.goodEvening(_shortName);
   }
 
+  String _patientName(Map<String, dynamic> c) {
+    final name =
+        '${c['first_name'] ?? ''} ${c['last_name'] ?? ''}'.trim();
+    return name.isEmpty ? 'Unknown' : name;
+  }
+
   int get _completed =>
-      _cases.where((c) => CaseStatuses.normalize('${c['status']}') == CaseStatuses.completed).length;
+      _cases.where((c) => c['status'] == CaseStatuses.completed).length;
   int get _pending =>
-      _cases.where((c) => CaseStatuses.normalize('${c['status']}') == CaseStatuses.pending).length;
+      _cases.where((c) => c['status'] == CaseStatuses.pending).length;
   int get _inProgress =>
-      _cases.where((c) => CaseStatuses.normalize('${c['status']}') == CaseStatuses.inProgress).length;
+      _cases.where((c) => c['status'] == CaseStatuses.inProgress).length;
   int get _inReview =>
-      _cases.where((c) => CaseStatuses.normalize('${c['status']}') == CaseStatuses.inReview).length;
+      _cases.where((c) => c['status'] == CaseStatuses.inReview).length;
   int get _rejected =>
-      _cases.where((c) => CaseStatuses.normalize('${c['status']}') == CaseStatuses.rejected).length;
+      _cases.where((c) => c['status'] == CaseStatuses.rejected).length;
   int get _attention => _pending + _inProgress + _inReview + _rejected;
 
   int get _unreadMessages => widget.unreadMessages;
 
   String get _avgProcessingLabel {
     final completed = _cases
-        .where((c) => CaseStatuses.normalize('${c['status']}') == CaseStatuses.completed)
+        .where((c) => c['status'] == CaseStatuses.completed)
         .toList();
     if (completed.isEmpty) return '—';
     var totalHours = 0.0;
@@ -120,52 +141,75 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   List<_CaseRowData> get _recentRows {
-    final byId = _patientsById;
     final sorted = [..._cases]..sort((a, b) {
           final ta = DateTime.tryParse('${a['updated_at'] ?? ''}') ?? DateTime(1970);
           final tb = DateTime.tryParse('${b['updated_at'] ?? ''}') ?? DateTime(1970);
           return tb.compareTo(ta);
         });
+    final me = widget.api.userId ?? '';
     return sorted.take(8).map((c) {
-      final pid = c['patient_id'];
-      final patient = pid is int ? byId[pid] : null;
-      final name = patient == null
-          ? 'Patient #$pid'
-          : '${patient['first_name'] ?? ''} ${patient['last_name'] ?? ''}'.trim();
-      final caseId = c['id'] is int ? c['id'] as int : 0;
+      final createdBy = '${c['created_by'] ?? ''}';
       return _CaseRowData(
-        caseLabel: 'CASE-${caseId.toString().padLeft(4, '0')}',
-        patientName: name.isEmpty ? 'Unknown' : name,
+        patientId: '${c['patient_id']}',
+        caseLabel: '${c['case_label']}',
+        patientName: _patientName(c),
         dentist: widget.dentistName,
-        status: CaseStatuses.normalize('${c['status'] ?? 'pending'}'),
+        status: '${c['status']}',
         updated: _relativeTime(DateTime.tryParse('${c['updated_at'] ?? ''}')),
+        canEditStatus: me.isNotEmpty && createdBy == me,
       );
     }).toList();
   }
 
+  Future<void> _changeStatus(String patientId, String status) async {
+    final next = CaseStatuses.normalize(status);
+    final idx = _patients.indexWhere((p) => '${p['id']}' == patientId);
+    if (idx < 0) return;
+    final current = CaseStatuses.normalize('${_patients[idx]['status'] ?? ''}');
+    if (current == next) return;
+    try {
+      final updated = await widget.api.updatePatient(patientId, {
+        'status': next,
+      });
+      if (!mounted) return;
+      setState(() {
+        _patients[idx] = {
+          ..._patients[idx],
+          ...updated,
+          'status': CaseStatuses.normalize('${updated['status'] ?? next}'),
+        };
+      });
+      AppSnackBars.info(
+        context,
+        'Status updated to ${StatusStyle.of(next).label}',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      AppSnackBars.error(
+        context,
+        e.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
   List<_ActivityItem> get _activity {
     final items = <_ActivityItem>[];
-    final byId = _patientsById;
 
     for (final c in _cases) {
       final updated = DateTime.tryParse('${c['updated_at'] ?? ''}');
       if (updated == null) continue;
-      final pid = c['patient_id'];
-      final patient = pid is int ? byId[pid] : null;
-      final name = patient == null
-          ? 'a patient'
-          : '${patient['first_name'] ?? ''} ${patient['last_name'] ?? ''}'.trim();
+      final name = _patientName(c);
       final status = '${c['status'] ?? ''}';
-      final caseId = c['id'] is int ? c['id'] as int : 0;
-      final label = switch (status) {
-        'completed' => 'Case CASE-${caseId.toString().padLeft(4, '0')} marked complete — $name',
+      final label = '${c['case_label']}';
+      final text = switch (status) {
+        'completed' => 'Case $label marked complete — $name',
         'rejected' => 'Scan rejected for $name — rescan required',
         'in_review' => 'Case for $name moved to lab review',
         'in_progress' => 'Case for $name is in progress',
         'pending' => 'Case opened for $name — awaiting scan',
         _ => 'Case updated for $name',
       };
-      items.add(_ActivityItem(at: updated, text: label));
+      items.add(_ActivityItem(at: updated, text: text));
     }
 
     items.sort((a, b) => b.at.compareTo(a.at));
@@ -374,6 +418,13 @@ class _DashboardPageState extends State<DashboardPage> {
                                           dentist: row.dentist,
                                           status: row.status,
                                           updated: row.updated,
+                                          canEditStatus: row.canEditStatus,
+                                          onStatusChanged: row.canEditStatus
+                                              ? (status) => _changeStatus(
+                                                    row.patientId,
+                                                    status,
+                                                  )
+                                              : null,
                                         );
                                       },
                                     ),
@@ -447,19 +498,22 @@ class _DashboardPageState extends State<DashboardPage> {
 
 class _CaseRowData {
   const _CaseRowData({
+    required this.patientId,
     required this.caseLabel,
     required this.patientName,
     required this.dentist,
-
     required this.status,
     required this.updated,
+    required this.canEditStatus,
   });
 
+  final String patientId;
   final String caseLabel;
   final String patientName;
   final String dentist;
   final String status;
   final String updated;
+  final bool canEditStatus;
 }
 
 class _ActivityItem {
@@ -544,6 +598,8 @@ class _PatientRow extends StatelessWidget {
     required this.dentist,
     required this.status,
     required this.updated,
+    this.canEditStatus = false,
+    this.onStatusChanged,
   });
 
   final String id;
@@ -551,6 +607,8 @@ class _PatientRow extends StatelessWidget {
   final String dentist;
   final String status;
   final String updated;
+  final bool canEditStatus;
+  final ValueChanged<String>? onStatusChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -580,7 +638,11 @@ class _PatientRow extends StatelessWidget {
             flex: 2,
             child: Align(
               alignment: Alignment.centerLeft,
-              child: StatusChip(statusKey: status),
+              child: PatientStatusMenu(
+                status: status,
+                enabled: canEditStatus && onStatusChanged != null,
+                onSelected: onStatusChanged,
+              ),
             ),
           ),
           Expanded(

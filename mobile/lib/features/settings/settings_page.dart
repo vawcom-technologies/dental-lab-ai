@@ -1,14 +1,20 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/auth/app_roles.dart';
 import '../../core/auth/session_coordinator.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/l10n/locale_controller.dart';
+import '../../core/navigation/app_page_routes.dart';
 import '../../core/settings/app_settings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'change_password_screen.dart';
 
+const _kHairline = Color(0xFFC6C6C8);
+
+/// Glassy iPadOS Settings with full account deletion.
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.api});
 
@@ -21,6 +27,7 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   AppSettings? _settings;
   bool _loading = true;
+  bool _deleting = false;
   String? _error;
 
   @override
@@ -78,6 +85,58 @@ class _SettingsPageState extends State<SettingsPage> {
     SessionCoordinator.signOut(widget.api);
   }
 
+  Future<void> _deleteAccount() async {
+    if (_deleting) return;
+    final loc = AppLocalizations.of(context);
+
+    // Require typing DELETE before any further steps.
+    final typed = await AppDialogs.prompt(
+      context,
+      title: 'Delete account',
+      message:
+          'This permanently removes your account and associated data. '
+          'Type DELETE to continue.',
+      placeholder: 'DELETE',
+      cancelLabel: loc.cancel,
+      confirmLabel: 'Continue',
+      confirmEquals: 'DELETE',
+    );
+    if (typed == null || !mounted) return;
+
+    final password = await AppDialogs.prompt(
+      context,
+      title: 'Confirm with password',
+      message: 'Enter your account password to finish.',
+      placeholder: 'Password',
+      obscureText: true,
+      cancelLabel: loc.cancel,
+      confirmLabel: 'Delete account',
+    );
+    if (password == null || !mounted) return;
+    if (password.trim().isEmpty) {
+      AppSnackBars.error(context, 'Password is required.');
+      return;
+    }
+
+    setState(() => _deleting = true);
+    try {
+      final message = await AppDialogs.runWithLoading(
+        context,
+        message: 'Deleting account…',
+        action: () => widget.api.deleteAccount(password: password),
+      );
+      if (!mounted) return;
+      SessionCoordinator.signOut(widget.api, message: message);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _deleting = false);
+      AppSnackBars.error(
+        context,
+        e.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -88,307 +147,251 @@ class _SettingsPageState extends State<SettingsPage> {
     final s = _settings;
     if (s == null) {
       return Center(
-        child: SectionCard(
-          child: Text(
-            _error ?? AppLocalizations.of(context).settingsLoadError,
-            style: const TextStyle(color: AppColors.danger),
-          ),
+        child: Text(
+          _error ?? AppLocalizations.of(context).settingsLoadError,
+          style: const TextStyle(color: AppColors.danger),
         ),
       );
     }
 
     final loc = AppLocalizations.of(context);
+    final api = widget.api;
+    final name = (api.userName ?? '').trim().isEmpty
+        ? 'Account'
+        : api.userName!.trim();
+    final email = (api.email ?? '').trim();
+    final clinic = (api.clinicName ?? '').trim();
+    final role = AppRoles.label(api.role);
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          PageHeader(
-            icon: Icons.settings_outlined,
-            title: loc.settingsTitle,
-            subtitle: loc.settingsSubtitle,
-            actions: [
-              AppButtons.danger(
-                icon: Icons.logout_rounded,
-                label: loc.signOut,
-                soft: true,
-                onPressed: _signOut,
-              ),
-            ],
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 12),
-            // Errors also toast via AppSnackBars; keep a compact inline cue for load failures.
-            Text(
-              _error!,
-              style: AppFonts.style(
-                color: AppColors.danger,
-                fontWeight: FontWeight.w500,
-                fontSize: 13,
-              ),
-            ),
-          ],
-          const SizedBox(height: 18),
-          Expanded(
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 720),
-                child: ListView(
-                  padding: const EdgeInsets.only(bottom: 24),
-                  children: [
-                    _SecurityCard(api: widget.api),
-                    const SizedBox(height: 20),
-                    _AiCard(
-                      shade: s.autoShade,
-                      scanQuality: s.autoScanQuality,
-                      scanBody: s.autoScanBody,
-                      onShade: (v) => _persist((x) => x.autoShade = v),
-                      onScanQuality: (v) =>
-                          _persist((x) => x.autoScanQuality = v),
-                      onScanBody: (v) => _persist((x) => x.autoScanBody = v),
+    return BusyBarrier(
+      busy: _deleting,
+      message: 'Deleting account…',
+      child: CustomScrollView(
+        physics: const BouncingScrollPhysics(
+          parent: AlwaysScrollableScrollPhysics(),
+        ),
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(28, 20, 28, 8),
+            sliver: SliverToBoxAdapter(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: Text(
+                      loc.settingsTitle,
+                      style: AppFonts.style(
+                        fontSize: 34,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.navy,
+                        letterSpacing: -0.6,
+                        height: 1.1,
+                      ),
                     ),
-                    const SizedBox(height: 20),
-                    _NotificationsCard(
-                      enabled: s.notificationsEnabled,
-                      onChanged: (v) =>
-                          _persist((x) => x.notificationsEnabled = v),
-                    ),
-                    const SizedBox(height: 20),
-                    _LanguageCard(
-                      language: s.language,
-                      onChanged: _setLanguage,
-                    ),
-                  ],
-                ),
+                  ),
+                  AppButtons.glass(
+                    icon: Icons.logout_rounded,
+                    label: loc.signOut,
+                    onPressed: _deleting ? null : _signOut,
+                  ),
+                ],
               ),
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Section cards ───────────────────────────────────────────────────────────
-
-class _NotificationsCard extends StatelessWidget {
-  const _NotificationsCard({
-    required this.enabled,
-    required this.onChanged,
-  });
-
-  final bool enabled;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context);
-    return SectionCard(
-      depth: 1.05,
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SectionHeader(
-            icon: Icons.notifications_none_rounded,
-            title: loc.settingsNotificationsTitle,
-            subtitle: loc.settingsNotificationsSub,
-          ),
-          const SizedBox(height: 14),
-          NeoInset(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            child: _NeoToggleRow(
-              title: loc.settingsNotifyMaster,
-              subtitle: loc.settingsNotifyMasterSub,
-              value: enabled,
-              onChanged: onChanged,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LanguageCard extends StatelessWidget {
-  const _LanguageCard({
-    required this.language,
-    required this.onChanged,
-  });
-
-  final String language;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context);
-    return SectionCard(
-      depth: 1.05,
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SectionHeader(
-            icon: Icons.language_rounded,
-            title: loc.settingsLanguageTitle,
-            subtitle: loc.settingsLanguageSub,
-          ),
-          const SizedBox(height: 16),
-          SectionLabel(loc.settingsAppLanguage),
-          const SizedBox(height: 12),
-          NeoInset(
-            padding: const EdgeInsets.all(12),
-            child: Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                SoftFilterChip(
-                  label: loc.languageEnglish,
-                  selected: language == 'en',
-                  onTap: () => onChanged('en'),
-                ),
-                SoftFilterChip(
-                  label: loc.languageGerman,
-                  selected: language == 'de',
-                  onTap: () => onChanged('de'),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SecurityCard extends StatelessWidget {
-  const _SecurityCard({required this.api});
-
-  final ApiClient api;
-
-  @override
-  Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context);
-    return SectionCard(
-      depth: 1.05,
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SectionHeader(
-            icon: Icons.lock_outline_rounded,
-            title: loc.security,
-            subtitle: loc.securitySub,
-          ),
-          const SizedBox(height: 14),
-          NeoInset(
-            padding: EdgeInsets.zero,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: AppRadii.borderSm,
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => ChangePasswordScreen(api: api),
-                    ),
-                  );
-                },
-                child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.password_rounded,
-                        color: AppColors.dentalBlue,
-                        size: 22,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          loc.updatePassword,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.navy,
-                          ),
-                        ),
-                      ),
-                      const Icon(
-                        Icons.chevron_right_rounded,
-                        color: AppColors.muted,
-                      ),
-                    ],
+          if (_error != null)
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(28, 0, 28, 8),
+              sliver: SliverToBoxAdapter(
+                child: Text(
+                  _error!,
+                  style: AppFonts.style(
+                    color: AppColors.danger,
+                    fontWeight: FontWeight.w500,
+                    fontSize: 13,
                   ),
                 ),
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(28, 8, 28, 36),
+            sliver: SliverLayoutBuilder(
+              builder: (context, constraints) {
+                final wide = constraints.crossAxisExtent >= 900;
+                final profile = _GlassProfileHero(
+                  name: name,
+                  email: email,
+                  clinic: clinic,
+                  role: role,
+                );
+                final account = _GlassSettingsGroup(
+                  footer: loc.securitySub,
+                  children: [
+                    _GlassNavRow(
+                      icon: CupertinoIcons.lock_fill,
+                      iconBg: const Color(0xFF8E8E93),
+                      title: loc.updatePassword,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          AppPageRoutes.cupertino(
+                            ChangePasswordScreen(api: api),
+                            title: loc.updatePassword,
+                          ),
+                        );
+                      },
+                    ),
+                    Container(
+                      height: 0.5,
+                      margin: const EdgeInsets.only(left: 58),
+                      color: Colors.black.withValues(alpha: 0.08),
+                    ),
+                    _GlassNavRow(
+                      icon: CupertinoIcons.person_crop_circle_badge_minus,
+                      iconBg: const Color(0xFFAEAEB2),
+                      title: 'Delete account',
+                      titleColor: AppColors.muted,
+                      showChevron: false,
+                      onTap: _deleting ? null : _deleteAccount,
+                    ),
+                  ],
+                );
+                final ai = _GlassSettingsGroup(
+                  header: loc.settingsAiTitle.toUpperCase(),
+                  footer: loc.settingsAiSub,
+                  children: [
+                    _GlassToggleRow(
+                      icon: CupertinoIcons.sparkles,
+                      iconBg: AppColors.aiPurple,
+                      title: loc.settingsAutoShade,
+                      subtitle: loc.settingsAutoShadeSub,
+                      value: s.autoShade,
+                      onChanged: (v) => _persist((x) => x.autoShade = v),
+                      showDivider: true,
+                    ),
+                    _GlassToggleRow(
+                      icon: CupertinoIcons.checkmark_seal_fill,
+                      iconBg: AppColors.dentalBlue,
+                      title: loc.settingsAutoQuality,
+                      subtitle: loc.settingsAutoQualitySub,
+                      value: s.autoScanQuality,
+                      onChanged: (v) =>
+                          _persist((x) => x.autoScanQuality = v),
+                      showDivider: true,
+                    ),
+                    _GlassToggleRow(
+                      icon: CupertinoIcons.circle_grid_3x3_fill,
+                      iconBg: const Color(0xFF34C759),
+                      title: loc.settingsAutoScanBody,
+                      subtitle: loc.settingsAutoScanBodySub,
+                      value: s.autoScanBody,
+                      onChanged: (v) => _persist((x) => x.autoScanBody = v),
+                      showDivider: false,
+                    ),
+                  ],
+                );
+                final notify = _GlassSettingsGroup(
+                  header: loc.settingsNotificationsTitle.toUpperCase(),
+                  footer: loc.settingsNotificationsSub,
+                  children: [
+                    _GlassToggleRow(
+                      icon: CupertinoIcons.bell_fill,
+                      iconBg: AppColors.danger,
+                      title: loc.settingsNotifyMaster,
+                      subtitle: loc.settingsNotifyMasterSub,
+                      value: s.notificationsEnabled,
+                      onChanged: (v) =>
+                          _persist((x) => x.notificationsEnabled = v),
+                      showDivider: false,
+                    ),
+                  ],
+                );
+                final language = _GlassSettingsGroup(
+                  header: loc.settingsLanguageTitle.toUpperCase(),
+                  footer: loc.settingsLanguageSub,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            loc.settingsAppLanguage,
+                            style: AppFonts.style(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              color: AppColors.muted,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          CupertinoSlidingSegmentedControl<String>(
+                            groupValue: s.language == 'de' ? 'de' : 'en',
+                            backgroundColor:
+                                Colors.white.withValues(alpha: 0.35),
+                            thumbColor: Colors.white.withValues(alpha: 0.92),
+                            children: {
+                              'en': Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 8),
+                                child: Text(loc.languageEnglish),
+                              ),
+                              'de': Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 8),
+                                child: Text(loc.languageGerman),
+                              ),
+                            },
+                            onValueChanged: (code) {
+                              if (code == null) return;
+                              _setLanguage(code);
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+                if (!wide) {
+                  return SliverList(
+                    delegate: SliverChildListDelegate([
+                      profile,
+                      const SizedBox(height: 20),
+                      account,
+                      const SizedBox(height: 20),
+                      ai,
+                      const SizedBox(height: 20),
+                      notify,
+                      const SizedBox(height: 20),
+                      language,
+                    ]),
+                  );
+                }
 
-class _AiCard extends StatelessWidget {
-  const _AiCard({
-    required this.shade,
-    required this.scanQuality,
-    required this.scanBody,
-    required this.onShade,
-    required this.onScanQuality,
-    required this.onScanBody,
-  });
-
-  final bool shade;
-  final bool scanQuality;
-  final bool scanBody;
-  final ValueChanged<bool> onShade;
-  final ValueChanged<bool> onScanQuality;
-  final ValueChanged<bool> onScanBody;
-
-  @override
-  Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context);
-    return SectionCard(
-      depth: 1.05,
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SectionHeader(
-            icon: Icons.auto_awesome_outlined,
-            title: loc.settingsAiTitle,
-            subtitle: loc.settingsAiSub,
-            iconColor: AppColors.aiPurple,
-          ),
-          const SizedBox(height: 14),
-          NeoInset(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            child: Column(
-              children: [
-                _NeoToggleRow(
-                  title: loc.settingsAutoShade,
-                  subtitle: loc.settingsAutoShadeSub,
-                  value: shade,
-                  onChanged: onShade,
-                ),
-                const _NeoDivider(),
-                _NeoToggleRow(
-                  title: loc.settingsAutoQuality,
-                  subtitle: loc.settingsAutoQualitySub,
-                  value: scanQuality,
-                  onChanged: onScanQuality,
-                ),
-                const _NeoDivider(),
-                _NeoToggleRow(
-                  title: loc.settingsAutoScanBody,
-                  subtitle: loc.settingsAutoScanBodySub,
-                  value: scanBody,
-                  onChanged: onScanBody,
-                ),
-              ],
+                return SliverToBoxAdapter(
+                  child: Column(
+                    children: [
+                      profile,
+                      const SizedBox(height: 20),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              children: [
+                                account,
+                                const SizedBox(height: 20),
+                                notify,
+                                const SizedBox(height: 20),
+                                language,
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 20),
+                          Expanded(child: ai),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
           ),
         ],
@@ -397,141 +400,204 @@ class _AiCard extends StatelessWidget {
   }
 }
 
-// ─── Neumorphic primitives ───────────────────────────────────────────────────
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    this.iconColor,
+class _GlassProfileHero extends StatelessWidget {
+  const _GlassProfileHero({
+    required this.name,
+    required this.email,
+    required this.clinic,
+    required this.role,
   });
 
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Color? iconColor;
+  final String name;
+  final String email;
+  final String clinic;
+  final String role;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        NeoIconBadge(
-          icon: icon,
-          size: 44,
-          iconSize: 20,
-          color: iconColor,
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                  color: AppColors.navy,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                subtitle,
-                style: const TextStyle(color: AppColors.muted, fontSize: 13),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
+    final initial = name.isNotEmpty ? name.characters.first.toUpperCase() : '?';
+    final subtitle = [
+      if (role.isNotEmpty) role,
+      if (clinic.isNotEmpty) clinic,
+    ].join(' · ');
 
-class _NeoToggleRow extends StatelessWidget {
-  const _NeoToggleRow({
-    required this.title,
-    required this.subtitle,
-    required this.value,
-    required this.onChanged,
-  });
-
-  final String title;
-  final String subtitle;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
+    return GlassSurface(
+      borderRadius: BorderRadius.circular(18),
+      blur: 22,
+      tint: Colors.white.withValues(alpha: 0.48),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
       child: Row(
         children: [
+          Container(
+            width: 72,
+            height: 72,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppColors.dentalBlue.withValues(alpha: 0.9),
+                  AppColors.navy,
+                ],
+              ),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white.withValues(alpha: 0.55)),
+            ),
+            child: Text(
+              initial,
+              style: AppFonts.style(
+                fontSize: 28,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
+                  name,
+                  style: AppFonts.style(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
                     color: AppColors.navy,
-                    fontSize: 14,
+                    letterSpacing: -0.3,
                   ),
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    color: AppColors.muted,
-                    fontSize: 12.5,
-                    height: 1.3,
+                if (email.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    email,
+                    style: AppFonts.style(
+                      fontSize: 15,
+                      color: const Color(0xFF6B7C93),
+                    ),
                   ),
-                ),
+                ],
+                if (subtitle.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    subtitle,
+                    style: AppFonts.style(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.dentalBlue,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
-          const SizedBox(width: 12),
-          _NeoSwitch(value: value, onChanged: onChanged),
         ],
       ),
     );
   }
 }
 
-class _NeoSwitch extends StatelessWidget {
-  const _NeoSwitch({required this.value, required this.onChanged});
+class _GlassSettingsGroup extends StatelessWidget {
+  const _GlassSettingsGroup({
+    required this.children,
+    this.header,
+    this.footer,
+  });
 
-  final bool value;
-  final ValueChanged<bool> onChanged;
+  final String? header;
+  final String? footer;
+  final List<Widget> children;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => onChanged(!value),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
-        width: 54,
-        height: 32,
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          color: value ? AppColors.sidebarActive : AppColors.inset,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: value ? NeoShadows.pressed() : NeoShadows.soft(depth: 0.5),
-        ),
-        child: AnimatedAlign(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
-          alignment: value ? Alignment.centerRight : Alignment.centerLeft,
-          child: Container(
-            width: 24,
-            height: 24,
-            decoration: BoxDecoration(
-              color: value ? AppColors.dentalBlue : AppColors.neo,
-              shape: BoxShape.circle,
-              boxShadow: NeoShadows.soft(depth: 0.65),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (header != null) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+            child: Text(
+              header!,
+              style: AppFonts.style(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF6C6C70),
+                letterSpacing: -0.08,
+              ),
             ),
+          ),
+        ],
+        GlassSurface(
+          borderRadius: BorderRadius.circular(14),
+          blur: 20,
+          tint: Colors.white.withValues(alpha: 0.5),
+          padding: EdgeInsets.zero,
+          child: Column(children: children),
+        ),
+        if (footer != null) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Text(
+              footer!,
+              style: AppFonts.style(
+                fontSize: 13,
+                color: const Color(0xFF6C6C70),
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _GlassNavRow extends StatelessWidget {
+  const _GlassNavRow({
+    required this.icon,
+    required this.iconBg,
+    required this.title,
+    required this.onTap,
+    this.titleColor,
+    this.showChevron = true,
+  });
+
+  final IconData icon;
+  final Color iconBg;
+  final String title;
+  final Color? titleColor;
+  final bool showChevron;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              _GlassIcon(icon: icon, bg: iconBg),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: AppFonts.style(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w500,
+                    color: titleColor ?? AppColors.navy,
+                  ),
+                ),
+              ),
+              if (showChevron)
+                const Icon(
+                  CupertinoIcons.chevron_forward,
+                  size: 16,
+                  color: Color(0xFFC7C7CC),
+                ),
+            ],
           ),
         ),
       ),
@@ -539,15 +605,102 @@ class _NeoSwitch extends StatelessWidget {
   }
 }
 
-class _NeoDivider extends StatelessWidget {
-  const _NeoDivider();
+class _GlassToggleRow extends StatelessWidget {
+  const _GlassToggleRow({
+    required this.icon,
+    required this.iconBg,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+    required this.showDivider,
+  });
+
+  final IconData icon;
+  final Color iconBg;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  final bool showDivider;
 
   @override
   Widget build(BuildContext context) {
-    return Divider(
-      height: 1,
-      thickness: 1,
-      color: AppColors.border.withValues(alpha: 0.7),
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+          child: Row(
+            children: [
+              _GlassIcon(icon: icon, bg: iconBg),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: AppFonts.style(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.navy,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: AppFonts.style(
+                        fontSize: 13,
+                        color: const Color(0xFF6B7C93),
+                        height: 1.25,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              CupertinoSwitch(
+                value: value,
+                activeTrackColor: AppColors.dentalBlue,
+                onChanged: onChanged,
+              ),
+            ],
+          ),
+        ),
+        if (showDivider)
+          const Padding(
+            padding: EdgeInsets.only(left: 58),
+            child: Divider(height: 0.5, thickness: 0.5, color: _kHairline),
+          ),
+      ],
+    );
+  }
+}
+
+class _GlassIcon extends StatelessWidget {
+  const _GlassIcon({required this.icon, required this.bg});
+
+  final IconData icon;
+  final Color bg;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 30,
+      height: 30,
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(7),
+        boxShadow: [
+          BoxShadow(
+            color: bg.withValues(alpha: 0.28),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      alignment: Alignment.center,
+      child: Icon(icon, size: 17, color: Colors.white),
     );
   }
 }

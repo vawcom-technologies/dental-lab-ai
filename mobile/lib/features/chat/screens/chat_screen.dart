@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +9,9 @@ import '../models/chat_models.dart';
 import '../state/chat_controller.dart';
 import '../widgets/chat_bubble.dart';
 import '../widgets/chat_composer.dart';
+
+/// Soft iPadOS Messages canvas.
+const _kChatCanvas = Color(0xFFF2F2F7);
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({
@@ -114,7 +118,7 @@ class _ChatScreenState extends State<ChatScreen> {
             showBack: widget.showBack,
             onBack: widget.onBack,
           ),
-          Divider(height: 1, color: AppColors.border.withValues(alpha: 0.7)),
+          Container(height: 0.5, color: const Color(0xFFC6C6C8)),
           if (controller.threadError != null)
             Container(
               width: double.infinity,
@@ -126,61 +130,68 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
           Expanded(
-            child: controller.loadingMessages && messages.isEmpty
-                ? const ToothPageLoader(message: 'Loading chat…')
-                : messages.isEmpty
-                    ? const Center(
-                        child: Text(
-                          'No messages yet — say hello.',
-                          style: TextStyle(color: AppColors.muted),
-                        ),
-                      )
-                    : Builder(
-                        builder: (context) {
-                          final me = controller.currentUserId;
-                          String? lastSeenMineId;
-                          if (me != null) {
-                            for (var i = messages.length - 1; i >= 0; i--) {
-                              final m = messages[i];
-                              if (m.senderId == me && m.isRead) {
-                                lastSeenMineId = m.id;
-                                break;
+            child: ColoredBox(
+              color: _kChatCanvas,
+              child: controller.loadingMessages && messages.isEmpty
+                  ? const ToothPageLoader(message: 'Loading chat…')
+                  : messages.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'No messages yet — say hello.',
+                            style: TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 16,
+                            ),
+                          ),
+                        )
+                      : Builder(
+                          builder: (context) {
+                            final me = controller.currentUserId;
+                            String? lastSeenMineId;
+                            if (me != null) {
+                              for (var i = messages.length - 1; i >= 0; i--) {
+                                final m = messages[i];
+                                if (m.senderId == me && m.isRead) {
+                                  lastSeenMineId = m.id;
+                                  break;
+                                }
                               }
                             }
-                          }
-                          return ListView.builder(
-                            controller: _scroll,
-                            reverse: true,
-                            padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-                            itemCount: messages.length +
-                                (controller.loadingOlder ? 1 : 0),
-                            itemBuilder: (context, index) {
-                              if (controller.loadingOlder &&
-                                  index == messages.length) {
-                                return const Padding(
-                                  padding: EdgeInsets.all(12),
-                                  child: Center(
-                                    child: ToothLoadingIndicator(size: 28),
-                                  ),
+                            return ListView.builder(
+                              controller: _scroll,
+                              reverse: true,
+                              padding:
+                                  const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                              itemCount: messages.length +
+                                  (controller.loadingOlder ? 1 : 0),
+                              itemBuilder: (context, index) {
+                                if (controller.loadingOlder &&
+                                    index == messages.length) {
+                                  return const Padding(
+                                    padding: EdgeInsets.all(12),
+                                    child: Center(
+                                      child: ToothLoadingIndicator(size: 28),
+                                    ),
+                                  );
+                                }
+                                final message =
+                                    messages[messages.length - 1 - index];
+                                final mine =
+                                    me != null && message.senderId == me;
+                                return ChatMessageBubble(
+                                  message: message,
+                                  mine: mine,
+                                  showSeenEye: mine &&
+                                      lastSeenMineId != null &&
+                                      message.id == lastSeenMineId,
+                                  onReply: () =>
+                                      controller.setReplyTo(message),
                                 );
-                              }
-                              final message =
-                                  messages[messages.length - 1 - index];
-                              final mine =
-                                  me != null && message.senderId == me;
-                              return ChatMessageBubble(
-                                message: message,
-                                mine: mine,
-                                showSeenEye: mine &&
-                                    lastSeenMineId != null &&
-                                    message.id == lastSeenMineId,
-                                onReply: () =>
-                                    controller.setReplyTo(message),
-                              );
-                            },
-                          );
-                        },
-                      ),
+                              },
+                            );
+                          },
+                        ),
+            ),
           ),
           if (controller.replyTo != null)
             _ReplyPreviewBar(
@@ -214,17 +225,24 @@ class _ChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
+    return Container(
+      color: Colors.white.withValues(alpha: 0.92),
+      padding: const EdgeInsets.fromLTRB(8, 10, 14, 10),
       child: Row(
         children: [
           if (showBack)
-            IconButton(
+            CupertinoButton(
+              padding: const EdgeInsets.only(left: 4, right: 4),
               onPressed: onBack,
-              icon: const Icon(Icons.arrow_back_rounded),
+              child: const Icon(
+                CupertinoIcons.back,
+                color: AppColors.dentalBlue,
+                size: 22,
+              ),
             ),
           CircleAvatar(
-            backgroundColor: AppColors.dentalBlue.withValues(alpha: 0.15),
+            radius: 20,
+            backgroundColor: AppColors.dentalBlue.withValues(alpha: 0.14),
             child: Text(
               partner.displayName.isNotEmpty
                   ? partner.displayName.characters.first.toUpperCase()
@@ -232,6 +250,7 @@ class _ChatHeader extends StatelessWidget {
               style: const TextStyle(
                 color: AppColors.dentalBlue,
                 fontWeight: FontWeight.w700,
+                fontSize: 16,
               ),
             ),
           ),
@@ -245,39 +264,26 @@ class _ChatHeader extends StatelessWidget {
                   style: const TextStyle(
                     fontWeight: FontWeight.w700,
                     color: AppColors.navy,
-                    fontSize: 16,
+                    fontSize: 17,
+                    letterSpacing: -0.2,
                   ),
                 ),
-                const SizedBox(height: 2),
-                Row(
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: connected
-                            ? AppColors.success
-                            : AppColors.warning,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: Text(
-                        connected
-                            ? (partner.subtitle.isEmpty
-                                ? 'Connected'
-                                : partner.subtitle)
-                            : 'Reconnecting…',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.muted,
-                        ),
-                      ),
-                    ),
-                  ],
+                const SizedBox(height: 1),
+                Text(
+                  connected
+                      ? (partner.subtitle.isEmpty
+                          ? 'Active'
+                          : partner.subtitle)
+                      : 'Reconnecting…',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: connected
+                        ? AppColors.muted
+                        : AppColors.warning,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ],
             ),
@@ -301,18 +307,18 @@ class _ReplyPreviewBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
+      padding: const EdgeInsets.fromLTRB(14, 8, 4, 8),
+      decoration: const BoxDecoration(
+        color: Colors.white,
         border: Border(
-          top: BorderSide(color: AppColors.border.withValues(alpha: 0.8)),
+          top: BorderSide(color: Color(0xFFE5E5EA)),
         ),
       ),
       child: Row(
         children: [
           Container(
             width: 3,
-            height: 36,
+            height: 34,
             decoration: BoxDecoration(
               color: AppColors.dentalBlue,
               borderRadius: BorderRadius.circular(2),
@@ -324,9 +330,9 @@ class _ReplyPreviewBar extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Replying to…',
+                  'Replying',
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: 12,
                     fontWeight: FontWeight.w700,
                     color: AppColors.dentalBlue,
                   ),
@@ -335,15 +341,19 @@ class _ReplyPreviewBar extends StatelessWidget {
                   message.previewText,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                  style: const TextStyle(fontSize: 13, color: AppColors.muted),
                 ),
               ],
             ),
           ),
-          IconButton(
+          CupertinoButton(
+            padding: const EdgeInsets.all(8),
             onPressed: onClear,
-            icon: const Icon(Icons.close, size: 18),
-            color: AppColors.muted,
+            child: const Icon(
+              CupertinoIcons.xmark_circle_fill,
+              size: 20,
+              color: Color(0xFFC7C7CC),
+            ),
           ),
         ],
       ),

@@ -72,7 +72,7 @@ class _TouchableState extends State<Touchable> {
   Widget build(BuildContext context) {
     return AnimatedScale(
       scale: _pressed ? widget.scale : 1,
-      duration: const Duration(milliseconds: 110),
+      duration: const Duration(milliseconds: 160),
       curve: Curves.easeOutCubic,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,

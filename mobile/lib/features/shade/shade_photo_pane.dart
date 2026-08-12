@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
@@ -25,7 +26,6 @@ class ShadePhotoPane extends StatelessWidget {
     super.key,
     required this.previewBytes,
     required this.busy,
-    required this.photoMenuVisible,
     required this.editOutlineMode,
     required this.teeth,
     required this.selectedToothIndex,
@@ -40,8 +40,6 @@ class ShadePhotoPane extends StatelessWidget {
     required this.dragTick,
     required this.canUndo,
     required this.canRedo,
-    required this.onShowPhotoMenu,
-    required this.onHidePhotoMenu,
     required this.onUpload,
     required this.onClearPhoto,
     required this.onSelectTooth,
@@ -55,7 +53,6 @@ class ShadePhotoPane extends StatelessWidget {
 
   final Uint8List? previewBytes;
   final bool busy;
-  final bool photoMenuVisible;
   final bool editOutlineMode;
   final List<Map<String, dynamic>> teeth;
   final int? selectedToothIndex;
@@ -70,8 +67,6 @@ class ShadePhotoPane extends StatelessWidget {
   final ValueNotifier<int> dragTick;
   final bool canUndo;
   final bool canRedo;
-  final VoidCallback onShowPhotoMenu;
-  final VoidCallback onHidePhotoMenu;
   final VoidCallback onUpload;
   final VoidCallback onClearPhoto;
   final ValueChanged<int> onSelectTooth;
@@ -81,6 +76,39 @@ class ShadePhotoPane extends StatelessWidget {
   final void Function(Offset local, Size box) onEdgeDoubleTap;
   final VoidCallback onUndo;
   final VoidCallback onRedo;
+
+  Future<void> _showIpadPhotoActions(BuildContext context) async {
+    AppHaptics.selection();
+    await showCupertinoModalPopup<void>(
+      context: context,
+      builder: (ctx) => CupertinoActionSheet(
+        title: const Text('Shade photo'),
+        message: const Text('Choose an action for this photo.'),
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(ctx);
+              onUpload();
+            },
+            child: const Text('Upload Another'),
+          ),
+          CupertinoActionSheetAction(
+            isDestructiveAction: true,
+            onPressed: () {
+              Navigator.pop(ctx);
+              onClearPhoto();
+            },
+            child: const Text('Delete Photo'),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          isDefaultAction: true,
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Cancel'),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -130,10 +158,7 @@ class ShadePhotoPane extends StatelessWidget {
                                 selectAtViewport(details.localPosition),
                         onLongPress: editOutlineMode || busy
                             ? null
-                            : () {
-                                AppHaptics.selection();
-                                onShowPhotoMenu();
-                              },
+                            : () => _showIpadPhotoActions(context),
                         child: InteractiveViewer(
                           transformationController: photoTransformController,
                           minScale: 1,
@@ -313,50 +338,6 @@ class ShadePhotoPane extends StatelessWidget {
                     ),
                   ),
                 ),
-              if (photoMenuVisible && previewBytes != null && !busy)
-                Positioned.fill(
-                  child: Material(
-                    color: Colors.black54,
-                    child: InkWell(
-                      onTap: onHidePhotoMenu,
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 260),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              FilledButton.icon(
-                                onPressed: () {
-                                  onHidePhotoMenu();
-                                  onUpload();
-                                },
-                                icon: const Icon(Icons.upload_file, size: 18),
-                                label: const Text('Upload another'),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: AppColors.dentalBlue,
-                                  minimumSize: const Size.fromHeight(44),
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              FilledButton.icon(
-                                onPressed: onClearPhoto,
-                                icon: const Icon(
-                                  Icons.delete_outline,
-                                  size: 18,
-                                ),
-                                label: const Text('Delete photo'),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: AppColors.danger,
-                                  minimumSize: const Size.fromHeight(44),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
               if (teeth.isNotEmpty && !busy)
                 Positioned(
                   left: 12,
@@ -365,7 +346,7 @@ class ShadePhotoPane extends StatelessWidget {
                   child: Text(
                     editOutlineMode
                         ? 'Drag corners · hold mid-edge to curve · double-tap edge to add a point · Apply.'
-                        : 'Pinch to zoom · Tap to select · Triple-tap to show only that tooth.',
+                        : 'Pinch to zoom · Tap to select · Press & hold for photo actions · Triple-tap to focus a tooth.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.85),

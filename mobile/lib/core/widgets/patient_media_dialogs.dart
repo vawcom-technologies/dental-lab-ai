@@ -3,7 +3,6 @@ import 'package:flutter/scheduler.dart';
 
 import '../theme/app_theme.dart';
 import 'app_dialogs.dart';
-import 'tooth_loader.dart';
 
 /// Let the current pointer / mouse-tracker update finish before mutating the
 /// overlay (show/pop dialog). Required on Flutter Web after file pickers and
@@ -62,7 +61,7 @@ Future<bool> confirmPatientMediaDelete(BuildContext context) {
   );
 }
 
-/// Blocking dialog with [ToothLoadingIndicator] while [action] runs.
+/// Blocking native iOS loading dialog while [action] runs.
 Future<T> runWithToothLoadingDialog<T>(
   BuildContext context, {
   required Future<T> Function() action,
@@ -73,28 +72,13 @@ Future<T> runWithToothLoadingDialog<T>(
     throw StateError('Context unmounted before loading dialog');
   }
 
-  final navigator = Navigator.of(context, rootNavigator: true);
-  showDialog<void>(
-    context: context,
-    useRootNavigator: true,
-    barrierDismissible: false,
-    builder: (ctx) => PopScope(
-      canPop: false,
-      child: AlertDialog(
-        content: ToothLoadingIndicator(size: 48, loadingText: message),
-      ),
-    ),
-  );
-
   try {
-    return await action();
+    return await AppDialogs.runWithLoading(
+      context,
+      action: action,
+      message: message,
+    );
   } finally {
-    // Pop after the current event loop turn so we are not still inside a
-    // pointer/mouse-tracker update from the confirm dialog button.
     await _settleGestures();
-    if (context.mounted && navigator.canPop()) {
-      navigator.pop();
-      await _settleGestures();
-    }
   }
 }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/navigation/app_page_routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/brand_logo.dart';
 import '../../core/widgets/ui_kit.dart';
@@ -38,8 +39,8 @@ class _LoginScreenState extends State<LoginScreen> {
       final data = await widget.api.signIn(_email.text.trim(), _password.text);
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => AppShell(
+        AppPageRoutes.fade(
+          AppShell(
             api: widget.api,
             dentistName: data['name'] as String? ?? 'Dentist',
           ),
@@ -57,9 +58,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _openRegister() async {
     final result = await Navigator.of(context).push<Object?>(
-      MaterialPageRoute(
-        builder: (_) => RegisterScreen(api: widget.api),
-      ),
+      AppPageRoutes.cupertino(RegisterScreen(api: widget.api)),
     );
     if (!mounted || result == null) return;
 
@@ -203,8 +202,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ? null
                                 : () {
                                     Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => ForgotPasswordScreen(
+                                      AppPageRoutes.cupertino(
+                                        ForgotPasswordScreen(
                                           api: widget.api,
                                           initialEmail: _email.text.trim(),
                                         ),

@@ -8,6 +8,26 @@ from typing import Any, Literal
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
+PatientStatus = Literal[
+    "pending", "in_progress", "in_review", "completed", "rejected"
+]
+
+_PATIENT_STATUSES = frozenset(
+    {"pending", "in_progress", "in_review", "completed", "rejected"}
+)
+
+
+def normalize_patient_status(raw: Any) -> PatientStatus:
+    value = str(raw or "pending").strip().lower()
+    if value == "awaiting_scan":
+        return "pending"
+    if value == "complete":
+        return "completed"
+    if value in _PATIENT_STATUSES:
+        return value  # type: ignore[return-value]
+    return "pending"
+
+
 class PatientCreateRequest(BaseModel):
     first_name: str = Field(min_length=1, max_length=120)
     last_name: str = Field(min_length=1, max_length=120)
@@ -16,6 +36,7 @@ class PatientCreateRequest(BaseModel):
     address: str = Field(min_length=1)
     phone: str = Field(min_length=1, max_length=64)
     health_insurance: str = Field(min_length=1, max_length=255)
+    status: PatientStatus = "pending"
 
     @field_validator("email")
     @classmethod
@@ -25,32 +46,38 @@ class PatientCreateRequest(BaseModel):
             raise ValueError("email is required")
         return email.lower()
 
+    @field_validator("status", mode="before")
+    @classmethod
+    def _normalize_status(cls, v: Any) -> PatientStatus:
+        return normalize_patient_status(v)
+
 
 class PatientUpdateRequest(BaseModel):
     fields_to_update: dict[str, Any] = Field(
         ...,
         description=(
             "Subset of: first_name, last_name, date_of_birth, email, "
-            "address, phone, health_insurance"
+            "address, phone, health_insurance, status"
         ),
     )
 
     @field_validator("fields_to_update")
     @classmethod
     def _validate_email_if_present(cls, fields: dict[str, Any]) -> dict[str, Any]:
-        if "email" not in fields:
-            return fields
-        raw = fields.get("email")
-        if raw is None:
-            raise ValueError("email cannot be null")
-        email = str(raw).strip()
-        if not email:
-            raise ValueError("email cannot be empty")
-        from pydantic import TypeAdapter
-
-        validated = TypeAdapter(EmailStr).validate_python(email)
         out = dict(fields)
-        out["email"] = str(validated).strip().lower()
+        if "email" in out:
+            raw = out.get("email")
+            if raw is None:
+                raise ValueError("email cannot be null")
+            email = str(raw).strip()
+            if not email:
+                raise ValueError("email cannot be empty")
+            from pydantic import TypeAdapter
+
+            validated = TypeAdapter(EmailStr).validate_python(email)
+            out["email"] = str(validated).strip().lower()
+        if "status" in out:
+            out["status"] = normalize_patient_status(out.get("status"))
         return out
 
 
@@ -119,6 +146,7 @@ class PatientOut(BaseModel):
     address: str
     phone: str
     health_insurance: str
+    status: PatientStatus = "pending"
     deleted: bool = False
     deleted_at: datetime | None = None
     created_at: datetime | None = None

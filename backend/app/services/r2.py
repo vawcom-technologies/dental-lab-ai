@@ -82,6 +82,50 @@ def build_object_key(
     return f"chat/{conversation_id}/{media_type}/{safe_name}"
 
 
+def delete_chat_media_object(*, media_type: str, file_url: str) -> None:
+    """Best-effort delete of a chat media object from its public CDN URL."""
+    url = (file_url or "").strip()
+    media = (media_type or "").strip().lower() or "document"
+    if not url:
+        return
+    if media not in ALLOWED_MEDIA_TYPES:
+        media = "document"
+
+    try:
+        bucket, public_base = _require_bucket_and_public_url(media)
+    except HTTPException:
+        logger.warning(
+            "chat R2 delete skipped — bucket not configured media_type=%s",
+            media,
+        )
+        return
+
+    key = ""
+    if url.startswith(f"{public_base}/"):
+        key = url[len(public_base) + 1 :]
+    else:
+        try:
+            from urllib.parse import urlparse
+
+            key = (urlparse(url).path or "").lstrip("/")
+        except Exception:
+            key = ""
+    if not key:
+        logger.warning("chat R2 delete skipped — no key from url=%s", url)
+        return
+
+    client = get_r2_client()
+    try:
+        client.delete_object(Bucket=bucket, Key=key)
+    except Exception as exc:
+        # Account deletion should not abort solely on orphaned media.
+        logger.warning(
+            "chat R2 delete failed key=%s detail=%s",
+            key,
+            exc,
+        )
+
+
 def upload_chat_file(
     *,
     file: UploadFile,

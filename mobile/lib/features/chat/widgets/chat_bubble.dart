@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:math' as math;
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -38,6 +40,13 @@ Future<void> _openMediaUrl(String url) async {
   await launchUrl(uri, mode: LaunchMode.externalApplication);
 }
 
+/// iMessage-like bubble colors (kept on-brand with dental blue for sent).
+abstract final class _BubbleColors {
+  static const mine = Color(0xFF4A90E2);
+  static const theirs = Color(0xFFE9E9EB);
+  static const theirsFg = Color(0xFF1C1C1E);
+}
+
 /// Chat bubble that renders text and/or media (voice / image / document).
 class ChatMessageBubble extends StatelessWidget {
   const ChatMessageBubble({
@@ -53,130 +62,172 @@ class ChatMessageBubble extends StatelessWidget {
   final VoidCallback onReply;
   final bool showSeenEye;
 
+  bool get _mediaOnly =>
+      message.hasMedia &&
+      !message.isPending &&
+      message.content.trim().isEmpty &&
+      message.replyTo == null;
+
   @override
   Widget build(BuildContext context) {
     final time = message.createdAt != null
-        ? DateFormat.Hm().format(message.createdAt!.toLocal())
+        ? DateFormat.jm().format(message.createdAt!.toLocal())
         : '';
-    final fg = mine ? Colors.white : AppColors.navy;
-    final muted = mine ? Colors.white70 : AppColors.muted;
+    final fg = mine ? Colors.white : _BubbleColors.theirsFg;
+    final muted = mine ? Colors.white.withValues(alpha: 0.72) : AppColors.muted;
+    final bubbleMax = math.min(340.0, MediaQuery.sizeOf(context).width * 0.55);
 
-    return Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
-        onLongPress: onReply,
-        onHorizontalDragEnd: (details) {
-          if (details.primaryVelocity != null &&
-              details.primaryVelocity!.abs() > 200) {
-            onReply();
-          }
-        },
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.sizeOf(context).width * 0.72,
-          ),
-          child: Column(
-            crossAxisAlignment:
-                mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-            children: [
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Container(
-                    margin: EdgeInsets.only(bottom: showSeenEye ? 2 : 8),
-                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-                    decoration: BoxDecoration(
-                      color: mine ? AppColors.dentalBlue : AppColors.neo,
-                      borderRadius: BorderRadius.only(
-                        topLeft: const Radius.circular(16),
-                        topRight: const Radius.circular(16),
-                        bottomLeft: Radius.circular(mine ? 16 : 4),
-                        bottomRight: Radius.circular(mine ? 4 : 16),
+    final hasText =
+        !message.isPending && message.content.trim().isNotEmpty;
+    final hasMediaBody = !message.isPending && message.hasMedia &&
+        (message.isVoice ||
+            message.isImage ||
+            message.isDocument ||
+            message.hasMedia);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Align(
+        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+        child: GestureDetector(
+          onLongPress: onReply,
+          onHorizontalDragEnd: (details) {
+            if (details.primaryVelocity != null &&
+                details.primaryVelocity!.abs() > 200) {
+              onReply();
+            }
+          },
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: bubbleMax),
+            child: Column(
+              crossAxisAlignment:
+                  mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      padding: _mediaOnly && message.isImage
+                          ? EdgeInsets.zero
+                          : EdgeInsets.fromLTRB(
+                              hasMediaBody && !hasText ? 10 : 14,
+                              hasMediaBody && !hasText ? 10 : 10,
+                              hasMediaBody && !hasText ? 10 : 14,
+                              8,
+                            ),
+                      decoration: BoxDecoration(
+                        color: _mediaOnly && message.isImage
+                            ? Colors.transparent
+                            : (mine
+                                ? _BubbleColors.mine
+                                : _BubbleColors.theirs),
+                        borderRadius: BorderRadius.only(
+                          topLeft: const Radius.circular(18),
+                          topRight: const Radius.circular(18),
+                          bottomLeft: Radius.circular(mine ? 18 : 5),
+                          bottomRight: Radius.circular(mine ? 5 : 18),
+                        ),
                       ),
-                      boxShadow: NeoShadows.soft(depth: 0.35),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (message.replyTo != null) ...[
-                          _ReplyQuote(
-                            label: message.replyTo!.previewLabel,
-                            mine: mine,
-                          ),
-                          const SizedBox(height: 8),
-                        ],
-                        if (message.isPending)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 20, bottom: 4),
-                            child: Text(
-                              message.previewText,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (message.replyTo != null) ...[
+                            _ReplyQuote(
+                              label: message.replyTo!.previewLabel,
+                              mine: mine,
+                            ),
+                            const SizedBox(height: 6),
+                          ],
+                          if (message.isPending)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 22, bottom: 2),
+                              child: Text(
+                                message.previewText,
+                                style: TextStyle(
+                                  color: muted,
+                                  fontStyle: FontStyle.italic,
+                                  fontSize: 16,
+                                  height: 1.3,
+                                ),
+                              ),
+                            )
+                          else if (message.isVoice && message.hasMedia)
+                            VoiceNoteBubble(
+                              url: message.mediaUrl!,
+                              durationSeconds: message.durationSeconds,
+                              mine: mine,
+                            )
+                          else if (message.isImage && message.hasMedia)
+                            ImageMessageBubble(
+                              url: message.mediaUrl!,
+                              mine: mine,
+                            )
+                          else if (message.hasMedia)
+                            DocumentMessageBubble(
+                              url: message.mediaUrl!,
+                              mine: mine,
+                            ),
+                          if (hasText) ...[
+                            if (hasMediaBody) const SizedBox(height: 6),
+                            Text(
+                              message.content,
                               style: TextStyle(
-                                color: muted,
-                                fontStyle: FontStyle.italic,
-                                height: 1.35,
+                                color: fg,
+                                fontSize: 16,
+                                height: 1.28,
                               ),
                             ),
-                          )
-                        else if (message.isVoice && message.hasMedia)
-                          VoiceNoteBubble(
-                            url: message.mediaUrl!,
-                            durationSeconds: message.durationSeconds,
-                            mine: mine,
-                          )
-                        else if (message.isImage && message.hasMedia)
-                          ImageMessageBubble(
-                            url: message.mediaUrl!,
-                            mine: mine,
-                          )
-                        else if (message.isDocument && message.hasMedia)
-                          DocumentMessageBubble(
-                            url: message.mediaUrl!,
-                            mine: mine,
-                          )
-                        else if (message.hasMedia && !message.isVoice)
-                          DocumentMessageBubble(
-                            url: message.mediaUrl!,
-                            mine: mine,
-                          ),
-                        if (!message.isPending &&
-                            message.content.trim().isNotEmpty) ...[
-                          if (message.hasMedia) const SizedBox(height: 8),
-                          Text(
-                            message.content,
-                            style: TextStyle(color: fg, height: 1.35),
-                          ),
+                          ],
                         ],
-                        const SizedBox(height: 4),
-                        Text(
-                          time,
-                          style: TextStyle(fontSize: 10, color: muted),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (message.isPending)
-                    Positioned(
-                      top: 8,
-                      right: mine ? 10 : null,
-                      left: mine ? null : 10,
-                      child: ToothLoadingIndicator(
-                        size: 18,
-                        compact: true,
-                        color: mine ? Colors.white : kToothLoaderBlue,
                       ),
                     ),
-                ],
-              ),
-              if (showSeenEye)
-                const Padding(
-                  padding: EdgeInsets.only(right: 4, bottom: 8),
-                  child: Icon(
-                    Icons.remove_red_eye_outlined,
-                    size: 14,
-                    color: AppColors.muted,
+                    if (message.isPending)
+                      Positioned(
+                        top: 8,
+                        right: mine ? 10 : null,
+                        left: mine ? null : 10,
+                        child: ToothLoadingIndicator(
+                          size: 16,
+                          compact: true,
+                          color: mine ? Colors.white : kToothLoaderBlue,
+                        ),
+                      ),
+                  ],
+                ),
+                Padding(
+                  padding: EdgeInsets.only(
+                    top: 3,
+                    bottom: showSeenEye ? 2 : 8,
+                    left: mine ? 0 : 4,
+                    right: mine ? 4 : 0,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (time.isNotEmpty)
+                        Text(
+                          time,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: AppColors.muted,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      if (showSeenEye) ...[
+                        const SizedBox(width: 4),
+                        const Icon(
+                          CupertinoIcons.eye,
+                          size: 12,
+                          color: AppColors.muted,
+                        ),
+                      ],
+                    ],
                   ),
                 ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -193,11 +244,10 @@ class _ReplyQuote extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
       decoration: BoxDecoration(
-        color: (mine ? Colors.white : AppColors.navy).withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(8),
+        color: (mine ? Colors.white : AppColors.navy).withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(10),
         border: Border(
           left: BorderSide(
             color: mine ? Colors.white70 : AppColors.dentalBlue,
@@ -210,7 +260,7 @@ class _ReplyQuote extends StatelessWidget {
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          fontSize: 12,
+          fontSize: 13,
           color: mine ? Colors.white70 : AppColors.muted,
         ),
       ),
@@ -270,8 +320,9 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
         _ready = true;
         _duration = d ??
             Duration(
-              milliseconds:
-                  ((widget.durationSeconds ?? 0) * 1000).round().clamp(0, 36000000),
+              milliseconds: ((widget.durationSeconds ?? 0) * 1000)
+                  .round()
+                  .clamp(0, 36000000),
             );
         _failed = false;
       });
@@ -305,7 +356,6 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
   @override
   Widget build(BuildContext context) {
     final accent = widget.mine ? Colors.white : AppColors.dentalBlue;
-    final track = widget.mine ? Colors.white38 : AppColors.border;
     final labelSeconds = _duration.inMilliseconds > 0
         ? _duration.inMilliseconds / 1000.0
         : widget.durationSeconds;
@@ -314,95 +364,85 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
         : formatVoiceDuration(labelSeconds);
 
     if (_failed) {
-      return Row(
-        children: [
-          IconButton(
-            onPressed: () => _openMediaUrl(widget.url),
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-            tooltip: 'Open audio',
-            icon: Icon(Icons.open_in_new_rounded, color: accent, size: 20),
-          ),
-          Expanded(
-            child: Text(
-              'Voice note · ${formatVoiceDuration(widget.durationSeconds)}',
-              style: TextStyle(
-                color: widget.mine ? Colors.white : AppColors.navy,
-                fontSize: 13,
+      return SizedBox(
+        width: 200,
+        child: Row(
+          children: [
+            Icon(CupertinoIcons.exclamationmark_circle, color: accent, size: 22),
+            const SizedBox(width: 8),
+            Expanded(
+              child: GestureDetector(
+                onTap: () => _openMediaUrl(widget.url),
+                child: Text(
+                  'Voice · ${formatVoiceDuration(widget.durationSeconds)}',
+                  style: TextStyle(
+                    color: widget.mine ? Colors.white : _BubbleColors.theirsFg,
+                    fontSize: 15,
+                  ),
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       );
     }
 
     final maxMs = _duration.inMilliseconds <= 0
         ? 1.0
         : _duration.inMilliseconds.toDouble();
-    final value = (_position.inMilliseconds.toDouble()).clamp(0.0, maxMs);
+    final progress = (_position.inMilliseconds / maxMs).clamp(0.0, 1.0);
 
     return SizedBox(
-      width: 240,
+      width: 210,
       child: Row(
         children: [
-          IconButton(
-            onPressed: _ready ? _toggle : null,
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-            icon: Icon(
-              _player.playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-              color: accent,
+          GestureDetector(
+            onTap: _ready ? _toggle : null,
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: widget.mine
+                    ? Colors.white.withValues(alpha: 0.22)
+                    : Colors.white,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: !_ready
+                  ? ToothLoadingIndicator(
+                      size: 14,
+                      compact: true,
+                      color: accent,
+                    )
+                  : Icon(
+                      _player.playing
+                          ? CupertinoIcons.pause_fill
+                          : CupertinoIcons.play_fill,
+                      size: 16,
+                      color: accent,
+                    ),
             ),
           ),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                if (!_ready)
-                  const SizedBox(
-                    height: 28,
-                    child: Center(
-                      child: ToothLoadingIndicator(
-                        size: 16,
-                        compact: true,
-                        color: AppColors.dentalBlue,
-                      ),
-                    ),
-                  )
-                else
-                  SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      trackHeight: 3,
-                      thumbShape:
-                          const RoundSliderThumbShape(enabledThumbRadius: 6),
-                      overlayShape:
-                          const RoundSliderOverlayShape(overlayRadius: 12),
-                      activeTrackColor: accent,
-                      inactiveTrackColor: track,
-                      thumbColor: accent,
-                    ),
-                    child: Slider(
-                      min: 0,
-                      max: maxMs,
-                      value: value,
-                      onChanged: (v) {
-                        setState(
-                          () => _position = Duration(milliseconds: v.round()),
-                        );
-                      },
-                      onChangeEnd: (v) async {
-                        await _player.seek(Duration(milliseconds: v.round()));
-                      },
-                    ),
-                  ),
+                _VoiceWaveform(
+                  progress: progress,
+                  mine: widget.mine,
+                  playing: _player.playing,
+                ),
+                const SizedBox(height: 4),
                 Text(
                   progressLabel,
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: widget.mine ? Colors.white70 : AppColors.muted,
+                    color: widget.mine
+                        ? Colors.white.withValues(alpha: 0.75)
+                        : AppColors.muted,
                   ),
                 ),
               ],
@@ -414,8 +454,59 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
   }
 }
 
-/// Image bubble: web uses HTML `<img>` to avoid CanvasKit EncodingError;
-/// tap opens lightbox with download/open actions.
+class _VoiceWaveform extends StatelessWidget {
+  const _VoiceWaveform({
+    required this.progress,
+    required this.mine,
+    required this.playing,
+  });
+
+  final double progress;
+  final bool mine;
+  final bool playing;
+
+  @override
+  Widget build(BuildContext context) {
+    const count = 24;
+    final active = mine ? Colors.white : AppColors.dentalBlue;
+    final idle = mine
+        ? Colors.white.withValues(alpha: 0.35)
+        : const Color(0xFFC7C7CC);
+
+    return SizedBox(
+      height: 22,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: List.generate(count, (i) {
+          final t = i / (count - 1);
+          final wave = 0.35 +
+              0.65 *
+                  (0.55 +
+                      0.45 *
+                          math.sin(i * 0.9) *
+                          math.cos(i * 0.35));
+          final h = (22 * wave).clamp(4.0, 22.0);
+          final filled = t <= progress;
+          return Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 0.8),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                height: playing && filled ? h * 1.05 : h,
+                decoration: BoxDecoration(
+                  color: filled ? active : idle,
+                  borderRadius: BorderRadius.circular(1.5),
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+}
+
+/// Image bubble: tap opens lightbox. No inline action buttons (iMessage-like).
 class ImageMessageBubble extends StatelessWidget {
   const ImageMessageBubble({
     super.key,
@@ -442,77 +533,22 @@ class ImageMessageBubble extends StatelessWidget {
         (mine ? Colors.white : AppColors.navy).withValues(alpha: 0.08);
     final iconColor = mine ? Colors.white70 : AppColors.muted;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        GestureDetector(
-          onTap: () => _openLightbox(context),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                maxWidth: 260,
-                maxHeight: 280,
-                minWidth: 140,
-                minHeight: 100,
-              ),
-              child: _ChatNetworkImage(
-                url: url,
-                fit: BoxFit.cover,
-                placeholderColor: placeholderColor,
-                iconColor: iconColor,
-                height: 160,
-              ),
-            ),
+    return GestureDetector(
+      onTap: () => _openLightbox(context),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: SizedBox(
+          width: 220,
+          height: 200,
+          child: _ChatNetworkImage(
+            url: url,
+            fit: BoxFit.cover,
+            placeholderColor: placeholderColor,
+            iconColor: iconColor,
+            height: 200,
           ),
         ),
-        const SizedBox(height: 6),
-        Row(
-          children: [
-            TextButton.icon(
-              onPressed: () => _openLightbox(context),
-              icon: Icon(
-                Icons.fullscreen_rounded,
-                size: 16,
-                color: mine ? Colors.white70 : AppColors.dentalBlue,
-              ),
-              label: Text(
-                'View',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: mine ? Colors.white70 : AppColors.dentalBlue,
-                ),
-              ),
-              style: TextButton.styleFrom(
-                padding: EdgeInsets.zero,
-                minimumSize: const Size(0, 28),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-            ),
-            const SizedBox(width: 8),
-            TextButton.icon(
-              onPressed: () => _openMediaUrl(url),
-              icon: Icon(
-                Icons.download_rounded,
-                size: 16,
-                color: mine ? Colors.white70 : AppColors.dentalBlue,
-              ),
-              label: Text(
-                'Download',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: mine ? Colors.white70 : AppColors.dentalBlue,
-                ),
-              ),
-              style: TextButton.styleFrom(
-                padding: EdgeInsets.zero,
-                minimumSize: const Size(0, 28),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-            ),
-          ],
-        ),
-      ],
+      ),
     );
   }
 }
@@ -534,8 +570,6 @@ class _ChatNetworkImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // On web, prefer HTML <img> so browsers can paint cross-origin images
-    // without CanvasKit decode (avoids EncodingError).
     return Image.network(
       url,
       fit: fit,
@@ -649,27 +683,26 @@ class DocumentMessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fg = mine ? Colors.white : AppColors.navy;
+    final fg = mine ? Colors.white : _BubbleColors.theirsFg;
     final badge = _fileExtension(url);
     final name = _fileName(url);
 
     return Material(
-      color: (mine ? Colors.white : AppColors.navy).withValues(alpha: 0.12),
-      borderRadius: BorderRadius.circular(12),
+      color: Colors.transparent,
       child: InkWell(
         onTap: () => _openMediaUrl(url),
         borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        child: SizedBox(
+          width: 240,
           child: Row(
             children: [
               Container(
-                width: 42,
-                height: 42,
+                width: 40,
+                height: 40,
                 decoration: BoxDecoration(
                   color: mine
-                      ? Colors.white.withValues(alpha: 0.18)
-                      : AppColors.dentalBlue.withValues(alpha: 0.15),
+                      ? Colors.white.withValues(alpha: 0.2)
+                      : Colors.white,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 alignment: Alignment.center,
@@ -677,8 +710,8 @@ class DocumentMessageBubble extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(
-                      Icons.insert_drive_file_rounded,
-                      size: 16,
+                      CupertinoIcons.doc_fill,
+                      size: 15,
                       color: mine ? Colors.white : AppColors.dentalBlue,
                     ),
                     Text(
@@ -700,14 +733,15 @@ class DocumentMessageBubble extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: fg,
-                    fontSize: 13,
+                    fontSize: 14,
                     fontWeight: FontWeight.w600,
+                    height: 1.2,
                   ),
                 ),
               ),
               Icon(
-                Icons.download_rounded,
-                size: 18,
+                CupertinoIcons.arrow_down_circle,
+                size: 20,
                 color: mine ? Colors.white70 : AppColors.muted,
               ),
             ],

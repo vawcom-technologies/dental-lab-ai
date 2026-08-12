@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../core/api/api_client.dart';
 import '../../core/layout/adaptive.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/navigation/app_page_routes.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'screens/chat_screen.dart';
 import 'screens/inbox_screen.dart';
@@ -68,8 +69,8 @@ class _MessagesPageState extends State<MessagesPage> {
 
   Future<void> _openNewChat() async {
     final conversation = await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ChangeNotifierProvider<ChatController>.value(
+      AppPageRoutes.cupertino(
+        ChangeNotifierProvider<ChatController>.value(
           value: _controller,
           child: SelectContactScreen(
             onConversationOpened: (_) {
@@ -79,6 +80,7 @@ class _MessagesPageState extends State<MessagesPage> {
             },
           ),
         ),
+        title: 'New Message',
       ),
     );
     if (!mounted) return;
@@ -112,21 +114,49 @@ class _MessagesPageState extends State<MessagesPage> {
             const SizedBox(height: 16),
             Expanded(
               child: narrow
-                  ? (_showThread
-                      ? ChatScreen(
-                          showBack: true,
-                          onBack: () {
-                            _controller.setViewingThread(false);
-                            setState(() => _showThread = false);
-                          },
-                        )
-                      : InboxScreen(
-                          embedded: true,
-                          onNewChat: _openNewChat,
-                          onConversationSelected: (_) {
-                            setState(() => _showThread = true);
-                          },
-                        ))
+                  ? AnimatedSwitcher(
+                      duration: AppMotion.normal,
+                      switchInCurve: AppMotion.easeOut,
+                      switchOutCurve: AppMotion.easeIn,
+                      // One pane only — no stacked overlay (iPadOS drill-in style).
+                      layoutBuilder: (currentChild, previousChildren) {
+                        return currentChild ?? const SizedBox.shrink();
+                      },
+                      transitionBuilder: (child, animation) {
+                        final slide = Tween<Offset>(
+                          begin: Offset(_showThread ? 0.06 : -0.06, 0),
+                          end: Offset.zero,
+                        ).animate(animation);
+                        return FadeTransition(
+                          opacity: animation,
+                          child: SlideTransition(
+                            position: slide,
+                            child: child,
+                          ),
+                        );
+                      },
+                      child: _showThread
+                          ? KeyedSubtree(
+                              key: const ValueKey('thread'),
+                              child: ChatScreen(
+                                showBack: true,
+                                onBack: () {
+                                  _controller.setViewingThread(false);
+                                  setState(() => _showThread = false);
+                                },
+                              ),
+                            )
+                          : KeyedSubtree(
+                              key: const ValueKey('inbox'),
+                              child: InboxScreen(
+                                embedded: true,
+                                onNewChat: _openNewChat,
+                                onConversationSelected: (_) {
+                                  setState(() => _showThread = true);
+                                },
+                              ),
+                            ),
+                    )
                   : AdaptiveSplit(
                       panel: InboxScreen(
                         embedded: true,

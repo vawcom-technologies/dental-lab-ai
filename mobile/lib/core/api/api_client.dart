@@ -234,6 +234,23 @@ class ApiClient {
     return 'Password updated';
   }
 
+  /// Permanently deletes this account and all associated clinical / chat data.
+  Future<String> deleteAccount({required String password}) async {
+    final res = await _http.delete(
+      Uri.parse('$baseUrl/api/auth/me'),
+      headers: _jsonHeaders,
+      body: jsonEncode({'password': password}),
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    try {
+      final body = jsonDecode(res.body);
+      if (body is Map && body['message'] is String) {
+        return body['message'] as String;
+      }
+    } catch (_) {}
+    return 'Account deleted';
+  }
+
   Future<List<Map<String, dynamic>>> listPatients() async {
     final res = await _http.get(Uri.parse('$baseUrl/api/patients'), headers: _jsonHeaders);
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
@@ -305,6 +322,25 @@ class ApiClient {
       return Map<String, dynamic>.from(decoded);
     }
     throw Exception('Invalid create patient response');
+  }
+
+  Future<Map<String, dynamic>> updatePatient(
+    String patientId,
+    Map<String, dynamic> fieldsToUpdate,
+  ) async {
+    final res = await _http.patch(
+      Uri.parse('$baseUrl/api/patients/$patientId'),
+      headers: _jsonHeaders,
+      body: jsonEncode({'fields_to_update': fieldsToUpdate}),
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    final payload = _agentPayload(res, fallback: 'Failed to update patient');
+    final patient = payload['patient'];
+    if (patient is Map) {
+      AppHaptics.selection();
+      return Map<String, dynamic>.from(patient);
+    }
+    throw Exception('Patient payload missing');
   }
 
   Future<void> deletePatient(Object id, {bool hard = false}) async {

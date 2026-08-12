@@ -1,7 +1,7 @@
 """Clinic reports summary — Supabase-backed analytics for the Reports page.
 
 Returns the same JSON shape the Flutter Reports UI already expects.
-Case pipeline fields are derived from appointments (current work queue);
+Case pipeline fields are derived from patient workflow status;
 clinical coverage is patient-media based (scans / photos / shade / smile).
 """
 
@@ -24,14 +24,23 @@ router = APIRouter()
 
 _CASE_STATUSES = ("pending", "in_progress", "in_review", "completed", "rejected")
 
-# Appointment status → Reports pipeline status (legacy UI labels).
-_APPT_TO_CASE = {
-    "scheduled": "pending",
-    "confirmed": "in_progress",
-    "completed": "completed",
-    "cancelled": "rejected",
-    "no_show": "rejected",
-}
+
+def _normalize_case_status(raw: Any) -> str:
+    value = str(raw or "pending").strip().lower()
+    if value == "awaiting_scan":
+        return "pending"
+    if value == "complete":
+        return "completed"
+    if value in _CASE_STATUSES:
+        return value
+    # Legacy appointment labels (kept for mixed data).
+    mapped = {
+        "scheduled": "pending",
+        "confirmed": "in_progress",
+        "cancelled": "rejected",
+        "no_show": "rejected",
+    }.get(value)
+    return mapped or "pending"
 
 
 def _parse_dt(raw: Any) -> datetime | None:
@@ -229,21 +238,19 @@ def clinic_summary(
     week_created: dict[str, int] = defaultdict(int)
     week_completed: dict[str, int] = defaultdict(int)
 
-    for appt in appointments:
-        status = _APPT_TO_CASE.get(
-            str(appt.get("status") or "").strip().lower(), "pending"
-        )
+    # Case pipeline is patient workflow status (Patients page / status chip).
+    for patient in patients:
+        status = _normalize_case_status(patient.get("status"))
         by_status[status] = by_status.get(status, 0) + 1
 
-        created = _parse_dt(appt.get("created_at")) or _parse_dt(appt.get("start_time"))
-        updated = _parse_dt(appt.get("updated_at")) or _parse_dt(appt.get("end_time"))
+        created = _parse_dt(patient.get("created_at"))
+        updated = _parse_dt(patient.get("updated_at")) or created
 
         if created is not None:
             if since is None or created >= since:
                 created_in_period += 1
-            wk = _week_start(created).date().isoformat()
             if since is None or created >= since:
-                week_created[wk] += 1
+                week_created[_week_start(created).date().isoformat()] += 1
 
         if status == "completed" and created is not None and updated is not None:
             hours = (updated - created).total_seconds() / 3600.0
@@ -253,7 +260,7 @@ def clinic_summary(
                 completed_in_period += 1
                 week_completed[_week_start(updated).date().isoformat()] += 1
 
-    total_cases = len(appointments)
+    total_cases = len(patients)
     rejected = by_status.get("rejected", 0)
     rejection_rate = (rejected / total_cases) if total_cases else 0.0
     avg_hours = (
@@ -309,31 +316,28 @@ def clinic_summary(
         if len(weeks) > 12:
             weeks = weeks[-12:]
 
-    # Attention queue — open appointments + patients missing clinical work
+    # Attention queue — open / rejected patient cases needing follow-up
     attention: list[dict[str, Any]] = []
     open_statuses = {"pending", "in_progress", "in_review"}
-    for appt in sorted(
-        appointments,
+    for patient in sorted(
+        patients,
         key=lambda a: _parse_dt(a.get("updated_at"))
-        or _parse_dt(a.get("start_time"))
+        or _parse_dt(a.get("created_at"))
         or datetime(1970, 1, 1, tzinfo=timezone.utc),
         reverse=True,
     ):
-        status = _APPT_TO_CASE.get(
-            str(appt.get("status") or "").strip().lower(), "pending"
-        )
+        status = _normalize_case_status(patient.get("status"))
         if status not in open_statuses and status != "rejected":
             continue
-        pid = str(appt.get("patient_id") or "")
-        p = patients_by_id.get(pid) or {}
+        pid = str(patient.get("id") or "")
         attention.append(
             {
-                "case_id": str(appt.get("id") or ""),
+                "case_id": pid,
                 "patient_id": pid,
-                "patient_name": _patient_name(p) if p else f"Patient #{pid}",
+                "patient_name": _patient_name(patient),
                 "status": status,
-                "updated_at": appt.get("updated_at") or appt.get("start_time"),
-                "created_at": appt.get("created_at") or appt.get("start_time"),
+                "updated_at": patient.get("updated_at") or patient.get("created_at"),
+                "created_at": patient.get("created_at"),
                 "has_scan": pid in patients_with_scans,
                 "has_shade": pid in patients_with_shade,
                 "has_shape": pid in patients_with_shape,

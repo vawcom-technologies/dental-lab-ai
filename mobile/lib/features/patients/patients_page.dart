@@ -85,22 +85,26 @@ class _PatientsPageState extends State<PatientsPage> {
 
   Future<void> _openCreate() async {
     if (_controller.mutating) return;
-    final created = await showDialog<GdprPatient>(
+    final created = await showCupertinoDialog<GdprPatient>(
       context: context,
       barrierDismissible: false,
       barrierColor: Colors.black.withValues(alpha: 0.28),
-      builder: (ctx) => _PatientFormDialog(
-        title: 'New Patient',
-        submitLabel: 'Create patient',
-        saving: false,
-        onSubmit: (fields) => _controller.createPatient(
-          firstName: fields.firstName,
-          lastName: fields.lastName,
-          dateOfBirth: fields.dateOfBirth,
-          email: fields.email,
-          address: fields.address,
-          phone: fields.phone,
-          healthInsurance: fields.healthInsurance,
+      builder: (ctx) => Material(
+        type: MaterialType.transparency,
+        child: _PatientFormDialog(
+          title: 'New Patient',
+          submitLabel: 'Create patient',
+          saving: false,
+          onSubmit: (fields) => _controller.createPatient(
+            firstName: fields.firstName,
+            lastName: fields.lastName,
+            dateOfBirth: fields.dateOfBirth,
+            email: fields.email,
+            address: fields.address,
+            phone: fields.phone,
+            healthInsurance: fields.healthInsurance,
+            status: fields.status,
+          ),
         ),
       ),
     );
@@ -120,23 +124,27 @@ class _PatientsPageState extends State<PatientsPage> {
       return;
     }
     try {
-      final updated = await showDialog<GdprPatient>(
+      final updated = await showCupertinoDialog<GdprPatient>(
         context: context,
         barrierDismissible: false,
         barrierColor: Colors.black.withValues(alpha: 0.28),
-        builder: (ctx) => _PatientFormDialog(
-          title: 'Edit Patient',
-          submitLabel: 'Save changes',
-          initial: patient,
-          onSubmit: (fields) => _controller.updatePatient(patient.id, {
-            'first_name': fields.firstName,
-            'last_name': fields.lastName,
-            'date_of_birth': fields.dateOfBirth,
-            'email': fields.email,
-            'address': fields.address,
-            'phone': fields.phone,
-            'health_insurance': fields.healthInsurance,
-          }),
+        builder: (ctx) => Material(
+          type: MaterialType.transparency,
+          child: _PatientFormDialog(
+            title: 'Edit Patient',
+            submitLabel: 'Save changes',
+            initial: patient,
+            onSubmit: (fields) => _controller.updatePatient(patient.id, {
+              'first_name': fields.firstName,
+              'last_name': fields.lastName,
+              'date_of_birth': fields.dateOfBirth,
+              'email': fields.email,
+              'address': fields.address,
+              'phone': fields.phone,
+              'health_insurance': fields.healthInsurance,
+              'status': fields.status,
+            }),
+          ),
         ),
       );
       if (updated == null || !mounted) return;
@@ -157,10 +165,13 @@ class _PatientsPageState extends State<PatientsPage> {
       );
       return;
     }
-    final hard = await showDialog<bool>(
+    final hard = await showCupertinoDialog<bool>(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.28),
-      builder: (ctx) => _DeletePatientDialog(patientName: patient.fullName),
+      builder: (ctx) => Material(
+        type: MaterialType.transparency,
+        child: _DeletePatientDialog(patientName: patient.fullName),
+      ),
     );
     if (hard == null || !mounted) return;
     try {
@@ -175,11 +186,8 @@ class _PatientsPageState extends State<PatientsPage> {
 
   Future<void> _openShare(GdprPatient patient) async {
     if (_controller.mutating || _controller.loadingDetail) return;
-    await showModalBottomSheet<void>(
+    await AppDialogs.modalSheet<void>(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.28),
       builder: (ctx) => _ShareAccessSheet(
         patient: patient,
         controller: _controller,
@@ -192,19 +200,40 @@ class _PatientsPageState extends State<PatientsPage> {
   Future<void> _openPendingRequests() async {
     await _controller.loadPendingRequests();
     if (!mounted) return;
-    await showModalBottomSheet<void>(
+    await AppDialogs.modalSheet<void>(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (ctx) => _PendingAccessDrawer(
-        controller: _controller,
-        onToast: _toast,
-        friendlyError: _friendlyError,
+      builder: (ctx) => Material(
+        color: AppColors.card,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+        clipBehavior: Clip.antiAlias,
+        child: _PendingAccessDrawer(
+          controller: _controller,
+          onToast: _toast,
+          friendlyError: _friendlyError,
+        ),
       ),
     );
+  }
+
+  Future<void> _changePatientStatus(GdprPatient patient, String status) async {
+    if (_controller.mutating) return;
+    if (!_controller.isOwner(patient)) {
+      _toast(
+        'Permission Denied: Only the creator of this record can modify patient details.',
+        error: true,
+      );
+      return;
+    }
+    final next = CaseStatuses.normalize(status);
+    if (CaseStatuses.normalize(patient.status) == next) return;
+    try {
+      await _controller.updatePatient(patient.id, {'status': next});
+      if (!mounted) return;
+      _toast('Status updated to ${StatusStyle.of(next).label}');
+    } catch (e) {
+      if (!mounted) return;
+      _toast(_friendlyError(e), error: true);
+    }
   }
 
   Future<void> _openDetails(GdprPatient patient) async {
@@ -212,11 +241,8 @@ class _PatientsPageState extends State<PatientsPage> {
     try {
       final detailed = await _controller.openPatient(patient.id);
       if (detailed == null || !mounted) return;
-      await showModalBottomSheet<void>(
+      await AppDialogs.modalSheet<void>(
         context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        barrierColor: Colors.black.withValues(alpha: 0.28),
         builder: (ctx) => _PatientDetailSheet(
           controller: _controller,
           patient: detailed,
@@ -326,37 +352,88 @@ class _PatientsPageState extends State<PatientsPage> {
                   ],
                 ),
                 const SizedBox(height: 18),
-                GlassSurface(
-                  borderRadius: BorderRadius.circular(16),
-                  blur: 14,
-                  tint: Colors.white.withValues(alpha: 0.55),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  child: TextField(
-                    controller: _search,
-                    onChanged: _controller.setQuery,
-                    enabled: !blocked,
-                    style: AppFonts.style(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.navy,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: 'Search patients…',
-                      hintStyle: AppFonts.style(
-                        color: AppColors.muted,
-                        fontSize: 15,
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: GlassSurface(
+                        borderRadius: BorderRadius.circular(16),
+                        blur: 14,
+                        tint: Colors.white.withValues(alpha: 0.55),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        child: TextField(
+                          controller: _search,
+                          onChanged: _controller.setQuery,
+                          enabled: !blocked,
+                          style: AppFonts.style(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.navy,
+                          ),
+                          decoration: InputDecoration(
+                            hintText: 'Search patients…',
+                            hintStyle: AppFonts.style(
+                              color: AppColors.muted,
+                              fontSize: 15,
+                            ),
+                            prefixIcon: const Icon(
+                              Icons.search_rounded,
+                              color: AppColors.muted,
+                            ),
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            filled: false,
+                          ),
+                        ),
                       ),
-                      prefixIcon: const Icon(
-                        Icons.search_rounded,
-                        color: AppColors.muted,
-                      ),
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      filled: false,
                     ),
-                  ),
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      width: 200,
+                      child: GlassSurface(
+                        borderRadius: BorderRadius.circular(16),
+                        blur: 14,
+                        tint: Colors.white.withValues(alpha: 0.55),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _controller.statusFilter,
+                            isExpanded: true,
+                            borderRadius: BorderRadius.circular(14),
+                            icon: const Icon(
+                              Icons.keyboard_arrow_down_rounded,
+                              color: AppColors.muted,
+                            ),
+                            style: AppFonts.style(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.navy,
+                            ),
+                            items: [
+                              for (final f in CaseStatuses.filters)
+                                DropdownMenuItem<String>(
+                                  value: f.key,
+                                  child: Text(f.label),
+                                ),
+                            ],
+                            onChanged: blocked
+                                ? null
+                                : (value) {
+                                    if (value == null) return;
+                                    _controller.setStatusFilter(value);
+                                  },
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 if (_controller.error != null) ...[
                   const SizedBox(height: 12),
@@ -374,7 +451,10 @@ class _PatientsPageState extends State<PatientsPage> {
                   child: _controller.loading && rows.isEmpty
                       ? const ToothPageLoader(message: 'Loading patients…')
                       : rows.isEmpty
-                          ? const _EmptyPatients()
+                          ? _EmptyPatients(
+                              filtered: _controller.statusFilter != 'all' ||
+                                  _controller.query.trim().isNotEmpty,
+                            )
                           : ListView.separated(
                               itemCount: rows.length,
                               separatorBuilder: (_, _) =>
@@ -393,6 +473,10 @@ class _PatientsPageState extends State<PatientsPage> {
                                   onDelete: owner
                                       ? () => _confirmDelete(p)
                                       : null,
+                                  onStatusChanged: owner
+                                      ? (status) =>
+                                          _changePatientStatus(p, status)
+                                      : null,
                                 );
                               },
                             ),
@@ -407,7 +491,9 @@ class _PatientsPageState extends State<PatientsPage> {
 }
 
 class _EmptyPatients extends StatelessWidget {
-  const _EmptyPatients();
+  const _EmptyPatients({this.filtered = false});
+
+  final bool filtered;
 
   @override
   Widget build(BuildContext context) {
@@ -421,14 +507,16 @@ class _EmptyPatients extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             NeoIconBadge(
-              icon: Icons.person_add_alt_1_outlined,
+              icon: filtered
+                  ? Icons.filter_alt_off_outlined
+                  : Icons.person_add_alt_1_outlined,
               size: 56,
               iconSize: 26,
               color: AppColors.muted,
             ),
             const SizedBox(height: 14),
             Text(
-              'No patients yet',
+              filtered ? 'No matching patients' : 'No patients yet',
               textAlign: TextAlign.center,
               style: AppFonts.style(
                 color: AppColors.navy,
@@ -438,7 +526,9 @@ class _EmptyPatients extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Add the first record to get started.',
+              filtered
+                  ? 'Try another status or clear the search.'
+                  : 'Add the first record to get started.',
               textAlign: TextAlign.center,
               style: AppFonts.style(
                 color: AppColors.muted,
@@ -463,6 +553,7 @@ class _PatientCard extends StatelessWidget {
     this.onEdit,
     this.onShare,
     this.onDelete,
+    this.onStatusChanged,
   });
 
   final GdprPatient patient;
@@ -473,6 +564,7 @@ class _PatientCard extends StatelessWidget {
   final VoidCallback? onEdit;
   final VoidCallback? onShare;
   final VoidCallback? onDelete;
+  final ValueChanged<String>? onStatusChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -516,6 +608,12 @@ class _PatientCard extends StatelessWidget {
                                 letterSpacing: -0.3,
                               ),
                             ),
+                          ),
+                          const SizedBox(width: 10),
+                          PatientStatusMenu(
+                            status: patient.status,
+                            enabled: enabled && onStatusChanged != null,
+                            onSelected: onStatusChanged,
                           ),
                           const SizedBox(width: 10),
                           _AccessBadge(
@@ -708,6 +806,7 @@ class _PatientFormFields {
     required this.address,
     required this.phone,
     required this.healthInsurance,
+    required this.status,
   });
 
   final String firstName;
@@ -717,6 +816,7 @@ class _PatientFormFields {
   final String address;
   final String phone;
   final String healthInsurance;
+  final String status;
 }
 
 class _PatientFormDialog extends StatefulWidget {
@@ -747,6 +847,7 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
   late final TextEditingController _address;
   late final TextEditingController _phone;
   late final TextEditingController _insurance;
+  late String _status;
   bool _saving = false;
   String? _error;
 
@@ -761,6 +862,7 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
     _address = TextEditingController(text: p?.address ?? '');
     _phone = TextEditingController(text: PhoneNumbers.localDigits(p?.phone));
     _insurance = TextEditingController(text: p?.healthInsurance ?? '');
+    _status = CaseStatuses.normalize(p?.status);
   }
 
   @override
@@ -793,6 +895,7 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
       address: _address.text.trim(),
       phone: PhoneNumbers.compose(phoneLocal),
       healthInsurance: _insurance.text.trim(),
+      status: CaseStatuses.normalize(_status),
     );
     if (fields.firstName.isEmpty ||
         fields.lastName.isEmpty ||
@@ -903,6 +1006,38 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
                         requiredField: true,
                         validator: (v) =>
                             (v == null || v.trim().isEmpty) ? 'Required' : null,
+                      ),
+                      const _InsetDivider(),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                        child: DropdownButtonFormField<String>(
+                          initialValue: _status,
+                          decoration: InputDecoration(
+                            labelText: 'Status',
+                            labelStyle: AppFonts.style(
+                              fontSize: 13,
+                              color: AppColors.muted,
+                            ),
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            isDense: true,
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                          items: [
+                            for (final key in CaseStatuses.all)
+                              DropdownMenuItem<String>(
+                                value: key,
+                                child: Text(StatusStyle.of(key).label),
+                              ),
+                          ],
+                          onChanged: _saving
+                              ? null
+                              : (value) {
+                                  if (value == null) return;
+                                  setState(() => _status = value);
+                                },
+                        ),
                       ),
                       const _InsetDivider(),
                       _DialogField(
@@ -1833,33 +1968,18 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
       );
       return;
     }
-    final controller = TextEditingController(text: note.noteContent);
-    final next = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Edit note'),
-        content: TextField(
-          controller: controller,
-          minLines: 3,
-          maxLines: 6,
-          decoration: const InputDecoration(labelText: 'Clinical note'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+    final next = await AppDialogs.prompt(
+      context,
+      title: 'Edit note',
+      initial: note.noteContent,
+      placeholder: 'Clinical note',
+      confirmLabel: 'Save',
+      maxLines: 4,
     );
-    controller.dispose();
-    if (next == null || next.isEmpty) return;
+    if (next == null || next.trim().isEmpty) return;
+    final trimmed = next.trim();
     try {
-      await widget.controller.editNote(noteId: note.id, content: next);
+      await widget.controller.editNote(noteId: note.id, content: trimmed);
       widget.onToast('Note updated');
     } catch (e) {
       widget.onToast(widget.friendlyError(e), error: true);
@@ -1926,25 +2046,14 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
       );
       return;
     }
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete note?'),
-        content: const Text('This clinical note will be permanently removed.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+    final ok = await AppDialogs.confirm(
+      context,
+      title: 'Delete note?',
+      message: 'This clinical note will be permanently removed.',
+      confirmLabel: 'Delete',
+      isDestructive: true,
     );
-    if (ok != true) return;
+    if (!ok) return;
     try {
       await widget.controller.deleteNote(note.id);
       widget.onToast('Note deleted');
@@ -1957,19 +2066,25 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
   Widget build(BuildContext context) {
     final p = widget.patient;
     final owner = widget.controller.isOwner(p);
-    final height = MediaQuery.sizeOf(context).height * 0.88;
+    final height = MediaQuery.sizeOf(context).height * 0.62;
     final bottomInset = MediaQuery.paddingOf(context).bottom;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(16, 0, 16, 12 + bottomInset),
-      child: SizedBox(
-        height: height,
-        child: GlassSurface(
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: SizedBox(
+            height: height,
+            child: GlassSurface(
           borderRadius: BorderRadius.circular(28),
           blur: 28,
           tint: Colors.white.withValues(alpha: 0.72),
           padding: EdgeInsets.zero,
-          child: ListenableBuilder(
+          child: Material(
+            color: Colors.transparent,
+            child: ListenableBuilder(
             listenable: widget.controller,
             builder: (context, _) {
               final notes = widget.controller.notes;
@@ -2156,6 +2271,9 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
               );
             },
           ),
+          ),
+        ),
+        ),
         ),
       ),
     );

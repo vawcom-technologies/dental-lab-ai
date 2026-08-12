@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -9,6 +10,9 @@ import '../../../core/widgets/ui_kit.dart';
 import '../models/chat_models.dart';
 import '../services/chat_api_service.dart';
 import '../state/chat_controller.dart';
+
+const _kSeparator = Color(0xFFC6C6C8);
+const _kSearchFill = Color(0xFFE5E5EA);
 
 /// Pick a verified contact, then get-or-create a 1-to-1 conversation.
 class SelectContactScreen extends StatefulWidget {
@@ -35,12 +39,6 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
   String? _error;
   String? _roleFilter; // null = all
   String _query = '';
-
-  static const _roleChips = <(String? value, String label)>[
-    (null, 'All'),
-    (AppRoles.dentist, 'Dentists'),
-    (AppRoles.laboratory, 'Laboratories'),
-  ];
 
   ChatApiService get _apiService {
     return context.read<ChatController>().apiService;
@@ -143,116 +141,178 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final filterKey = _roleFilter ?? 'all';
+
     return Scaffold(
-      backgroundColor: AppColors.surface,
+      backgroundColor: const Color(0xFFF2F2F7),
       appBar: AppBar(
-        backgroundColor: AppColors.surface,
+        backgroundColor: Colors.white.withValues(alpha: 0.92),
         foregroundColor: AppColors.navy,
         elevation: 0,
-        title: const Text('New chat'),
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
+        leading: CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: () => Navigator.of(context).maybePop(),
+          child: const Icon(
+            CupertinoIcons.back,
+            color: AppColors.dentalBlue,
+            size: 22,
+          ),
+        ),
+        title: const Text(
+          'New Message',
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 17,
+            letterSpacing: -0.2,
+            color: AppColors.navy,
+          ),
+        ),
+        centerTitle: true,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(0.5),
+          child: Container(height: 0.5, color: _kSeparator),
+        ),
       ),
-      body: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SectionCard(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-              depth: 0.7,
-              child: TextField(
-                controller: _search,
-                onChanged: _onSearchChanged,
-                decoration: const InputDecoration(
-                  hintText: 'Search by name or clinic…',
-                  prefixIcon: Icon(Icons.search, color: AppColors.muted),
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  filled: false,
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (_creating)
-              const Padding(
-                padding: EdgeInsets.only(bottom: 10),
-                child: Row(
-                  children: [
-                    ToothLoadingIndicator(
-                      size: 18,
-                      compact: true,
-                      color: kToothLoaderBlue,
-                    ),
-                    SizedBox(width: 8),
-                    Text(
-                      'Opening conversation…',
-                      style: TextStyle(
-                        color: AppColors.muted,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 640),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                for (final chip in _roleChips)
-                  SoftFilterChip(
-                    label: chip.$2,
-                    selected: _roleFilter == chip.$1,
-                    onTap: () {
-                      if (_roleFilter == chip.$1) return;
+                CupertinoSearchTextField(
+                  controller: _search,
+                  placeholder: 'Search',
+                  backgroundColor: _kSearchFill,
+                  style: const TextStyle(fontSize: 16, color: AppColors.navy),
+                  onChanged: _onSearchChanged,
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: CupertinoSlidingSegmentedControl<String>(
+                    groupValue: filterKey,
+                    backgroundColor: const Color(0xFFE5E5EA),
+                    thumbColor: Colors.white,
+                    children: const {
+                      'all': Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: Text('All'),
+                      ),
+                      AppRoles.dentist: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: Text('Dentists'),
+                      ),
+                      AppRoles.laboratory: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: Text('Laboratories'),
+                      ),
+                    },
+                    onValueChanged: (value) {
+                      if (value == null) return;
                       setState(() {
-                        _roleFilter = chip.$1;
+                        _roleFilter = value == 'all' ? null : value;
                         _users = _applyFilters(_allUsers);
                       });
                     },
                   ),
+                ),
+                if (_creating)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 12),
+                    child: Row(
+                      children: [
+                        ToothLoadingIndicator(
+                          size: 16,
+                          compact: true,
+                          color: kToothLoaderBlue,
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'Opening conversation…',
+                          style: TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (_error != null) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    _error!,
+                    style: const TextStyle(
+                      color: AppColors.danger,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 14),
+                Expanded(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.04),
+                          blurRadius: 12,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: _loading
+                          ? const ToothPageLoader(message: 'Loading contacts…')
+                          : _users.isEmpty
+                              ? const Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.all(28),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          CupertinoIcons.person_2,
+                                          size: 36,
+                                          color: Color(0xFFC7C7CC),
+                                        ),
+                                        SizedBox(height: 10),
+                                        Text(
+                                          'No contacts found.',
+                                          style: TextStyle(
+                                            color: AppColors.muted,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                )
+                              : ListView.builder(
+                                  itemCount: _users.length,
+                                  itemBuilder: (context, i) {
+                                    final user = _users[i];
+                                    return _ContactTile(
+                                      user: user,
+                                      showDivider: i < _users.length - 1,
+                                      onTap: _creating
+                                          ? null
+                                          : () => _select(user),
+                                    );
+                                  },
+                                ),
+                    ),
+                  ),
+                ),
               ],
             ),
-            if (_error != null) ...[
-              const SizedBox(height: 10),
-              Text(
-                _error!,
-                style: const TextStyle(color: AppColors.danger, fontSize: 13),
-              ),
-            ],
-            const SizedBox(height: 12),
-            Expanded(
-              child: SectionCard(
-                padding: EdgeInsets.zero,
-                child: _loading
-                    ? const ToothPageLoader(message: 'Loading contacts…')
-                    : _users.isEmpty
-                        ? const Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(24),
-                              child: Text(
-                                'No contacts found.',
-                                style: TextStyle(color: AppColors.muted),
-                              ),
-                            ),
-                          )
-                        : ListView.separated(
-                            itemCount: _users.length,
-                            separatorBuilder: (_, _) => Divider(
-                              height: 1,
-                              color: AppColors.border.withValues(alpha: 0.7),
-                            ),
-                            itemBuilder: (context, i) {
-                              final user = _users[i];
-                              return _ContactTile(
-                                user: user,
-                                onTap: _creating ? null : () => _select(user),
-                              );
-                            },
-                          ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -260,9 +320,14 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
 }
 
 class _ContactTile extends StatelessWidget {
-  const _ContactTile({required this.user, this.onTap});
+  const _ContactTile({
+    required this.user,
+    required this.showDivider,
+    this.onTap,
+  });
 
   final UserProfile user;
+  final bool showDivider;
   final VoidCallback? onTap;
 
   @override
@@ -270,60 +335,103 @@ class _ContactTile extends StatelessWidget {
     final initial = user.displayName.isNotEmpty
         ? user.displayName.characters.first.toUpperCase()
         : '?';
-    return ListTile(
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      leading: CircleAvatar(
-        backgroundColor: AppColors.dentalBlue.withValues(alpha: 0.15),
-        child: Text(
-          initial,
-          style: const TextStyle(
-            color: AppColors.dentalBlue,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-      title: Text(
-        user.displayName,
-        style: const TextStyle(
-          fontWeight: FontWeight.w700,
-          color: AppColors.navy,
-        ),
-      ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (user.clinicName != null && user.clinicName!.isNotEmpty)
-            Text(
-              user.clinicName!,
-              style: const TextStyle(fontSize: 12, color: AppColors.muted),
-            ),
-          if (user.phone != null && user.phone!.isNotEmpty)
-            Text(
-              user.phone!,
-              style: const TextStyle(fontSize: 12, color: AppColors.muted),
-            ),
-        ],
-      ),
-      isThreeLine: (user.clinicName?.isNotEmpty ?? false) &&
-          (user.phone?.isNotEmpty ?? false),
-      trailing: user.role == null || user.role!.isEmpty
-          ? null
-          : Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: AppColors.sidebarActive,
-                borderRadius: BorderRadius.circular(8),
+    final details = [
+      if (user.clinicName != null && user.clinicName!.isNotEmpty)
+        user.clinicName!,
+      if (user.phone != null && user.phone!.isNotEmpty) user.phone!,
+    ].join(' · ');
+    final role = user.role == null || user.role!.isEmpty
+        ? null
+        : AppRoles.label(user.role);
+
+    return Material(
+      color: Colors.white,
+      child: InkWell(
+        onTap: onTap,
+        splashColor: AppColors.dentalBlue.withValues(alpha: 0.08),
+        highlightColor: AppColors.dentalBlue.withValues(alpha: 0.04),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 24,
+                    backgroundColor:
+                        AppColors.dentalBlue.withValues(alpha: 0.14),
+                    child: Text(
+                      initial,
+                      style: const TextStyle(
+                        color: AppColors.dentalBlue,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 17,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          user.displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.navy,
+                            fontSize: 17,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                        if (details.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            details,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Color(0xFF8E8E93),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (role != null) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      role,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF8E8E93),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(width: 4),
+                  const Icon(
+                    CupertinoIcons.chevron_forward,
+                    size: 14,
+                    color: Color(0xFFC7C7CC),
+                  ),
+                ],
               ),
-              child: Text(
-                AppRoles.label(user.role),
-                style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.navy,
+            ),
+            if (showDivider)
+              const Padding(
+                padding: EdgeInsets.only(left: 64),
+                child: Divider(
+                  height: 0.5,
+                  thickness: 0.5,
+                  color: _kSeparator,
                 ),
               ),
-            ),
+          ],
+        ),
+      ),
     );
   }
 }

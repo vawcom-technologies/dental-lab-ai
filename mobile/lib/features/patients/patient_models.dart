@@ -87,6 +87,7 @@ class GdprPatient {
     required this.address,
     required this.phone,
     required this.healthInsurance,
+    this.status = 'pending',
     this.deleted = false,
     this.deletedAt,
     this.createdAt,
@@ -102,6 +103,7 @@ class GdprPatient {
   final String address;
   final String phone;
   final String healthInsurance;
+  final String status;
   final bool deleted;
   final DateTime? deletedAt;
   final DateTime? createdAt;
@@ -123,6 +125,7 @@ class GdprPatient {
     String? address,
     String? phone,
     String? healthInsurance,
+    String? status,
     bool? deleted,
     DateTime? deletedAt,
     DateTime? updatedAt,
@@ -137,6 +140,7 @@ class GdprPatient {
       address: address ?? this.address,
       phone: phone ?? this.phone,
       healthInsurance: healthInsurance ?? this.healthInsurance,
+      status: status ?? this.status,
       deleted: deleted ?? this.deleted,
       deletedAt: deletedAt ?? this.deletedAt,
       createdAt: createdAt,
@@ -155,6 +159,7 @@ class GdprPatient {
       address: (json['address'] as String?)?.trim() ?? '',
       phone: (json['phone'] as String?)?.trim() ?? '',
       healthInsurance: (json['health_insurance'] as String?)?.trim() ?? '',
+      status: _normalizePatientStatus(json['status']),
       deleted: json['deleted'] == true,
       deletedAt: _parseDate(json['deleted_at']),
       createdAt: _parseDate(json['created_at']),
@@ -172,6 +177,7 @@ class GdprPatient {
         'address': address,
         'phone': phone,
         'health_insurance': healthInsurance,
+        'status': status,
         'deleted': deleted,
         if (deletedAt != null) 'deleted_at': deletedAt!.toIso8601String(),
         if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
@@ -189,6 +195,7 @@ class GdprPatient {
         'address': address,
         'phone': phone,
         'health_insurance': healthInsurance,
+        'status': status,
         'deleted': deleted,
       };
 }
@@ -450,6 +457,20 @@ class AccessMutationResult {
 
   final bool immediate;
   final PatientAccessEntry? access;
+}
+
+String _normalizePatientStatus(dynamic value) {
+  final s = '${value ?? 'pending'}'.trim().toLowerCase();
+  if (s == 'awaiting_scan') return 'pending';
+  if (s == 'complete') return 'completed';
+  const allowed = {
+    'pending',
+    'in_progress',
+    'in_review',
+    'completed',
+    'rejected',
+  };
+  return allowed.contains(s) ? s : 'pending';
 }
 
 String? _optString(dynamic value) {

@@ -8,6 +8,7 @@ from app.core.security import AuthUser, get_current_user, user_from_supabase
 from app.core.supabase_client import get_supabase, get_supabase_admin
 from app.schemas import (
     AuthMessageOut,
+    DeleteAccountRequest,
     ForgotPasswordRequest,
     PasswordChange,
     SignInRequest,
@@ -15,6 +16,7 @@ from app.schemas import (
     TokenOut,
     UserOut,
 )
+from app.services.account_deletion import purge_user_account
 from app.services.email import send_welcome_email
 from app.services.profiles import fetch_profile
 
@@ -364,3 +366,42 @@ def change_password(
 
     logger.debug("change_password ok user_id=%s", user.id)
     return AuthMessageOut(message="Password updated")
+
+
+@router.delete("/me", response_model=AuthMessageOut)
+def delete_my_account(
+    payload: DeleteAccountRequest,
+    user: AuthUser = Depends(get_current_user),
+):
+    """
+    Permanently delete the authenticated account and all associated data
+    (patients, media, appointments, chat, audit logs, Auth identity).
+    """
+    logger.info("delete_account start user_id=%s email=%s", user.id, user.email)
+
+    try:
+        verified = get_supabase().auth.sign_in_with_password(
+            {"email": user.email, "password": payload.password}
+        )
+    except Exception as exc:
+        logger.debug(
+            "delete_account password invalid user_id=%s detail=%s",
+            user.id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password is incorrect",
+        ) from exc
+
+    if getattr(verified, "user", None) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password is incorrect",
+        )
+
+    purge_user_account(user.id)
+    logger.info("delete_account ok user_id=%s", user.id)
+    return AuthMessageOut(
+        message="Your account and all associated data have been permanently deleted."
+    )

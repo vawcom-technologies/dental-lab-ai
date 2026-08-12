@@ -49,7 +49,6 @@ class _ShadePageState extends State<ShadePage> {
   bool _saving = false;
   bool _loading = true;
   bool _sessionCollapsed = false;
-  bool _photoMenuVisible = false;
   String? _saveStatus;
   String? _error;
   Uint8List? _previewBytes;
@@ -60,10 +59,6 @@ class _ShadePageState extends State<ShadePage> {
   List<Map<String, dynamic>> _history = [];
   /// All saved shade-detection images for the selected patient (full history).
   List<Map<String, dynamic>> _allShadeItems = [];
-  /// When false, strip shows only detections from this chairside visit.
-  bool _showAllShadeHistory = false;
-  bool _mediaLoading = false;
-  String? _selectedShadeId;
 
   // Per-tooth / per-zone analysis (added onto existing UI)
   List<Map<String, dynamic>> _teeth = [];
@@ -103,27 +98,6 @@ class _ShadePageState extends State<ShadePage> {
       if ((t['tooth_index'] as num?)?.toInt() == _selectedToothIndex) return t;
     }
     return null;
-  }
-
-  DateTime? _parseCreatedAt(Map<String, dynamic> item) {
-    final raw = item['created_at'];
-    if (raw is String && raw.isNotEmpty) {
-      return DateTime.tryParse(raw)?.toUtc();
-    }
-    return null;
-  }
-
-  /// Visit-scoped strip (Option A). Toggle [_showAllShadeHistory] for full list.
-  List<Map<String, dynamic>> get _visibleShadeItems {
-    if (_showAllShadeHistory) return _allShadeItems;
-    final start = widget.patientSession.visitStartedAt;
-    if (start == null) return _allShadeItems;
-    return _allShadeItems.where((item) {
-      final created = _parseCreatedAt(item);
-      // Keep undated rows visible rather than hiding media.
-      if (created == null) return true;
-      return !created.isBefore(start);
-    }).toList();
   }
 
   List<Map<String, dynamic>> _cloneTeeth(List<Map<String, dynamic>> src) =>
@@ -310,7 +284,6 @@ class _ShadePageState extends State<ShadePage> {
     _overallShadePick = ws['overall_shade_pick'] == true;
     _exitOutlineEdit(clearStatus: false);
     _photoTransformController.value = Matrix4.identity();
-    _photoMenuVisible = false;
   }
 
   void _openHistoryAt(int index) {
@@ -897,7 +870,6 @@ class _ShadePageState extends State<ShadePage> {
       _clearMagnifier();
       _outlineBeforeDrag = null;
       _outlineHistory.clear();
-      _photoMenuVisible = false;
       _saveStatus =
           'Drag corners · hold mid-edge to curve · double-tap edge to add a point · Apply.';
     });
@@ -970,7 +942,6 @@ class _ShadePageState extends State<ShadePage> {
       _pendingShade = null;
       _overallShadePick = false;
       _exitOutlineEdit(clearStatus: false);
-      _photoMenuVisible = false;
       _photoTransformController.value = Matrix4.identity();
       _error = null;
       _saveStatus = 'Photo removed';
@@ -1199,7 +1170,6 @@ class _ShadePageState extends State<ShadePage> {
           _patient = null;
           _case = null;
           _allShadeItems = [];
-          _showAllShadeHistory = false;
         });
       }
       return;
@@ -1247,9 +1217,6 @@ class _ShadePageState extends State<ShadePage> {
       _saveStatus = null;
       _error = null;
       _allShadeItems = [];
-      _showAllShadeHistory = false;
-      _selectedShadeId = null;
-      _mediaLoading = true;
     });
     // Cases API is optional for Upload & detect. GDPR patient ids are UUIDs;
     // legacy createCase(int) only works for numeric ids when cases are mounted.
@@ -1279,30 +1246,19 @@ class _ShadePageState extends State<ShadePage> {
     final patient = _patient;
     if (patient == null) {
       if (mounted) {
-        setState(() {
-          _allShadeItems = [];
-          _mediaLoading = false;
-        });
+        setState(() => _allShadeItems = []);
       }
       return;
     }
     final pid = _pid(patient);
-    if (pid.isEmpty) {
-      if (mounted) setState(() => _mediaLoading = false);
-      return;
-    }
-    if (mounted) setState(() => _mediaLoading = true);
+    if (pid.isEmpty) return;
     try {
       final rows = await widget.api.listShadeDetections(pid);
       if (!mounted) return;
-      setState(() {
-        _allShadeItems = rows;
-        _mediaLoading = false;
-      });
+      setState(() => _allShadeItems = rows);
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _mediaLoading = false;
         _error = e.toString().replaceFirst('Exception: ', '');
       });
     }
@@ -1338,14 +1294,12 @@ class _ShadePageState extends State<ShadePage> {
     Map<String, dynamic> item, {
     bool runAi = false,
   }) async {
-    final id = '${item['id'] ?? ''}';
     final url = '${item['file_url'] ?? ''}'.trim();
     final name = '${item['file_name'] ?? 'tooth.jpg'}';
     if (url.isEmpty) return;
     setState(() {
       _busy = true;
       _error = null;
-      _selectedShadeId = id;
       _saveStatus = runAi ? 'Mapping teeth…' : null;
     });
     try {
@@ -1379,111 +1333,8 @@ class _ShadePageState extends State<ShadePage> {
     }
   }
 
-  Future<void> _deleteShadeItem(Map<String, dynamic> item) async {
-    final id = '${item['id'] ?? ''}';
-    if (id.isEmpty || _busy) return;
-    final ok = await confirmPatientMediaDelete(context);
-    if (!ok || !mounted) return;
-    setState(() => _busy = true);
-    try {
-      await widget.api.deleteShadeDetection(id);
-      if (!mounted) return;
-      setState(() {
-        _allShadeItems =
-            _allShadeItems.where((e) => '${e['id']}' != id).toList();
-        if (_selectedShadeId == id) _selectedShadeId = null;
-        _busy = false;
-      });
-      AppSnackBars.success(context, 'Shade detection deleted');
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _error = e.toString().replaceFirst('Exception: ', '');
-      });
-      AppSnackBars.error(
-        context,
-        e.toString().replaceFirst('Exception: ', ''),
-      );
-    }
-  }
-
-  Future<void> _quickAddPatient() async {
-    final firstCtrl = TextEditingController();
-    final lastCtrl = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add patient'),
-        content: SizedBox(
-          width: 360,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: firstCtrl,
-                decoration: const InputDecoration(labelText: 'First name *'),
-                autofocus: true,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: lastCtrl,
-                decoration: const InputDecoration(labelText: 'Last name *'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Create'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) {
-      firstCtrl.dispose();
-      lastCtrl.dispose();
-      return;
-    }
-    final first = firstCtrl.text.trim();
-    final last = lastCtrl.text.trim();
-    firstCtrl.dispose();
-    lastCtrl.dispose();
-    if (first.isEmpty || last.isEmpty) {
-      setState(() => _error = 'First and last name are required');
-      return;
-    }
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      final created = await widget.patientSession.createPatient(
-        firstName: first,
-        lastName: last,
-      );
-      if (!mounted) return;
-      setState(() {
-        _patients = List<Map<String, dynamic>>.from(
-          widget.patientSession.patients,
-        );
-      });
-      await _selectPatient(created, publish: false);
-      if (mounted) {
-        setState(() => _saveStatus = 'Patient $first $last ready for shade');
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+  void _openNewPatientPage() {
+    widget.patientSession.requestNavigateToNewPatient();
   }
 
   /// Same mapping pipeline as gallery Upload & detect (`POST /api/ai/shade/suggest`).
@@ -1530,7 +1381,6 @@ class _ShadePageState extends State<ShadePage> {
     setState(() {
       _error = null;
       _saveStatus = null;
-      _photoMenuVisible = false;
     });
     try {
       final picked = await FilePicker.pickFiles(
@@ -1569,7 +1419,6 @@ class _ShadePageState extends State<ShadePage> {
 
       setState(() {
         _allShadeItems = [uploaded, ..._allShadeItems];
-        _selectedShadeId = '${uploaded['id'] ?? ''}';
         _previewBytes = data;
         _previewFilename = name;
         _photoTransformController.value = Matrix4.identity();
@@ -1876,164 +1725,6 @@ class _ShadePageState extends State<ShadePage> {
     AppHaptics.selection();
   }
 
-  Widget _buildShadeMediaStrip() {
-    if (_patient == null) return const SizedBox.shrink();
-    final visible = _visibleShadeItems;
-    final hasHistoryBeyondVisit =
-        !_showAllShadeHistory &&
-        _allShadeItems.isNotEmpty &&
-        visible.length < _allShadeItems.length;
-    if (!_mediaLoading && _allShadeItems.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(
-                _showAllShadeHistory
-                    ? 'All shade photos'
-                    : 'This visit’s shade photos',
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.muted,
-                ),
-              ),
-              const Spacer(),
-              if (_allShadeItems.isNotEmpty)
-                TextButton(
-                  onPressed: _busy
-                      ? null
-                      : () => setState(
-                            () => _showAllShadeHistory = !_showAllShadeHistory,
-                          ),
-                  child: Text(
-                    _showAllShadeHistory ? 'This visit only' : 'Show all history',
-                  ),
-                ),
-            ],
-          ),
-          SizedBox(
-            height: 88,
-            child: _mediaLoading
-                ? const Center(
-                    child: ToothLoadingIndicator(
-                      size: 32,
-                      compact: true,
-                      loadingText: 'Loading…',
-                    ),
-                  )
-                : visible.isEmpty
-                    ? Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          hasHistoryBeyondVisit
-                              ? 'No photos in this visit yet — tap Show all history to retrieve earlier ones.'
-                              : 'No shade photos yet.',
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: AppColors.muted,
-                          ),
-                        ),
-                      )
-                    : ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: visible.length,
-                        separatorBuilder: (_, _) => const SizedBox(width: 10),
-                        itemBuilder: (context, i) {
-                          final item = visible[i];
-                          final id = '${item['id'] ?? ''}';
-                          final url = '${item['file_url'] ?? ''}';
-                          final selected = id == _selectedShadeId;
-                          return Material(
-                            color: selected
-                                ? AppColors.dentalBlue.withValues(alpha: 0.12)
-                                : Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(12),
-                              onTap:
-                                  _busy ? null : () => _openShadeItem(item),
-                              child: Container(
-                                width: 120,
-                                padding:
-                                    const EdgeInsets.fromLTRB(8, 8, 4, 8),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: selected
-                                        ? AppColors.dentalBlue
-                                        : AppColors.border,
-                                  ),
-                                ),
-                                child: Row(
-                                  children: [
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: url.isEmpty
-                                          ? Container(
-                                              width: 56,
-                                              height: 56,
-                                              color: AppColors.sidebarActive,
-                                              child: const Icon(
-                                                Icons.image_outlined,
-                                                size: 22,
-                                                color: AppColors.muted,
-                                              ),
-                                            )
-                                          : Image.network(
-                                              url,
-                                              width: 56,
-                                              height: 56,
-                                              fit: BoxFit.cover,
-                                              errorBuilder: (_, _, _) =>
-                                                  Container(
-                                                width: 56,
-                                                height: 56,
-                                                color: AppColors.sidebarActive,
-                                                child: const Icon(
-                                                  Icons.broken_image_outlined,
-                                                  size: 20,
-                                                  color: AppColors.muted,
-                                                ),
-                                              ),
-                                            ),
-                                    ),
-                                    const Spacer(),
-                                    IconButton(
-                                      tooltip: 'Delete',
-                                      visualDensity: VisualDensity.compact,
-                                      padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(
-                                        minWidth: 32,
-                                        minHeight: 32,
-                                      ),
-                                      onPressed: _busy
-                                          ? null
-                                          : () => _deleteShadeItem(item),
-                                      icon: const Icon(
-                                        Icons.delete_outline,
-                                        size: 18,
-                                        color: AppColors.danger,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-          ),
-        ],
-      ),
-    );
-  }
-
 
   @override
   Widget build(BuildContext context) {
@@ -2058,7 +1749,7 @@ class _ShadePageState extends State<ShadePage> {
                 caseId: _case?['id'],
                 enabled: !_busy,
                 onSelect: _selectPatient,
-                onAdd: _quickAddPatient,
+                onAdd: _openNewPatientPage,
                 onRefresh: () async {
                   setState(() => _busy = true);
                   try {
@@ -2093,11 +1784,6 @@ class _ShadePageState extends State<ShadePage> {
             ),
           ],
           const SizedBox(height: 14),
-          if (_patient != null &&
-              (_mediaLoading || _allShadeItems.isNotEmpty)) ...[
-            _buildShadeMediaStrip(),
-            const SizedBox(height: 8),
-          ],
           Expanded(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2127,7 +1813,6 @@ class _ShadePageState extends State<ShadePage> {
                                   child: ShadePhotoPane(
                                     previewBytes: _previewBytes,
                                     busy: _busy,
-                                    photoMenuVisible: _photoMenuVisible,
                                     editOutlineMode: _editOutlineMode,
                                     teeth: _teeth,
                                     selectedToothIndex: _selectedToothIndex,
@@ -2143,12 +1828,6 @@ class _ShadePageState extends State<ShadePage> {
                                     dragTick: _dragTick,
                                     canUndo: _outlineHistory.canUndo,
                                     canRedo: _outlineHistory.canRedo,
-                                    onShowPhotoMenu: () => setState(
-                                      () => _photoMenuVisible = true,
-                                    ),
-                                    onHidePhotoMenu: () => setState(
-                                      () => _photoMenuVisible = false,
-                                    ),
                                     onUpload: _runAiFromGallery,
                                     onClearPhoto: _clearUploadedPhoto,
                                     onSelectTooth: _onToothTap,

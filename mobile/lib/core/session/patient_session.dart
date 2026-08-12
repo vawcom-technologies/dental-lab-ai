@@ -27,6 +27,7 @@ class PatientSession extends ChangeNotifier {
   /// Camera → Shade: open this detection and run the same AI suggest path.
   String? _pendingShadeDetectionId;
   bool _navigateToShade = false;
+  bool _navigateToNewPatient = false;
 
   List<Map<String, dynamic>> get patients => _patients;
   Map<String, dynamic>? get selected => _selected;
@@ -71,6 +72,19 @@ class PatientSession extends ChangeNotifier {
   bool consumeNavigateToShade() {
     if (!_navigateToShade) return false;
     _navigateToShade = false;
+    return true;
+  }
+
+  /// Open the full New Patient form from any workflow picker.
+  void requestNavigateToNewPatient() {
+    _navigateToNewPatient = true;
+    _notify();
+  }
+
+  /// Shell consumes this to switch to New Patient (one-shot).
+  bool consumeNavigateToNewPatient() {
+    if (!_navigateToNewPatient) return false;
+    _navigateToNewPatient = false;
     return true;
   }
 
@@ -166,16 +180,28 @@ class PatientSession extends ChangeNotifier {
   Future<Map<String, dynamic>> createPatient({
     required String firstName,
     required String lastName,
+    Map<String, dynamic>? extra,
   }) async {
-    final created = await api.createPatient({
+    final body = <String, dynamic>{
       'first_name': firstName,
       'last_name': lastName,
-    });
+      ...?extra,
+    };
+    final created = await api.createPatient(body);
     await refresh(keepSelection: true);
     final id = pidOf(created);
     final match = _patients.where((p) => pidOf(p) == id);
     final row = match.isEmpty ? created : match.first;
     select(row);
     return row;
+  }
+
+  /// After the full New Patient form creates a row, sync list + selection.
+  Future<void> adoptCreatedPatient(Map<String, dynamic> created) async {
+    await refresh(keepSelection: true);
+    final id = pidOf(created);
+    if (id.isEmpty) return;
+    final match = _patients.where((p) => pidOf(p) == id);
+    select(match.isEmpty ? created : match.first);
   }
 }

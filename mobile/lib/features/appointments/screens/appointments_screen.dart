@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:intl/intl.dart';
@@ -193,14 +194,18 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   Future<void> _openBookModal({Appointment? existing}) async {
     // Open immediately — do not block on a network patient refresh.
     // Create mode refreshes patients inside the modal after the first frame.
-    final saved = await showDialog<Appointment>(
+    final saved = await showCupertinoDialog<Appointment>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => BookAppointmentModal(
-        api: widget.api,
-        service: _service,
-        patientSession: widget.patientSession,
-        existing: existing,
+      barrierColor: Colors.black.withValues(alpha: 0.28),
+      builder: (ctx) => Material(
+        type: MaterialType.transparency,
+        child: BookAppointmentModal(
+          api: widget.api,
+          service: _service,
+          patientSession: widget.patientSession,
+          existing: existing,
+        ),
       ),
     );
     if (saved == null || !mounted) return;
@@ -765,19 +770,42 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
 
     return PopScope(
       canPop: !_saving,
-      child: AlertDialog(
-        title: Text(_isEdit ? 'Edit Appointment' : 'Book Appointment'),
-        content: SizedBox(
-          width: 480,
-          child: Stack(
-            children: [
-              Form(
-                key: _formKey,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 500),
+          child: GlassSurface(
+            borderRadius: BorderRadius.circular(24),
+            blur: 28,
+            tint: Colors.white.withValues(alpha: 0.78),
+            padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  _isEdit ? 'Edit Appointment' : 'Book Appointment',
+                  style: AppFonts.style(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.navy,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 520),
+                  child: Stack(
                     children: [
+                      Form(
+                        key: _formKey,
+                        child: SingleChildScrollView(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
                       if (!_isEdit) ...[
                         Row(
                           children: [
@@ -1013,29 +1041,32 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                     ),
                   ),
                 ),
-            ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    AppButtons.ghost(
+                      onPressed:
+                          _saving ? null : () => Navigator.pop(context),
+                      label: 'Cancel',
+                      compact: true,
+                    ),
+                    const SizedBox(width: 8),
+                    AppButtons.primary(
+                      onPressed: _canSubmit ? _submit : null,
+                      label: _isEdit ? 'Save changes' : 'Book appointment',
+                      compact: true,
+                      busy: _saving,
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: _saving ? null : () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: _canSubmit ? _submit : null,
-            child: _saving
-                ? const SizedBox(
-                    height: 20,
-                    width: 20,
-                    child: ToothLoadingIndicator(
-                      size: 20,
-                      compact: true,
-                      color: Colors.white,
-                    ),
-                  )
-                : Text(_isEdit ? 'Save changes' : 'Book appointment'),
-          ),
-        ],
       ),
     );
   }
