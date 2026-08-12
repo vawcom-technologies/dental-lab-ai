@@ -14,6 +14,8 @@ from PIL import Image, ImageOps
 
 from app.ai.shade import match_lab_nearest
 from app.ai.shade_geometry import (
+    EDIT_HANDLES_MAX,
+    EDIT_HANDLES_MIN,
     mask_from_normalized_outline,
     simplify_normalized_outline,
     tooth_display_geometry,
@@ -123,10 +125,12 @@ def analyze_tooth_from_outline_rgb(
     arr = _maybe_downscale_rgb(arr)
     h, w = arr.shape[:2]
 
-    # Client densifies Bezier bulges into a polyline — fill that, not 4–6 handles
+    # Client densifies Bezier bulges into a polyline — fill that, not sparse handles
     # (approxPolyDP handles straighten mid-edge curves).
     dense = [[float(p[0]), float(p[1])] for p in outline if len(p) >= 2]
-    handles = simplify_normalized_outline(dense, max_points=6, min_points=4)
+    handles = simplify_normalized_outline(
+        dense, max_points=EDIT_HANDLES_MAX, min_points=EDIT_HANDLES_MIN
+    )
     mask = mask_from_normalized_outline(dense, height=h, width=w)
     if int(mask.sum()) < 40:
         raise ValueError("edited outline covers too few pixels")

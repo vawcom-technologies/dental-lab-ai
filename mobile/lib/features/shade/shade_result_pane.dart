@@ -32,7 +32,7 @@ class ShadeResultPane extends StatelessWidget {
     required this.onOverallShade,
     required this.onAcceptAi,
     required this.onSaveOverride,
-    required this.magnifierFocalPoint,
+    required this.magnifierFocal,
     required this.magnifierViewSize,
     required this.previewBytes,
     required this.analysisImageSize,
@@ -63,7 +63,7 @@ class ShadeResultPane extends StatelessWidget {
   final ValueChanged<String> onOverallShade;
   final VoidCallback onAcceptAi;
   final VoidCallback onSaveOverride;
-  final Offset? magnifierFocalPoint;
+  final ValueNotifier<Offset?> magnifierFocal;
   final Size? magnifierViewSize;
   final Uint8List? previewBytes;
   final Size analysisImageSize;
@@ -448,21 +448,14 @@ class ShadeResultPane extends StatelessWidget {
             },
           ),
         ),
-        // The loupe overlays the Result card rather than replacing it —
-        // swapping the subtree remounted the tooth list on every drag.
-        ValueListenableBuilder<int>(
-          valueListenable: dragTick,
-          builder: (context, _, _) {
-            final focal = magnifierFocalPoint;
-            final box = magnifierViewSize;
-            final bytes = previewBytes;
-            if (focal == null || box == null || bytes == null) {
-              return const SizedBox.shrink();
-            }
-            return ShadeOutlineLoupe(
-              focal: focal,
-              viewSize: box,
-              previewBytes: bytes,
+        // Loupe mounts on drag start (setState); during drag only notifiers
+        // move the focal / repaint the outline — Image.memory stays mounted.
+        if (magnifierViewSize != null && previewBytes != null)
+          Positioned.fill(
+            child: ShadeOutlineLoupe(
+              focalListenable: magnifierFocal,
+              viewSize: magnifierViewSize!,
+              previewBytes: previewBytes!,
               analysisImageSize: analysisImageSize,
               dragTick: dragTick,
               teeth: teeth,
@@ -472,9 +465,8 @@ class ShadeResultPane extends StatelessWidget {
               editBulges: editBulges,
               activeHandleIndex: activeHandleIndex,
               activeEdgeIndex: activeEdgeIndex,
-            );
-          },
-        ),
+            ),
+          ),
       ],
     );
   }
@@ -483,7 +475,7 @@ class ShadeResultPane extends StatelessWidget {
 class ShadeOutlineLoupe extends StatelessWidget {
   const ShadeOutlineLoupe({
     super.key,
-    required this.focal,
+    required this.focalListenable,
     required this.viewSize,
     required this.previewBytes,
     required this.analysisImageSize,
@@ -497,7 +489,7 @@ class ShadeOutlineLoupe extends StatelessWidget {
     required this.activeEdgeIndex,
   });
 
-  final Offset focal;
+  final ValueNotifier<Offset?> focalListenable;
   final Size viewSize;
   final Uint8List previewBytes;
   final Size analysisImageSize;
@@ -510,11 +502,47 @@ class ShadeOutlineLoupe extends StatelessWidget {
   final int? activeHandleIndex;
   final int? activeEdgeIndex;
 
+  static const _mag = 2.6;
+
   @override
   Widget build(BuildContext context) {
     final imgSize =
         analysisImageSize == Size.zero ? viewSize : analysisImageSize;
-    const mag = 2.6;
+
+    // Image + overlay built once as AnimatedBuilder child — no LayoutBuilder
+    // (breaks under IntrinsicWidth from Material buttons in this column).
+    final scene = SizedBox(
+      width: viewSize.width,
+      height: viewSize.height,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.memory(
+            previewBytes,
+            fit: BoxFit.contain,
+            gaplessPlayback: true,
+            filterQuality: FilterQuality.none,
+          ),
+          RepaintBoundary(
+            child: CustomPaint(
+              painter: ToothOverlayPainter(
+                repaint: dragTick,
+                teeth: teeth,
+                selectedToothIndex: selectedToothIndex,
+                imageSize: imgSize,
+                focusZone: focusZone,
+                editMode: true,
+                editOutline: editOutline,
+                editBulges: editBulges,
+                activeHandleIndex: activeHandleIndex,
+                activeEdgeIndex: activeEdgeIndex,
+                paintSelectedOnlyWhileDragging: true,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
 
     return SectionCard(
       depth: 0,
@@ -527,55 +555,30 @@ class ShadeOutlineLoupe extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final panel =
-                      Size(constraints.maxWidth, constraints.maxHeight);
-                  return ClipRect(
-                    child: Stack(
-                      children: [
-                        Positioned(
-                          left: panel.width / 2 - focal.dx * mag,
-                          top: panel.height / 2 - focal.dy * mag,
-                          width: viewSize.width * mag,
-                          height: viewSize.height * mag,
-                          child: FittedBox(
-                            fit: BoxFit.fill,
-                            child: SizedBox(
-                              width: viewSize.width,
-                              height: viewSize.height,
-                              child: Stack(
-                                fit: StackFit.expand,
-                                children: [
-                                  Image.memory(
-                                    previewBytes,
-                                    fit: BoxFit.contain,
-                                    gaplessPlayback: true,
-                                    filterQuality: FilterQuality.low,
-                                  ),
-                                  CustomPaint(
-                                    painter: ToothOverlayPainter(
-                                      repaint: dragTick,
-                                      teeth: teeth,
-                                      selectedToothIndex: selectedToothIndex,
-                                      imageSize: imgSize,
-                                      focusZone: focusZone,
-                                      editMode: true,
-                                      editOutline: editOutline,
-                                      editBulges: editBulges,
-                                      activeHandleIndex: activeHandleIndex,
-                                      activeEdgeIndex: activeEdgeIndex,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
+              ClipRect(
+                child: AnimatedBuilder(
+                  animation: focalListenable,
+                  child: FittedBox(
+                    fit: BoxFit.fill,
+                    child: scene,
+                  ),
+                  builder: (context, child) {
+                    final focal = focalListenable.value;
+                    if (focal == null) return const SizedBox.shrink();
+                    return CustomSingleChildLayout(
+                      delegate: _LoupePanDelegate(
+                        focal: focal,
+                        viewSize: viewSize,
+                        mag: _mag,
+                      ),
+                      child: SizedBox(
+                        width: viewSize.width * _mag,
+                        height: viewSize.height * _mag,
+                        child: child,
+                      ),
+                    );
+                  },
+                ),
               ),
               const IgnorePointer(
                 child: Center(
@@ -611,6 +614,41 @@ class ShadeOutlineLoupe extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Pans the magnified scene so [focal] sits at the loupe center.
+class _LoupePanDelegate extends SingleChildLayoutDelegate {
+  _LoupePanDelegate({
+    required this.focal,
+    required this.viewSize,
+    required this.mag,
+  });
+
+  final Offset focal;
+  final Size viewSize;
+  final double mag;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
+    return BoxConstraints.tight(
+      Size(viewSize.width * mag, viewSize.height * mag),
+    );
+  }
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) {
+    return Offset(
+      size.width / 2 - focal.dx * mag,
+      size.height / 2 - focal.dy * mag,
+    );
+  }
+
+  @override
+  bool shouldRelayout(covariant _LoupePanDelegate oldDelegate) {
+    return oldDelegate.focal != focal ||
+        oldDelegate.viewSize != viewSize ||
+        oldDelegate.mag != mag;
   }
 }
 

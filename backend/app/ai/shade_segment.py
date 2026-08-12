@@ -2,9 +2,10 @@
 
 Current (keep — proven on smile photos):
   Lab-a* enamel on ORIGINAL colors (not CLAHE — CLAHE before mask caused cheek FPs)
-  → ROI → DT / opening / arch-spacing markers + watershed or luminance cuts
+  → ROI → dual-arch horizontal cut (open mouth) → DT / opening / arch-spacing
+    markers + watershed or luminance cuts
   → GrabCut per tooth (sibling exclusion) → morph cleanup
-  → arch-row + contact reconcile → relative size / sanity
+  → tall-merge split → arch-row(s) + contact reconcile → relative size / sanity
 
 Additive classical extensions (toggleable; do not replace the above):
   • DT 2D local-maxima markers (better seeds for touching crowns)
@@ -37,6 +38,7 @@ class SegmentConfig:
     preprocess: bool = True  # CLAHE for gray/topo only — never Lab enamel input
     watershed_split: bool = True
     valley_split: bool = False
+    dual_arch_split: bool = True  # sever upper/lower at open-mouth gap
     dt_local_max_markers: bool = True  # additive: 2D DT peaks as watershed seeds
     boundary_snap: bool = True
     grabcut_refine: bool = True  # keep — best boundary stage so far
@@ -91,24 +93,34 @@ def detect_teeth(
     if bh < 12 or bw < 12:
         return []
 
-    # CLAHE gray for watershed topography / luminance cuts only (not Lab mask).
-    gray_roi = None
-    if cfg.preprocess:
-        gray_roi = _clahe_gray(band_raw)
-
     u8 = (enamel.astype(np.uint8)) * 255
     open_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     u8 = cv2.morphologyEx(u8, cv2.MORPH_OPEN, open_k, iterations=1)
 
+    # CLAHE gray for watershed topography / luminance cuts only (not Lab mask).
+    gray_roi = None
+    if cfg.preprocess:
+        gray_roi = _clahe_gray(band_raw)
+    lum = (
+        gray_roi.astype(np.float64)
+        if gray_roi is not None
+        else _luma_rgb(band_raw)
+    )
+
     if cfg.valley_split:
         u8 = _split_arch_by_deep_valleys(u8)
 
+    # Open-mouth / both arches: cut the dark horizontal gap so upper and lower
+    # crowns never share one watershed instance (T5 tall merge in clinic photos).
+    occlusal_gap: tuple[int, int] | None = None
+    if cfg.dual_arch_split:
+        occlusal_gap = _find_occlusal_gap(u8, luminance=lum)
+        if occlusal_gap is not None:
+            y_a, y_b = occlusal_gap
+            u8 = u8.copy()
+            u8[y_a : y_b + 1, :] = 0
+
     if cfg.watershed_split:
-        lum = (
-            gray_roi.astype(np.float64)
-            if gray_roi is not None
-            else _luma_rgb(band_raw)
-        )
         components = _split_instances_watershed(
             u8,
             luminance=lum,
@@ -159,6 +171,11 @@ def detect_teeth(
         return []
 
     refined_list = _resolve_overlaps(refined_list)
+    # GrabCut / morph can regrow across a thin occlusal nick — hard-clip again.
+    if occlusal_gap is not None:
+        refined_list = _clip_crossing_occlusal(refined_list, occlusal_gap)
+    # Safety net: any remaining vertically stacked upper+lower blob → cut.
+    refined_list = _split_vertically_merged_components(refined_list, lum)
     refined_list = _filter_to_arch_row(refined_list, band_raw)
     if cfg.arch_curve_prior:
         refined_list = _filter_by_arch_curve(refined_list)
@@ -172,7 +189,14 @@ def detect_teeth(
         refined_list = _filter_by_relative_size(refined_list)
 
     refined_list = _resolve_overlaps(refined_list)
-    refined_list = sorted(refined_list, key=lambda m: float(np.nonzero(m)[1].mean()))
+    # Upper row first (smaller y), then left→right within the row.
+    refined_list = sorted(
+        refined_list,
+        key=lambda m: (
+            float(np.nonzero(m)[0].mean()),
+            float(np.nonzero(m)[1].mean()),
+        ),
+    )
     refined_list = refined_list[:_MAX_TEETH]
 
     out: list[ToothMask] = []
@@ -277,16 +301,17 @@ def _adaptive_enamel_mask(image: np.ndarray) -> np.ndarray:
     seed_thr = float(np.clip(max(thr + 8.0, p80 * 0.92), thr + 5.0, 220.0))
 
     # Enamel: bright, near-neutral a* (not red), mild yellow b* OK.
+    # Camera close-ups: lip highlights are bright with mild a* — keep a* tighter.
     body = (
         (L >= thr)
         & (L <= 254)
-        & (a < 12.0)
+        & (a < 10.0)
         & (a > -18.0)
         & (b > -8.0)
         & (b < 48.0)
     )
     # Hard ban on pink/red tissue even if bright
-    body &= ~((a >= 14.0) | ((a >= 10.0) & (L < seed_thr)))
+    body &= ~((a >= 12.0) | ((a >= 8.0) & (L < seed_thr)))
 
     seeds = body & (L >= seed_thr)
     if int(seeds.sum()) < 30:
@@ -754,6 +779,293 @@ def _split_arch_by_deep_valleys(u8: np.ndarray) -> np.ndarray:
     return out
 
 
+def _enamel_row_runs(
+    row_sum: np.ndarray, thr: float, *, min_h: int
+) -> list[tuple[int, int]]:
+    """Inclusive [lo, hi] runs where row_sum >= thr and height >= min_h."""
+    bh = int(row_sum.shape[0])
+    runs: list[tuple[int, int]] = []
+    i = 0
+    while i < bh:
+        if row_sum[i] >= thr:
+            j = i
+            while j < bh and row_sum[j] >= thr:
+                j += 1
+            if (j - i) >= min_h:
+                runs.append((i, j - 1))
+            i = j
+        else:
+            i += 1
+    return runs
+
+
+def _find_occlusal_gap(
+    u8: np.ndarray, luminance: np.ndarray | None = None
+) -> tuple[int, int] | None:
+    """Locate open-mouth gap between maxillary / mandibular enamel.
+
+    Two cases:
+      1) Separate enamel bands → clear the strip between the two strongest.
+      2) One connected band (bridges) → darkest mid-band enamel+luma valley.
+    Never use full-ROI peaks vs lips/chrome (that cleared the wrong strip).
+    """
+    bh, _bw = u8.shape
+    row_sum = (u8 > 0).sum(axis=1).astype(np.float64)
+    peak_h = float(row_sum.max())
+    if peak_h < 10:
+        return None
+
+    thr = 0.22 * peak_h
+    min_h = max(6, int(0.04 * bh))
+    runs = _enamel_row_runs(row_sum, thr, min_h=min_h)
+
+    if len(runs) >= 2:
+        # Strongest two by integrated fill, ordered top→bottom.
+        ranked = sorted(
+            runs,
+            key=lambda r: float(row_sum[r[0] : r[1] + 1].sum()),
+            reverse=True,
+        )
+        top, bot = sorted(ranked[:2], key=lambda r: r[0])
+        sep = bot[0] - top[1]
+        if sep >= max(6, int(0.06 * bh)):
+            y_a = top[1] + 1
+            y_b = bot[0] - 1
+            if y_b >= y_a:
+                return int(y_a), int(y_b)
+
+    if not runs:
+        return None
+
+    # Single (or weakly separated) band — column votes beat row-sum valleys
+    # when thin bridges keep enamel_row high across the occlusal plane.
+    band_lo, band_hi = max(runs, key=lambda r: r[1] - r[0])
+    band_h = band_hi - band_lo + 1
+    if band_h < max(28, int(0.22 * bh)):
+        return None
+
+    col_gap = _occlusal_gap_from_column_votes(u8, luminance, band_lo, band_hi)
+    if col_gap is not None:
+        return col_gap
+
+    k = max(3, (band_h // 18) | 1)
+    e_s = np.convolve(row_sum, np.ones(k) / k, mode="same")
+
+    if luminance is not None:
+        l_en = np.empty(bh, dtype=np.float64)
+        for y in range(bh):
+            cols = np.flatnonzero(u8[y] > 0)
+            if cols.size:
+                l_en[y] = float(np.mean(luminance[y, cols]))
+            else:
+                l_en[y] = float(np.mean(luminance[y]))
+        l_s = np.convolve(l_en, np.ones(k) / k, mode="same")
+    else:
+        l_s = e_s.copy()
+
+    e_max = float(e_s[band_lo : band_hi + 1].max()) + 1e-6
+    l_max = float(l_s[band_lo : band_hi + 1].max()) + 1e-6
+    score = (e_s / e_max) + 0.45 * (l_s / l_max)
+
+    margin = max(4, int(0.18 * band_h))
+    mid_lo = band_lo + margin
+    mid_hi = band_hi - margin
+    if mid_hi <= mid_lo:
+        return None
+
+    best_y: int | None = None
+    best_sc = 1e9
+    for y in range(mid_lo, mid_hi + 1):
+        above = float(e_s[band_lo:y].max())
+        below = float(e_s[y + 1 : band_hi + 1].max())
+        if above < 0.45 * e_max or below < 0.45 * e_max:
+            continue
+        if score[y] < best_sc:
+            best_sc = float(score[y])
+            best_y = y
+
+    if best_y is None:
+        return None
+
+    above = float(e_s[band_lo:best_y].max())
+    below = float(e_s[best_y + 1 : band_hi + 1].max())
+    flank = min(above, below)
+    # Single-arch smiles have no clear mid-band valley.
+    if flank > 1e-6 and e_s[best_y] / flank > 0.92:
+        if luminance is None or l_s[best_y] / l_max > 0.90:
+            return None
+
+    thr_sc = best_sc + 0.06 * max(0.05, 1.0 - best_sc)
+    y_a = best_y
+    y_b = best_y
+    while y_a > band_lo + 2 and score[y_a - 1] <= thr_sc:
+        y_a -= 1
+    while y_b < band_hi - 2 and score[y_b + 1] <= thr_sc:
+        y_b += 1
+    if y_b - y_a < 3:
+        y_a = max(band_lo + 1, best_y - 2)
+        y_b = min(band_hi - 1, best_y + 2)
+    if (y_b - y_a + 1) > 0.35 * band_h:
+        pad = max(2, int(0.06 * band_h))
+        y_a = max(band_lo + 1, best_y - pad)
+        y_b = min(band_hi - 1, best_y + pad)
+    return int(y_a), int(y_b)
+
+
+def _occlusal_gap_from_column_votes(
+    u8: np.ndarray,
+    luminance: np.ndarray | None,
+    band_lo: int,
+    band_hi: int,
+) -> tuple[int, int] | None:
+    """Vote per-column for the dark/empty seam between stacked crowns."""
+    bh, bw = u8.shape
+    band_h = band_hi - band_lo + 1
+    votes: list[int] = []
+    for x in range(bw):
+        ys = np.flatnonzero(u8[:, x] > 0)
+        if ys.size < 20:
+            continue
+        y0c, y1c = int(ys.min()), int(ys.max())
+        # Stay inside the dental band.
+        y0c = max(y0c, band_lo)
+        y1c = min(y1c, band_hi)
+        ht = y1c - y0c + 1
+        if ht < max(24, int(0.40 * band_h)):
+            continue
+        mid0 = y0c + int(0.18 * ht)
+        mid1 = y1c - int(0.18 * ht)
+        if mid1 <= mid0:
+            continue
+        empty = [y for y in range(mid0, mid1 + 1) if u8[y, x] == 0]
+        if len(empty) >= 2:
+            votes.append(int(np.median(empty)))
+            continue
+        if luminance is None:
+            continue
+        # Continuous bridge: darkest pixel in the mid span.
+        seg = luminance[mid0 : mid1 + 1, x]
+        votes.append(mid0 + int(np.argmin(seg)))
+
+    if len(votes) < max(10, int(0.06 * bw)):
+        return None
+    med = int(np.median(votes))
+    tol = max(4, int(0.035 * bh))
+    near = sum(1 for v in votes if abs(v - med) <= tol)
+    if near < 0.40 * len(votes):
+        return None
+    if med < band_lo + int(0.15 * band_h) or med > band_hi - int(0.15 * band_h):
+        return None
+    pad = max(2, int(0.015 * bh))
+    y_a = max(band_lo + 1, med - pad)
+    y_b = min(band_hi - 1, med + pad)
+    return int(y_a), int(y_b)
+
+
+def _split_dual_arches(
+    u8: np.ndarray, luminance: np.ndarray | None = None
+) -> np.ndarray:
+    """Sever maxillary / mandibular enamel at the dark open-mouth gap."""
+    gap = _find_occlusal_gap(u8, luminance=luminance)
+    if gap is None:
+        return u8
+    y_a, y_b = gap
+    out = u8.copy()
+    out[y_a : y_b + 1, :] = 0
+    return out
+
+
+def _clip_crossing_occlusal(
+    components: list[np.ndarray], gap: tuple[int, int]
+) -> list[np.ndarray]:
+    """Split any mask that still straddles the occlusal gap after refine."""
+    y_a, y_b = gap
+    out: list[np.ndarray] = []
+    for c in components:
+        ys = np.nonzero(c)[0]
+        if ys.size == 0:
+            continue
+        if int(ys.min()) < y_a and int(ys.max()) > y_b:
+            top = c.copy()
+            top[y_a:, :] = False
+            bot = c.copy()
+            bot[: y_b + 1, :] = False
+            if int(top.sum()) >= 40:
+                out.append(top)
+            if int(bot.sum()) >= 40:
+                out.append(bot)
+        else:
+            out.append(c)
+    return out
+
+
+def _split_vertically_merged_components(
+    components: list[np.ndarray],
+    luminance: np.ndarray,
+) -> list[np.ndarray]:
+    """Split remaining tall blobs that still span upper+lower crowns."""
+    if not components:
+        return components
+
+    heights: list[int] = []
+    for c in components:
+        ys, _xs = np.nonzero(c)
+        if ys.size:
+            heights.append(int(ys.max() - ys.min() + 1))
+    med_h = float(np.median(heights)) if heights else 0.0
+
+    out: list[np.ndarray] = []
+    for c in components:
+        ys, xs = np.nonzero(c)
+        if ys.size < 40:
+            out.append(c)
+            continue
+        y0, y1 = int(ys.min()), int(ys.max())
+        ht = y1 - y0 + 1
+        wd = int(xs.max() - xs.min() + 1)
+        # Clinic open-mouth merges are often only ~1.6–2.2× taller than wide.
+        too_tall = ht >= 1.75 * max(wd, 1) or (
+            med_h > 0 and ht >= 1.65 * med_h and ht >= 1.7 * max(wd, 1)
+        )
+        if not too_tall:
+            out.append(c)
+            continue
+
+        scores: list[float] = []
+        for y in range(y0, y1 + 1):
+            cols = np.flatnonzero(c[y])
+            if cols.size == 0:
+                scores.append(0.0)
+                continue
+            fill = float(cols.size)
+            luma = float(np.mean(luminance[y, cols]))
+            scores.append(fill * (0.25 + luma / 255.0))
+
+        margin = max(3, int(0.15 * ht))
+        if ht <= 2 * margin + 2:
+            out.append(c)
+            continue
+        search = scores[margin : ht - margin]
+        local = int(np.argmin(search)) + margin
+        ends = scores[:margin] + scores[ht - margin :]
+        peak = max(ends) if ends else 1.0
+        if peak < 1e-6 or scores[local] / peak > 0.62:
+            out.append(c)
+            continue
+
+        cut_y = y0 + local
+        top = c.copy()
+        top[cut_y:, :] = False
+        bot = c.copy()
+        bot[: cut_y + 1, :] = False
+        if int(top.sum()) >= 40 and int(bot.sum()) >= 40:
+            out.append(top)
+            out.append(bot)
+        else:
+            out.append(c)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # 5) Boundary refinement
 # ---------------------------------------------------------------------------
@@ -1104,12 +1416,14 @@ def _morph_cleanup_mask(mask: np.ndarray) -> np.ndarray:
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     u8 = cv2.morphologyEx(u8, cv2.MORPH_OPEN, k, iterations=1)
     u8 = cv2.morphologyEx(u8, cv2.MORPH_CLOSE, k, iterations=1)
-    contours, _ = cv2.findContours(u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     if not contours:
         return u8 > 0
     largest = max(contours, key=cv2.contourArea)
     filled = np.zeros_like(u8)
-    eps = max(0.8, 0.008 * cv2.arcLength(largest, True))
+    # Light smooth only — heavy approxPolyDP made coarse hexagons that
+    # ignored cervical scallop / contact curves on clinic photos.
+    eps = max(0.4, 0.003 * cv2.arcLength(largest, True))
     approx = cv2.approxPolyDP(largest, eps, True)
     cv2.drawContours(filled, [approx], -1, 255, thickness=-1)
     allow = cv2.dilate(u8, k, iterations=1)
@@ -1197,12 +1511,53 @@ def _filter_by_relative_size(components: list[np.ndarray]) -> list[np.ndarray]:
     return [components[int(np.argmax(areas))]]
 
 
+def _drop_lip_above_smile(
+    rows: list[dict], band_h: int
+) -> list[dict]:
+    """Drop blobs that sit on the upper lip above the bright crown row.
+
+    Camera frontal crops include a lot of lip; bright gloss often survives the
+    Lab-a* gate as a fake "tooth" floating above the smile (clinic T1).
+    """
+    if len(rows) < 2 or band_h < 16:
+        return rows
+
+    # Brightest / largest crowns define the smile line — not lip patches.
+    ranked = sorted(
+        rows,
+        key=lambda d: (float(d["med_L"]) * 0.6 + float(d["area"]) ** 0.5),
+        reverse=True,
+    )
+    smile = ranked[: max(2, (len(ranked) + 1) // 2)]
+    smile_top = min(float(d["y0"]) for d in smile)
+    smile_cy = float(np.median([d["cy"] for d in smile]))
+    med_h = float(np.median([d["h"] for d in smile]))
+
+    kept: list[dict] = []
+    for d in rows:
+        # Entirely above the smile band → lip / mustache / nostril.
+        if float(d["cy"]) < smile_cy - 0.85 * max(med_h, 1.0) and float(
+            d["y0"]
+        ) < smile_top - 0.04 * band_h:
+            continue
+        # Small + redder + above midline of smile → lip highlight.
+        if (
+            float(d["cy"]) < smile_cy - 0.55 * max(med_h, 1.0)
+            and float(d["med_a"]) >= 6.0
+            and float(d["area"]) < 0.55 * float(np.median([r["area"] for r in smile]))
+        ):
+            continue
+        kept.append(d)
+    return kept if kept else rows
+
+
 def _filter_to_arch_row(
     components: list[np.ndarray], band_rgb: np.ndarray
 ) -> list[np.ndarray]:
-    """Keep one horizontal tooth row; drop cheek/lip blobs and vertical outliers.
+    """Keep tooth row(s); drop cheek/lip blobs and vertical outliers.
 
-    Broken before: ROI included cheeks → arch-spacing invented T-labels on skin.
+    Single-arch smiles: keep one horizontal row (legacy behavior).
+    Open-mouth / both arches: keep upper AND lower rows when cy is bimodal.
     """
     import cv2
 
@@ -1222,7 +1577,8 @@ def _filter_to_arch_row(
         med_a = float(np.median(a_img[c]))
         med_L = float(np.median(L_img[c]))
         # Skin/lip false positives are redder (high a*) even if bright.
-        if med_a >= 13.0:
+        # Camera close-ups: pale lip gloss often sits ~9–12 a*.
+        if med_a >= 10.0:
             continue
         ht = int(ys.max() - ys.min() + 1)
         wd = int(xs.max() - xs.min() + 1)
@@ -1234,6 +1590,7 @@ def _filter_to_arch_row(
                 "mask": c,
                 "cy": float(ys.mean()),
                 "cx": float(xs.mean()),
+                "y0": float(ys.min()),
                 "h": ht,
                 "w": wd,
                 "area": int(ys.size),
@@ -1244,10 +1601,35 @@ def _filter_to_arch_row(
     if not rows:
         return components[:1]
 
+    rows = _drop_lip_above_smile(rows, band_rgb.shape[0])
+    if not rows:
+        return components[:1]
+
     rows.sort(key=lambda d: d["area"], reverse=True)
     ref = rows[: max(1, len(rows) // 2 + 1)]
-    med_cy = float(np.median([d["cy"] for d in ref]))
     med_h = float(np.median([d["h"] for d in ref]))
+    cys = [d["cy"] for d in rows]
+    cy_span = float(max(cys) - min(cys))
+
+    # Dual arch: two populated rows with a clear vertical gap between them.
+    if cy_span > 1.5 * max(med_h, 1.0) and len(rows) >= 4:
+        mid = 0.5 * (min(cys) + max(cys))
+        upper = [d for d in rows if d["cy"] < mid]
+        lower = [d for d in rows if d["cy"] >= mid]
+        if len(upper) >= 2 and len(lower) >= 2:
+            sep = min(d["cy"] for d in lower) - max(d["cy"] for d in upper)
+            if sep >= 0.45 * med_h:
+                kept: list[dict] = []
+                for group in (upper, lower):
+                    g_cy = float(np.median([d["cy"] for d in group]))
+                    g_h = float(np.median([d["h"] for d in group]))
+                    y_tol = max(8.0, 0.55 * g_h)
+                    kept.extend(d for d in group if abs(d["cy"] - g_cy) <= y_tol)
+                if kept:
+                    kept.sort(key=lambda d: (d["cy"], d["cx"]))
+                    return [d["mask"] for d in kept]
+
+    med_cy = float(np.median([d["cy"] for d in ref]))
     # Vertical gate: same smile row (adaptive to tooth height in this photo)
     y_tol = max(8.0, 0.55 * med_h)
     kept = [d for d in rows if abs(d["cy"] - med_cy) <= y_tol]
@@ -1261,8 +1643,38 @@ def _filter_by_arch_curve(components: list[np.ndarray]) -> list[np.ndarray]:
     """Reject blobs that sit far from a polynomial fit through tooth centroids.
 
     Extends the horizontal arch-row gate: crooked smiles still form a smooth
-    curve; gum/artifacts often sit off that curve.
+    curve; gum/artifacts often sit off that curve. Dual-arch photos are fit
+    per row so lower teeth are not treated as outliers of the upper curve.
     """
+    if len(components) < 3:
+        return components
+
+    items = [_mask_geom(c) for c in components]
+    cys = [d["cy"] for d in items]
+    heights = [d["h"] for d in items]
+    cy_span = float(max(cys) - min(cys))
+    med_h = float(np.median(heights)) if heights else 1.0
+
+    if cy_span > 1.5 * max(med_h, 1.0) and len(items) >= 4:
+        mid = 0.5 * (min(cys) + max(cys))
+        upper = [d for d in items if d["cy"] < mid]
+        lower = [d for d in items if d["cy"] >= mid]
+        if len(upper) >= 2 and len(lower) >= 2:
+            sep = min(d["cy"] for d in lower) - max(d["cy"] for d in upper)
+            if sep >= 0.45 * med_h:
+                kept: list[np.ndarray] = []
+                for group in (upper, lower):
+                    masks = [d["mask"] for d in group]
+                    if len(masks) >= 3:
+                        kept.extend(_filter_by_arch_curve_one_row(masks))
+                    else:
+                        kept.extend(masks)
+                return kept if kept else components
+
+    return _filter_by_arch_curve_one_row(components)
+
+
+def _filter_by_arch_curve_one_row(components: list[np.ndarray]) -> list[np.ndarray]:
     if len(components) < 3:
         return components
 
@@ -1345,11 +1757,14 @@ def _sanity_check_instances(teeth: list[ToothMask]) -> list[ToothMask]:
 
     areas = [int(t.mask.sum()) for t in teeth]
     widths = []
+    heights = []
     for t in teeth:
         ys, xs = np.nonzero(t.mask)
         widths.append(int(xs.max() - xs.min() + 1) if xs.size else 0)
+        heights.append(int(ys.max() - ys.min() + 1) if ys.size else 0)
     med_a = float(np.median(areas)) if areas else 1.0
     med_w = float(np.median(widths)) if widths else 1.0
+    med_h = float(np.median(heights)) if heights else 1.0
 
     # Pairwise overlap
     overlaps: set[int] = set()
@@ -1366,10 +1781,19 @@ def _sanity_check_instances(teeth: list[ToothMask]) -> list[ToothMask]:
     out: list[ToothMask] = []
     for i, t in enumerate(teeth):
         reason = None
+        ys, xs = np.nonzero(t.mask)
+        ht = int(ys.max() - ys.min() + 1) if ys.size else 0
+        wd = int(xs.max() - xs.min() + 1) if xs.size else 0
         if areas[i] < 0.2 * med_a:
             reason = "too_small"
         elif widths[i] > 2.5 * med_w and widths[i] > med_w + 4:
             reason = "too_wide_merged"
+        elif (
+            med_h > 0
+            and ht >= 1.85 * med_h
+            and ht >= 2.6 * max(wd, 1)
+        ):
+            reason = "too_tall_merged"
         elif i in overlaps:
             reason = "overlap"
         if reason:
