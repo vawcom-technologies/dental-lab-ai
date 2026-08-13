@@ -417,6 +417,15 @@ class AppTheme {
           ),
         ),
       ),
+      switchTheme: SwitchThemeData(
+        splashRadius: 0,
+        materialTapTargetSize: MaterialTapTargetSize.padded,
+        overlayColor: WidgetStateProperty.all(Colors.transparent),
+      ),
+      tooltipTheme: const TooltipThemeData(
+        waitDuration: Duration(milliseconds: 400),
+        showDuration: Duration(seconds: 2),
+      ),
     );
   }
 }

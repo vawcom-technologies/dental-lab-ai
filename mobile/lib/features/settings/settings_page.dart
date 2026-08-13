@@ -275,17 +275,18 @@ class _SettingsPageState extends State<SettingsPage> {
                       value: s.autoScanQuality,
                       onChanged: (v) =>
                           _persist((x) => x.autoScanQuality = v),
-                      showDivider: true,
-                    ),
-                    _GlassToggleRow(
-                      icon: CupertinoIcons.circle_grid_3x3_fill,
-                      iconBg: const Color(0xFF34C759),
-                      title: loc.settingsAutoScanBody,
-                      subtitle: loc.settingsAutoScanBodySub,
-                      value: s.autoScanBody,
-                      onChanged: (v) => _persist((x) => x.autoScanBody = v),
                       showDivider: false,
                     ),
+                    // Scan body parked — restore when needed.
+                    // _GlassToggleRow(
+                    //   icon: CupertinoIcons.circle_grid_3x3_fill,
+                    //   iconBg: const Color(0xFF34C759),
+                    //   title: loc.settingsAutoScanBody,
+                    //   subtitle: loc.settingsAutoScanBodySub,
+                    //   value: s.autoScanBody,
+                    //   onChanged: (v) => _persist((x) => x.autoScanBody = v),
+                    //   showDivider: false,
+                    // ),
                   ],
                 );
                 final notify = _GlassSettingsGroup(

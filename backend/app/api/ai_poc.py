@@ -1,7 +1,8 @@
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 import json
 
-from app.ai.scan_body import detect_diameter_from_image, list_reference_table, match_scan_body
+# Scan body parked — restore when needed.
+# from app.ai.scan_body import detect_diameter_from_image, list_reference_table, match_scan_body
 from app.ai.scan_quality import validate_ply_bytes
 from app.ai.shade_analyze import analyze_shade_from_bytes, analyze_tooth_from_outline_bytes
 from app.schemas import ScanValidateOut, ShadeAnalyzeOut
@@ -58,28 +59,29 @@ async def scan_validate(file: UploadFile = File(...)):
     )
 
 
-@router.get("/scan-body/table")
-def scan_body_table():
-    return {
-        "rows": list_reference_table(),
-        "note": "Provisional table — replace with client ground truth.",
-    }
-
-
-@router.post("/scan-body/match")
-def scan_body_match(diameter_mm: float = Form(...)):
-    return match_scan_body(diameter_mm)
-
-
-@router.post("/scan-body/detect")
-async def scan_body_detect(
-    file: UploadFile = File(...),
-    pixels_per_mm: float | None = Form(None),
-    known_diameter_mm: float | None = Form(None),
-):
-    data = await file.read()
-    return detect_diameter_from_image(
-        data,
-        pixels_per_mm=pixels_per_mm,
-        known_diameter_mm=known_diameter_mm,
-    )
+# Scan body parked — restore when needed.
+# @router.get("/scan-body/table")
+# def scan_body_table():
+#     return {
+#         "rows": list_reference_table(),
+#         "note": "Provisional table — replace with client ground truth.",
+#     }
+#
+#
+# @router.post("/scan-body/match")
+# def scan_body_match(diameter_mm: float = Form(...)):
+#     return match_scan_body(diameter_mm)
+#
+#
+# @router.post("/scan-body/detect")
+# async def scan_body_detect(
+#     file: UploadFile = File(...),
+#     pixels_per_mm: float | None = Form(None),
+#     known_diameter_mm: float | None = Form(None),
+# ):
+#     data = await file.read()
+#     return detect_diameter_from_image(
+#         data,
+#         pixels_per_mm=pixels_per_mm,
+#         known_diameter_mm=known_diameter_mm,
+#     )

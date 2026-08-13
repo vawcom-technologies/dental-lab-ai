@@ -268,7 +268,14 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(14),
-                      child: _loading
+                      child: AppSwitcher(
+                        child: KeyedSubtree(
+                          key: ValueKey(
+                            _loading
+                                ? 'loading'
+                                : '$filterKey-${_users.length}',
+                          ),
+                          child: _loading
                           ? const ToothPageLoader(message: 'Loading contacts…')
                           : _users.isEmpty
                               ? const Center(
@@ -307,6 +314,8 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
                                     );
                                   },
                                 ),
+                        ),
+                      ),
                     ),
                   ),
                 ),

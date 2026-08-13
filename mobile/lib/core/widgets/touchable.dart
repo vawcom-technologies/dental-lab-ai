@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/gestures.dart';
 
 import '../haptics/app_haptics.dart';
+import '../navigation/app_page_routes.dart';
 
 /// iPad-friendly scroll: Cupertino bounce + touch/stylus/trackpad drag.
 class EliteScrollBehavior extends CupertinoScrollBehavior {
@@ -72,8 +73,8 @@ class _TouchableState extends State<Touchable> {
   Widget build(BuildContext context) {
     return AnimatedScale(
       scale: _pressed ? widget.scale : 1,
-      duration: const Duration(milliseconds: 160),
-      curve: Curves.easeOutCubic,
+      duration: AppMotion.fast,
+      curve: AppMotion.spring,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: widget.enabled ? _handleTap : null,

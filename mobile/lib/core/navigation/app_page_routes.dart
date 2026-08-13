@@ -2,13 +2,19 @@ import 'package:flutter/cupertino.dart';
 
 /// Shared navigation timings + route builders for iPadOS-like motion.
 abstract final class AppMotion {
-  static const Duration fast = Duration(milliseconds: 180);
-  static const Duration normal = Duration(milliseconds: 280);
-  static const Duration page = Duration(milliseconds: 340);
+  static const Duration instant = Duration(milliseconds: 80);
+  static const Duration fast = Duration(milliseconds: 200);
+  static const Duration normal = Duration(milliseconds: 320);
+  static const Duration page = Duration(milliseconds: 380);
   static const Duration pageReverse = Duration(milliseconds: 280);
 
+  /// iOS decelerate — snaps in quickly, eases out softly.
+  static const Curve spring = Cubic(0.22, 1.0, 0.36, 1.0);
   static const Curve easeOut = Curves.easeOutCubic;
   static const Curve easeIn = Curves.easeInCubic;
+
+  static const Offset slideUp = Offset(0, 0.018);
+  static const Offset slideIn = Offset(0.012, 0);
 }
 
 abstract final class AppPageRoutes {

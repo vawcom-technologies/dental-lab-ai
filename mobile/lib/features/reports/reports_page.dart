@@ -221,9 +221,12 @@ class _ReportsPageState extends State<ReportsPage> {
           ],
           const SizedBox(height: 20),
           Expanded(
-            child: _loading && _summary == null
-                ? const ToothPageLoader(message: 'Loading reports…')
-                : LayoutBuilder(
+            child: AppSwitcher(
+              child: KeyedSubtree(
+                key: ValueKey('$_days|$_loading|${_summary != null}'),
+                child: _loading && _summary == null
+                    ? const ToothPageLoader(message: 'Loading reports…')
+                    : LayoutBuilder(
                     builder: (context, constraints) {
                       final landscape = constraints.maxWidth >= 780;
                       final hero = _HeroMetrics(
@@ -283,7 +286,9 @@ class _ReportsPageState extends State<ReportsPage> {
                       );
                     },
                   ),
-          ),
+                ),
+              ),
+            ),
         ],
       ),
     );

@@ -170,11 +170,12 @@ class AppSidebar extends StatelessWidget {
                             Icons.sentiment_satisfied_alt_outlined,
                             s.navSmilePreview,
                           ),
-                          _item(
-                            AppNavItem.scanBody,
-                            Icons.radio_button_checked_outlined,
-                            s.navScanBody,
-                          ),
+                          // Scan body parked — restore when needed.
+                          // _item(
+                          //   AppNavItem.scanBody,
+                          //   Icons.radio_button_checked_outlined,
+                          //   s.navScanBody,
+                          // ),
                           _item(
                             AppNavItem.messages,
                             Icons.chat_bubble_outline,
@@ -254,8 +255,8 @@ class AppSidebar extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         minHeight: 44,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
+          duration: AppMotion.normal,
+          curve: AppMotion.spring,
           padding: EdgeInsets.symmetric(
             horizontal: collapsed ? 0 : 12,
             vertical: 12,
@@ -274,7 +275,9 @@ class AppSidebar extends StatelessWidget {
                 collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
             children: [
               if (selected && !collapsed)
-                Container(
+                AnimatedContainer(
+                  duration: AppMotion.fast,
+                  curve: AppMotion.spring,
                   width: 3,
                   height: 18,
                   margin: const EdgeInsets.only(right: 10),
@@ -310,14 +313,16 @@ class AppSidebar extends StatelessWidget {
               if (!collapsed) ...[
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    label,
+                  child: AnimatedDefaultTextStyle(
+                    duration: AppMotion.fast,
+                    curve: AppMotion.spring,
                     style: AppFonts.style(
                       fontSize: 14,
                       fontWeight:
                           selected ? FontWeight.w700 : FontWeight.w500,
                       color: selected ? AppColors.navy : AppColors.muted,
                     ),
+                    child: Text(label),
                   ),
                 ),
               ],

@@ -102,6 +102,20 @@ class ApiClient {
         if (_token != null) 'Authorization': 'Bearer $_token',
       };
 
+  /// Headers for authenticated media (thumbnails, Image.network).
+  Map<String, String> get mediaHeaders => Map<String, String>.from(_authHeaders);
+
+  /// Turn a relative `/api/...` media path into an absolute URL.
+  String resolveMediaUrl(String url) {
+    final value = url.trim();
+    if (value.isEmpty) return value;
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return value;
+    }
+    if (value.startsWith('/')) return '$baseUrl$value';
+    return '$baseUrl/$value';
+  }
+
   Future<Map<String, dynamic>> signIn(String email, String password) async {
     final res = await _http.post(
       Uri.parse('$baseUrl/api/auth/signin'),
@@ -469,8 +483,7 @@ class ApiClient {
     return payload;
   }
 
-  /// Copy a camera photo into shade_detections (no re-upload).
-  /// Copy a camera photo into shade_detections (no re-upload). Returns the new row.
+  /// Open a camera photo in shade_detections (no re-upload). Returns the new row.
   Future<Map<String, dynamic>> copyToShadeDetection(String photoId) async {
     final res = await _http.post(
       Uri.parse('$baseUrl/api/patient-photos/$photoId/copy-to-shade'),
@@ -483,8 +496,8 @@ class ApiClient {
     return _decodeMap(res.body);
   }
 
-  /// Copy a camera photo into smile_previews (no re-upload).
-  Future<bool> copyToSmilePreview(String photoId) async {
+  /// Open a camera photo in smile_previews (no re-upload). Returns the new row.
+  Future<Map<String, dynamic>> copyToSmilePreview(String photoId) async {
     final res = await _http.post(
       Uri.parse('$baseUrl/api/patient-photos/$photoId/copy-to-smile'),
       headers: _jsonHeaders,
@@ -493,7 +506,7 @@ class ApiClient {
       throw Exception(_errorMessage(res));
     }
     AppHaptics.success();
-    return true;
+    return _decodeMap(res.body);
   }
 
   Future<List<Map<String, dynamic>>> listCases() async {
@@ -788,7 +801,7 @@ class ApiClient {
 
   /// Download media bytes from a public (or signed) URL such as R2 `file_url`.
   Future<Uint8List> downloadMediaBytes(String url) async {
-    final uri = Uri.parse(url);
+    final uri = Uri.parse(resolveMediaUrl(url));
     final res = await _http.get(uri, headers: _authHeaders);
     if (res.statusCode != 200) {
       throw Exception('Failed to download file (${res.statusCode})');
@@ -985,6 +998,7 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>?;
   }
 
+  // Scan body parked — restore when needed.
   Future<Map<String, dynamic>> matchScanBody(double diameterMm) async {
     final res = await _http.post(
       Uri.parse('$baseUrl/api/ai/scan-body/match'),

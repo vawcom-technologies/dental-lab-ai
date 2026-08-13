@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../haptics/app_haptics.dart';
+import '../navigation/app_page_routes.dart';
 
 /// Press feedback with scale + optional haptic, exposing [pressed] to the child.
 class Pressable extends StatefulWidget {
@@ -12,7 +13,7 @@ class Pressable extends StatefulWidget {
     this.haptic = true,
     this.selectionHaptic = false,
     this.scale = 0.94,
-    this.duration = const Duration(milliseconds: 120),
+    this.duration = AppMotion.fast,
   });
 
   final VoidCallback? onTap;
@@ -52,7 +53,7 @@ class _PressableState extends State<Pressable> {
     return AnimatedScale(
       scale: _pressed ? widget.scale : 1,
       duration: widget.duration,
-      curve: Curves.easeOutCubic,
+      curve: AppMotion.spring,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: widget.enabled ? _handleTap : null,

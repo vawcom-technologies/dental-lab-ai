@@ -212,6 +212,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
       } else if (_patients.isNotEmpty) {
         await _selectPatient(_patients.first);
       }
+      await _consumeSmileHandoff();
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -240,6 +241,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
     if (_patient == null || _pid(_patient!) != _pid(sel)) {
       await _selectPatient(sel, publish: false);
     }
+    await _consumeSmileHandoff();
   }
 
   String _pid(Map<String, dynamic> row) => '${row['id'] ?? ''}';
@@ -324,6 +326,54 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
       setState(() {
         _error = e.toString().replaceFirst('Exception: ', '');
       });
+    }
+  }
+
+  /// Camera handoff: load the photo onto the overlay canvas.
+  Future<void> _consumeSmileHandoff() async {
+    final id = widget.patientSession.takePendingSmilePreviewId();
+    if (id == null || id.isEmpty || _patient == null) return;
+
+    await _loadSmilePreviews();
+    if (!mounted) return;
+
+    Map<String, dynamic>? item;
+    for (final row in _smileItems) {
+      if ('${row['id'] ?? ''}' == id) {
+        item = row;
+        break;
+      }
+    }
+    if (item == null) {
+      setState(
+        () => _error =
+            'Photo is not in Smile Preview yet. Open Smile Preview again.',
+      );
+      return;
+    }
+
+    final url = '${item['file_url'] ?? ''}'.trim();
+    if (url.isEmpty) {
+      setState(() => _error = 'This photo has no file to open.');
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final bytes = await widget.api.downloadMediaBytes(url);
+      if (!mounted) return;
+      await _applyPhotoBytes(
+        bytes,
+        status: 'Opened from Camera — select a shape from the library.',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 

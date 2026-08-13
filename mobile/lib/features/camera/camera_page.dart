@@ -9,9 +9,11 @@ import '../../core/api/api_client.dart';
 import '../../core/haptics/app_haptics.dart';
 import '../../core/images/orient_image.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/layout/adaptive.dart';
 import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/patient_picker.dart';
+import '../../core/widgets/touchable.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'live_camera_capture.dart';
 
@@ -38,6 +40,7 @@ class _CameraPageState extends State<CameraPage> {
   List<Map<String, dynamic>> _patients = [];
   Map<String, dynamic>? _patient;
   List<Map<String, dynamic>> _photos = [];
+  String? _selectedPhotoId;
   String _angle = 'frontal';
   bool _loading = true;
   bool _busy = false;
@@ -75,20 +78,63 @@ class _CameraPageState extends State<CameraPage> {
     return '${s[0].toUpperCase()}${s.substring(1)}';
   }
 
-  String _joinMeta(Iterable<String> parts) =>
-      parts.where((p) => p.isNotEmpty).join(' · ');
+  String _clinicalAngleLabel(String angle) {
+    switch (angle.trim().toLowerCase()) {
+      case 'frontal':
+        return 'Frontal smile';
+      case 'left':
+        return 'Left profile';
+      case 'right':
+        return 'Right profile';
+      case 'other':
+        return 'Clinical photo';
+      default:
+        return angle.isEmpty ? 'Clinical photo' : _titleCase(angle);
+    }
+  }
+
+  String _clinicalPhotoName({required String angle, String extension = '.jpg'}) {
+    final patient = _patientLabel.trim();
+    final view = _clinicalAngleLabel(angle);
+    final base = patient.isEmpty ? view : '$patient · $view';
+    final ext = extension.toLowerCase();
+    final safeExt = ['.jpg', '.jpeg', '.png', '.heic', '.webp'].contains(ext)
+        ? ext
+        : '.jpg';
+    return '$base$safeExt';
+  }
+
+  bool _isMachineFilename(String raw) {
+    final name = raw.trim();
+    if (name.isEmpty) return true;
+    final lower = name.toLowerCase();
+    if (lower.startsWith('image_picker')) return true;
+    if (lower.startsWith('img_') || lower.startsWith('dsc_')) return true;
+    if (RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-', caseSensitive: false)
+        .hasMatch(name)) {
+      return true;
+    }
+    if (RegExp(r'^[a-f0-9]{16,}', caseSensitive: false).hasMatch(name)) {
+      return true;
+    }
+    return false;
+  }
 
   String _photoName(Map<String, dynamic> photo) {
     final raw = '${photo['filename'] ?? ''}'.trim();
-    if (raw.isEmpty) {
-      final angle = '${photo['angle'] ?? 'photo'}';
-      return angle.isEmpty ? 'Photo' : _titleCase(angle);
+    final angle = '${photo['angle'] ?? 'photo'}';
+    if (raw.isEmpty || _isMachineFilename(raw)) {
+      return _clinicalAngleLabel(angle);
     }
-    final lower = raw.toLowerCase();
+    var display = raw;
+    final lower = display.toLowerCase();
     for (final ext in ['.jpg', '.jpeg', '.png', '.heic', '.webp']) {
-      if (lower.endsWith(ext)) return raw.substring(0, raw.length - ext.length);
+      if (lower.endsWith(ext)) {
+        display = display.substring(0, display.length - ext.length);
+        break;
+      }
     }
-    return raw;
+    return display;
   }
 
   String _formatTakenAt(dynamic raw) {
@@ -102,24 +148,65 @@ class _CameraPageState extends State<CameraPage> {
     }
   }
 
-  String _photoAngle(Map<String, dynamic> photo) =>
-      '${photo['angle'] ?? ''}'.toUpperCase();
+  String _photoSubtitle(Map<String, dynamic> photo) =>
+      _formatTakenAt(photo['taken_at']);
 
-  String _photoSubtitle(Map<String, dynamic> photo) => _joinMeta([
-        _formatTakenAt(photo['taken_at']),
-        _photoAngle(photo),
-      ]);
+  String _photoAngleKey(Map<String, dynamic> photo) =>
+      '${photo['angle'] ?? ''}'.trim().toLowerCase();
 
-  String _photoHeader(Map<String, dynamic> photo) => _joinMeta([
-        _photoName(photo),
-        _photoAngle(photo),
-        _formatTakenAt(photo['taken_at']),
-      ]);
+  List<Map<String, dynamic>> get _visiblePhotos => _photos
+      .where((photo) => _photoAngleKey(photo) == _angle)
+      .toList();
 
-  Future<void> _reloadPhotos(String pid) async {
+  int _countForAngle(String angle) =>
+      _photos.where((photo) => _photoAngleKey(photo) == angle).length;
+
+  Map<String, dynamic>? get _selectedPhoto {
+    final id = _selectedPhotoId;
+    if (id == null) return null;
+    for (final photo in _visiblePhotos) {
+      if ('${photo['id'] ?? ''}' == id) return photo;
+    }
+    return null;
+  }
+
+  void _syncPhotoSelection() {
+    final visible = _visiblePhotos;
+    if (visible.isEmpty) {
+      _selectedPhotoId = null;
+      return;
+    }
+    if (_selectedPhotoId != null &&
+        visible.any((p) => '${p['id'] ?? ''}' == _selectedPhotoId)) {
+      return;
+    }
+    _selectedPhotoId = '${visible.first['id'] ?? ''}';
+  }
+
+  void _setAngle(String angle) {
+    if (angle == _angle) return;
+    AppHaptics.selection();
+    setState(() {
+      _angle = angle;
+      _syncPhotoSelection();
+    });
+  }
+
+  void _selectPhoto(Map<String, dynamic> photo) {
+    final id = '${photo['id'] ?? ''}';
+    if (id.isEmpty || id == _selectedPhotoId) return;
+    AppHaptics.selection();
+    setState(() => _selectedPhotoId = id);
+  }
+
+  Future<void> _reloadPhotos(String pid, {bool selectNewest = false}) async {
     final photos = await widget.api.listPatientPhotos(pid);
     if (!mounted) return;
-    setState(() => _photos = photos);
+    setState(() {
+      _photos = photos;
+      if (selectNewest) _selectedPhotoId = null;
+      _syncPhotoSelection();
+    });
   }
 
   Future<void> _runBusy(String label, Future<String> Function() work) async {
@@ -182,6 +269,7 @@ class _CameraPageState extends State<CameraPage> {
         setState(() {
           _patient = null;
           _photos = [];
+          _selectedPhotoId = null;
         });
       }
       return;
@@ -204,6 +292,7 @@ class _CameraPageState extends State<CameraPage> {
       setState(() {
         _patient = null;
         _photos = [];
+        _selectedPhotoId = null;
       });
       widget.patientSession.clearSelection();
       return;
@@ -228,6 +317,7 @@ class _CameraPageState extends State<CameraPage> {
     setState(() {
       _patient = patient;
       _photos = [];
+      _selectedPhotoId = null;
       _status = null;
       _error = null;
     });
@@ -252,7 +342,7 @@ class _CameraPageState extends State<CameraPage> {
     }
 
     Uint8List? bytes;
-    String filename = _titleCase(_angle);
+    var filename = _clinicalPhotoName(angle: _angle);
 
     if (fromCamera) {
       bytes = await captureWithLiveCamera(
@@ -269,7 +359,10 @@ class _CameraPageState extends State<CameraPage> {
       );
       if (xfile == null) return;
       bytes = bakeExifOrientation(Uint8List.fromList(await xfile.readAsBytes()));
-      if (xfile.name.isNotEmpty) filename = xfile.name;
+      final ext = xfile.name.contains('.')
+          ? '.${xfile.name.split('.').last}'
+          : '.jpg';
+      filename = _clinicalPhotoName(angle: _angle, extension: ext);
     }
 
     await _runBusy('Saving photo…', () async {
@@ -280,7 +373,7 @@ class _CameraPageState extends State<CameraPage> {
         filename: filename,
       );
       AppHaptics.success();
-      await _reloadPhotos(pid);
+      await _reloadPhotos(pid, selectNewest: true);
       return 'Saved $_angle photo for $_patientLabel';
     });
   }
@@ -291,7 +384,7 @@ class _CameraPageState extends State<CameraPage> {
     final photoId = '${photo['id'] ?? ''}';
     if (pid.isEmpty || photoId.isEmpty) return;
 
-    final angle = '${photo['angle'] ?? 'photo'}'.toUpperCase();
+    final angle = _clinicalAngleLabel('${photo['angle'] ?? ''}');
     final confirmed = await AppDialogs.confirm(
       context,
       title: 'Delete photo?',
@@ -337,27 +430,31 @@ class _CameraPageState extends State<CameraPage> {
     });
   }
 
-  Future<void> _copyPhotoToShade(Map<String, dynamic> photo) async {
+  Future<void> _openPhotoWithShade(Map<String, dynamic> photo) async {
     final photoId = '${photo['id'] ?? ''}';
     if (photoId.isEmpty) return;
     final label = _photoName(photo);
-    await _runBusy('Copying to Shade Detection…', () async {
+    await _runBusy('Opening with Shade Detection…', () async {
       final row = await widget.api.copyToShadeDetection(photoId);
       final shadeId = '${row['id'] ?? ''}'.trim();
       if (shadeId.isNotEmpty) {
         widget.patientSession.requestShadeHandoff(shadeId);
       }
-      return 'Copied “$label” to Shade Detection — mapping teeth…';
+      return 'Opening “$label” with Shade Detection…';
     });
   }
 
-  Future<void> _copyPhotoToSmile(Map<String, dynamic> photo) async {
+  Future<void> _openPhotoWithSmile(Map<String, dynamic> photo) async {
     final photoId = '${photo['id'] ?? ''}';
     if (photoId.isEmpty) return;
     final label = _photoName(photo);
-    await _runBusy('Copying to Smile Preview…', () async {
-      await widget.api.copyToSmilePreview(photoId);
-      return 'Copied “$label” to Smile Preview';
+    await _runBusy('Opening with Smile Preview…', () async {
+      final row = await widget.api.copyToSmilePreview(photoId);
+      final smileId = '${row['id'] ?? ''}'.trim();
+      if (smileId.isNotEmpty) {
+        widget.patientSession.requestSmileHandoff(smileId);
+      }
+      return 'Opening “$label” with Smile Preview…';
     });
   }
 
@@ -365,13 +462,478 @@ class _CameraPageState extends State<CameraPage> {
     switch (action) {
       case _PhotoMenuAction.rename:
         _renamePhoto(photo);
-      case _PhotoMenuAction.copyToShade:
-        _copyPhotoToShade(photo);
-      case _PhotoMenuAction.copyToSmile:
-        _copyPhotoToSmile(photo);
+      case _PhotoMenuAction.openWithShade:
+        _openPhotoWithShade(photo);
+      case _PhotoMenuAction.openWithSmile:
+        _openPhotoWithSmile(photo);
       case _PhotoMenuAction.delete:
         _deletePhoto(photo);
     }
+  }
+
+
+  void _afterViewer(BuildContext dialogContext, VoidCallback action) {
+    Navigator.of(dialogContext).pop();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      action();
+    });
+  }
+
+  void _viewPhoto(Map<String, dynamic> photo) {
+    final url = widget.api.resolveMediaUrl('${photo['file_url'] ?? ''}');
+    if (url.isEmpty) return;
+    final name = _photoName(photo);
+    final taken = _photoSubtitle(photo);
+    showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Close photo',
+      barrierColor: Colors.black.withValues(alpha: 0.92),
+      transitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (ctx, _, _) {
+        return Material(
+          color: Colors.black,
+          child: SafeArea(
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 16, 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppFonts.style(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 20,
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                            if (taken.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                taken,
+                                style: AppFonts.style(
+                                  color: Colors.white70,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      AppButtons.glassIcon(
+                        tooltip: 'Rename',
+                        onPressed: _busy
+                            ? null
+                            : () => _afterViewer(ctx, () => _renamePhoto(photo)),
+                        icon: Icons.edit_outlined,
+                      ),
+                      const SizedBox(width: 8),
+                      AppButtons.glassIcon(
+                        tooltip: 'Delete',
+                        onPressed: _busy
+                            ? null
+                            : () => _afterViewer(ctx, () => _deletePhoto(photo)),
+                        icon: Icons.delete_outline,
+                        color: AppColors.danger,
+                      ),
+                      const SizedBox(width: 8),
+                      AppButtons.glassIcon(
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: Icons.close,
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: _FilledNetworkPhoto(
+                      url: url,
+                      headers: widget.api.mediaHeaders,
+                      interactive: true,
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                  child: Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 12,
+                    runSpacing: 10,
+                    children: [
+                      AppButtons.glass(
+                        onPressed: _busy
+                            ? null
+                            : () => _afterViewer(
+                                  ctx,
+                                  () => _openPhotoWithShade(photo),
+                                ),
+                        label: 'Open with Shade Detection',
+                        icon: Icons.palette_outlined,
+                      ),
+                      AppButtons.glass(
+                        onPressed: _busy
+                            ? null
+                            : () => _afterViewer(
+                                  ctx,
+                                  () => _openPhotoWithSmile(photo),
+                                ),
+                        label: 'Open with Smile Preview',
+                        icon: Icons.sentiment_satisfied_alt_outlined,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _angleBar() {
+    return GlassSurface(
+      borderRadius: BorderRadius.circular(16),
+      blur: 16,
+      tint: Colors.white.withValues(alpha: 0.5),
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+      child: Row(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Text(
+              'Angle',
+              style: AppFonts.style(
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+                color: AppColors.navy,
+              ),
+            ),
+          ),
+          Expanded(
+            child: CupertinoSlidingSegmentedControl<String>(
+              groupValue: _angle,
+              backgroundColor: AppColors.inset,
+              thumbColor: Colors.white,
+              children: {
+                for (final a in angles)
+                  a: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 10,
+                    ),
+                    child: Text(
+                      '${_titleCase(a)} (${_countForAngle(a)})',
+                      textAlign: TextAlign.center,
+                      style: AppFonts.style(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.navy,
+                      ),
+                    ),
+                  ),
+              },
+              onValueChanged: (value) {
+                if (value == null) return;
+                _setAngle(value);
+              },
+            ),
+          ),
+          if (_busy) ...[
+            const SizedBox(width: 10),
+            const ToothLoadingIndicator(size: 22, compact: true),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                _busyLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppFonts.style(
+                  fontSize: 13,
+                  color: AppColors.muted,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _photosWorkspace() {
+    if (_patient == null) {
+      return _CameraEmpty(
+        icon: Icons.person_add_alt_1_outlined,
+        title: 'Choose a patient',
+        message: 'Select a patient in the header to capture chairside photos.',
+      );
+    }
+    if (_photos.isEmpty) {
+      return _CameraEmpty(
+        icon: Icons.photo_camera_outlined,
+        title: 'No photos yet',
+        message:
+            'Take a frontal, left, or right photo — it is saved to this patient record.',
+        action: AppButtons.primary(
+          onPressed: _busy ? null : () => _capture(fromCamera: true),
+          label: 'Take photo',
+          icon: Icons.photo_camera_outlined,
+        ),
+      );
+    }
+    return AdaptiveSplit(
+      panelOnRight: true,
+      panelFraction: 0.28,
+      minPanelWidth: 280,
+      maxPanelWidth: 320,
+      gap: 16,
+      narrowPanelHeight: 360,
+      content: _photoGrid(),
+      panel: AppSwitcher(
+        child: KeyedSubtree(
+          key: ValueKey(_selectedPhotoId ?? 'none'),
+          child: _photoInspector(),
+        ),
+      ),
+    );
+  }
+
+  Widget _photoGrid() {
+    final visible = _visiblePhotos;
+    final angleLabel = _clinicalAngleLabel(_angle);
+    return SectionCard(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '$_patientLabel · $angleLabel · ${visible.length} of ${_photos.length}/$maxPhotos',
+            style: AppFonts.style(
+              fontWeight: FontWeight.w700,
+              fontSize: 16,
+              color: AppColors.navy,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: visible.isEmpty
+                ? _CameraEmpty(
+                    icon: Icons.photo_outlined,
+                    title: 'No $angleLabel photos',
+                    message:
+                        'Switch angle or take a ${_titleCase(_angle).toLowerCase()} photo for this patient.',
+                    action: AppButtons.primary(
+                      onPressed:
+                          _busy ? null : () => _capture(fromCamera: true),
+                      label: 'Take photo',
+                      icon: Icons.photo_camera_outlined,
+                    ),
+                  )
+                : ScrollConfiguration(
+                    behavior: const EliteScrollBehavior(),
+                    child: GridView.builder(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      gridDelegate:
+                          const SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: 200,
+                        mainAxisSpacing: 12,
+                        crossAxisSpacing: 12,
+                        childAspectRatio: 0.86,
+                      ),
+                      itemCount: visible.length,
+                      itemBuilder: (context, i) {
+                        final photo = visible[i];
+                        final id = '${photo['id'] ?? ''}';
+                        final url = widget.api.resolveMediaUrl(
+                          '${photo['file_url'] ?? ''}',
+                        );
+                        return _PhotoGridTile(
+                          name: _photoName(photo),
+                          subtitle: _photoSubtitle(photo),
+                          url: url,
+                          headers: widget.api.mediaHeaders,
+                          selected: id == _selectedPhotoId,
+                          enabled: !_busy,
+                          onTap: () {
+                            if (id == _selectedPhotoId) {
+                              _viewPhoto(photo);
+                              return;
+                            }
+                            _selectPhoto(photo);
+                          },
+                          onMenu: (action) =>
+                              _onPhotoMenuSelected(action, photo),
+                        );
+                      },
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _photoInspector() {
+    final photo = _selectedPhoto;
+    if (photo == null) {
+      return SectionCard(
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              _clinicalAngleLabel(_angle),
+              style: AppFonts.style(
+                fontWeight: FontWeight.w700,
+                fontSize: 16,
+                color: AppColors.navy,
+              ),
+            ),
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: const ColoredBox(
+                color: Color(0xFF111827),
+                child: SizedBox(
+                  height: 168,
+                  child: Center(
+                    child: Text(
+                      'Nothing selected',
+                      style: TextStyle(color: Colors.white54, fontSize: 13),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Take a ${_titleCase(_angle).toLowerCase()} photo or pick one from the grid.',
+              style: AppFonts.style(
+                fontSize: 13,
+                height: 1.35,
+                color: AppColors.muted,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    final url = widget.api.resolveMediaUrl('${photo['file_url'] ?? ''}');
+    final name = _photoName(photo);
+    final taken = _photoSubtitle(photo);
+    return SectionCard(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppFonts.style(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                        letterSpacing: -0.2,
+                        color: AppColors.navy,
+                      ),
+                    ),
+                    if (taken.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        taken,
+                        style: AppFonts.style(
+                          fontSize: 14,
+                          color: AppColors.muted,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              AppButtons.icon(
+                tooltip: 'View full screen',
+                onPressed: url.isEmpty ? null : () => _viewPhoto(photo),
+                icon: Icons.open_in_full_rounded,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Touchable(
+            onTap: url.isEmpty ? null : () => _viewPhoto(photo),
+            scale: 0.99,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: ColoredBox(
+                color: const Color(0xFF111827),
+                child: SizedBox(
+                  height: 168,
+                  child: url.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'Photo unavailable',
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                        )
+                      : _FilledNetworkPhoto(
+                          url: url,
+                          headers: widget.api.mediaHeaders,
+                        ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          AppButtons.primary(
+            onPressed: _busy ? null : () => _openPhotoWithSmile(photo),
+            label: 'Smile Preview',
+            icon: Icons.sentiment_satisfied_alt_outlined,
+          ),
+          const SizedBox(height: 8),
+          AppButtons.secondary(
+            onPressed: _busy ? null : () => _openPhotoWithShade(photo),
+            label: 'Shade Detection',
+            icon: Icons.palette_outlined,
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              AppButtons.ghost(
+                onPressed: _busy ? null : () => _renamePhoto(photo),
+                label: 'Rename',
+                icon: Icons.edit_outlined,
+                compact: true,
+              ),
+              const Spacer(),
+              AppButtons.danger(
+                onPressed: _busy ? null : () => _deletePhoto(photo),
+                label: 'Delete',
+                icon: Icons.delete_outline,
+                compact: true,
+                soft: true,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -387,7 +949,7 @@ class _CameraPageState extends State<CameraPage> {
             icon: Icons.photo_camera_outlined,
             title: AppLocalizations.of(context).cameraTitle,
             subtitle:
-                'Frontal / left / right · up to 12 photos per patient · saved to patient record',
+                'Frontal, left, and right photos · up to 12 per patient',
             actions: [
               PatientPickerButton(
                 patients: _patients,
@@ -405,17 +967,16 @@ class _CameraPageState extends State<CameraPage> {
                 },
                 emptyHint: 'No patients yet — add one to capture photos.',
               ),
-              FilledButton.icon(
-                onPressed:
-                    canCapture ? () => _capture(fromCamera: true) : null,
-                icon: const Icon(Icons.photo_camera_outlined, size: 18),
-                label: const Text('Take photo'),
+              AppButtons.primary(
+                onPressed: canCapture ? () => _capture(fromCamera: true) : null,
+                label: 'Take photo',
+                icon: Icons.photo_camera_outlined,
               ),
-              OutlinedButton.icon(
+              AppButtons.secondary(
                 onPressed:
                     canCapture ? () => _capture(fromCamera: false) : null,
-                icon: const Icon(Icons.photo_library_outlined, size: 18),
-                label: const Text('Gallery'),
+                label: 'Gallery',
+                icon: Icons.photo_library_outlined,
               ),
             ],
           ),
@@ -423,9 +984,9 @@ class _CameraPageState extends State<CameraPage> {
             const SizedBox(height: 10),
             Text(
               _error ?? _status!,
-              style: TextStyle(
+              style: AppFonts.style(
                 color: _error != null ? AppColors.danger : AppColors.success,
-                fontSize: 13,
+                fontSize: 14,
               ),
             ),
           ],
@@ -436,183 +997,21 @@ class _CameraPageState extends State<CameraPage> {
             )
           else if (_patients.isEmpty)
             const Expanded(
-              child: Center(
-                child: Text(
-                  'Add a patient from the header to start capturing photos.',
-                  style: TextStyle(color: AppColors.muted),
-                ),
+              child: _CameraEmpty(
+                icon: Icons.person_add_alt_1_outlined,
+                title: 'Add a patient',
+                message:
+                    'Add a patient from the header to start capturing photos.',
               ),
             )
           else ...[
-            SectionCard(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      const Text(
-                        'Angle',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Wrap(
-                          spacing: 6,
-                          runSpacing: 4,
-                          children: angles.map((a) {
-                            final selected = _angle == a;
-                            return ChoiceChip(
-                              label: Text(_titleCase(a)),
-                              selected: selected,
-                              visualDensity: VisualDensity.compact,
-                              materialTapTargetSize:
-                                  MaterialTapTargetSize.shrinkWrap,
-                              onSelected: (_) => setState(() => _angle = a),
-                              selectedColor: AppColors.sidebarActive,
-                              labelStyle: TextStyle(
-                                color: selected
-                                    ? AppColors.navy
-                                    : AppColors.muted,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 12,
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_busy) ...[
-                    const SizedBox(height: 10),
-                    Center(
-                      child: ToothLoadingIndicator(
-                        size: 24,
-                        loadingText: _busyLabel,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
+            _angleBar(),
+            const SizedBox(height: 14),
             Expanded(
-              child: SectionCard(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _patient == null
-                          ? 'Photos'
-                          : '$_patientLabel · ${_photos.length}/$maxPhotos photos',
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 8),
-                    Expanded(
-                      child: _photos.isEmpty
-                          ? const Center(
-                              child: Text(
-                                'No photos yet. Capture frontal, left, and right.',
-                                style: TextStyle(color: AppColors.muted),
-                              ),
-                            )
-                          : ListView.separated(
-                              itemCount: _photos.length,
-                              separatorBuilder: (_, _) =>
-                                  const Divider(height: 1),
-                              itemBuilder: (context, i) {
-                                final p = _photos[i];
-                                final url = '${p['file_url'] ?? ''}';
-                                return ListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  dense: true,
-                                  onTap: url.isEmpty
-                                      ? null
-                                      : () => _viewPhoto(p),
-                                  leading: _PhotoThumb(url: url, index: i),
-                                  title: Text(
-                                    _photoName(p),
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  subtitle: Text(
-                                    _photoSubtitle(p),
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: AppColors.muted,
-                                    ),
-                                  ),
-                                  trailing: PopupMenuButton<_PhotoMenuAction>(
-                                    tooltip: 'Photo options',
-                                    enabled: !_busy,
-                                    icon: const Icon(
-                                      Icons.more_vert,
-                                      color: AppColors.muted,
-                                    ),
-                                    onSelected: (action) =>
-                                        _onPhotoMenuSelected(action, p),
-                                    itemBuilder: (context) => const [
-                                      PopupMenuItem(
-                                        value: _PhotoMenuAction.rename,
-                                        child: ListTile(
-                                          dense: true,
-                                          contentPadding: EdgeInsets.zero,
-                                          leading: Icon(Icons.edit_outlined),
-                                          title: Text('Rename'),
-                                        ),
-                                      ),
-                                      PopupMenuItem(
-                                        value: _PhotoMenuAction.copyToShade,
-                                        child: ListTile(
-                                          dense: true,
-                                          contentPadding: EdgeInsets.zero,
-                                          leading: Icon(
-                                            Icons.palette_outlined,
-                                          ),
-                                          title: Text('Copy to Shade Detection'),
-                                        ),
-                                      ),
-                                      PopupMenuItem(
-                                        value: _PhotoMenuAction.copyToSmile,
-                                        child: ListTile(
-                                          dense: true,
-                                          contentPadding: EdgeInsets.zero,
-                                          leading: Icon(
-                                            Icons.sentiment_satisfied_alt_outlined,
-                                          ),
-                                          title: Text('Copy to Smile Preview'),
-                                        ),
-                                      ),
-                                      PopupMenuDivider(),
-                                      PopupMenuItem(
-                                        value: _PhotoMenuAction.delete,
-                                        child: ListTile(
-                                          dense: true,
-                                          contentPadding: EdgeInsets.zero,
-                                          leading: Icon(
-                                            Icons.delete_outline,
-                                            color: AppColors.danger,
-                                          ),
-                                          title: Text(
-                                            'Delete',
-                                            style: TextStyle(
-                                              color: AppColors.danger,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-                    ),
-                  ],
+              child: AppSwitcher(
+                child: KeyedSubtree(
+                  key: ValueKey(_angle),
+                  child: _photosWorkspace(),
                 ),
               ),
             ),
@@ -621,99 +1020,73 @@ class _CameraPageState extends State<CameraPage> {
       ),
     );
   }
+}
 
-  void _viewPhoto(Map<String, dynamic> photo) {
-    final url = '${photo['file_url'] ?? ''}';
-    if (url.isEmpty) return;
-    final header = _photoHeader(photo);
-    showCupertinoDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      barrierColor: Colors.black.withValues(alpha: 0.45),
-      builder: (ctx) => Material(
-        type: MaterialType.transparency,
-        child: Dialog(
-          insetPadding: const EdgeInsets.all(24),
-          backgroundColor: Colors.black,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 900, maxHeight: 900),
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          header,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Rename photo',
-                        onPressed: _busy
-                            ? null
-                            : () {
-                                Navigator.pop(ctx);
-                                // Wait for the viewer route to finish disposing
-                                // before opening the rename dialog.
-                                WidgetsBinding.instance.addPostFrameCallback((_) {
-                                  if (!mounted) return;
-                                  _renamePhoto(photo);
-                                });
-                              },
-                        icon: const Icon(
-                          Icons.edit_outlined,
-                          color: Colors.white70,
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Delete photo',
-                        onPressed: _busy
-                            ? null
-                            : () {
-                                Navigator.pop(ctx);
-                                WidgetsBinding.instance.addPostFrameCallback((_) {
-                                  if (!mounted) return;
-                                  _deletePhoto(photo);
-                                });
-                              },
-                        icon: const Icon(
-                          Icons.delete_outline,
-                          color: Colors.white70,
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        icon: const Icon(Icons.close, color: Colors.white),
-                      ),
-                    ],
-                  ),
+enum _PhotoMenuAction {
+  rename,
+  openWithShade,
+  openWithSmile,
+  delete,
+}
+
+class _CameraEmpty extends StatelessWidget {
+  const _CameraEmpty({
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.action,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440),
+        child: GlassSurface(
+          borderRadius: BorderRadius.circular(24),
+          blur: 18,
+          tint: Colors.white.withValues(alpha: 0.55),
+          padding: const EdgeInsets.fromLTRB(36, 40, 36, 36),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              NeoIconBadge(
+                icon: icon,
+                size: 64,
+                iconSize: 30,
+                color: AppColors.dentalBlue,
+              ),
+              const SizedBox(height: 18),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: AppFonts.style(
+                  color: AppColors.navy,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.3,
                 ),
-                Expanded(
-                  child: InteractiveViewer(
-                    minScale: 1,
-                    maxScale: 4,
-                    child: Center(
-                      child: Image.network(
-                        url,
-                        fit: BoxFit.contain,
-                        errorBuilder: (_, _, _) => const Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Text(
-                            'Could not load photo',
-                            style: TextStyle(color: Colors.white70),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: AppFonts.style(
+                  color: AppColors.muted,
+                  fontSize: 15,
+                  height: 1.4,
                 ),
+              ),
+              if (action != null) ...[
+                const SizedBox(height: 22),
+                action!,
               ],
-            ),
+            ],
           ),
         ),
       ),
@@ -721,51 +1094,193 @@ class _CameraPageState extends State<CameraPage> {
   }
 }
 
-enum _PhotoMenuAction {
-  rename,
-  copyToShade,
-  copyToSmile,
-  delete,
-}
-
-class _PhotoThumb extends StatelessWidget {
-  const _PhotoThumb({required this.url, required this.index});
+class _FilledNetworkPhoto extends StatelessWidget {
+  const _FilledNetworkPhoto({
+    required this.url,
+    required this.headers,
+    this.interactive = false,
+  });
 
   final String url;
-  final int index;
+  final Map<String, String> headers;
+  final bool interactive;
 
   @override
   Widget build(BuildContext context) {
-    if (url.isEmpty) {
-      return CircleAvatar(
-        backgroundColor: AppColors.sidebarActive,
-        child: Text(
-          '${index + 1}',
-          style: const TextStyle(
-            color: AppColors.navy,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      );
-    }
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: SizedBox(
-        width: 48,
-        height: 48,
-        child: Image.network(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final image = Image.network(
           url,
-          fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => ColoredBox(
+          headers: headers,
+          fit: BoxFit.contain,
+          width: constraints.maxWidth,
+          height: constraints.maxHeight,
+          alignment: Alignment.center,
+          errorBuilder: (_, _, _) => const Center(
+            child: Text(
+              'Could not load photo',
+              style: TextStyle(color: Colors.white70, fontSize: 16),
+            ),
+          ),
+        );
+        if (!interactive) return image;
+        return InteractiveViewer(
+          minScale: 1,
+          maxScale: 5,
+          child: SizedBox(
+            width: constraints.maxWidth,
+            height: constraints.maxHeight,
+            child: image,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _PhotoGridTile extends StatelessWidget {
+  const _PhotoGridTile({
+    required this.name,
+    required this.subtitle,
+    required this.url,
+    required this.headers,
+    required this.selected,
+    required this.enabled,
+    required this.onTap,
+    required this.onMenu,
+  });
+
+  final String name;
+  final String subtitle;
+  final String url;
+  final Map<String, String> headers;
+  final bool selected;
+  final bool enabled;
+  final VoidCallback onTap;
+  final ValueChanged<_PhotoMenuAction> onMenu;
+
+  @override
+  Widget build(BuildContext context) {
+    return Touchable(
+      enabled: enabled,
+      selectionHaptic: true,
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? AppColors.dentalBlue : Colors.transparent,
+            width: 3,
+          ),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: AppColors.dentalBlue.withValues(alpha: 0.22),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(11),
+          child: ColoredBox(
             color: AppColors.sidebarActive,
-            child: Center(
-              child: Text(
-                '${index + 1}',
-                style: const TextStyle(
-                  color: AppColors.navy,
-                  fontWeight: FontWeight.w700,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (url.isEmpty)
+                  const Center(
+                    child: Icon(
+                      Icons.photo_outlined,
+                      color: AppColors.muted,
+                      size: 28,
+                    ),
+                  )
+                else
+                  Image.network(
+                    url,
+                    headers: headers,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => const Center(
+                      child: Icon(
+                        Icons.broken_image_outlined,
+                        color: AppColors.muted,
+                      ),
+                    ),
+                  ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withValues(alpha: 0),
+                          Colors.black.withValues(alpha: 0.72),
+                        ],
+                      ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 18, 4, 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppFonts.style(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          PopupMenuButton<_PhotoMenuAction>(
+                            tooltip: 'Photo options',
+                            enabled: enabled,
+                            padding: EdgeInsets.zero,
+                            icon: const Icon(
+                              Icons.more_horiz,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                            onSelected: onMenu,
+                            itemBuilder: (context) => const [
+                              PopupMenuItem(
+                                value: _PhotoMenuAction.rename,
+                                child: Text('Rename'),
+                              ),
+                              PopupMenuItem(
+                                value: _PhotoMenuAction.openWithShade,
+                                child: Text('Open with Shade Detection'),
+                              ),
+                              PopupMenuItem(
+                                value: _PhotoMenuAction.openWithSmile,
+                                child: Text('Open with Smile Preview'),
+                              ),
+                              PopupMenuDivider(),
+                              PopupMenuItem(
+                                value: _PhotoMenuAction.delete,
+                                child: Text(
+                                  'Delete',
+                                  style: TextStyle(color: AppColors.danger),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
         ),

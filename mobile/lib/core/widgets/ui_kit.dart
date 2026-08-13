@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
+import '../navigation/app_page_routes.dart';
 import '../theme/app_theme.dart';
 import 'glass_surface.dart';
 import 'soft_pill_button.dart';
@@ -8,6 +9,7 @@ import 'soft_pill_button.dart';
 export 'app_buttons.dart';
 export 'app_dialogs.dart';
 export 'app_snackbar.dart';
+export 'app_switcher.dart';
 export 'busy_action.dart';
 export 'dental_date_picker.dart';
 export 'glass_surface.dart';
@@ -27,9 +29,9 @@ class StatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final key = CaseStatuses.normalize(statusKey);
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 320),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
+      duration: AppMotion.normal,
+      switchInCurve: AppMotion.spring,
+      switchOutCurve: AppMotion.easeIn,
       transitionBuilder: (child, animation) {
         final slide = Tween<Offset>(
           begin: const Offset(0, 0.65),

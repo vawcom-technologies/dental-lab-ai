@@ -171,8 +171,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
         nav(AppNavItem.scans);
       case 'shade':
         nav(AppNavItem.shade);
-      case 'scan_body':
-        nav(AppNavItem.scanBody);
+      // Scan body parked — restore when needed.
+      // case 'scan_body':
+      //   nav(AppNavItem.scanBody);
       case 'sync':
         nav(AppNavItem.settings);
       case 'export':
@@ -253,7 +254,12 @@ class _NotificationsPageState extends State<NotificationsPage> {
           ),
           const SizedBox(height: 14),
           Expanded(
-            child: _loading
+            child: AppSwitcher(
+              child: KeyedSubtree(
+                key: ValueKey(
+                  _loading ? 'loading' : '$_filter-${visible.length}',
+                ),
+                child: _loading
                 ? const ToothPageLoader(
                     message: 'Loading notifications…',
                     color: AppColors.dentalBlue,
@@ -313,7 +319,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
                           },
                         ),
                       ),
-          ),
+                    ),
+                  ),
+                ),
         ],
       ),
     );

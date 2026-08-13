@@ -27,6 +27,11 @@ class PatientSession extends ChangeNotifier {
   /// Camera → Shade: open this detection and run the same AI suggest path.
   String? _pendingShadeDetectionId;
   bool _navigateToShade = false;
+
+  /// Camera → Smile Preview: open this saved preview on the overlay canvas.
+  String? _pendingSmilePreviewId;
+  bool _navigateToSmilePreview = false;
+
   bool _navigateToNewPatient = false;
 
   List<Map<String, dynamic>> get patients => _patients;
@@ -52,7 +57,7 @@ class PatientSession extends ChangeNotifier {
     _visitStartedAt = DateTime.now().toUtc();
   }
 
-  /// After copying a camera photo into shade_detections, hand off to Shade.
+  /// After opening a camera photo in shade_detections, hand off to Shade.
   void requestShadeHandoff(String shadeDetectionId) {
     final id = shadeDetectionId.trim();
     if (id.isEmpty) return;
@@ -72,6 +77,29 @@ class PatientSession extends ChangeNotifier {
   bool consumeNavigateToShade() {
     if (!_navigateToShade) return false;
     _navigateToShade = false;
+    return true;
+  }
+
+  /// After opening a camera photo in smile_previews, hand off to Smile Preview.
+  void requestSmileHandoff(String smilePreviewId) {
+    final id = smilePreviewId.trim();
+    if (id.isEmpty) return;
+    _pendingSmilePreviewId = id;
+    _navigateToSmilePreview = true;
+    _notify();
+  }
+
+  /// Returns and clears the pending smile preview id (one-shot).
+  String? takePendingSmilePreviewId() {
+    final id = _pendingSmilePreviewId;
+    _pendingSmilePreviewId = null;
+    return id;
+  }
+
+  /// Shell consumes this to switch to Smile Preview (one-shot).
+  bool consumeNavigateToSmilePreview() {
+    if (!_navigateToSmilePreview) return false;
+    _navigateToSmilePreview = false;
     return true;
   }
 

@@ -236,7 +236,7 @@ class _PatientsPageState extends State<PatientsPage> {
     }
   }
 
-  Future<void> _openDetails(GdprPatient patient) async {
+  Future<void> _openDetails(GdprPatient patient, {int tab = 0}) async {
     if (_controller.loadingDetail || _controller.mutating) return;
     try {
       final detailed = await _controller.openPatient(patient.id);
@@ -246,6 +246,7 @@ class _PatientsPageState extends State<PatientsPage> {
         builder: (ctx) => _PatientDetailSheet(
           controller: _controller,
           patient: detailed,
+          initialTab: tab,
           onEdit: () {
             Navigator.pop(ctx);
             _openEdit(detailed);
@@ -448,38 +449,49 @@ class _PatientsPageState extends State<PatientsPage> {
                 ],
                 const SizedBox(height: 16),
                 Expanded(
-                  child: _controller.loading && rows.isEmpty
-                      ? const ToothPageLoader(message: 'Loading patients…')
-                      : rows.isEmpty
-                          ? _EmptyPatients(
-                              filtered: _controller.statusFilter != 'all' ||
-                                  _controller.query.trim().isNotEmpty,
-                            )
-                          : ListView.separated(
-                              itemCount: rows.length,
-                              separatorBuilder: (_, _) =>
-                                  const SizedBox(height: 12),
-                              itemBuilder: (context, i) {
-                                final p = rows[i];
-                                final owner = _controller.isOwner(p);
-                                return _PatientCard(
-                                  patient: p,
-                                  isOwner: owner,
-                                  roleLabel: AppRoles.label(widget.api.role),
-                                  enabled: !blocked,
-                                  onOpen: () => _openDetails(p),
-                                  onEdit: owner ? () => _openEdit(p) : null,
-                                  onShare: () => _openShare(p),
-                                  onDelete: owner
-                                      ? () => _confirmDelete(p)
-                                      : null,
-                                  onStatusChanged: owner
-                                      ? (status) =>
-                                          _changePatientStatus(p, status)
-                                      : null,
-                                );
-                              },
-                            ),
+                  child: AppSwitcher(
+                    child: KeyedSubtree(
+                      key: ValueKey(
+                        '${_controller.statusFilter}|${_controller.query}|${rows.length}|${_controller.loading}',
+                      ),
+                      child: _controller.loading && rows.isEmpty
+                          ? const ToothPageLoader(message: 'Loading patients…')
+                          : rows.isEmpty
+                              ? _EmptyPatients(
+                                  filtered:
+                                      _controller.statusFilter != 'all' ||
+                                          _controller.query.trim().isNotEmpty,
+                                )
+                              : ListView.separated(
+                                  itemCount: rows.length,
+                                  separatorBuilder: (_, _) =>
+                                      const SizedBox(height: 12),
+                                  itemBuilder: (context, i) {
+                                    final p = rows[i];
+                                    final owner = _controller.isOwner(p);
+                                    return _PatientCard(
+                                      patient: p,
+                                      isOwner: owner,
+                                      roleLabel:
+                                          AppRoles.label(widget.api.role),
+                                      enabled: !blocked,
+                                      onOpen: () => _openDetails(p),
+                                      onNotes: () => _openDetails(p, tab: 1),
+                                      onEdit:
+                                          owner ? () => _openEdit(p) : null,
+                                      onShare: () => _openShare(p),
+                                      onDelete: owner
+                                          ? () => _confirmDelete(p)
+                                          : null,
+                                      onStatusChanged: owner
+                                          ? (status) =>
+                                              _changePatientStatus(p, status)
+                                          : null,
+                                    );
+                                  },
+                                ),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -548,6 +560,7 @@ class _PatientCard extends StatelessWidget {
     required this.patient,
     required this.isOwner,
     required this.onOpen,
+    this.onNotes,
     this.roleLabel,
     this.enabled = true,
     this.onEdit,
@@ -561,6 +574,7 @@ class _PatientCard extends StatelessWidget {
   final String? roleLabel;
   final bool enabled;
   final VoidCallback onOpen;
+  final VoidCallback? onNotes;
   final VoidCallback? onEdit;
   final VoidCallback? onShare;
   final VoidCallback? onDelete;
@@ -632,7 +646,7 @@ class _PatientCard extends StatelessWidget {
                   alignment: WrapAlignment.end,
                   children: [
                     AppButtons.ghost(
-                      onPressed: enabled ? onOpen : null,
+                      onPressed: enabled ? (onNotes ?? onOpen) : null,
                       icon: Icons.notes_outlined,
                       label: 'Notes',
                       compact: true,
@@ -1900,10 +1914,12 @@ class _PatientDetailSheet extends StatefulWidget {
     required this.onDelete,
     required this.onToast,
     required this.friendlyError,
+    this.initialTab = 0,
   });
 
   final PatientsController controller;
   final GdprPatient patient;
+  final int initialTab;
   final VoidCallback onEdit;
   final VoidCallback onShare;
   final VoidCallback onDelete;
@@ -1923,7 +1939,11 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 3, vsync: this);
+    _tabs = TabController(
+      length: 3,
+      vsync: this,
+      initialIndex: widget.initialTab.clamp(0, 2),
+    );
     // Defer controller loads — notifyListeners during initState/build marks the
     // parent ListenableBuilder dirty mid-frame.
     WidgetsBinding.instance.addPostFrameCallback((_) {

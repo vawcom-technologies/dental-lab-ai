@@ -10,7 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 
 from app.core.security import AuthUser, get_current_user
-from app.core.supabase_client import get_supabase_admin
+from app.core.supabase_client import get_supabase_admin, run_db
 from app.schemas_appointments import (
     AppointmentCreate,
     AppointmentResponse,
@@ -64,16 +64,16 @@ def _serialize(row: dict[str, Any], patient: dict[str, Any]) -> AppointmentRespo
 
 def _accessible_patient_ids(user_id: str) -> list[str]:
     try:
-        owned = (
-            get_supabase_admin()
+        owned = run_db(
+            lambda: get_supabase_admin()
             .table("patients")
             .select("id")
             .eq("created_by", user_id)
             .eq("deleted", False)
             .execute()
         )
-        shared = (
-            get_supabase_admin()
+        shared = run_db(
+            lambda: get_supabase_admin()
             .table("patient_access")
             .select("patient_id")
             .eq("user_id", user_id)
@@ -144,8 +144,8 @@ def _fetch_patients_map(patient_ids: list[str]) -> dict[str, dict[str, Any]]:
     if not patient_ids:
         return {}
     try:
-        result = (
-            get_supabase_admin()
+        result = run_db(
+            lambda: get_supabase_admin()
             .table("patients")
             .select("id,first_name,last_name,email")
             .in_("id", patient_ids)
@@ -183,20 +183,25 @@ def list_appointments(
         patient_filter = accessible
 
     now_iso = datetime.now(timezone.utc).isoformat()
-    try:
+    status_value = status_filter.strip().lower() if status_filter else None
+
+    def _query():
         query = (
             get_supabase_admin()
             .table("appointments")
             .select("*")
             .in_("patient_id", patient_filter)
         )
-        if status_filter:
-            query = query.eq("status", status_filter.strip().lower())
+        if status_value:
+            query = query.eq("status", status_value)
         if upcoming_only:
             query = query.gte("start_time", now_iso).order("start_time", desc=False)
         else:
             query = query.order("start_time", desc=True)
-        result = query.execute()
+        return query.execute()
+
+    try:
+        result = run_db(_query)
     except Exception as exc:
         raise pa.db_error(exc) from exc
 

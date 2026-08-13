@@ -6,8 +6,12 @@ import 'package:flutter/scheduler.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/api/api_client.dart';
+import '../../../core/haptics/app_haptics.dart';
+import '../../../core/layout/adaptive.dart';
+import '../../../core/navigation/app_page_routes.dart';
 import '../../../core/session/patient_session.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/touchable.dart';
 import '../../../core/widgets/ui_kit.dart';
 import '../appointment_service.dart';
 import '../models/appointment.dart';
@@ -34,12 +38,49 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   List<Appointment> _items = [];
   String _statusFilter = 'all';
   String? _patientFilterId;
+  String? _selectedId;
   bool _loading = true;
   bool _refreshing = false;
   bool _patientsRefreshing = false;
   String? _error;
+  int _listGen = 0;
 
   List<Map<String, dynamic>> get _patients => widget.patientSession.patients;
+
+  Appointment? get _selected {
+    final id = _selectedId;
+    if (id == null) return null;
+    for (final item in _items) {
+      if (item.id == id) return item;
+    }
+    return null;
+  }
+
+  List<_DayGroup> get _groups {
+    final map = <DateTime, List<Appointment>>{};
+    for (final item in _items) {
+      final t = item.startTime;
+      final day = DateTime(t.year, t.month, t.day);
+      map.putIfAbsent(day, () => []).add(item);
+    }
+    final days = map.keys.toList()..sort();
+    return [for (final day in days) _DayGroup(day, map[day]!)];
+  }
+
+  void _syncSelection({String? preferId}) {
+    if (_items.isEmpty) {
+      _selectedId = null;
+      return;
+    }
+    final preferred = preferId ?? _selectedId;
+    if (preferred != null && _items.any((e) => e.id == preferred)) {
+      _selectedId = preferred;
+      return;
+    }
+    final now = DateTime.now();
+    final upcoming = _items.where((e) => !e.startTime.isBefore(now));
+    _selectedId = (upcoming.isEmpty ? _items.first : upcoming.first).id;
+  }
 
   @override
   void initState() {
@@ -110,12 +151,6 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     }
   }
 
-  String _patientLabel(Map<String, dynamic> row) {
-    final name =
-        '${row['first_name'] ?? ''} ${row['last_name'] ?? ''}'.trim();
-    return name.isEmpty ? 'Patient' : name;
-  }
-
   Future<void> _bootstrap() async {
     setState(() {
       _loading = true;
@@ -134,6 +169,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   }
 
   Future<void> _loadAppointments({bool soft = false}) async {
+    final gen = ++_listGen;
     if (soft) {
       setState(() => _refreshing = true);
     }
@@ -143,18 +179,21 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         patientId: _patientFilterId,
         upcomingOnly: false,
       );
-      if (!mounted) return;
+      if (!mounted || gen != _listGen) return;
       final sorted = List<Appointment>.from(rows)
         ..sort((a, b) => a.startTime.compareTo(b.startTime));
       setState(() {
         _items = sorted;
         _error = null;
+        _syncSelection();
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || gen != _listGen) return;
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
-      if (mounted && soft) setState(() => _refreshing = false);
+      if (mounted && soft && gen == _listGen) {
+        setState(() => _refreshing = false);
+      }
     }
   }
 
@@ -188,6 +227,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         _items = [appointment, ..._items];
       }
       _items.sort((a, b) => a.startTime.compareTo(b.startTime));
+      _syncSelection(preferId: appointment.id);
     });
   }
 
@@ -220,30 +260,43 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+      padding: const EdgeInsets.fromLTRB(28, 22, 28, 22),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildHeader(),
           const SizedBox(height: 16),
           _buildFilterBar(),
-          const SizedBox(height: 12),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text(
-                _error!,
-                style: const TextStyle(color: AppColors.danger, fontSize: 13),
+          if (_error != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              _error!,
+              style: AppFonts.style(color: AppColors.danger, fontSize: 13),
+            ),
+          ],
+          const SizedBox(height: 16),
+          Expanded(
+            child: AnimatedOpacity(
+              duration: AppMotion.fast,
+              curve: AppMotion.spring,
+              opacity: _refreshing ? 0.62 : 1,
+              child: AppSwitcher(
+                child: KeyedSubtree(
+                  key: ValueKey(
+                    _loading
+                        ? 'loading'
+                        : '$_statusFilter|${_patientFilterId ?? 'all'}|${_items.length}',
+                  ),
+                  child: _loading
+                      ? const ToothPageLoader(message: 'Loading appointments…')
+                      : RefreshIndicator(
+                          color: AppColors.dentalBlue,
+                          onRefresh: _refreshAll,
+                          child: _buildBody(),
+                        ),
+                ),
               ),
             ),
-          Expanded(
-            child: _loading
-                ? const ToothPageLoader(message: 'Loading appointments…')
-                : RefreshIndicator(
-                    color: AppColors.dentalBlue,
-                    onRefresh: _refreshAll,
-                    child: _buildList(),
-                  ),
           ),
         ],
       ),
@@ -252,44 +305,23 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 
   Widget _buildHeader() {
     final busy = _loading || _refreshing || _patientsRefreshing;
-    return Row(
-      children: [
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Appointments',
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.navy,
-                ),
-              ),
-              SizedBox(height: 2),
-              Text(
-                'Schedule visits · email confirmations via Resend',
-                style: TextStyle(color: AppColors.muted, fontSize: 14),
-              ),
-            ],
-          ),
-        ),
-        FilledButton.icon(
-          onPressed: _loading ? null : () => _openBookModal(),
-          icon: const Icon(Icons.add, size: 18),
-          label: const Text('Book Appointment'),
-        ),
-        const SizedBox(width: 8),
-        IconButton(
+    return PageHeader(
+      icon: Icons.calendar_today_outlined,
+      title: 'Appointments',
+      subtitle: 'Schedule visits and send confirmation emails',
+      chromeActions: [
+        AppButtons.icon(
           tooltip: 'Refresh',
           onPressed: busy ? null : _refreshAll,
-          icon: busy
-              ? const SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: ToothLoadingIndicator(size: 22, compact: true),
-                )
-              : const Icon(Icons.refresh, color: AppColors.muted),
+          icon: Icons.refresh_rounded,
+          busy: busy,
+        ),
+      ],
+      actions: [
+        AppButtons.primary(
+          onPressed: _loading ? null : () => _openBookModal(),
+          label: 'Book',
+          icon: Icons.add_rounded,
         ),
       ],
     );
@@ -301,215 +333,715 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         _patientFilterId != null && patientIds.contains(_patientFilterId)
             ? _patientFilterId
             : null;
+    final selectedPatient = () {
+      if (filterValue == null) return null;
+      for (final p in _patients) {
+        if (widget.patientSession.pidOf(p) == filterValue) return p;
+      }
+      return null;
+    }();
 
-    return SectionCard(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: AppointmentStatuses.filters.map((f) {
-                final selected = _statusFilter == f.key;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: ChoiceChip(
-                    label: Text(f.label),
-                    selected: selected,
-                    visualDensity: VisualDensity.compact,
-                    selectedColor: AppColors.sidebarActive,
-                    labelStyle: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12.5,
-                      color: selected ? AppColors.navy : AppColors.muted,
-                    ),
-                    onSelected: (_) {
-                      setState(() => _statusFilter = f.key);
-                      _loadAppointments(soft: true);
-                    },
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 720;
+        final filters = _StatusFilterBar(
+          selected: _statusFilter,
+          compact: !wide,
+          onSelected: (key) {
+            if (key == _statusFilter) return;
+            AppHaptics.selection();
+            setState(() => _statusFilter = key);
+            _loadAppointments(soft: true);
+          },
+        );
+        final patient = _PatientFilterButton(
+          patients: _patients,
+          selected: selectedPatient,
+          pidOf: widget.patientSession.pidOf,
+          onSelectAll: () {
+            setState(() => _patientFilterId = null);
+            _loadAppointments(soft: true);
+          },
+          onSelect: (p) {
+            setState(
+              () => _patientFilterId = widget.patientSession.pidOf(p),
+            );
+            _loadAppointments(soft: true);
+          },
+          onAdd: () => widget.patientSession.requestNavigateToNewPatient(),
+          onRefresh: () => _refreshPatients(),
+        );
+        if (wide) {
+          return Row(
             children: [
-              Expanded(
-                child: DropdownButtonFormField<String?>(
-                  key: ValueKey(
-                    'patient-filter-${_patients.length}-$filterValue',
-                  ),
-                  initialValue: filterValue,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    labelText: 'Patient',
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                  ),
-                  items: [
-                    const DropdownMenuItem<String?>(
-                      value: null,
-                      child: Text('All patients'),
-                    ),
-                    ..._patients.map(
-                      (p) => DropdownMenuItem<String?>(
-                        value: widget.patientSession.pidOf(p),
-                        child: Text(
-                          _patientLabel(p),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-                  ],
-                  onChanged: (id) {
-                    setState(() => _patientFilterId = id);
-                    _loadAppointments(soft: true);
-                  },
-                ),
-              ),
+              Expanded(child: filters),
+              const SizedBox(width: 12),
+              patient,
             ],
-          ),
-        ],
-      ),
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            filters,
+            const SizedBox(height: 12),
+            Align(alignment: Alignment.centerLeft, child: patient),
+          ],
+        );
+      },
     );
   }
 
-  Widget _buildList() {
+  Widget _buildBody() {
     if (_items.isEmpty) {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
           SizedBox(
-            height: MediaQuery.sizeOf(context).height * 0.45,
-            child: SectionCard(
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 360),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.event_busy_outlined,
-                        size: 48,
-                        color: AppColors.muted.withValues(alpha: 0.7),
-                      ),
-                      const SizedBox(height: 14),
-                      Text(
-                        'No appointments found for this filter',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 16,
-                          color: AppColors.navy,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Book a visit to send a confirmation email to the patient.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: AppColors.muted,
-                          fontSize: 13,
-                          height: 1.35,
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-                      FilledButton.icon(
-                        onPressed: () => _openBookModal(),
-                        icon: const Icon(Icons.add, size: 18),
-                        label: const Text('Book Appointment'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+            height: mathMaxEmptyHeight(context),
+            child: _AppointmentsEmpty(
+              filtered: _statusFilter != 'all' || _patientFilterId != null,
+              onBook: () => _openBookModal(),
             ),
           ),
         ],
       );
     }
 
-    return ListView.separated(
-      physics: const AlwaysScrollableScrollPhysics(),
-      itemCount: _items.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 10),
-      itemBuilder: (context, i) => _AppointmentCard(
-        appointment: _items[i],
-        onEdit: () => _openBookModal(existing: _items[i]),
+    final list = _AppointmentsAgenda(
+      groups: _groups,
+      selectedId: _selectedId,
+      onSelect: (item) {
+        AppHaptics.selection();
+        setState(() => _selectedId = item.id);
+      },
+      onEdit: (item) => _openBookModal(existing: item),
+    );
+
+    return AdaptiveSplit(
+      panelFraction: 0.42,
+      minPanelWidth: 320,
+      maxPanelWidth: 460,
+      gap: 16,
+      content: AppSwitcher(
+        child: KeyedSubtree(
+          key: ValueKey(_selectedId ?? 'none'),
+          child: _AppointmentDetailPane(
+            appointment: _selected,
+            onEdit: _selected == null
+                ? null
+                : () => _openBookModal(existing: _selected),
+            onBook: () => _openBookModal(),
+          ),
+        ),
+      ),
+      panel: list,
+    );
+  }
+
+  double mathMaxEmptyHeight(BuildContext context) {
+    final h = MediaQuery.sizeOf(context).height;
+    return (h * 0.55).clamp(320.0, 560.0);
+  }
+}
+
+class _DayGroup {
+  const _DayGroup(this.day, this.items);
+  final DateTime day;
+  final List<Appointment> items;
+}
+
+String _dayHeading(DateTime day) {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final tomorrow = today.add(const Duration(days: 1));
+  final yesterday = today.subtract(const Duration(days: 1));
+  if (day == today) return 'Today';
+  if (day == tomorrow) return 'Tomorrow';
+  if (day == yesterday) return 'Yesterday';
+  return DateFormat('EEEE, MMM d').format(day);
+}
+
+class _StatusFilterBar extends StatelessWidget {
+  const _StatusFilterBar({
+    required this.selected,
+    required this.onSelected,
+    this.compact = false,
+  });
+
+  final String selected;
+  final ValueChanged<String> onSelected;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    if (compact) {
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final f in AppointmentStatuses.filters)
+            SoftPillButton(
+              label: f.label,
+              selected: selected == f.key,
+              compact: false,
+              selectionHaptic: true,
+              onPressed: () => onSelected(f.key),
+            ),
+        ],
+      );
+    }
+
+    return GlassSurface(
+      borderRadius: BorderRadius.circular(16),
+      blur: 16,
+      tint: Colors.white.withValues(alpha: 0.5),
+      padding: const EdgeInsets.all(6),
+      child: CupertinoSlidingSegmentedControl<String>(
+        groupValue: selected,
+        backgroundColor: AppColors.inset,
+        thumbColor: Colors.white,
+        children: {
+          for (final f in AppointmentStatuses.filters)
+            f.key: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+              child: Text(
+                f.label,
+                textAlign: TextAlign.center,
+                style: AppFonts.style(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.navy,
+                ),
+              ),
+            ),
+        },
+        onValueChanged: (value) {
+          if (value == null) return;
+          onSelected(value);
+        },
       ),
     );
   }
 }
 
-class _AppointmentCard extends StatelessWidget {
-  const _AppointmentCard({
+class _PatientFilterButton extends StatelessWidget {
+  const _PatientFilterButton({
+    required this.patients,
+    required this.selected,
+    required this.pidOf,
+    required this.onSelectAll,
+    required this.onSelect,
+    required this.onAdd,
+    required this.onRefresh,
+  });
+
+  final List<Map<String, dynamic>> patients;
+  final Map<String, dynamic>? selected;
+  final String Function(Map<String, dynamic>) pidOf;
+  final VoidCallback onSelectAll;
+  final ValueChanged<Map<String, dynamic>> onSelect;
+  final VoidCallback onAdd;
+  final Future<void> Function() onRefresh;
+
+  String _name(Map<String, dynamic> p) =>
+      '${p['first_name'] ?? ''} ${p['last_name'] ?? ''}'.trim();
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = this.selected;
+    final label = selected == null
+        ? 'All patients'
+        : (_name(selected).isEmpty ? 'Patient' : _name(selected));
+    final subtitle = selected == null
+        ? '${patients.length} in clinic'
+        : 'Filtering schedule';
+
+    return MenuAnchor(
+      alignmentOffset: const Offset(0, 6),
+      style: MenuStyle(
+        backgroundColor: WidgetStateProperty.all(AppColors.card),
+        elevation: WidgetStateProperty.all(0),
+        shadowColor: WidgetStateProperty.all(Colors.transparent),
+        padding:
+            WidgetStateProperty.all(const EdgeInsets.symmetric(vertical: 6)),
+        shape: WidgetStateProperty.all(
+          RoundedRectangleBorder(borderRadius: AppRadii.borderSm),
+        ),
+      ),
+      menuChildren: [
+        MenuItemButton(
+          onPressed: onSelectAll,
+          leadingIcon: const Icon(Icons.groups_outlined, size: 18),
+          trailingIcon: selected == null
+              ? const Icon(Icons.check, size: 16, color: AppColors.dentalBlue)
+              : null,
+          child: const SizedBox(
+            width: 180,
+            child: Text('All patients'),
+          ),
+        ),
+        const Divider(height: 8),
+        ...patients.map((p) {
+          final isSel = selected != null && pidOf(selected) == pidOf(p);
+          final name = _name(p);
+          return MenuItemButton(
+            onPressed: () => onSelect(p),
+            leadingIcon: InitialsAvatar(
+              name: name.isEmpty ? '?' : name,
+              size: 28,
+            ),
+            trailingIcon: isSel
+                ? const Icon(
+                    Icons.check,
+                    size: 16,
+                    color: AppColors.dentalBlue,
+                  )
+                : null,
+            child: SizedBox(
+              width: 180,
+              child: Text(
+                name.isEmpty ? 'Patient' : name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          );
+        }),
+        const Divider(height: 8),
+        MenuItemButton(
+          onPressed: () {
+            WidgetsBinding.instance.addPostFrameCallback((_) => onAdd());
+          },
+          leadingIcon: const Icon(Icons.person_add_alt_1, size: 18),
+          child: const Text('Add patient'),
+        ),
+        MenuItemButton(
+          onPressed: () {
+            WidgetsBinding.instance.addPostFrameCallback((_) => onRefresh());
+          },
+          leadingIcon: const Icon(Icons.refresh_rounded, size: 18),
+          child: const Text('Refresh patients'),
+        ),
+      ],
+      builder: (context, controller, child) {
+        return SizedBox(
+          width: 248,
+          child: Touchable(
+            borderRadius: AppRadii.borderSm,
+            minHeight: 48,
+            onTap: () {
+              if (controller.isOpen) {
+                controller.close();
+              } else {
+                controller.open();
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.neo,
+                borderRadius: AppRadii.borderSm,
+                boxShadow: controller.isOpen
+                    ? NeoShadows.pressed()
+                    : NeoShadows.soft(depth: 0.55),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    selected == null
+                        ? Icons.groups_outlined
+                        : Icons.person_outline,
+                    size: 20,
+                    color: AppColors.navy,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppFonts.style(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                            color: AppColors.navy,
+                          ),
+                        ),
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppFonts.style(
+                            fontSize: 12,
+                            color: AppColors.muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    controller.isOpen
+                        ? Icons.keyboard_arrow_up
+                        : Icons.keyboard_arrow_down,
+                    size: 20,
+                    color: AppColors.muted,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _AppointmentsEmpty extends StatelessWidget {
+  const _AppointmentsEmpty({
+    required this.filtered,
+    required this.onBook,
+  });
+
+  final bool filtered;
+  final VoidCallback onBook;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: GlassSurface(
+          borderRadius: BorderRadius.circular(24),
+          blur: 18,
+          tint: Colors.white.withValues(alpha: 0.55),
+          padding: const EdgeInsets.fromLTRB(36, 40, 36, 36),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              NeoIconBadge(
+                icon: filtered
+                    ? Icons.filter_alt_off_outlined
+                    : Icons.event_available_outlined,
+                size: 64,
+                iconSize: 30,
+                color: AppColors.dentalBlue,
+              ),
+              const SizedBox(height: 18),
+              Text(
+                filtered ? 'Nothing matches this filter' : 'No visits yet',
+                textAlign: TextAlign.center,
+                style: AppFonts.style(
+                  color: AppColors.navy,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.3,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                filtered
+                    ? 'Try another status or patient, or book a new visit.'
+                    : 'Book a visit to send a confirmation email to the patient.',
+                textAlign: TextAlign.center,
+                style: AppFonts.style(
+                  color: AppColors.muted,
+                  fontSize: 15,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 22),
+              AppButtons.primary(
+                onPressed: onBook,
+                label: 'Book Appointment',
+                icon: Icons.add_rounded,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AppointmentsAgenda extends StatelessWidget {
+  const _AppointmentsAgenda({
+    required this.groups,
+    required this.selectedId,
+    required this.onSelect,
+    required this.onEdit,
+  });
+
+  final List<_DayGroup> groups;
+  final String? selectedId;
+  final ValueChanged<Appointment> onSelect;
+  final ValueChanged<Appointment> onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        for (final group in groups) ...[
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
+              child: Row(
+                children: [
+                  Text(
+                    _dayHeading(group.day),
+                    style: AppFonts.style(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.navy,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    DateFormat('MMM d').format(group.day),
+                    style: AppFonts.style(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '${group.items.length}',
+                    style: AppFonts.style(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: SectionCard(
+                padding: EdgeInsets.zero,
+                child: Column(
+                  children: [
+                    for (var i = 0; i < group.items.length; i++) ...[
+                      if (i > 0)
+                        const Divider(height: 1, indent: 88, endIndent: 16),
+                      _AppointmentRow(
+                        appointment: group.items[i],
+                        selected: group.items[i].id == selectedId,
+                        onTap: () => onSelect(group.items[i]),
+                        onEdit: () => onEdit(group.items[i]),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+        const SliverToBoxAdapter(child: SizedBox(height: 12)),
+      ],
+    );
+  }
+}
+
+class _AppointmentRow extends StatelessWidget {
+  const _AppointmentRow({
     required this.appointment,
+    required this.selected,
+    required this.onTap,
     required this.onEdit,
   });
 
   final Appointment appointment;
+  final bool selected;
+  final VoidCallback onTap;
   final VoidCallback onEdit;
 
-  static final _dateFmt = DateFormat('MMM d, yyyy');
   static final _timeFmt = DateFormat('h:mm a');
 
   @override
   Widget build(BuildContext context) {
     final style = AppointmentStatusStyle.of(appointment.status);
-    final when =
-        '${_dateFmt.format(appointment.startTime)} · ${_timeFmt.format(appointment.startTime)} - ${_timeFmt.format(appointment.endTime)}';
+    final name = appointment.patientName.isEmpty
+        ? 'Patient'
+        : appointment.patientName;
     final notes = appointment.description.trim();
 
-    return SectionCard(
-      padding: const EdgeInsets.fromLTRB(16, 14, 10, 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 4,
-            height: 72,
-            decoration: BoxDecoration(
-              color: style.fg,
-              borderRadius: BorderRadius.circular(4),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  when,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                    color: AppColors.navy,
+    return Touchable(
+      onTap: onTap,
+      minHeight: 76,
+      borderRadius: BorderRadius.zero,
+            child: AnimatedContainer(
+        duration: AppMotion.fast,
+        curve: AppMotion.spring,
+        color: selected
+            ? AppColors.dentalBlue.withValues(alpha: 0.08)
+            : Colors.transparent,
+        padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 72,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _timeFmt.format(appointment.startTime),
+                    style: AppFonts.style(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.navy,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  crossAxisAlignment: WrapCrossAlignment.center,
+                  const SizedBox(height: 2),
+                  Text(
+                    _timeFmt.format(appointment.endTime),
+                    style: AppFonts.style(
+                      fontSize: 12,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              width: 3,
+              height: 44,
+              decoration: BoxDecoration(
+                color: style.fg,
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppFonts.style(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.navy,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: style.bg,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          style.label,
+                          style: AppFonts.style(
+                            color: style.fg,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      if (notes.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            notes,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppFonts.style(
+                              color: AppColors.muted,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            AppButtons.icon(
+              tooltip: 'Edit appointment',
+              onPressed: onEdit,
+              icon: Icons.edit_outlined,
+              color: AppColors.muted,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AppointmentDetailPane extends StatelessWidget {
+  const _AppointmentDetailPane({
+    required this.appointment,
+    required this.onEdit,
+    required this.onBook,
+  });
+
+  final Appointment? appointment;
+  final VoidCallback? onEdit;
+  final VoidCallback onBook;
+
+  static final _dateFmt = DateFormat('EEEE, MMMM d');
+  static final _timeFmt = DateFormat('h:mm a');
+
+  @override
+  Widget build(BuildContext context) {
+    final appointment = this.appointment;
+    if (appointment == null) {
+      return _AppointmentsEmpty(filtered: false, onBook: onBook);
+    }
+
+    final style = AppointmentStatusStyle.of(appointment.status);
+    final name = appointment.patientName.isEmpty
+        ? 'Patient'
+        : appointment.patientName;
+    final notes = appointment.description.trim();
+    final mins = appointment.duration.inMinutes;
+
+    return SectionCard(
+      padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              InitialsAvatar(name: name, size: 52),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      appointment.patientName.isEmpty
-                          ? 'Patient'
-                          : appointment.patientName,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
+                      name,
+                      style: AppFonts.style(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.navy,
+                        letterSpacing: -0.3,
                       ),
                     ),
+                    const SizedBox(height: 6),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 9,
-                        vertical: 3,
+                        horizontal: 10,
+                        vertical: 4,
                       ),
                       decoration: BoxDecoration(
                         color: style.bg,
@@ -517,36 +1049,97 @@ class _AppointmentCard extends StatelessWidget {
                       ),
                       child: Text(
                         style.label,
-                        style: TextStyle(
+                        style: AppFonts.style(
                           color: style.fg,
-                          fontSize: 11.5,
+                          fontSize: 13,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
                   ],
                 ),
-                if (notes.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    notes,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 13,
-                      height: 1.35,
-                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          _DetailRow(
+            icon: Icons.calendar_today_outlined,
+            label: 'Date',
+            value: _dateFmt.format(appointment.startTime),
+          ),
+          _DetailRow(
+            icon: Icons.schedule_outlined,
+            label: 'Time',
+            value:
+                '${_timeFmt.format(appointment.startTime)} – ${_timeFmt.format(appointment.endTime)} · $mins min',
+          ),
+          if (appointment.patientEmail.isNotEmpty)
+            _DetailRow(
+              icon: Icons.mail_outline_rounded,
+              label: 'Email',
+              value: appointment.patientEmail,
+            ),
+          _DetailRow(
+            icon: Icons.notes_outlined,
+            label: 'Notes',
+            value: notes.isEmpty ? 'No notes' : notes,
+          ),
+          const Spacer(),
+          AppButtons.primary(
+            onPressed: onEdit,
+            label: 'Edit Appointment',
+            icon: Icons.edit_outlined,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: AppColors.dentalBlue),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: AppFonts.style(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.muted,
                   ),
-                ],
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  style: AppFonts.style(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.navy,
+                    height: 1.3,
+                  ),
+                ),
               ],
             ),
-          ),
-          IconButton(
-            tooltip: 'Edit appointment',
-            onPressed: onEdit,
-            icon: const Icon(Icons.edit_outlined, size: 20),
-            color: AppColors.muted,
           ),
         ],
       ),
@@ -700,9 +1293,73 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
   }
 
   Future<void> _pickTime() async {
-    final picked = await showTimePicker(
+    var minute = ((_start.minute / 5).round() * 5);
+    var hour = _start.hour;
+    if (minute >= 60) {
+      minute = 0;
+      hour = (hour + 1) % 24;
+    }
+    var pending = DateTime(
+      _start.year,
+      _start.month,
+      _start.day,
+      hour,
+      minute,
+    );
+    final picked = await showCupertinoModalPopup<DateTime>(
       context: context,
-      initialTime: TimeOfDay.fromDateTime(_start),
+      builder: (ctx) {
+        return Material(
+          color: AppColors.card,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height: 320,
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+                    child: Row(
+                      children: [
+                        AppButtons.ghost(
+                          onPressed: () => Navigator.pop(ctx),
+                          label: 'Cancel',
+                          compact: true,
+                        ),
+                        const Spacer(),
+                        Text(
+                          'Start time',
+                          style: AppFonts.style(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16,
+                            color: AppColors.navy,
+                          ),
+                        ),
+                        const Spacer(),
+                        AppButtons.primary(
+                          onPressed: () => Navigator.pop(ctx, pending),
+                          label: 'Done',
+                          compact: true,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: CupertinoDatePicker(
+                      mode: CupertinoDatePickerMode.time,
+                      initialDateTime: pending,
+                      minuteInterval: 5,
+                      use24hFormat: false,
+                      onDateTimeChanged: (value) => pending = value,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
     if (picked == null || !mounted) return;
     setState(() {
@@ -762,25 +1419,95 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
     }
   }
 
+  Widget _sheetTile({
+    required IconData icon,
+    required String label,
+    required String value,
+    VoidCallback? onTap,
+  }) {
+    return Touchable(
+      enabled: onTap != null,
+      onTap: onTap,
+      minHeight: 52,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppColors.neo,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: NeoShadows.soft(depth: 0.4),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: AppColors.dentalBlue),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: AppFonts.style(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppFonts.style(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.navy,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (onTap != null)
+              const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final dateLabel = DateFormat('EEE, MMM d, yyyy').format(_start);
     final timeLabel = DateFormat('h:mm a').format(_start);
     final endLabel = DateFormat('h:mm a').format(_end);
+    Map<String, dynamic>? selectedPatient;
+    for (final p in _patients) {
+      if (widget.patientSession.pidOf(p) == _patientId) {
+        selectedPatient = p;
+        break;
+      }
+    }
+    final patientLabel = _isEdit
+        ? (widget.existing!.patientName.isEmpty
+            ? 'Patient'
+            : widget.existing!.patientName)
+        : (selectedPatient == null
+            ? 'Select patient'
+            : _patientMenuLabel(selectedPatient));
 
     return PopScope(
       canPop: !_saving,
       child: Dialog(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 48, vertical: 32),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 500),
+          constraints: const BoxConstraints(maxWidth: 560),
           child: GlassSurface(
             borderRadius: BorderRadius.circular(24),
             blur: 28,
-            tint: Colors.white.withValues(alpha: 0.78),
-            padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
+            tint: Colors.white.withValues(alpha: 0.82),
+            padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -788,15 +1515,15 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                 Text(
                   _isEdit ? 'Edit Appointment' : 'Book Appointment',
                   style: AppFonts.style(
-                    fontSize: 22,
+                    fontSize: 24,
                     fontWeight: FontWeight.w700,
                     color: AppColors.navy,
-                    letterSpacing: -0.3,
+                    letterSpacing: -0.4,
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 18),
                 ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 520),
+                  constraints: const BoxConstraints(maxHeight: 560),
                   child: Stack(
                     children: [
                       Form(
@@ -806,259 +1533,188 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                             mainAxisSize: MainAxisSize.min,
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                      if (!_isEdit) ...[
-                        Row(
-                          children: [
-                            const Expanded(
-                              child: Text(
-                                'Patient *',
-                                style: TextStyle(
+                              if (!_isEdit)
+                                _sheetTile(
+                                  icon: Icons.person_outline,
+                                  label: 'Patient',
+                                  value: _loadingPatients && _patients.isEmpty
+                                      ? 'Loading…'
+                                      : patientLabel,
+                                  onTap: _saving || _loadingPatients
+                                      ? null
+                                      : () async {
+                                          final chosen =
+                                              await _pickPatientSheet();
+                                          if (chosen == null || !mounted) {
+                                            return;
+                                          }
+                                          setState(() => _patientId = chosen);
+                                        },
+                                )
+                              else
+                                _sheetTile(
+                                  icon: Icons.person_outline,
+                                  label: 'Patient',
+                                  value: patientLabel,
+                                ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _sheetTile(
+                                      icon: Icons.calendar_today_outlined,
+                                      label: 'Date',
+                                      value: dateLabel,
+                                      onTap: _saving ? null : _pickDate,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: _sheetTile(
+                                      icon: Icons.schedule_outlined,
+                                      label: 'Starts',
+                                      value: timeLabel,
+                                      onTap: _saving ? null : _pickTime,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'Duration',
+                                style: AppFonts.style(
                                   fontWeight: FontWeight.w600,
                                   fontSize: 13,
                                   color: AppColors.navy,
                                 ),
                               ),
-                            ),
-                            TextButton.icon(
-                              onPressed: _saving || _loadingPatients
-                                  ? null
-                                  : _loadPatients,
-                              icon: _loadingPatients
-                                  ? const SizedBox(
-                                      width: 14,
-                                      height: 14,
-                                      child: ToothLoadingIndicator(
-                                        size: 14,
-                                        compact: true,
+                              const SizedBox(height: 8),
+                              CupertinoSlidingSegmentedControl<int>(
+                                groupValue: _durations.contains(_durationMinutes)
+                                    ? _durationMinutes
+                                    : _durations.first,
+                                backgroundColor: AppColors.inset,
+                                thumbColor: Colors.white,
+                                children: {
+                                  for (final m in _durations)
+                                    m: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 10,
                                       ),
-                                    )
-                                  : const Icon(Icons.refresh, size: 16),
-                              label: Text(
-                                _loadingPatients ? 'Loading…' : 'Refresh',
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        if (_loadingPatients && _patients.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 12),
-                            child: Center(
-                              child: ToothLoadingIndicator(
-                                size: 28,
-                                compact: true,
-                                loadingText: 'Loading patients…',
-                              ),
-                            ),
-                          )
-                        else
-                          DropdownButtonFormField<String>(
-                            key: ValueKey(
-                              'book-patient-${_patients.length}-$_patientId',
-                            ),
-                            initialValue: _patientId != null &&
-                                    _patients.any(
-                                      (p) =>
-                                          widget.patientSession.pidOf(p) ==
-                                          _patientId,
-                                    )
-                                ? _patientId
-                                : null,
-                            isExpanded: true,
-                            decoration: const InputDecoration(
-                              hintText: 'Select patient',
-                            ),
-                            items: _patients
-                                .map(
-                                  (p) => DropdownMenuItem(
-                                    value: widget.patientSession.pidOf(p),
-                                    child: Text(
-                                      _patientMenuLabel(p),
-                                      overflow: TextOverflow.ellipsis,
+                                      child: Text(
+                                        '$m min',
+                                        style: AppFonts.style(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.navy,
+                                        ),
+                                      ),
                                     ),
-                                  ),
-                                )
-                                .where((e) => (e.value ?? '').isNotEmpty)
-                                .toList(),
-                            onChanged: _saving
-                                ? null
-                                : (v) => setState(() => _patientId = v),
-                            validator: (v) => v == null || v.isEmpty
-                                ? 'Patient is required'
-                                : null,
-                          ),
-                      ] else
-                        InputDecorator(
-                          decoration: const InputDecoration(
-                            labelText: 'Patient',
-                            border: OutlineInputBorder(),
-                          ),
-                          child: Text(
-                            widget.existing!.patientName.isEmpty
-                                ? 'Patient'
-                                : widget.existing!.patientName,
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                      const SizedBox(height: 14),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: _saving ? null : _pickDate,
-                              icon: const Icon(
-                                Icons.calendar_today_outlined,
-                                size: 16,
-                              ),
-                              label: Text(
-                                dateLabel,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: _saving ? null : _pickTime,
-                              icon: const Icon(
-                                Icons.schedule_outlined,
-                                size: 16,
-                              ),
-                              label: Text(timeLabel),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      const Text(
-                        'Duration',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                          color: AppColors.navy,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 6,
-                        children: [
-                          for (final m in _durations)
-                            ChoiceChip(
-                              label: Text('${m}m'),
-                              selected: _durationMinutes == m,
-                              onSelected: _saving
-                                  ? null
-                                  : (_) =>
-                                      setState(() => _durationMinutes = m),
-                              selectedColor: AppColors.sidebarActive,
-                              labelStyle: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: _durationMinutes == m
-                                    ? AppColors.navy
-                                    : AppColors.muted,
-                              ),
-                            ),
-                          if (!_durations.contains(_durationMinutes))
-                            ChoiceChip(
-                              label: Text('${_durationMinutes}m'),
-                              selected: true,
-                              onSelected: null,
-                              selectedColor: AppColors.sidebarActive,
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Ends at $endLabel',
-                        style: const TextStyle(
-                          color: AppColors.muted,
-                          fontSize: 12.5,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      TextFormField(
-                        controller: _descriptionCtrl,
-                        enabled: !_saving,
-                        maxLines: 3,
-                        decoration: const InputDecoration(
-                          labelText: 'Description',
-                          hintText: 'Clinical notes / visit summary',
-                          alignLabelWithHint: true,
-                        ),
-                      ),
-                      if (_isEdit) ...[
-                        const SizedBox(height: 14),
-                        DropdownButtonFormField<String>(
-                          initialValue: _status,
-                          decoration:
-                              const InputDecoration(labelText: 'Status'),
-                          items: AppointmentStatuses.all
-                              .map(
-                                (s) => DropdownMenuItem(
-                                  value: s,
-                                  child: Text(AppointmentStatuses.label(s)),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: _saving
-                              ? null
-                              : (v) {
-                                  if (v == null) return;
-                                  setState(() => _status = v);
                                 },
-                        ),
-                      ],
-                      if (_error != null) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          _error!,
-                          style: const TextStyle(
-                            color: AppColors.danger,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              if (_saving)
-                Positioned.fill(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 2.5, sigmaY: 2.5),
-                      child: ColoredBox(
-                        color: Colors.white.withValues(alpha: 0.45),
-                        child: const Center(
-                          child: ToothLoadingIndicator(
-                            size: 40,
-                            loadingText: 'Saving appointment…',
+                                onValueChanged: _saving
+                                    ? (_) {}
+                                    : (v) {
+                                        if (v == null) return;
+                                        AppHaptics.selection();
+                                        setState(() => _durationMinutes = v);
+                                      },
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Ends at $endLabel',
+                                style: AppFonts.style(
+                                  color: AppColors.muted,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              TextFormField(
+                                controller: _descriptionCtrl,
+                                enabled: !_saving,
+                                maxLines: 3,
+                                decoration: const InputDecoration(
+                                  labelText: 'Notes',
+                                  hintText: 'Clinical notes / visit summary',
+                                  alignLabelWithHint: true,
+                                ),
+                              ),
+                              if (_isEdit) ...[
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Status',
+                                  style: AppFonts.style(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13,
+                                    color: AppColors.navy,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    for (final s in AppointmentStatuses.all)
+                                      SoftPillButton(
+                                        label: AppointmentStatuses.label(s),
+                                        selected: _status == s,
+                                        compact: false,
+                                        selectionHaptic: true,
+                                        onPressed: _saving
+                                            ? null
+                                            : () => setState(() => _status = s),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                              if (_error != null) ...[
+                                const SizedBox(height: 12),
+                                Text(
+                                  _error!,
+                                  style: AppFonts.style(
+                                    color: AppColors.danger,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
                       ),
-                    ),
-                  ),
-                ),
+                      if (_saving)
+                        Positioned.fill(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: BackdropFilter(
+                              filter:
+                                  ImageFilter.blur(sigmaX: 2.5, sigmaY: 2.5),
+                              child: ColoredBox(
+                                color: Colors.white.withValues(alpha: 0.45),
+                                child: const Center(
+                                  child: ToothLoadingIndicator(
+                                    size: 40,
+                                    loadingText: 'Saving appointment…',
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 18),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     AppButtons.ghost(
                       onPressed:
                           _saving ? null : () => Navigator.pop(context),
                       label: 'Cancel',
-                      compact: true,
                     ),
-                    const SizedBox(width: 8),
+                    const Spacer(),
                     AppButtons.primary(
                       onPressed: _canSubmit ? _submit : null,
                       label: _isEdit ? 'Save changes' : 'Book appointment',
-                      compact: true,
                       busy: _saving,
                     ),
                   ],
@@ -1068,6 +1724,88 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
           ),
         ),
       ),
+    );
+  }
+
+  Future<String?> _pickPatientSheet() async {
+    return showCupertinoModalPopup<String>(
+      context: context,
+      builder: (ctx) {
+        return Material(
+          color: AppColors.card,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+          child: SafeArea(
+            top: false,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 420),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
+                    child: Row(
+                      children: [
+                        Text(
+                          'Select patient',
+                          style: AppFonts.style(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.navy,
+                          ),
+                        ),
+                        const Spacer(),
+                        AppButtons.icon(
+                          tooltip: 'Refresh',
+                          onPressed: _loadPatients,
+                          icon: Icons.refresh_rounded,
+                          busy: _loadingPatients,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_patients.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text('No patients yet'),
+                    )
+                  else
+                    Flexible(
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: _patients.length,
+                        itemBuilder: (context, i) {
+                          final p = _patients[i];
+                          final id = widget.patientSession.pidOf(p);
+                          final name = _patientMenuLabel(p);
+                          final selected = id == _patientId;
+                          return ListTile(
+                            leading: InitialsAvatar(name: name, size: 36),
+                            title: Text(
+                              name,
+                              style: AppFonts.style(
+                                fontWeight: selected
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                                color: AppColors.navy,
+                              ),
+                            ),
+                            trailing: selected
+                                ? const Icon(
+                                    Icons.check_rounded,
+                                    color: AppColors.dentalBlue,
+                                  )
+                                : null,
+                            onTap: () => Navigator.pop(ctx, id),
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

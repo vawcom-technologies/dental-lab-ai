@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../navigation/app_page_routes.dart';
 import '../theme/app_theme.dart';
 import 'pressable.dart';
 
@@ -80,8 +81,8 @@ class SoftPillButton extends StatelessWidget {
         }
 
         return AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          curve: Curves.easeOutCubic,
+          duration: AppMotion.fast,
+          curve: AppMotion.spring,
           constraints: BoxConstraints(minHeight: compact ? 34 : 40),
           padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
           decoration: BoxDecoration(
@@ -97,14 +98,15 @@ class SoftPillButton extends StatelessWidget {
                 Icon(icon, size: compact ? 15 : 16, color: fg),
                 const SizedBox(width: 6),
               ],
-              Text(
-                label,
-                softWrap: false,
+              AnimatedDefaultTextStyle(
+                duration: AppMotion.fast,
+                curve: AppMotion.spring,
                 style: AppFonts.style(
                   color: fg,
                   fontWeight: FontWeight.w600,
                   fontSize: fontSize,
                 ),
+                child: Text(label, softWrap: false),
               ),
             ],
           ),

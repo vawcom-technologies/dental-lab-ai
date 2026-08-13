@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 from typing import Literal
 
 from fastapi import (
@@ -14,11 +15,17 @@ from fastapi import (
     UploadFile,
     status,
 )
+from fastapi.responses import FileResponse
 
 from app.core.security import AuthUser, get_current_user
 from app.schemas_chat import MessageResponse
 from app.services import chat_messages as cm
-from app.services.r2 import ALLOWED_MEDIA_TYPES, upload_chat_file
+from app.services import patient_access as pa
+from app.services.r2 import (
+    ALLOWED_MEDIA_TYPES,
+    local_patient_photo_path,
+    upload_chat_file,
+)
 
 router = APIRouter()
 logger = logging.getLogger("app.api.media")
@@ -106,3 +113,23 @@ async def chat_media_upload(
         public_url,
     )
     return message
+
+
+@router.get(
+    "/patient-photos/{patient_id}/{filename}",
+    summary="Serve a locally stored clinical camera photo",
+)
+def serve_local_patient_photo(
+    patient_id: str,
+    filename: str,
+    user: AuthUser = Depends(get_current_user),
+):
+    pa.require_patient_access(patient_id, user.id)
+    path = local_patient_photo_path(patient_id, filename)
+    if path is None or not path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Photo file not found",
+        )
+    media_type = mimetypes.guess_type(filename)[0] or "image/jpeg"
+    return FileResponse(path, media_type=media_type, filename=filename)

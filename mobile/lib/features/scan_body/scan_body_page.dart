@@ -11,6 +11,7 @@ import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
 
 /// Scan-body diameter → manufacturer / tooth (provisional table until client data).
+/// Parked: sidebar, settings, and API routes are commented out until needed.
 class ScanBodyPage extends StatefulWidget {
   const ScanBodyPage({
     super.key,

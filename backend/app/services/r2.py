@@ -361,6 +361,71 @@ def delete_patient_asset(*, kind: PatientAssetKind, file_key: str) -> None:
 
 # ── Patient clinical camera photos ────────────────────────────────────────────
 
+LOCAL_PHOTO_URL_PREFIX = "/api/media/patient-photos"
+LOCAL_PHOTO_ROOT = (
+    Path(__file__).resolve().parents[2] / "data" / "uploads" / "patient_photos"
+)
+
+
+def patient_images_r2_configured() -> bool:
+    return bool(
+        (settings.r2_account_id or "").strip()
+        and (settings.r2_access_key_id or "").strip()
+        and (settings.r2_secret_access_key or "").strip()
+        and (settings.r2_patient_images_bucket or "").strip()
+        and (settings.r2_patient_images_public_url or "").strip()
+    )
+
+
+def is_local_patient_photo_url(file_url: str) -> bool:
+    return (file_url or "").strip().startswith(f"{LOCAL_PHOTO_URL_PREFIX}/")
+
+
+def local_patient_photo_path(patient_id: str, filename: str) -> Path | None:
+    """Resolve a local photo on disk; reject path traversal."""
+    pid = (patient_id or "").strip()
+    name = Path(filename or "").name
+    if not pid or not name or pid != Path(pid).name:
+        return None
+    ext = Path(name).suffix.lower()
+    if ext not in _IMAGE_EXTENSIONS:
+        return None
+    return LOCAL_PHOTO_ROOT / pid / name
+
+
+def _save_local_patient_photo(
+    *,
+    patient_id: str,
+    filename: str,
+    data: bytes,
+) -> str:
+    ext = Path(filename or "").suffix.lower() or ".jpg"
+    if ext not in _IMAGE_EXTENSIONS:
+        ext = ".jpg"
+    name = f"{uuid.uuid4().hex}{ext}"
+    dest_dir = LOCAL_PHOTO_ROOT / patient_id
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    (dest_dir / name).write_bytes(data)
+    url = f"{LOCAL_PHOTO_URL_PREFIX}/{patient_id}/{name}"
+    logger.info("local photo stored patient_id=%s file=%s", patient_id, name)
+    return url
+
+
+def _delete_local_patient_photo(file_url: str) -> None:
+    url = (file_url or "").strip()
+    rest = url[len(LOCAL_PHOTO_URL_PREFIX) + 1 :]
+    parts = rest.split("/")
+    if len(parts) != 2:
+        logger.warning("local photo delete skipped — bad url=%s", url)
+        return
+    path = local_patient_photo_path(parts[0], parts[1])
+    if path is None or not path.is_file():
+        return
+    try:
+        path.unlink()
+    except OSError as exc:
+        logger.warning("local photo delete failed path=%s detail=%s", path, exc)
+
 
 def _require_patient_images_bucket() -> tuple[str, str]:
     bucket = (settings.r2_patient_images_bucket or "").strip()
@@ -385,12 +450,17 @@ def upload_patient_photo_bytes(
     data: bytes,
     content_type: str = "image/jpeg",
 ) -> str:
-    """Upload raw photo bytes to the patient-images R2 bucket; return public URL."""
+    """Upload raw photo bytes; return a fetchable URL (R2 or local fallback)."""
     if not data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Empty photo file",
         )
+    if not patient_images_r2_configured():
+        return _save_local_patient_photo(
+            patient_id=patient_id, filename=filename, data=data
+        )
+
     bucket, public_base = _require_patient_images_bucket()
     ext = Path(filename or "").suffix.lower() or ".jpg"
     if ext not in _IMAGE_EXTENSIONS:
@@ -425,9 +495,17 @@ def upload_patient_photo_bytes(
 
 
 def delete_patient_photo_object(file_url: str) -> None:
-    """Delete a patient photo from R2 using its public URL (no-op if empty/unknown)."""
+    """Delete a patient photo (R2 or local). No-op if empty/unknown."""
     url = (file_url or "").strip()
     if not url:
+        return
+
+    if is_local_patient_photo_url(url):
+        _delete_local_patient_photo(url)
+        return
+
+    if not patient_images_r2_configured():
+        logger.warning("R2 photo delete skipped — storage not configured url=%s", url)
         return
 
     key = file_key_from_patient_photo_url(url)
@@ -448,10 +526,12 @@ def delete_patient_photo_object(file_url: str) -> None:
 
 
 def is_patient_images_url(file_url: str) -> bool:
-    """True when URL points at the clinical camera photos CDN."""
+    """True when URL points at the clinical camera photos CDN or local fallback."""
     url = (file_url or "").strip()
     if not url:
         return False
+    if is_local_patient_photo_url(url):
+        return True
     public = (settings.r2_patient_images_public_url or "").strip().rstrip("/")
     if public and url.startswith(f"{public}/"):
         return True
@@ -460,10 +540,12 @@ def is_patient_images_url(file_url: str) -> bool:
 
 
 def file_key_from_patient_photo_url(file_url: str) -> str:
-    """Derive R2 object key from a patient photo public URL."""
+    """Derive object key from a patient photo public URL."""
     url = (file_url or "").strip()
     if not url:
         return ""
+    if is_local_patient_photo_url(url):
+        return url[len(LOCAL_PHOTO_URL_PREFIX) + 1 :]
     public = (settings.r2_patient_images_public_url or "").strip().rstrip("/")
     if public and url.startswith(f"{public}/"):
         return url[len(public) + 1 :]

@@ -1283,7 +1283,7 @@ class _ShadePageState extends State<ShadePage> {
     if (item == null) {
       setState(
         () => _error =
-            'Copied photo is not in Shade Detection yet. Pull the list again.',
+            'Photo is not in Shade Detection yet. Open Shade Detection again.',
       );
       return;
     }
