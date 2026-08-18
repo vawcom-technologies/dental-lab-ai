@@ -22,11 +22,13 @@ class AppointmentsScreen extends StatefulWidget {
     required this.api,
     required this.patientSession,
     this.active = true,
+    this.onInboxChanged,
   });
 
   final ApiClient api;
   final PatientSession patientSession;
   final bool active;
+  final VoidCallback? onInboxChanged;
 
   @override
   State<AppointmentsScreen> createState() => _AppointmentsScreenState();
@@ -251,6 +253,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     if (saved == null || !mounted) return;
 
     _upsertLocal(saved);
+    widget.onInboxChanged?.call();
     AppSnackBars.success(
       context,
       'Appointment saved. Email notification sent to patient via Resend.',

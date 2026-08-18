@@ -284,6 +284,132 @@ List<List<double>> simplifyOutlineForEdit(
   return simplified;
 }
 
+/// Axis-aligned bounds of a normalized outline.
+Rect outlineBBox(List<List<double>> pts) {
+  if (pts.isEmpty) return Rect.zero;
+  var left = pts[0][0], top = pts[0][1], right = pts[0][0], bottom = pts[0][1];
+  for (final p in pts) {
+    if (p[0] < left) left = p[0];
+    if (p[0] > right) right = p[0];
+    if (p[1] < top) top = p[1];
+    if (p[1] > bottom) bottom = p[1];
+  }
+  return Rect.fromLTRB(left, top, right, bottom);
+}
+
+Rect? toothGeometryBBox(Map<dynamic, dynamic> tooth) {
+  final geo = tooth['geometry'];
+  if (geo is Map) {
+    final bbox = geo['bbox'];
+    if (bbox is Map) {
+      final w = (bbox['w'] as num?)?.toDouble() ?? 0;
+      final h = (bbox['h'] as num?)?.toDouble() ?? 0;
+      if (w > 0.012 && h > 0.02) {
+        return Rect.fromLTWH(
+          (bbox['x'] as num?)?.toDouble() ?? 0,
+          (bbox['y'] as num?)?.toDouble() ?? 0,
+          w,
+          h,
+        );
+      }
+    }
+  }
+  final pts = toothEditHandles(tooth);
+  if (pts == null || pts.length < 3) return null;
+  return outlineBBox(pts);
+}
+
+/// Sparse handles used in Adjust edges (prefers stored skeleton).
+List<List<double>>? toothEditHandles(Map<dynamic, dynamic> tooth) {
+  final geo = tooth['geometry'];
+  if (geo is! Map) return null;
+  final handles = geo['edit_handles'];
+  if (handles is List && handles.length >= 3) {
+    final pts = <List<double>>[
+      for (final p in handles)
+        if (p is List && p.length >= 2)
+          [(p[0] as num).toDouble(), (p[1] as num).toDouble()],
+    ];
+    if (pts.length >= 3) return pts;
+  }
+  final raw = geo['outline'];
+  if (raw is! List || raw.length < 3) return null;
+  final simplified = simplifyOutlineForEdit(raw, maxPoints: 12, minPoints: 8);
+  return simplified.length >= 3 ? simplified : null;
+}
+
+List<double>? toothEdgeBulges(Map<dynamic, dynamic> tooth, int vertCount) {
+  final geo = tooth['geometry'];
+  if (geo is! Map) return null;
+  final stored = geo['edge_bulges'];
+  if (stored is! List || stored.length != vertCount) return null;
+  return [for (final b in stored) (b as num).toDouble()];
+}
+
+/// Incisor-like 8-handle crown, mapped into [box] (normalized image space).
+List<List<double>> crownOutlineForBBox(Rect box) {
+  const unit = <List<double>>[
+    [0.30, 0.07],
+    [0.50, 0.03],
+    [0.70, 0.07],
+    [0.93, 0.38],
+    [0.88, 0.80],
+    [0.50, 0.97],
+    [0.12, 0.80],
+    [0.07, 0.38],
+  ];
+  return [
+    for (final p in unit)
+      [box.left + p[0] * box.width, box.top + p[1] * box.height],
+  ];
+}
+
+List<List<double>> translateOutline(
+  List<List<double>> pts,
+  double dx,
+  double dy,
+) =>
+    [
+      for (final p in pts) [p[0] + dx, p[1] + dy],
+    ];
+
+/// Keep the whole polygon on the photo. Scales about center if it still overflows.
+List<List<double>> clampOutlineToImage(
+  List<List<double>> pts, {
+  double pad = 0.02,
+}) {
+  if (pts.length < 3) return pts;
+  var next = OutlineEditHistory.cloneVerts(pts);
+  var box = outlineBBox(next);
+  var dx = 0.0;
+  var dy = 0.0;
+  if (box.left < pad) dx = pad - box.left;
+  if (box.right > 1 - pad) dx = (1 - pad) - box.right;
+  if (box.top < pad) dy = pad - box.top;
+  if (box.bottom > 1 - pad) dy = (1 - pad) - box.bottom;
+  if (dx != 0 || dy != 0) {
+    next = translateOutline(next, dx, dy);
+    box = outlineBBox(next);
+  }
+  final maxW = 1 - 2 * pad;
+  final maxH = 1 - 2 * pad;
+  if (box.width <= maxW && box.height <= maxH) return next;
+  final scale = [
+    maxW / box.width,
+    maxH / box.height,
+    1.0,
+  ].reduce((a, b) => a < b ? a : b);
+  final cx = box.center.dx;
+  final cy = box.center.dy;
+  return [
+    for (final p in next)
+      [
+        cx + (p[0] - cx) * scale,
+        cy + (p[1] - cy) * scale,
+      ],
+  ];
+}
+
 List<List<double>> _douglasPeuckerClosed(List<List<double>> pts, double epsilon) {
   if (pts.length < 3) return pts;
   // Treat as open path by repeating first at end, then drop last

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/navigation/app_page_routes.dart';
 import '../../core/widgets/app_buttons.dart';
 import '../../core/widgets/glass_surface.dart';
 
@@ -188,7 +189,19 @@ class ShadeActionBar extends StatelessWidget {
       blur: 16,
       tint: Colors.white.withValues(alpha: 0.52),
       padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
-      child: actions,
+      child: AnimatedSwitcher(
+        duration: AppMotion.fast,
+        switchInCurve: AppMotion.spring,
+        switchOutCurve: AppMotion.easeIn,
+        transitionBuilder: (child, animation) => FadeTransition(
+          opacity: animation,
+          child: child,
+        ),
+        child: KeyedSubtree(
+          key: ValueKey(editOutlineMode),
+          child: actions,
+        ),
+      ),
     );
   }
 }

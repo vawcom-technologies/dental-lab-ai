@@ -156,6 +156,7 @@ def _purge_leftover_user_refs(user_id: str) -> None:
         _delete_eq(table, "uploaded_by", user_id)
 
     _delete_eq("appointments", "created_by", user_id)
+    _delete_eq("notifications", "user_id", user_id)
 
     # Access rows that would RESTRICT profile delete
     _delete_eq("patient_access", "user_id", user_id)

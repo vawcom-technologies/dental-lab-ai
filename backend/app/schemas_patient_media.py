@@ -26,6 +26,7 @@ class ShadeDetectionOut(BaseModel):
     file_url: str
     file_name: str
     created_at: datetime | str | None = None
+    analysis: dict | None = None
 
 
 class SmilePreviewOut(BaseModel):

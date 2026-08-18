@@ -744,6 +744,36 @@ class ApiClient {
     return _decodeMap(res.body);
   }
 
+  Future<Map<String, dynamic>> saveShadeDetectionAnalysis({
+    required String shadeId,
+    required List<Map<String, dynamic>> teeth,
+    int selectedToothIndex = 0,
+    String? summaryShade,
+    bool hasOverride = false,
+    String? detectedShade,
+    double? confidence,
+    bool overridden = false,
+    String? finalShade,
+  }) async {
+    final res = await _http.patch(
+      Uri.parse('$baseUrl/api/shade-detections/$shadeId'),
+      headers: _jsonHeaders,
+      body: jsonEncode({
+        'teeth': teeth,
+        'selected_tooth_index': selectedToothIndex,
+        'summary_shade': summaryShade,
+        'has_override': hasOverride,
+        'detected_shade': detectedShade,
+        'confidence': confidence,
+        'overridden': overridden,
+        'final_shade': finalShade,
+      }),
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    AppHaptics.success();
+    return _decodeMap(res.body);
+  }
+
   Future<void> deleteShadeDetection(String shadeId) async {
     final res = await _http.delete(
       Uri.parse('$baseUrl/api/shade-detections/$shadeId'),
@@ -1156,7 +1186,7 @@ class ApiClient {
     return (data['count'] as num?)?.toInt() ?? 0;
   }
 
-  Future<void> markNotificationRead(int id) async {
+  Future<void> markNotificationRead(String id) async {
     final res = await _http.post(
       Uri.parse('$baseUrl/api/notifications/$id/read'),
       headers: _jsonHeaders,

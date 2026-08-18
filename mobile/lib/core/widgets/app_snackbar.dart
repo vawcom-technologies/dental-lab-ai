@@ -46,14 +46,21 @@ class AppSnackBars {
   }
 
   /// Neutral guidance that is neither success nor failure.
-  static void info(BuildContext context, String message) {
+  static void info(
+    BuildContext context,
+    String message, {
+    VoidCallback? onTap,
+    Duration duration = _duration,
+  }) {
     _show(
       context,
       message: message,
       background: const Color(0xFFEAF3FC),
       foreground: AppColors.navy,
       border: AppColors.dentalBlue.withValues(alpha: 0.22),
-      icon: Icons.info_outline_rounded,
+      icon: Icons.notifications_active_outlined,
+      onTap: onTap,
+      duration: duration,
     );
   }
 
@@ -65,6 +72,8 @@ class AppSnackBars {
     required Color border,
     required IconData icon,
     Future<void> Function()? haptic,
+    VoidCallback? onTap,
+    Duration duration = _duration,
   }) {
     final messenger = ScaffoldMessenger.maybeOf(context);
     if (messenger == null) return;
@@ -76,35 +85,38 @@ class AppSnackBars {
     messenger.showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
-        duration: _duration,
+        duration: duration,
         backgroundColor: Colors.transparent,
         elevation: 0,
         padding: EdgeInsets.zero,
         margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-        content: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: background,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: border),
-            boxShadow: NeoShadows.soft(depth: 0.45),
-          ),
-          child: Row(
-            children: [
-              Icon(icon, color: foreground, size: 18),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  text,
-                  style: AppFonts.style(
-                    color: foreground,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                    height: 1.3,
+        content: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: background,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: border),
+              boxShadow: NeoShadows.soft(depth: 0.45),
+            ),
+            child: Row(
+              children: [
+                Icon(icon, color: foreground, size: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    text,
+                    style: AppFonts.style(
+                      color: foreground,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      height: 1.3,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

@@ -191,6 +191,23 @@ def _message_stats(user_id: str) -> tuple[int, int]:
     return threads, unread
 
 
+def _notification_stats(user_id: str) -> tuple[int, int]:
+    try:
+        result = (
+            get_supabase_admin()
+            .table("notifications")
+            .select("id,read")
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception as exc:
+        logger.debug("notification stats skipped detail=%s", exc)
+        return 0, 0
+    rows = list(getattr(result, "data", None) or [])
+    unread = sum(1 for r in rows if r.get("read") is not True)
+    return len(rows), unread
+
+
 @router.get("/summary")
 def clinic_summary(
     days: int = Query(
@@ -379,6 +396,7 @@ def clinic_summary(
         )
 
     threads, unread = _message_stats(user.id)
+    notif_total, notif_unread = _notification_stats(user.id)
     active = (
         by_status["pending"]
         + by_status["in_progress"]
@@ -423,8 +441,8 @@ def clinic_summary(
             "unread": unread,
         },
         "notifications": {
-            "total": 0,
-            "unread": 0,
+            "total": notif_total,
+            "unread": notif_unread,
         },
         "throughput": weeks,
         "attention": attention,

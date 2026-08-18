@@ -22,6 +22,7 @@ class PatientsController extends ChangeNotifier {
   final List<PatientAccessEntry> _accessEntries = [];
   PatientAccessOwner? _accessOwner;
   bool _accessViewerIsOwner = false;
+  VoidCallback? onAccessMutated;
   String _query = '';
   String _statusFilter = 'all';
   bool _loading = false;
@@ -266,6 +267,7 @@ class PatientsController extends ChangeNotifier {
     } finally {
       _mutating = false;
       notifyListeners();
+      onAccessMutated?.call();
     }
   }
 
@@ -288,6 +290,7 @@ class PatientsController extends ChangeNotifier {
     } finally {
       _mutating = false;
       notifyListeners();
+      onAccessMutated?.call();
     }
   }
 
@@ -310,6 +313,7 @@ class PatientsController extends ChangeNotifier {
     } finally {
       _mutating = false;
       notifyListeners();
+      onAccessMutated?.call();
     }
   }
 
@@ -327,6 +331,7 @@ class PatientsController extends ChangeNotifier {
     } finally {
       _mutating = false;
       notifyListeners();
+      onAccessMutated?.call();
     }
   }
 
@@ -350,6 +355,7 @@ class PatientsController extends ChangeNotifier {
     } finally {
       _mutating = false;
       notifyListeners();
+      onAccessMutated?.call();
     }
   }
 
@@ -369,6 +375,7 @@ class PatientsController extends ChangeNotifier {
     } finally {
       _mutating = false;
       notifyListeners();
+      onAccessMutated?.call();
     }
   }
 

@@ -18,6 +18,7 @@ from app.schemas_appointments import (
 )
 from app.services import patient_access as pa
 from app.services.email import send_appointment_confirmation, send_appointment_update
+from app.services.notify import actor_label, notify_pair
 
 router = APIRouter()
 logger = logging.getLogger("app.api.appointments")
@@ -284,6 +285,16 @@ def create_appointment(
         patient_id,
         user.id,
     )
+    who = actor_label(user.id)
+    name = _patient_display_name(patient)
+    notify_pair(
+        counterpart_id=str(patient.get("created_by") or ""),
+        actor_id=user.id,
+        type="appointment",
+        counterpart_message=f"{who} booked an appointment for {name}.",
+        actor_message=f"You booked an appointment for {name}.",
+        patient_id=patient_id,
+    )
     return _serialize(created, patient)
 
 
@@ -381,6 +392,17 @@ def update_appointment(
         updated.get("status") or "scheduled",
         updated.get("description") or "",
     )
+    who = actor_label(user.id)
+    verb = "cancelled" if (updated.get("status") == "cancelled") else "updated"
+    name = _patient_display_name(patient)
+    notify_pair(
+        counterpart_id=str(patient.get("created_by") or ""),
+        actor_id=user.id,
+        type="appointment",
+        counterpart_message=f"{who} {verb} an appointment for {name}.",
+        actor_message=f"You {verb} an appointment for {name}.",
+        patient_id=str(patient.get("id") or "") or None,
+    )
     return _serialize(updated, patient)
 
 
@@ -399,7 +421,7 @@ def delete_appointment(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Appointment not found",
         )
-    _require_appointment_access(existing, user.id)
+    patient = _require_appointment_access(existing, user.id)
     try:
         get_supabase_admin().table("appointments").delete().eq(
             "id", appointment_id
@@ -407,4 +429,14 @@ def delete_appointment(
     except Exception as exc:
         raise pa.db_error(exc) from exc
 
+    who = actor_label(user.id)
+    name = _patient_display_name(patient)
+    notify_pair(
+        counterpart_id=str(patient.get("created_by") or ""),
+        actor_id=user.id,
+        type="appointment",
+        counterpart_message=f"{who} cancelled an appointment for {name}.",
+        actor_message=f"You cancelled an appointment for {name}.",
+        patient_id=str(patient.get("id") or "") or None,
+    )
     return {"deleted": True, "id": appointment_id}

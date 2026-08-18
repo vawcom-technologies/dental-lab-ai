@@ -72,7 +72,19 @@ def _copy_photo_row(
         "file_name": file_name,
         "created_at": pm.utc_now_iso(),
     }
-    return pm.insert_row(table, row)
+    inserted = pm.insert_row(table, row)
+    kind = "shades" if table == "shade_detections" else "smiles"
+    try:
+        from app.services.notify import notify_clinical_upload
+
+        notify_clinical_upload(
+            pa.fetch_patient(patient_id),
+            actor_id=user_id,
+            kind=kind,
+        )
+    except Exception:
+        logger.debug("copy-photo notify skipped table=%s", table, exc_info=True)
+    return inserted
 
 
 def _shade_out(row: dict) -> ShadeDetectionOut:

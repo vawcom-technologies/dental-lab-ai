@@ -27,6 +27,7 @@ from app.schemas_patients import (
     UploadNoteRequest,
 )
 from app.services import patient_access as pa
+from app.services.notify import actor_label, notify_pair
 from app.services.patient_crypto import decrypt_note, encrypt_note
 from app.services.profiles import (
     fetch_profile,
@@ -556,6 +557,29 @@ def decide_access_request(
         )
 
     updated = updated_rows[0] if updated_rows else {**access_row, **update}
+    target_id = str(access_row.get("user_id") or "")
+    name = _patient_display_name(patient)
+    who = actor_label(target_id, fallback="a colleague")
+    if decision == "approve":
+        notify_pair(
+            counterpart_id=target_id,
+            actor_id=user.id,
+            type="case_status",
+            counterpart_message=(
+                f"Access approved for {name}. You can open this patient record."
+            ),
+            actor_message=f"You approved {who}'s access to {name}.",
+            patient_id=patient_id,
+        )
+    else:
+        notify_pair(
+            counterpart_id=target_id,
+            actor_id=user.id,
+            type="case_status",
+            counterpart_message=f"Access to {name} was declined.",
+            actor_message=f"You declined {who}'s request to access {name}.",
+            patient_id=patient_id,
+        )
     return _ok(
         action=action,
         user_id=user.id,
@@ -1204,6 +1228,28 @@ def grant_patient_access(
             patient_id=patient_id,
         )
 
+    name = _patient_display_name(patient)
+    who = actor_label(user.id)
+    target_name = actor_label(target, fallback="a colleague")
+    if is_owner_grant:
+        notify_pair(
+            counterpart_id=target,
+            actor_id=user.id,
+            type="case_status",
+            counterpart_message=f"{who} granted you access to {name}.",
+            actor_message=f"You granted {target_name} access to {name}.",
+            patient_id=patient_id,
+        )
+    else:
+        notify_pair(
+            counterpart_id=str(patient.get("created_by") or ""),
+            actor_id=user.id,
+            type="case_status",
+            counterpart_message=f"{who} requested access to {name}.",
+            actor_message=f"You requested access to {name}.",
+            patient_id=patient_id,
+        )
+
     return _ok(
         action=action,
         user_id=user.id,
@@ -1274,6 +1320,16 @@ def revoke_patient_access(
             patient_id=patient_id,
         )
 
+    name = _patient_display_name(patient)
+    who = actor_label(target_user_id, fallback="a colleague")
+    notify_pair(
+        counterpart_id=target_user_id,
+        actor_id=user.id,
+        type="case_status",
+        counterpart_message=f"Your access to {name} was revoked.",
+        actor_message=f"You revoked {who}'s access to {name}.",
+        patient_id=patient_id,
+    )
     return _ok(
         action=action,
         user_id=user.id,

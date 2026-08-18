@@ -73,6 +73,26 @@ def insert_row(table: str, row: dict[str, Any]) -> dict[str, Any]:
     return rows[0]
 
 
+def update_row(table: str, row_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+    try:
+        result = (
+            get_supabase_admin()
+            .table(table)
+            .update(patch)
+            .eq("id", row_id)
+            .execute()
+        )
+    except Exception as exc:
+        raise pa.db_error(exc) from exc
+    rows = getattr(result, "data", None) or []
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Record not found",
+        )
+    return rows[0]
+
+
 def delete_row(table: str, row_id: str) -> None:
     try:
         get_supabase_admin().table(table).delete().eq("id", row_id).execute()
@@ -109,7 +129,7 @@ def upload_and_insert(
         row.update(extra)
 
     try:
-        return insert_row(table, row)
+        inserted = insert_row(table, row)
     except Exception:
         try:
             delete_patient_asset(kind=kind, file_key=file_key)
@@ -120,6 +140,17 @@ def upload_and_insert(
                 file_key,
             )
         raise
+    try:
+        from app.services.notify import notify_clinical_upload
+
+        notify_clinical_upload(
+            pa.fetch_patient(patient_id),
+            actor_id=user_id,
+            kind=kind,
+        )
+    except Exception:
+        logger.debug("clinical upload notify skipped kind=%s", kind, exc_info=True)
+    return inserted
 
 
 def delete_record_and_file(

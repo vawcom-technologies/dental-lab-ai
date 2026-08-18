@@ -8,6 +8,7 @@ import '../../core/api/api_client.dart';
 import '../../core/haptics/app_haptics.dart';
 import '../../core/images/orient_image.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/navigation/app_page_routes.dart';
 import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/patient_picker.dart';
@@ -59,6 +60,7 @@ class _ShadePageState extends State<ShadePage> {
   List<Map<String, dynamic>> _history = [];
   /// All saved shade-detection images for the selected patient (full history).
   List<Map<String, dynamic>> _allShadeItems = [];
+  String? _shadeDetectionId;
 
   // Per-tooth / per-zone analysis (added onto existing UI)
   List<Map<String, dynamic>> _teeth = [];
@@ -76,6 +78,8 @@ class _ShadePageState extends State<ShadePage> {
 
   // Manual outline nudge (dentist adjusts auto edges slightly)
   bool _editOutlineMode = false;
+  /// Session collapse to restore when outline edit ends.
+  bool? _sessionCollapsedBeforeEdit;
   List<List<double>>? _editOutline;
   List<List<double>>? _editOutlineBackup;
   List<double>? _editBulges;
@@ -151,7 +155,23 @@ class _ShadePageState extends State<ShadePage> {
     return id is num ? id.toInt() : null;
   }
 
+  String? _sessionKey() {
+    final caseId = _currentCaseId();
+    if (caseId != null) return 'case-$caseId';
+    final shadeId = _shadeDetectionId?.trim() ?? '';
+    if (shadeId.isNotEmpty) return 'shade-$shadeId';
+    final pid = _patient == null ? '' : _pid(_patient!);
+    if (pid.isEmpty) return null;
+    return 'patient-$pid';
+  }
+
+  int _historyIndexForKey(String key) {
+    return _history.indexWhere((h) => '${h['session_key'] ?? ''}' == key);
+  }
+
   int _historyIndexForCase(int caseId) {
+    final byKey = _historyIndexForKey('case-$caseId');
+    if (byKey >= 0) return byKey;
     return _history.indexWhere(
       (h) => (h['case_id'] as num?)?.toInt() == caseId,
     );
@@ -225,6 +245,7 @@ class _ShadePageState extends State<ShadePage> {
 
     return {
       'id': savedId,
+      'session_key': _sessionKey(),
       'case_id': caseId,
       'patient_id': _patient == null ? null : _pid(_patient!),
       'name':
@@ -288,13 +309,21 @@ class _ShadePageState extends State<ShadePage> {
 
   void _openHistoryAt(int index) {
     if (index < 0 || index >= _history.length) return;
-    final targetCaseId = (_history[index]['case_id'] as num?)?.toInt();
-    if (targetCaseId == null) return;
-    if (_currentCaseId() == targetCaseId) return;
+    final entry = _history[index];
+    final targetKey = '${entry['session_key'] ?? ''}';
+    final targetCaseId = (entry['case_id'] as num?)?.toInt();
+    if (targetKey.isEmpty && targetCaseId == null) return;
+    final currentKey = _sessionKey();
+    if (targetKey.isNotEmpty && targetKey == currentKey) return;
+    if (targetKey.isEmpty &&
+        targetCaseId != null &&
+        _currentCaseId() == targetCaseId) {
+      return;
+    }
 
     setState(() {
       // Keep the leave-behind visit editable when coming back.
-      if (_currentCaseId() != null &&
+      if (_sessionKey() != null &&
           (_previewBytes != null ||
               _teeth.isNotEmpty ||
               (_finalShade != null && _finalShade!.isNotEmpty) ||
@@ -302,11 +331,6 @@ class _ShadePageState extends State<ShadePage> {
         _upsertSessionEntry();
       }
 
-      final i = _history.indexWhere(
-        (h) => (h['case_id'] as num?)?.toInt() == targetCaseId,
-      );
-      if (i < 0) return;
-      final entry = _history[i];
       final patient = entry['patient'];
       final caseRow = entry['case'];
       if (patient is Map) {
@@ -314,13 +338,17 @@ class _ShadePageState extends State<ShadePage> {
       }
       if (caseRow is Map) {
         _case = Map<String, dynamic>.from(caseRow);
-      } else {
+      } else if (targetCaseId != null) {
         _case = {
           'id': targetCaseId,
           'patient_id': entry['patient_id'],
           'status': 'in_progress',
         };
       }
+      final shadeId = '${entry['shade_detection_id'] ?? entry['id'] ?? ''}';
+      _shadeDetectionId = shadeId.startsWith('shade-')
+          ? shadeId.substring(6)
+          : (targetKey.startsWith('shade-') ? targetKey.substring(6) : shadeId);
 
       final ws = entry['workspace'];
       if (ws is Map) {
@@ -346,27 +374,29 @@ class _ShadePageState extends State<ShadePage> {
       _error = null;
       _saveStatus =
           'Editing ${entry['name'] ?? 'patient'} · ${entry['shade'] ?? '—'}';
-      // Bring the opened visit to the top of Session.
       _history = [
         entry,
-        for (var j = 0; j < _history.length; j++)
-          if (j != i) _history[j],
+        for (final h in _history)
+          if (!identical(h, entry)) h,
       ];
     });
     AppHaptics.selection();
   }
 
-  /// Replace-or-insert the Session row for the active case.
-  /// When [onlyIfExists] is true, skip if this client was never saved this visit.
+  /// Replace-or-insert the Session row for the active visit.
   void _upsertSessionEntry({
     Object? savedId,
     String? summaryShade,
     bool? hasOverride,
     bool onlyIfExists = false,
   }) {
-    final caseId = _currentCaseId();
-    if (caseId == null) return;
-    final existing = _historyIndexForCase(caseId);
+    final key = _sessionKey();
+    if (key == null) return;
+    var existing = _historyIndexForKey(key);
+    if (existing < 0) {
+      final caseId = _currentCaseId();
+      if (caseId != null) existing = _historyIndexForCase(caseId);
+    }
     if (onlyIfExists && existing < 0) return;
 
     final prevId = existing >= 0 ? _history[existing]['id'] : null;
@@ -375,6 +405,7 @@ class _ShadePageState extends State<ShadePage> {
       summaryShade: summaryShade,
       hasOverride: hasOverride,
     );
+    entry['shade_detection_id'] = _shadeDetectionId;
     _history = [
       entry,
       for (var i = 0; i < _history.length; i++)
@@ -754,32 +785,60 @@ class _ShadePageState extends State<ShadePage> {
       return;
     }
 
-    // Place the new outline to the right of the current rightmost crown.
-    var cx = 0.50;
-    var cy = 0.48;
-    if (_teeth.isNotEmpty) {
-      var maxX = 0.0;
-      var sumY = 0.0;
-      var n = 0;
-      for (final t in _teeth) {
-        maxX = math.max(maxX, _toothSortX(t));
-        final geo = t['geometry'];
-        if (geo is Map && geo['label'] is Map && geo['label']['y'] is num) {
-          sumY += (geo['label']['y'] as num).toDouble();
-          n++;
-        }
-      }
-      cx = (maxX + 0.07).clamp(0.08, 0.92);
-      if (n > 0) cy = (sumY / n + 0.04).clamp(0.28, 0.72);
+    final reference = _selectedTooth ?? (_teeth.isNotEmpty ? _teeth.last : null);
+    final refHandles = reference == null ? null : toothEditHandles(reference);
+    final refBox = reference == null ? null : toothGeometryBBox(reference);
+
+    // Match the selected (or last) crown size; fall back to a frontal-incisor default.
+    final size = (refBox != null && refBox.width > 0.02 && refBox.height > 0.04)
+        ? Size(refBox.width, refBox.height)
+        : const Size(0.10, 0.22);
+
+    var right = 0.0;
+    var left = 1.0;
+    var sumCy = 0.0;
+    var nCy = 0;
+    for (final t in _teeth) {
+      final b = toothGeometryBBox(t);
+      if (b == null) continue;
+      right = math.max(right, b.right);
+      left = math.min(left, b.left);
+      sumCy += b.center.dy;
+      nCy++;
     }
-    const hw = 0.035;
-    const hh = 0.07;
-    final outline = <List<double>>[
-      [cx - hw, cy - hh],
-      [cx + hw, cy - hh],
-      [cx + hw, cy + hh],
-      [cx - hw, cy + hh],
-    ];
+    final cy = nCy > 0
+        ? sumCy / nCy
+        : (refBox?.center.dy ?? 0.48);
+    final gap = math.max(0.012, size.width * 0.12);
+
+    List<List<double>> outline;
+    List<double> bulges;
+    if (refHandles != null && refHandles.length >= 3) {
+      final src = outlineBBox(refHandles);
+      var dx = (right + gap + size.width / 2) - src.center.dx;
+      var shifted = translateOutline(refHandles, dx, cy - src.center.dy);
+      if (outlineBBox(shifted).right > 0.97 && _teeth.isNotEmpty) {
+        dx = (left - gap - size.width / 2) - src.center.dx;
+        shifted = translateOutline(refHandles, dx, cy - src.center.dy);
+      }
+      outline = clampOutlineToImage(shifted);
+      bulges = toothEdgeBulges(reference!, outline.length) ??
+          zeroBulges(outline.length);
+    } else {
+      var cx = _teeth.isEmpty ? 0.50 : right + gap + size.width / 2;
+      if (cx + size.width / 2 > 0.97 && _teeth.isNotEmpty) {
+        cx = left - gap - size.width / 2;
+      }
+      final box = Rect.fromCenter(
+        center: Offset(cx.clamp(0.08, 0.92), cy.clamp(0.22, 0.78)),
+        width: size.width,
+        height: size.height,
+      );
+      outline = clampOutlineToImage(crownOutlineForBBox(box));
+      bulges = zeroBulges(outline.length);
+    }
+
+    final box = outlineBBox(outline);
     final idx = _teeth.length;
     final tooth = <String, dynamic>{
       'tooth_index': idx,
@@ -789,14 +848,19 @@ class _ShadePageState extends State<ShadePage> {
       'reject_reason': null,
       'zones': {for (final z in kShadeZones) z: _emptyZone()},
       'geometry': {
-        'outline': outline,
+        'outline': OutlineEditHistory.cloneVerts(outline),
+        'edit_handles': OutlineEditHistory.cloneVerts(outline),
+        'edge_bulges': List<double>.from(bulges),
         'bbox': {
-          'x': cx - hw,
-          'y': cy - hh,
-          'w': hw * 2,
-          'h': hh * 2,
+          'x': box.left,
+          'y': box.top,
+          'w': box.width,
+          'h': box.height,
         },
-        'label': {'x': cx, 'y': (cy - hh - 0.02).clamp(0.0, 1.0)},
+        'label': {
+          'x': box.center.dx,
+          'y': (box.top - 0.02).clamp(0.0, 1.0),
+        },
         'zone_lines': <List<List<double>>>[],
         'zone_outlines': <String, dynamic>{},
       },
@@ -810,9 +874,10 @@ class _ShadePageState extends State<ShadePage> {
       _error = null;
       _syncUiFromSelection();
       _saveStatus =
-          'Added Tooth ${idx + 1} — Adjust edges to map it, then set shades.';
+          'Added Tooth ${idx + 1} — drag corners to match the crown, then Apply.';
       _upsertSessionEntry(onlyIfExists: true);
     });
+    _startOutlineEdit();
     AppHaptics.success();
   }
 
@@ -861,6 +926,8 @@ class _ShadePageState extends State<ShadePage> {
         : zeroBulges(verts.length);
     setState(() {
       _editOutlineMode = true;
+      _sessionCollapsedBeforeEdit ??= _sessionCollapsed;
+      _sessionCollapsed = true;
       _editOutline = verts;
       _editOutlineBackup = OutlineEditHistory.cloneVerts(verts);
       _editBulges = bulges;
@@ -911,6 +978,10 @@ class _ShadePageState extends State<ShadePage> {
   }
 
   void _exitOutlineEdit({bool clearStatus = true}) {
+    if (_sessionCollapsedBeforeEdit != null) {
+      _sessionCollapsed = _sessionCollapsedBeforeEdit!;
+      _sessionCollapsedBeforeEdit = null;
+    }
     _editOutlineMode = false;
     _editOutline = null;
     _editOutlineBackup = null;
@@ -1170,6 +1241,7 @@ class _ShadePageState extends State<ShadePage> {
           _patient = null;
           _case = null;
           _allShadeItems = [];
+          _shadeDetectionId = null;
         });
       }
       return;
@@ -1195,6 +1267,7 @@ class _ShadePageState extends State<ShadePage> {
       setState(() {
         _patient = null;
         _case = null;
+        _shadeDetectionId = null;
       });
       widget.patientSession.clearSelection();
       return;
@@ -1217,6 +1290,7 @@ class _ShadePageState extends State<ShadePage> {
       _saveStatus = null;
       _error = null;
       _allShadeItems = [];
+      _shadeDetectionId = null;
     });
     // Cases API is optional for Upload & detect. GDPR patient ids are UUIDs;
     // legacy createCase(int) only works for numeric ids when cases are mounted.
@@ -1301,6 +1375,7 @@ class _ShadePageState extends State<ShadePage> {
       _busy = true;
       _error = null;
       _saveStatus = runAi ? 'Mapping teeth…' : null;
+      _shadeDetectionId = '${item['id'] ?? ''}'.trim();
     });
     try {
       final bytes = await widget.api.downloadMediaBytes(url);
@@ -1419,6 +1494,7 @@ class _ShadePageState extends State<ShadePage> {
 
       setState(() {
         _allShadeItems = [uploaded, ..._allShadeItems];
+        _shadeDetectionId = '${uploaded['id'] ?? ''}'.trim();
         _previewBytes = data;
         _previewFilename = name;
         _photoTransformController.value = Matrix4.identity();
@@ -1439,10 +1515,10 @@ class _ShadePageState extends State<ShadePage> {
   }
 
   Future<void> _persist({required bool acceptAi}) async {
-    if (_case == null || _patient == null) {
+    if (_patient == null) {
       setState(
         () => _error = _patients.isEmpty
-            ? 'Add a patient first, then save the shade to their case.'
+            ? 'Add a patient first, then save the shade to their record.'
             : 'Select a patient from the list first.',
       );
       return;
@@ -1505,23 +1581,61 @@ class _ShadePageState extends State<ShadePage> {
     });
     try {
       Map<String, dynamic> saved;
-      if (_teeth.isNotEmpty) {
-        saved = await widget.api.saveShadeAnalysis(
-          caseId: _case!['id'] as int,
-          teeth: _teethPayloadForSave(),
-          selectedToothIndex: _selectedToothIndex ?? 0,
-        );
+      final caseId = _currentCaseId();
+      final shadeId = _shadeDetectionId?.trim() ?? '';
+      if (caseId != null) {
+        if (_teeth.isNotEmpty) {
+          saved = await widget.api.saveShadeAnalysis(
+            caseId: caseId,
+            teeth: _teethPayloadForSave(),
+            selectedToothIndex: _selectedToothIndex ?? 0,
+          );
+        } else {
+          saved = await widget.api.saveShade(
+            caseId: caseId,
+            aiSuggested: _detected == '—' ? null : _detected,
+            confidence: _confidence > 0 ? _confidence : null,
+            finalShade: finalShade,
+            overridden: overridden,
+          );
+        }
         _selected = finalShade;
+        try {
+          await widget.api.markCaseInProgressIfPending(
+            caseId,
+            _case?['status']?.toString(),
+          );
+          if (mounted && _case != null) {
+            setState(() => _case = {..._case!, 'status': 'in_progress'});
+          }
+        } catch (_) {}
       } else {
-        saved = await widget.api.saveShade(
-          caseId: _case!['id'] as int,
-          aiSuggested: _detected == '—' ? null : _detected,
-          confidence: _confidence > 0 ? _confidence : null,
-          finalShade: finalShade,
-          overridden: overridden,
-        );
+        saved = {
+          'id': shadeId.isEmpty
+              ? 'session-${DateTime.now().millisecondsSinceEpoch}'
+              : shadeId,
+          'summary_shade': finalShade,
+          'has_override': overridden,
+        };
+        if (shadeId.isNotEmpty) {
+          try {
+            saved = await widget.api.saveShadeDetectionAnalysis(
+              shadeId: shadeId,
+              teeth: _teethPayloadForSave(),
+              selectedToothIndex: _selectedToothIndex ?? 0,
+              summaryShade: finalShade,
+              hasOverride: overridden,
+              detectedShade: _detected == '—' ? null : _detected,
+              confidence: _confidence > 0 ? _confidence : null,
+              overridden: overridden,
+              finalShade: finalShade,
+            );
+          } catch (_) {
+            // Session save still proceeds if the detection row has no analysis column yet.
+          }
+        }
+        _selected = finalShade;
       }
-      // Session first — don't lose the save if case-status update fails.
       if (!mounted) return;
       setState(() {
         _finalShade = finalShade;
@@ -1529,29 +1643,22 @@ class _ShadePageState extends State<ShadePage> {
         _pendingShade = null;
         _overallShadePick = false;
         _upsertSessionEntry(
-          savedId: saved['id'],
+          savedId: saved['id'] ?? shadeId,
           summaryShade: saved['summary_shade']?.toString() ?? finalShade,
           hasOverride: overridden || saved['has_override'] == true,
         );
         _saveStatus = null;
+        _error = null;
       });
-      try {
-        await widget.api.markCaseInProgressIfPending(
-          _case!['id'] as int,
-          _case!['status']?.toString(),
-        );
-        if (mounted) {
-          setState(() => _case = {..._case!, 'status': 'in_progress'});
-        }
-      } catch (_) {
-        // Analysis already saved + session updated.
-      }
       if (mounted) {
+        final who =
+            '${_patient?['first_name'] ?? ''} ${_patient?['last_name'] ?? ''}'
+                .trim();
         AppSnackBars.success(
           context,
           overridden
-              ? 'Saved override $finalShade on case #${_case!['id']}'
-              : 'Accepted AI $finalShade on case #${_case!['id']}',
+              ? 'Saved override $finalShade${who.isEmpty ? '' : ' for $who'}'
+              : 'Accepted AI $finalShade${who.isEmpty ? '' : ' for $who'}',
         );
       }
     } catch (e) {
@@ -1798,6 +1905,10 @@ class _ShadePageState extends State<ShadePage> {
                       // Keep action bar mounted whenever a photo is loaded so
                       // the photo Expanded never resizes on select / add.
                       final showActions = !_busy && _previewBytes != null;
+                      final editing = _editOutlineMode;
+                      final showLoupe = editing &&
+                          _magnifierViewSize != null &&
+                          _previewBytes != null;
                       return Column(
                         children: [
                           Expanded(
@@ -1805,84 +1916,102 @@ class _ShadePageState extends State<ShadePage> {
                               // Room for white card glows (blur ~14) so they
                               // aren't clipped by the action bar / column.
                               padding: const EdgeInsets.fromLTRB(2, 2, 2, 8),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                Expanded(
-                                  flex: 3,
-                                  child: ShadePhotoPane(
-                                    previewBytes: _previewBytes,
-                                    busy: _busy,
-                                    editOutlineMode: _editOutlineMode,
-                                    teeth: _teeth,
-                                    selectedToothIndex: _selectedToothIndex,
-                                    isolatedToothIndex: _isolatedToothIndex,
-                                    analysisImageSize: _analysisImageSize,
-                                    focusZone: _focusZone,
-                                    editOutline: _editOutline,
-                                    editBulges: _editBulges,
-                                    activeHandleIndex: _activeHandleIndex,
-                                    activeEdgeIndex: _activeEdgeIndex,
-                                    photoTransformController:
-                                        _photoTransformController,
-                                    dragTick: _dragTick,
-                                    canUndo: _outlineHistory.canUndo,
-                                    canRedo: _outlineHistory.canRedo,
-                                    onUpload: _runAiFromGallery,
-                                    onClearPhoto: _clearUploadedPhoto,
-                                    onSelectTooth: _onToothTap,
-                                    onHandleDragStart: _onHandleDragStart,
-                                    onHandleDragUpdate: _onHandleDragUpdate,
-                                    onHandleDragEnd: _endOutlineDrag,
-                                    onEdgeDoubleTap: _onEdgeDoubleTap,
-                                    onUndo: _undoOutlineEdit,
-                                    onRedo: _redoOutlineEdit,
-                                  ),
+                              child: _ShadePhotoResultSplit(
+                                editing: editing,
+                                photo: ShadePhotoPane(
+                                  previewBytes: _previewBytes,
+                                  busy: _busy,
+                                  editOutlineMode: _editOutlineMode,
+                                  teeth: _teeth,
+                                  selectedToothIndex: _selectedToothIndex,
+                                  isolatedToothIndex: _isolatedToothIndex,
+                                  analysisImageSize: _analysisImageSize,
+                                  focusZone: _focusZone,
+                                  editOutline: _editOutline,
+                                  editBulges: _editBulges,
+                                  activeHandleIndex: _activeHandleIndex,
+                                  activeEdgeIndex: _activeEdgeIndex,
+                                  photoTransformController:
+                                      _photoTransformController,
+                                  dragTick: _dragTick,
+                                  canUndo: _outlineHistory.canUndo,
+                                  canRedo: _outlineHistory.canRedo,
+                                  onUpload: _runAiFromGallery,
+                                  onClearPhoto: _clearUploadedPhoto,
+                                  onSelectTooth: _onToothTap,
+                                  onHandleDragStart: _onHandleDragStart,
+                                  onHandleDragUpdate: _onHandleDragUpdate,
+                                  onHandleDragEnd: _endOutlineDrag,
+                                  onEdgeDoubleTap: _onEdgeDoubleTap,
+                                  onUndo: _undoOutlineEdit,
+                                  onRedo: _redoOutlineEdit,
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  flex: 3,
-                                  child: ShadeResultPane(
-                                    teeth: _teethForResultPane,
-                                    selectedToothIndex: _selectedToothIndex,
-                                    focusZone: _focusZone,
-                                    pendingShade: _pendingShade,
-                                    detected: _resultDisplayShade(),
-                                    confidence: _confidence,
-                                    selected: _selected,
-                                    finalShade: _finalShade,
-                                    overallTopMatches: _overallTopMatches,
-                                    saving: _saving,
-                                    swatch: shadeSwatch,
-                                    zoneEffective: _zoneEffective,
-                                    zoneOf: _zoneOf,
-                                    zoneOverridden: _zoneOverridden,
-                                    onSelectTooth: (index, {zone}) {
-                                      if (zone != null) {
-                                        _selectTooth(index, zone: zone);
-                                      } else {
-                                        _onToothTap(index);
-                                      }
-                                    },
-                                    onDeleteTooth: _deleteSelectedTooth,
-                                    onBeginZoneOverride: _beginZoneOverride,
-                                    onOverallShade: (s) =>
-                                        _applyShadeChoice(s, overall: true),
-                                    onAcceptAi: () => _persist(acceptAi: true),
-                                    onSaveOverride: () =>
-                                        _persist(acceptAi: false),
-                                    magnifierFocal: _magnifierFocal,
-                                    magnifierViewSize: _magnifierViewSize,
-                                    previewBytes: _previewBytes,
-                                    analysisImageSize: _analysisImageSize,
-                                    dragTick: _dragTick,
-                                    editOutline: _editOutline,
-                                    editBulges: _editBulges,
-                                    activeHandleIndex: _activeHandleIndex,
-                                    activeEdgeIndex: _activeEdgeIndex,
-                                  ),
+                                result: ShadeResultPane(
+                                  teeth: _teethForResultPane,
+                                  selectedToothIndex: _selectedToothIndex,
+                                  focusZone: _focusZone,
+                                  pendingShade: _pendingShade,
+                                  detected: _resultDisplayShade(),
+                                  confidence: _confidence,
+                                  selected: _selected,
+                                  finalShade: _finalShade,
+                                  overallTopMatches: _overallTopMatches,
+                                  saving: _saving,
+                                  swatch: shadeSwatch,
+                                  zoneEffective: _zoneEffective,
+                                  zoneOf: _zoneOf,
+                                  zoneOverridden: _zoneOverridden,
+                                  onSelectTooth: (index, {zone}) {
+                                    if (zone != null) {
+                                      _selectTooth(index, zone: zone);
+                                    } else {
+                                      _onToothTap(index);
+                                    }
+                                  },
+                                  onDeleteTooth: _deleteSelectedTooth,
+                                  onBeginZoneOverride: _beginZoneOverride,
+                                  onOverallShade: (s) =>
+                                      _applyShadeChoice(s, overall: true),
+                                  onAcceptAi: () => _persist(acceptAi: true),
+                                  onSaveOverride: () =>
+                                      _persist(acceptAi: false),
+                                  magnifierFocal: _magnifierFocal,
+                                  magnifierViewSize: _magnifierViewSize,
+                                  previewBytes: _previewBytes,
+                                  analysisImageSize: _analysisImageSize,
+                                  dragTick: _dragTick,
+                                  editOutline: _editOutline,
+                                  editBulges: _editBulges,
+                                  activeHandleIndex: _activeHandleIndex,
+                                  activeEdgeIndex: _activeEdgeIndex,
                                 ),
-                                ],
+                                loupe: showLoupe
+                                    ? Positioned(
+                                        right: 16,
+                                        bottom: 52,
+                                        width: 240,
+                                        height: 240,
+                                        child: IgnorePointer(
+                                          child: ShadeOutlineLoupe(
+                                            focalListenable: _magnifierFocal,
+                                            viewSize: _magnifierViewSize!,
+                                            previewBytes: _previewBytes!,
+                                            analysisImageSize:
+                                                _analysisImageSize,
+                                            dragTick: _dragTick,
+                                            teeth: _teeth,
+                                            selectedToothIndex:
+                                                _selectedToothIndex,
+                                            focusZone: _focusZone,
+                                            editOutline: _editOutline,
+                                            editBulges: _editBulges,
+                                            activeHandleIndex:
+                                                _activeHandleIndex,
+                                            activeEdgeIndex: _activeEdgeIndex,
+                                          ),
+                                        ),
+                                      )
+                                    : null,
                               ),
                             ),
                           ),
@@ -1908,22 +2037,33 @@ class _ShadePageState extends State<ShadePage> {
                                   )
                                 : null,
                           ),
-                          if (showActions) const SizedBox(height: 4),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 2),
-                            child: SizedBox(
-                              height: overrideH,
-                              width: double.infinity,
-                              child: ShadeOverridePane(
-                                focusZone: _focusZone,
-                                selectedToothIndex: _selectedToothIndex,
-                                selected: _selected,
-                                topMatches: _topMatches,
-                                overallTopMatches: _overallTopMatches,
-                                swatch: shadeSwatch,
-                                onShadeChoice: _applyShadeChoice,
-                                onOverallShadeChoice: (s) =>
-                                    _applyShadeChoice(s, overall: true),
+                          ClipRect(
+                            child: AnimatedAlign(
+                              duration: AppMotion.page,
+                              curve: AppMotion.spring,
+                              alignment: Alignment.topCenter,
+                              heightFactor: editing ? 0 : 1,
+                              child: Padding(
+                                padding: EdgeInsets.only(
+                                  top: showActions ? 4 : 0,
+                                  left: 2,
+                                  right: 2,
+                                ),
+                                child: SizedBox(
+                                  height: overrideH,
+                                  width: double.infinity,
+                                  child: ShadeOverridePane(
+                                    focusZone: _focusZone,
+                                    selectedToothIndex: _selectedToothIndex,
+                                    selected: _selected,
+                                    topMatches: _topMatches,
+                                    overallTopMatches: _overallTopMatches,
+                                    swatch: shadeSwatch,
+                                    onShadeChoice: _applyShadeChoice,
+                                    onOverallShadeChoice: (s) =>
+                                        _applyShadeChoice(s, overall: true),
+                                  ),
+                                ),
                               ),
                             ),
                           ),
@@ -1936,7 +2076,7 @@ class _ShadePageState extends State<ShadePage> {
                 ShadeSessionPane(
                   collapsed: _sessionCollapsed,
                   history: _history,
-                  activeCaseId: _currentCaseId(),
+                  activeSessionKey: _sessionKey(),
                   swatch: shadeSwatch,
                   onCollapseChanged: (v) =>
                       setState(() => _sessionCollapsed = v),
@@ -1948,6 +2088,102 @@ class _ShadePageState extends State<ShadePage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Animates photo ↔ result split. [editing] 0 = 50/50, 1 = photo fills the row.
+class _ShadePhotoResultSplit extends StatefulWidget {
+  const _ShadePhotoResultSplit({
+    required this.editing,
+    required this.photo,
+    required this.result,
+    this.loupe,
+  });
+
+  final bool editing;
+  final Widget photo;
+  final Widget result;
+  final Widget? loupe;
+
+  @override
+  State<_ShadePhotoResultSplit> createState() => _ShadePhotoResultSplitState();
+}
+
+class _ShadePhotoResultSplitState extends State<_ShadePhotoResultSplit>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: AppMotion.page,
+    reverseDuration: AppMotion.normal,
+    value: widget.editing ? 1 : 0,
+  );
+
+  late final Animation<double> _expand = CurvedAnimation(
+    parent: _controller,
+    curve: AppMotion.spring,
+    reverseCurve: AppMotion.easeOut,
+  );
+
+  @override
+  void didUpdateWidget(covariant _ShadePhotoResultSplit oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.editing == oldWidget.editing) return;
+    if (widget.editing) {
+      _controller.forward();
+    } else {
+      _controller.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final half = math.max(0.0, (constraints.maxWidth - 12) / 2);
+        return AnimatedBuilder(
+          animation: _expand,
+          builder: (context, child) {
+            final split = (1 - _expand.value).clamp(0.0, 1.0);
+            final resultOpacity = Curves.easeOutCubic.transform(split);
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: widget.photo),
+                    SizedBox(width: 12 * split),
+                    ClipRect(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        widthFactor: split,
+                        child: SizedBox(
+                          width: half,
+                          child: IgnorePointer(
+                            ignoring: split < 0.08,
+                            child: Opacity(
+                              opacity: resultOpacity,
+                              child: widget.result,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                ?widget.loupe,
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }

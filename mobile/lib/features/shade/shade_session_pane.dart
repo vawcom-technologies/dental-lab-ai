@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../core/haptics/app_haptics.dart';
+import '../../core/navigation/app_page_routes.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/touchable.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'shade_shared.dart';
 
@@ -9,7 +12,7 @@ class ShadeSessionPane extends StatelessWidget {
     super.key,
     required this.collapsed,
     required this.history,
-    required this.activeCaseId,
+    required this.activeSessionKey,
     required this.swatch,
     required this.onCollapseChanged,
     required this.onOpen,
@@ -18,7 +21,7 @@ class ShadeSessionPane extends StatelessWidget {
 
   final bool collapsed;
   final List<Map<String, dynamic>> history;
-  final int? activeCaseId;
+  final String? activeSessionKey;
   final Color Function(String) swatch;
   final ValueChanged<bool> onCollapseChanged;
   final ValueChanged<int> onOpen;
@@ -26,15 +29,12 @@ class ShadeSessionPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sessionWidth = collapsed
-        ? 52.0
-        : (MediaQuery.sizeOf(context).width < 900 ? 160.0 : 200.0);
+    final wide = MediaQuery.sizeOf(context).width >= 1100;
+    final sessionWidth = collapsed ? 52.0 : (wide ? 300.0 : 252.0);
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOutCubic,
+      duration: AppMotion.page,
+      curve: AppMotion.spring,
       width: sessionWidth,
-      // Lay the panel out at its target width while the width
-      // animates, otherwise the header Row overflows mid-tween.
       child: ClipRect(
         child: OverflowBox(
           alignment: Alignment.centerLeft,
@@ -56,113 +56,107 @@ class ShadeSessionPane extends StatelessWidget {
               boxShadow: kShadeCardGlow,
               padding: collapsed
                   ? EdgeInsets.zero
-                  : const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 12,
-                    ),
+                  : const EdgeInsets.fromLTRB(14, 14, 14, 12),
               child: collapsed
                   ? Center(
-                      child: IconButton(
+                      child: AppButtons.icon(
                         onPressed: () => onCollapseChanged(false),
-                        tooltip: 'Open session panel',
-                        icon: const Icon(Icons.chevron_left_rounded),
-                        color: AppColors.muted,
+                        tooltip: 'Open session',
+                        icon: Icons.chevron_left_rounded,
                       ),
                     )
-                  : Row(
+                  : Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Tooltip(
-                          message: 'Close session panel',
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: () => onCollapseChanged(true),
-                              borderRadius: BorderRadius.circular(10),
-                              child: const SizedBox(
-                                width: 28,
-                                child: Center(
-                                  child: Icon(
-                                    Icons.chevron_right_rounded,
-                                    color: AppColors.muted,
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Session',
+                                    style: AppFonts.style(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 18,
+                                      color: AppColors.navy,
+                                      letterSpacing: -0.3,
+                                    ),
                                   ),
-                                ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Saved shades · tap to edit',
+                                    style: AppFonts.style(
+                                      color: AppColors.muted,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                          ),
+                            AppButtons.icon(
+                              onPressed: () => onCollapseChanged(true),
+                              tooltip: 'Close session',
+                              icon: Icons.chevron_right_rounded,
+                              color: AppColors.muted,
+                            ),
+                          ],
                         ),
+                        const SizedBox(height: 14),
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Session',
-                                style: TextStyle(fontWeight: FontWeight.w700),
-                              ),
-                              const Text(
-                                'Saves this visit',
-                                style: TextStyle(
-                                  color: AppColors.muted,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Expanded(
-                                child: history.isEmpty
-                                    ? const Center(
-                                        child: Text(
-                                          'No saves yet',
-                                          style: TextStyle(
-                                            color: AppColors.muted,
-                                          ),
-                                        ),
-                                      )
-                                    : ListView.builder(
-                                        itemCount: history.length,
-                                        itemBuilder: (context, i) {
-                                          final h = history[i];
-                                          final teethRaw = h['teeth'];
-                                          final toothSummaries =
-                                              <Map<String, dynamic>>[];
-                                          if (teethRaw is List) {
-                                            for (final t in teethRaw) {
-                                              if (t is Map) {
-                                                toothSummaries.add(
-                                                  Map<String, dynamic>.from(t),
-                                                );
-                                              }
-                                            }
+                          child: history.isEmpty
+                              ? Center(
+                                  child: Text(
+                                    'No saves yet',
+                                    textAlign: TextAlign.center,
+                                    style: AppFonts.style(
+                                      color: AppColors.muted,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                )
+                              : ScrollConfiguration(
+                                  behavior: const EliteScrollBehavior(),
+                                  child: ListView.builder(
+                                    padding: EdgeInsets.zero,
+                                    itemCount: history.length,
+                                    itemBuilder: (context, i) {
+                                      final h = history[i];
+                                      final teethRaw = h['teeth'];
+                                      final toothSummaries =
+                                          <Map<String, dynamic>>[];
+                                      if (teethRaw is List) {
+                                        for (final t in teethRaw) {
+                                          if (t is Map) {
+                                            toothSummaries.add(
+                                              Map<String, dynamic>.from(t),
+                                            );
                                           }
-                                          final caseKey =
-                                              (h['case_id'] as num?)?.toInt() ??
-                                                  i;
-                                          final active =
-                                              activeCaseId == caseKey;
-                                          return SessionRecent(
-                                            key: ValueKey('session-$caseKey'),
-                                            name: h['name'] as String? ??
-                                                'Patient',
-                                            shade: h['shade'] as String,
-                                            conf: (h['conf'] as num?)
-                                                    ?.toDouble() ??
-                                                0,
-                                            color: swatch(
-                                              h['shade'] as String,
-                                            ),
-                                            isOverride: h['override'] == true,
-                                            selected: active,
-                                            teeth: toothSummaries,
-                                            swatch: swatch,
-                                            onOpen: () => onOpen(i),
-                                            onDelete: () => onDelete(i),
-                                          );
-                                        },
-                                      ),
-                              ),
-                            ],
-                          ),
+                                        }
+                                      }
+                                      final sessionKey =
+                                          '${h['session_key'] ?? h['case_id'] ?? i}';
+                                      final shade =
+                                          '${h['shade'] ?? '—'}';
+                                      return SessionRecent(
+                                        key: ValueKey('session-$sessionKey'),
+                                        name: h['name'] as String? ?? 'Patient',
+                                        shade: shade,
+                                        conf: (h['conf'] as num?)?.toDouble() ??
+                                            0,
+                                        color: swatch(shade),
+                                        isOverride: h['override'] == true,
+                                        selected: activeSessionKey != null &&
+                                            sessionKey == activeSessionKey,
+                                        teeth: toothSummaries,
+                                        swatch: swatch,
+                                        onOpen: () => onOpen(i),
+                                        onDelete: () => onDelete(i),
+                                      );
+                                    },
+                                  ),
+                                ),
                         ),
-                        const SizedBox(width: 28),
                       ],
                     ),
             ),
@@ -213,174 +207,184 @@ class _SessionRecentState extends State<SessionRecent> {
         ? null
         : (teeth.length == 1 ? '1 tooth' : '${teeth.length} teeth');
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: widget.onOpen,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.fromLTRB(10, 8, 6, 10),
-          decoration: BoxDecoration(
-            color: AppColors.neo,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: widget.selected
-                  ? AppColors.navy
-                  : AppColors.border.withValues(alpha: 0.7),
-              width: widget.selected ? 1.5 : 1,
-            ),
-            boxShadow: NeoShadows.soft(depth: 0.35),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: AnimatedContainer(
+        duration: AppMotion.fast,
+        curve: AppMotion.spring,
+        decoration: BoxDecoration(
+          color: widget.selected
+              ? Colors.white.withValues(alpha: 0.95)
+              : AppColors.neo,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: widget.selected
+                ? AppColors.dentalBlue
+                : AppColors.border.withValues(alpha: 0.7),
+            width: widget.selected ? 2 : 1,
           ),
+          boxShadow: widget.selected
+              ? NeoShadows.soft(depth: 0.55)
+              : NeoShadows.soft(depth: 0.3),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    width: 26,
-                    height: 26,
-                    decoration: BoxDecoration(
-                      color: widget.color,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.name,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12.5,
+                    child: Touchable(
+                      onTap: widget.onOpen,
+                      selectionHaptic: true,
+                      borderRadius: BorderRadius.circular(12),
+                      minHeight: 56,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: widget.color,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              widget.shade,
+                              style: AppFonts.style(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13,
+                                color: AppColors.navy,
+                              ),
+                            ),
                           ),
-                        ),
-                        if (countLabel != null) ...[
-                          const SizedBox(height: 2),
-                          GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: () =>
-                                setState(() => _expanded = !_expanded),
-                            child: Row(
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Flexible(
-                                  child: Text(
-                                    countLabel,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.muted,
-                                    ),
+                                Text(
+                                  widget.name,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppFonts.style(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 16,
+                                    color: AppColors.navy,
+                                    letterSpacing: -0.2,
                                   ),
                                 ),
-                                Icon(
-                                  _expanded
-                                      ? Icons.expand_less
-                                      : Icons.expand_more,
-                                  size: 16,
-                                  color: AppColors.muted,
+                                const SizedBox(height: 4),
+                                Text(
+                                  [
+                                    widget.shade,
+                                    ?countLabel,
+                                    if (widget.isOverride) 'Override',
+                                  ].join(' · '),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppFonts.style(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.muted,
+                                  ),
                                 ),
                               ],
                             ),
                           ),
-                        ] else ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            widget.selected ? 'Editing now' : 'Tap to edit',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: widget.selected
-                                  ? AppColors.navy
-                                  : AppColors.muted,
-                            ),
-                          ),
                         ],
-                      ],
+                      ),
                     ),
                   ),
-                  Text(
-                    widget.shade,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                    ),
+                  AppButtons.icon(
+                    onPressed: widget.onDelete,
+                    tooltip: 'Remove from session',
+                    icon: Icons.close_rounded,
+                    color: AppColors.muted,
                   ),
-                  const SizedBox(width: 2),
-                  Tooltip(
-                    message: 'Remove from session',
-                    child: InkWell(
-                      onTap: widget.onDelete,
-                      borderRadius: BorderRadius.circular(8),
-                      child: const Padding(
-                        padding: EdgeInsets.all(6),
-                        child: Icon(
-                          Icons.close_rounded,
-                          size: 16,
-                          color: AppColors.muted,
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Expanded(
+                    child: Touchable(
+                      onTap: widget.onOpen,
+                      selectionHaptic: true,
+                      borderRadius: BorderRadius.circular(10),
+                      minHeight: 44,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          widget.selected ? 'Editing now' : 'Tap to edit',
+                          style: AppFonts.style(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: widget.selected
+                                ? AppColors.dentalBlue
+                                : AppColors.navy,
+                          ),
                         ),
                       ),
                     ),
                   ),
+                  if (countLabel != null)
+                    Touchable(
+                      onTap: () {
+                        AppHaptics.selection();
+                        setState(() => _expanded = !_expanded);
+                      },
+                      minHeight: 44,
+                      borderRadius: BorderRadius.circular(10),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Row(
+                          children: [
+                            Text(
+                              _expanded ? 'Hide' : 'Teeth',
+                              style: AppFonts.style(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.muted,
+                              ),
+                            ),
+                            Icon(
+                              _expanded
+                                  ? Icons.expand_less_rounded
+                                  : Icons.expand_more_rounded,
+                              size: 22,
+                              color: AppColors.muted,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                 ],
               ),
-              if (countLabel != null) ...[
-                const SizedBox(height: 2),
-                Text(
-                  widget.selected ? 'Editing now' : 'Tap to edit',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: widget.selected ? AppColors.navy : AppColors.muted,
-                  ),
-                ),
-              ],
-              if (widget.isOverride) ...[
-                const SizedBox(height: 6),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: AppColors.warningSoft,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Text(
-                    'OVERRIDE',
-                    style: TextStyle(
-                      color: AppColors.warning,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
               if (_expanded && teeth.isNotEmpty) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
                 for (final t in teeth) ...[
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.only(bottom: 8),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           t['label']?.toString() ??
                               'Tooth ${((t['tooth_index'] as num?)?.toInt() ?? 0) + 1}',
-                          style: const TextStyle(
-                            fontSize: 11,
+                          style: AppFonts.style(
+                            fontSize: 13,
                             fontWeight: FontWeight.w700,
                             color: AppColors.navy,
                           ),
                         ),
-                        const SizedBox(height: 3),
+                        const SizedBox(height: 6),
                         Wrap(
-                          spacing: 4,
-                          runSpacing: 4,
+                          spacing: 6,
+                          runSpacing: 6,
                           children: [
                             for (final z in kShadeZones)
                               SessionZoneChip(
@@ -397,22 +401,25 @@ class _SessionRecentState extends State<SessionRecent> {
                   ),
                 ],
               ] else if (teeth.isEmpty) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(8),
                   child: LinearProgressIndicator(
                     value: widget.conf.clamp(0, 1),
-                    minHeight: 5,
+                    minHeight: 6,
                     backgroundColor: AppColors.border,
                     color: AppColors.aiPurple,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 6),
                 Text(
                   widget.conf > 0
                       ? '${(widget.conf * 100).round()}% confidence'
                       : 'Manual selection',
-                  style: const TextStyle(fontSize: 11, color: AppColors.muted),
+                  style: AppFonts.style(
+                    fontSize: 12,
+                    color: AppColors.muted,
+                  ),
                 ),
               ],
             ],
@@ -439,16 +446,16 @@ class SessionZoneChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final has = shade != null && shade!.isNotEmpty && shade != '—';
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
         color: has ? swatch(shade!).withValues(alpha: 0.55) : AppColors.border,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.border),
       ),
       child: Text(
         '$zone ${has ? shade : '—'}',
-        style: const TextStyle(
-          fontSize: 9,
+        style: AppFonts.style(
+          fontSize: 12,
           fontWeight: FontWeight.w700,
           color: AppColors.navy,
         ),

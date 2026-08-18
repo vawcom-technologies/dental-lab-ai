@@ -1,98 +1,63 @@
 import 'package:flutter/material.dart';
 
-import '../../core/api/api_client.dart';
 import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
-import '../../core/settings/app_settings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/touchable.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../../shell/app_sidebar.dart';
+import 'notification_inbox_controller.dart';
 
 class NotificationsPage extends StatefulWidget {
   const NotificationsPage({
     super.key,
-    required this.api,
+    required this.inbox,
     this.onNavigate,
-    this.onUnreadChanged,
   });
 
-  final ApiClient api;
+  final NotificationInboxController inbox;
   final ValueChanged<AppNavItem>? onNavigate;
-  final ValueChanged<int>? onUnreadChanged;
 
   @override
   State<NotificationsPage> createState() => _NotificationsPageState();
 }
 
 class _NotificationsPageState extends State<NotificationsPage> {
-  bool _loading = true;
   bool _markingAll = false;
-  int? _markingId;
-  String? _error;
+  String? _markingId;
   String _filter = 'all';
-  List<Map<String, dynamic>> _items = [];
-  AppSettings? _prefs;
+
+  NotificationInboxController get _inbox => widget.inbox;
 
   @override
   void initState() {
     super.initState();
-    _bootstrap();
+    _inbox.addListener(_onInbox);
+    _inbox.refresh(announce: false);
   }
 
-  Future<void> _bootstrap() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final prefs = await AppSettings.load();
-      final items = await widget.api.listNotifications();
-      if (!mounted) return;
-      setState(() {
-        _prefs = prefs;
-        _items = items;
-        _loading = false;
-      });
-      _emitUnread();
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
-        _loading = false;
-      });
+  @override
+  void didUpdateWidget(covariant NotificationsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.inbox != widget.inbox) {
+      oldWidget.inbox.removeListener(_onInbox);
+      widget.inbox.addListener(_onInbox);
     }
   }
 
-  void _emitUnread() {
-    final n = _visible.where((e) => e['read'] != true).length;
-    widget.onUnreadChanged?.call(n);
+  @override
+  void dispose() {
+    _inbox.removeListener(_onInbox);
+    super.dispose();
   }
 
-  bool _allowedBySettings(String type) {
-    final p = _prefs;
-    if (p == null) return true;
-    if (!p.notificationsEnabled) {
-      switch (type) {
-        case 'message':
-        case 'case_status':
-        case 'scan_quality':
-          return false;
-        default:
-          return true;
-      }
-    }
-    switch (type) {
-      case 'message':
-        return p.notifyMessages;
-      case 'case_status':
-        return p.notifyCaseStatus;
-      case 'scan_quality':
-        return p.notifyScanQuality;
-      default:
-        return true;
-    }
+  void _onInbox() {
+    if (mounted) setState(() {});
   }
+
+  List<Map<String, dynamic>> get _items => _inbox.items;
+
+  bool _allowedBySettings(String type) => _inbox.allowedBySettings(type);
 
   List<Map<String, dynamic>> get _visible {
     return _items.where((n) {
@@ -109,19 +74,15 @@ class _NotificationsPageState extends State<NotificationsPage> {
       .length;
 
   Future<void> _markOne(Map<String, dynamic> n) async {
-    final id = n['id'];
-    if (id is! int || n['read'] == true) return;
+    final id = '${n['id'] ?? ''}'.trim();
+    if (id.isEmpty || n['read'] == true) return;
     if (_markingAll || _markingId != null) return;
     setState(() => _markingId = id);
     try {
-      await widget.api.markNotificationRead(id);
-      if (!mounted) return;
-      setState(() => n['read'] = true);
-      _emitUnread();
+      await _inbox.markRead(id);
     } catch (e) {
       if (!mounted) return;
       final msg = e.toString().replaceFirst('Exception: ', '');
-      setState(() => _error = msg);
       AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _markingId = null);
@@ -130,25 +91,15 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
   Future<void> _markAll() async {
     if (_markingAll || _markingId != null) return;
-    setState(() {
-      _markingAll = true;
-      _error = null;
-    });
+    setState(() => _markingAll = true);
     try {
-      await widget.api.markAllNotificationsRead();
-      setState(() {
-        for (final n in _items) {
-          n['read'] = true;
-        }
-      });
-      _emitUnread();
+      await _inbox.markAllRead();
       if (mounted) {
         AppSnackBars.success(context, 'All notifications marked as read');
       }
     } catch (e) {
       if (!mounted) return;
       final msg = e.toString().replaceFirst('Exception: ', '');
-      setState(() => _error = msg);
       AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _markingAll = false);
@@ -171,6 +122,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
         nav(AppNavItem.scans);
       case 'shade':
         nav(AppNavItem.shade);
+      case 'appointment':
+        nav(AppNavItem.appointments);
       // Scan body parked — restore when needed.
       // case 'scan_body':
       //   nav(AppNavItem.scanBody);
@@ -211,7 +164,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
               _HeaderIconButton(
                 icon: Icons.refresh_rounded,
                 tooltip: loc.refresh,
-                onPressed: _loading ? null : _bootstrap,
+                onPressed: () => _inbox.refresh(announce: false),
               ),
             ],
             actions: [
@@ -226,10 +179,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
                 ),
             ],
           ),
-          if (_error != null) ...[
+          if (_inbox.error != null) ...[
             const SizedBox(height: 10),
             Text(
-              _error!,
+              _inbox.error!,
               style: const TextStyle(color: AppColors.danger, fontSize: 13),
             ),
           ],
@@ -256,15 +209,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
           Expanded(
             child: AppSwitcher(
               child: KeyedSubtree(
-                key: ValueKey(
-                  _loading ? 'loading' : '$_filter-${visible.length}',
-                ),
-                child: _loading
-                ? const ToothPageLoader(
-                    message: 'Loading notifications…',
-                    color: AppColors.dentalBlue,
-                  )
-                : visible.isEmpty
+                key: ValueKey('$_filter-${visible.length}'),
+                child: visible.isEmpty
                     ? Center(
                         child: SectionCard(
                           padding: const EdgeInsets.symmetric(
@@ -308,7 +254,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                             final n = visible[i];
                             return _NotificationTile(
                               item: n,
-                              marking: _markingId == n['id'],
+                              marking: _markingId == '${n['id']}',
                               enabled: !_markingAll && _markingId == null,
                               onTap: () => _open(n),
                               onMarkRead: () {
@@ -474,6 +420,7 @@ class _TypeIcon extends StatelessWidget {
       'case_status' => (Icons.assignment_outlined, AppColors.review),
       'scan_quality' => (Icons.warning_amber_rounded, AppColors.warning),
       'shade' => (Icons.palette_outlined, AppColors.aiPurple),
+      'appointment' => (Icons.event_outlined, AppColors.review),
       'scan_body' => (Icons.radio_button_checked_outlined, AppColors.dentalBlue),
       'sync' => (Icons.cloud_sync_outlined, AppColors.success),
       'export' => (Icons.code, AppColors.navy),

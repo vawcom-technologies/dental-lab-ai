@@ -19,6 +19,7 @@ from app.api import (
     camera_photos,
     appointments,
     reports,
+    notifications,
 )
 from app.core.debug_middleware import DebugRequestMiddleware, configure_api_logging
 from app.openapi_docs import attach_custom_openapi
@@ -108,6 +109,12 @@ app.include_router(
     appointments.router,
     prefix="/api/appointments",
     tags=["Appointments"],
+)
+# In-app notifications inbox
+app.include_router(
+    notifications.router,
+    prefix="/api/notifications",
+    tags=["Notifications"],
 )
 # Clinic reports / analytics
 app.include_router(

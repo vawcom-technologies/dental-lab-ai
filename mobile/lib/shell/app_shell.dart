@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/api/api_client.dart';
 import '../core/widgets/app_switcher.dart';
+import '../core/widgets/app_snackbar.dart';
 import '../core/session/patient_session.dart';
 import '../core/theme/app_theme.dart';
 import '../features/appointments/screens/appointments_screen.dart';
@@ -10,6 +11,7 @@ import '../features/chat/messages_page.dart';
 import '../features/chat/state/chat_controller.dart';
 import '../features/dashboard/dashboard_page.dart';
 import '../features/laboratories/laboratories_page.dart';
+import '../features/notifications/notification_inbox_controller.dart';
 import '../features/notifications/notifications_page.dart';
 import '../features/patients/new_patient_page.dart';
 import '../features/patients/patients_page.dart';
@@ -47,6 +49,7 @@ class _AppShellState extends State<AppShell> {
   bool _sidebarCollapsed = false;
   late final ChatController _chat;
   late final PatientSession _patients;
+  late final NotificationInboxController _inbox;
 
   /// Lazily mount pages on first visit, then keep their State alive.
   final Set<AppNavItem> _mountedPages = {AppNavItem.dashboard};
@@ -59,10 +62,12 @@ class _AppShellState extends State<AppShell> {
     _chat.addListener(_onChatChanged);
     _patients = PatientSession(widget.api);
     _patients.addListener(_onPatientSessionChanged);
+    _inbox = NotificationInboxController(widget.api);
+    _inbox.addListener(_onInboxChanged);
     // Warm patient list + chat so the first workflow page opens faster.
     _patients.ensureLoaded();
     _chat.start();
-    _refreshNotificationBadge();
+    _inbox.start();
   }
 
   void _onChatChanged() {
@@ -94,17 +99,43 @@ class _AppShellState extends State<AppShell> {
     _chat.dispose();
     _patients.removeListener(_onPatientSessionChanged);
     _patients.dispose();
+    _inbox.removeListener(_onInboxChanged);
+    _inbox.dispose();
     super.dispose();
   }
 
-  Future<void> _refreshNotificationBadge() async {
-    try {
-      final unreadNotifs = await widget.api.notificationsUnreadCount();
-      if (!mounted) return;
-      setState(() => _notificationBadge = unreadNotifs);
-    } catch (_) {
-      // Badge is non-critical
+  void _onInboxChanged() {
+    if (!mounted) return;
+    final unread = _inbox.unreadCount;
+    if (_notificationBadge != unread) {
+      setState(() => _notificationBadge = unread);
     }
+    final toasts = _inbox.takePendingToasts();
+    if (toasts.isEmpty) return;
+    if (_active == AppNavItem.notifications) return;
+    final allowed = toasts.where((n) {
+      return _inbox.allowedBySettings('${n['type'] ?? ''}');
+    }).toList();
+    if (allowed.isEmpty) return;
+    final first = allowed.first;
+    var text = '${first['message'] ?? ''}'.trim();
+    if (text.isEmpty) return;
+    if (allowed.length > 1) {
+      text = '$text  (+${allowed.length - 1} more)';
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      AppSnackBars.info(
+        context,
+        text,
+        duration: const Duration(seconds: 5),
+        onTap: () => _go(AppNavItem.notifications),
+      );
+    });
+  }
+
+  void _pingInbox() {
+    _inbox.refresh(announce: false);
   }
 
   void _go(AppNavItem item) {
@@ -116,7 +147,7 @@ class _AppShellState extends State<AppShell> {
       _mountedPages.add(item);
     });
     if (item == AppNavItem.notifications) {
-      _refreshNotificationBadge();
+      _pingInbox();
     }
     if (item == AppNavItem.messages) {
       _chat.loadInbox();
@@ -133,7 +164,7 @@ class _AppShellState extends State<AppShell> {
       _active = AppNavItem.patients;
       _mountedPages.add(AppNavItem.patients);
     });
-    _refreshNotificationBadge();
+    _pingInbox();
   }
 
   @override
@@ -225,6 +256,7 @@ class _AppShellState extends State<AppShell> {
           dentistName: _dentistName,
           patientSession: _patients,
           onNewPatient: () => _go(AppNavItem.newPatient),
+          onInboxChanged: _pingInbox,
         );
       case AppNavItem.newPatient:
         return NewPatientPage(
@@ -237,6 +269,7 @@ class _AppShellState extends State<AppShell> {
           api: widget.api,
           patientSession: _patients,
           active: active,
+          onInboxChanged: _pingInbox,
         );
       case AppNavItem.camera:
         return CameraPage(
@@ -286,13 +319,8 @@ class _AppShellState extends State<AppShell> {
         );
       case AppNavItem.notifications:
         return NotificationsPage(
-          api: widget.api,
+          inbox: _inbox,
           onNavigate: _go,
-          onUnreadChanged: (n) {
-            if (_notificationBadge != n) {
-              setState(() => _notificationBadge = n);
-            }
-          },
         );
       case AppNavItem.reports:
         return ReportsPage(

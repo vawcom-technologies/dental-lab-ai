@@ -350,7 +350,7 @@ class ShadePhotoPane extends StatelessWidget {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.85),
-                      fontSize: 11,
+                      fontSize: editOutlineMode ? 13 : 12,
                       fontWeight: FontWeight.w600,
                       shadows: const [
                         Shadow(blurRadius: 6, color: Colors.black54),

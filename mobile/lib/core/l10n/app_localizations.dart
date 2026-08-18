@@ -258,6 +258,8 @@ class AppLocalizations {
         return _t('notifications.typeScanQuality');
       case 'shade':
         return _t('notifications.typeShade');
+      case 'appointment':
+        return _t('notifications.typeAppointment');
       case 'scan_body':
         return _t('notifications.typeScanBody');
       case 'sync':
@@ -617,6 +619,7 @@ class AppLocalizations {
     'notifications.typeCase': 'Case',
     'notifications.typeScanQuality': 'Scan quality',
     'notifications.typeShade': 'Shade',
+    'notifications.typeAppointment': 'Appointment',
     'notifications.typeScanBody': 'Scan body',
     'notifications.typeSync': 'Sync',
     'notifications.typeExport': 'Export',
@@ -905,6 +908,7 @@ class AppLocalizations {
     'notifications.typeCase': 'Fall',
     'notifications.typeScanQuality': 'Scan-Qualität',
     'notifications.typeShade': 'Farbe',
+    'notifications.typeAppointment': 'Termin',
     'notifications.typeScanBody': 'Scanbody',
     'notifications.typeSync': 'Sync',
     'notifications.typeExport': 'Export',

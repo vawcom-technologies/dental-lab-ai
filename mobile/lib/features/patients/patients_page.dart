@@ -18,12 +18,14 @@ class PatientsPage extends StatefulWidget {
     required this.dentistName,
     this.patientSession,
     this.onNewPatient,
+    this.onInboxChanged,
   });
 
   final ApiClient api;
   final String dentistName;
   final PatientSession? patientSession;
   final VoidCallback? onNewPatient;
+  final VoidCallback? onInboxChanged;
 
   @override
   State<PatientsPage> createState() => _PatientsPageState();
@@ -37,7 +39,14 @@ class _PatientsPageState extends State<PatientsPage> {
   void initState() {
     super.initState();
     _controller = PatientsController(api: widget.api);
+    _controller.onAccessMutated = widget.onInboxChanged;
     _controller.load();
+  }
+
+  @override
+  void didUpdateWidget(covariant PatientsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _controller.onAccessMutated = widget.onInboxChanged;
   }
 
   @override

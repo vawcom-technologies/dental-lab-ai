@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, File, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from pydantic import BaseModel, Field
 
 from app.core.security import AuthUser, get_current_user
 from app.schemas_patient_media import DeleteOkOut, ShadeDetectionOut
@@ -18,7 +19,19 @@ _TABLE = "shade_detections"
 _KIND = "shades"
 
 
+class ShadeAnalysisIn(BaseModel):
+    teeth: list[dict] = Field(default_factory=list)
+    selected_tooth_index: int = 0
+    summary_shade: str | None = None
+    has_override: bool = False
+    detected_shade: str | None = None
+    confidence: float | None = None
+    overridden: bool = False
+    final_shade: str | None = None
+
+
 def _serialize(row: dict) -> ShadeDetectionOut:
+    analysis = row.get("analysis")
     return ShadeDetectionOut(
         id=str(row["id"]),
         patient_id=str(row["patient_id"]),
@@ -27,6 +40,7 @@ def _serialize(row: dict) -> ShadeDetectionOut:
         file_url=str(row.get("file_url") or ""),
         file_name=str(row.get("file_name") or ""),
         created_at=row.get("created_at"),
+        analysis=analysis if isinstance(analysis, dict) else None,
     )
 
 
@@ -88,3 +102,33 @@ def delete_shade_detection(
         user_id=user.id,
     )
     return DeleteOkOut(deleted=True, id=str(row["id"]))
+
+
+@shades_router.patch(
+    "/{shade_id}",
+    response_model=ShadeDetectionOut,
+    summary="Save shade analysis onto a detection image",
+)
+def save_shade_detection_analysis(
+    shade_id: str,
+    payload: ShadeAnalysisIn,
+    user: AuthUser = Depends(get_current_user),
+):
+    row = pm.fetch_row(_TABLE, shade_id)
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Shade detection not found",
+        )
+    pm.require_patient_access(str(row.get("patient_id") or ""), user.id)
+    analysis = payload.model_dump()
+    analysis["saved_at"] = pm.utc_now_iso()
+    try:
+        updated = pm.update_row(_TABLE, shade_id, {"analysis": analysis})
+    except Exception:
+        logger.exception("shade analysis persist failed id=%s", shade_id)
+        # Column may be missing until migration 009; still return the row so
+        # the chairside session can complete.
+        row = {**row, "analysis": analysis}
+        return _serialize(row)
+    return _serialize(updated)
