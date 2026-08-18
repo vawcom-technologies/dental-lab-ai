@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     r2_voice_public_url: str = ""
     r2_documents_bucket: str = ""
     r2_documents_public_url: str = ""
+    # Chat videos (original quality, max 200 MB)
+    r2_videos_bucket: str = ""
+    r2_videos_public_url: str = ""
     # Clinical camera photos (chairside patient images)
     r2_patient_images_bucket: str = ""
     r2_patient_images_public_url: str = ""

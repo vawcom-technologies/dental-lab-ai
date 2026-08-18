@@ -17,7 +17,12 @@ from app.core.config import settings
 
 logger = logging.getLogger("app.r2")
 
-ALLOWED_MEDIA_TYPES = frozenset({"voice", "image", "document"})
+ALLOWED_MEDIA_TYPES = frozenset({"voice", "image", "document", "video"})
+MEDIA_TYPE_HELP = "voice, image, document, video"
+CHAT_VIDEO_MAX_BYTES = 200 * 1024 * 1024
+_VIDEO_EXTENSIONS = frozenset(
+    {".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv", ".3gp", ".mpeg", ".mpg", ".qt"}
+)
 
 
 @lru_cache
@@ -45,6 +50,10 @@ def _require_bucket_and_public_url(media_type: str) -> tuple[str, str]:
         bucket = (settings.r2_voice_bucket or "").strip()
         public = (settings.r2_voice_public_url or "").strip().rstrip("/")
         bucket_env, url_env = "R2_VOICE_BUCKET", "R2_VOICE_PUBLIC_URL"
+    elif media_type == "video":
+        bucket = (settings.r2_videos_bucket or "").strip()
+        public = (settings.r2_videos_public_url or "").strip().rstrip("/")
+        bucket_env, url_env = "R2_VIDEOS_BUCKET", "R2_VIDEOS_PUBLIC_URL"
     else:
         # image + document share the documents bucket/CDN
         bucket = (settings.r2_documents_bucket or "").strip()
@@ -76,6 +85,8 @@ def build_object_key(
             ext = ".webm"
         elif media_type == "image":
             ext = ".jpg"
+        elif media_type == "video":
+            ext = ".mp4"
         else:
             ext = ".bin"
     safe_name = f"{uuid.uuid4().hex}{ext}"
@@ -126,6 +137,112 @@ def delete_chat_media_object(*, media_type: str, file_url: str) -> None:
         )
 
 
+def _video_content_type(filename: str | None) -> str:
+    guessed = mimetypes.guess_type(filename or "")[0]
+    if guessed and guessed.startswith("video/"):
+        return guessed
+    name = (filename or "").lower()
+    if name.endswith(".mov") or name.endswith(".qt"):
+        return "video/quicktime"
+    if name.endswith(".webm"):
+        return "video/webm"
+    if name.endswith(".avi"):
+        return "video/x-msvideo"
+    if name.endswith(".mkv"):
+        return "video/x-matroska"
+    if name.endswith(".3gp"):
+        return "video/3gpp"
+    if name.endswith(".mpeg") or name.endswith(".mpg"):
+        return "video/mpeg"
+    return "video/mp4"
+
+
+def _validate_chat_video(file: UploadFile) -> None:
+    name = (file.filename or "").strip()
+    ext = Path(name).suffix.lower()
+    ctype = (file.content_type or "").strip().lower()
+    if ext and ext not in _VIDEO_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Video must be mp4, mov, m4v, webm, avi, mkv, 3gp, or mpeg",
+        )
+    if not ext and ctype and not ctype.startswith("video/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File is not a video",
+        )
+
+
+class _SizeLimitedReader:
+    """Abort an upload stream once it exceeds max_bytes (original bytes, no transcode)."""
+
+    def __init__(self, stream, *, max_bytes: int, label: str):
+        self._stream = stream
+        self._max_bytes = max_bytes
+        self._label = label
+        self._seen = 0
+
+    def read(self, amt: int = -1) -> bytes:
+        data = self._stream.read(amt)
+        if not data:
+            return data
+        self._seen += len(data)
+        if self._seen > self._max_bytes:
+            mb = self._max_bytes // (1024 * 1024)
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=f"{self._label} must be {mb} MB or smaller",
+            )
+        return data
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        pos = self._stream.seek(offset, whence)
+        try:
+            self._seen = int(self._stream.tell())
+        except Exception:
+            self._seen = 0 if offset == 0 and whence == 0 else self._seen
+        return pos
+
+    def tell(self) -> int:
+        return self._stream.tell()
+
+
+def _upload_size(file: UploadFile) -> int | None:
+    size = getattr(file, "size", None)
+    if size is not None:
+        try:
+            return int(size)
+        except (TypeError, ValueError):
+            pass
+    stream = file.file
+    try:
+        pos = stream.tell()
+        stream.seek(0, 2)
+        measured = stream.tell()
+        stream.seek(pos)
+        return int(measured)
+    except Exception:
+        return None
+
+
+def _sized_upload_stream(file: UploadFile, *, max_bytes: int, label: str):
+    size = _upload_size(file)
+    if size is not None:
+        if size <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Empty {label.lower()} file",
+            )
+        if size > max_bytes:
+            mb = max_bytes // (1024 * 1024)
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=f"{label} must be {mb} MB or smaller",
+            )
+        return file.file
+    return _SizeLimitedReader(file.file, max_bytes=max_bytes, label=label)
+
+
 def upload_chat_file(
     *,
     file: UploadFile,
@@ -134,13 +251,18 @@ def upload_chat_file(
 ) -> str:
     """
     Stream UploadFile to R2 and return the public CDN URL.
-    No file-size enforcement (per product requirement).
+
+    Videos are stored as-is (no transcode) and capped at 200 MB.
+    Other chat media has no file-size enforcement.
     """
     if media_type not in ALLOWED_MEDIA_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="media_type must be one of: voice, image, document",
+            detail=f"media_type must be one of: {MEDIA_TYPE_HELP}",
         )
+
+    if media_type == "video":
+        _validate_chat_video(file)
 
     bucket, public_base = _require_bucket_and_public_url(media_type)
     key = build_object_key(
@@ -168,20 +290,32 @@ def upload_chat_file(
                 content_type = "audio/ogg"
             else:
                 content_type = "audio/mp4"
+        elif media_type == "video":
+            content_type = _video_content_type(file.filename)
         else:
             content_type = "application/octet-stream"
     elif media_type == "image" and not content_type.startswith("image/"):
         content_type = mimetypes.guess_type(file.filename or "")[0] or "image/jpeg"
+    elif media_type == "video" and not content_type.startswith("video/"):
+        content_type = _video_content_type(file.filename)
+
+    upload_stream = file.file
+    if media_type == "video":
+        upload_stream = _sized_upload_stream(
+            file,
+            max_bytes=CHAT_VIDEO_MAX_BYTES,
+            label="Video",
+        )
 
     client = get_r2_client()
     try:
         # Ensure stream is at start
         try:
-            file.file.seek(0)
+            upload_stream.seek(0)
         except Exception:
             pass
         client.upload_fileobj(
-            file.file,
+            upload_stream,
             bucket,
             key,
             ExtraArgs={"ContentType": content_type},
@@ -189,6 +323,9 @@ def upload_chat_file(
     except HTTPException:
         raise
     except Exception as exc:
+        cause = exc.__cause__ or getattr(exc, "__context__", None)
+        if isinstance(cause, HTTPException):
+            raise cause from exc
         logger.exception("R2 upload failed conversation_id=%s", conversation_id)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

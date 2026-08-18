@@ -74,7 +74,8 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _sendMedia({
-    required Uint8List fileBytes,
+    Uint8List? fileBytes,
+    String? filePath,
     required String fileName,
     required String mediaType,
     double? durationSeconds,
@@ -82,6 +83,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }) async {
     await context.read<ChatController>().sendMedia(
           fileBytes: fileBytes,
+          filePath: filePath,
           fileName: fileName,
           mediaType: mediaType,
           durationSeconds: durationSeconds,

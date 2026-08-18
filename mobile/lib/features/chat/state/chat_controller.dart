@@ -291,8 +291,10 @@ class ChatController extends ChangeNotifier {
 
   /// Upload media via `POST /api/media/chat-upload`.
   /// Inserts a non-blocking optimistic bubble; HTTP + WS responses de-dupe by id.
+  /// Prefer [filePath] for large videos so the original file is streamed as-is.
   Future<void> sendMedia({
-    required Uint8List fileBytes,
+    Uint8List? fileBytes,
+    String? filePath,
     required String fileName,
     required String mediaType,
     double? durationSeconds,
@@ -301,6 +303,10 @@ class ChatController extends ChangeNotifier {
     final active = _active;
     final me = currentUserId;
     if (active == null || me == null) return;
+    final path = filePath?.trim();
+    final hasPath = path != null && path.isNotEmpty;
+    final hasBytes = fileBytes != null && fileBytes.isNotEmpty;
+    if (!hasPath && !hasBytes) return;
 
     final pendingId =
         'pending_${DateTime.now().microsecondsSinceEpoch}_$mediaType';
@@ -337,6 +343,7 @@ class ChatController extends ChangeNotifier {
     try {
       final message = await _apiService.sendMediaMessage(
         fileBytes: fileBytes,
+        filePath: hasPath ? path : null,
         fileName: fileName,
         conversationId: active.id,
         mediaType: mediaType,
@@ -399,7 +406,7 @@ class ChatController extends ChangeNotifier {
       if (!exists) {
         _messages.add(message);
       }
-      // Auto mark-as-read for any inbound type (text / voice / image / document)
+      // Auto mark-as-read for any inbound type (text / voice / image / video / document)
       // while the thread is visibly open.
       if (isOpenAndViewing && !isMine) {
         _socket.markAsRead(message.conversationId);

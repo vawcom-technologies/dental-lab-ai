@@ -357,12 +357,12 @@ async def _ws_send_message(user: AuthUser, data: dict[str, Any]) -> None:
             {"type": "error", "detail": "content or media_url is required"},
         )
         return
-    if media_url and media_type and media_type not in ("voice", "image", "document"):
+    if media_url and media_type and media_type not in ("voice", "image", "document", "video"):
         await chat_manager.send_json(
             user.id,
             {
                 "type": "error",
-                "detail": "media_type must be one of: voice, image, document",
+                "detail": "media_type must be one of: voice, image, document, video",
             },
         )
         return

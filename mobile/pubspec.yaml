@@ -54,6 +54,7 @@ dependencies:
   cross_file: ^0.3.5+4
   record: ^7.1.1
   just_audio: ^0.10.6
+  video_player: ^2.10.0
   three_js: ^0.3.0
   three_js_simple_loaders: ^0.3.0
   three_js_controls: ^0.3.0

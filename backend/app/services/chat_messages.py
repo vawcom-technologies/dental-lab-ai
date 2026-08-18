@@ -180,6 +180,8 @@ async def insert_message_and_broadcast(
         preview = "sent a voice note"
     elif media_type == "image":
         preview = "sent a photo"
+    elif media_type == "video":
+        preview = "sent a video"
     elif media_type == "document":
         preview = "sent a file"
     elif not preview:

@@ -23,14 +23,16 @@ from app.services import chat_messages as cm
 from app.services import patient_access as pa
 from app.services.r2 import (
     ALLOWED_MEDIA_TYPES,
+    MEDIA_TYPE_HELP,
     local_patient_photo_path,
     upload_chat_file,
 )
+from app.services.video_meta import probe_video_duration_seconds
 
 router = APIRouter()
 logger = logging.getLogger("app.api.media")
 
-MediaType = Literal["voice", "image", "document"]
+MediaType = Literal["voice", "image", "document", "video"]
 
 
 @router.post(
@@ -49,8 +51,9 @@ async def chat_media_upload(
     user: AuthUser = Depends(get_current_user),
 ):
     """
-    Stream a voice/image/document file to Cloudflare R2, insert a `messages` row,
+    Stream a voice/image/document/video file to Cloudflare R2, insert a `messages` row,
     and push a `new_message` WebSocket event to both participants.
+    Videos are stored at original quality (no transcode), max 200 MB.
     """
     conversation_id = conversation_id.strip()
     media_type = media_type.strip().lower()
@@ -60,9 +63,9 @@ async def chat_media_upload(
     if media_type not in ALLOWED_MEDIA_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="media_type must be one of: voice, image, document",
+            detail=f"media_type must be one of: {MEDIA_TYPE_HELP}",
         )
-    if media_type == "voice" and duration_seconds is not None and duration_seconds < 0:
+    if media_type in ("voice", "video") and duration_seconds is not None and duration_seconds < 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="duration_seconds cannot be negative",
@@ -90,6 +93,9 @@ async def chat_media_upload(
         media_type,
         file.filename,
     )
+
+    if media_type == "video" and (duration_seconds is None or duration_seconds <= 0):
+        duration_seconds = probe_video_duration_seconds(file)
 
     public_url = upload_chat_file(
         file=file,
