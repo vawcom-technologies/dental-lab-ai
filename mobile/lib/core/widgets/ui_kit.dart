@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
+import '../layout/adaptive.dart';
 import '../navigation/app_page_routes.dart';
 import '../theme/app_theme.dart';
 import 'glass_surface.dart';
@@ -324,67 +325,109 @@ class PageHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
+    final compact = AppBreakpoints.isPortrait(context);
+    final titleBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (icon != null) ...[
-          NeoIconBadge(icon: icon!, size: 44, iconSize: 20),
-          const SizedBox(width: 12),
-        ],
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: AppFonts.style(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.navy,
-                  letterSpacing: -0.5,
-                ),
-              ),
-              if (subtitle != null) ...[
-                const SizedBox(height: 2),
-                Text(
-                  subtitle!,
-                  style: AppFonts.style(
-                    color: AppColors.muted,
-                    fontSize: 15,
-                    height: 1.35,
-                  ),
-                ),
-              ],
-            ],
+        Text(
+          title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          softWrap: false,
+          style: AppFonts.style(
+            fontSize: compact ? 22 : 28,
+            fontWeight: FontWeight.w700,
+            color: AppColors.navy,
+            letterSpacing: -0.4,
           ),
         ),
-        if (chromeActions.isNotEmpty) ...[
-          const SizedBox(width: 10),
-          GlassSurface(
-            borderRadius: BorderRadius.circular(16),
-            blur: 16,
-            tint: Colors.white.withValues(alpha: 0.48),
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-            child: Wrap(
-              spacing: 2,
-              runSpacing: 4,
-              alignment: WrapAlignment.end,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: chromeActions,
+        if (subtitle != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            subtitle!,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: AppFonts.style(
+              color: AppColors.muted,
+              fontSize: compact ? 13 : 15,
+              height: 1.35,
             ),
           ),
         ],
-        if (actions.isNotEmpty) ...[
-          const SizedBox(width: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+      ],
+    );
+
+    final trailing = [
+      if (chromeActions.isNotEmpty)
+        GlassSurface(
+          borderRadius: BorderRadius.circular(16),
+          blur: 16,
+          tint: Colors.white.withValues(alpha: 0.48),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          child: Wrap(
+            spacing: 2,
+            runSpacing: 4,
             alignment: WrapAlignment.end,
             crossAxisAlignment: WrapCrossAlignment.center,
-            children: actions,
+            children: chromeActions,
           ),
-        ],
-      ],
+        ),
+      if (actions.isNotEmpty)
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.end,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: actions,
+        ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxW = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : MediaQuery.sizeOf(context).width;
+        final stacked =
+            AppBreakpoints.isPortrait(context) || maxW < 980;
+        final ident = Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            if (icon != null) ...[
+              NeoIconBadge(icon: icon!, size: stacked ? 40 : 44, iconSize: 20),
+              const SizedBox(width: 12),
+            ],
+            Expanded(child: titleBlock),
+          ],
+        );
+        if (stacked) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ident,
+              if (trailing.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.end,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: trailing,
+                ),
+              ],
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(child: ident),
+            for (final w in trailing) ...[
+              const SizedBox(width: 10),
+              w,
+            ],
+          ],
+        );
+      },
     );
   }
 }

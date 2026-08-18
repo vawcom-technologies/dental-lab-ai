@@ -648,8 +648,15 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
       );
     }
 
+    final portrait = AppBreakpoints.isPortrait(context);
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+      padding: EdgeInsets.fromLTRB(
+        portrait ? 16 : 28,
+        portrait ? 16 : 24,
+        portrait ? 16 : 28,
+        portrait ? 16 : 24,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -672,10 +679,13 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
             child: AdaptiveSplit(
               panelOnRight: true,
               panelFraction: 0.3,
-              minPanelWidth: 300,
+              minPanelWidth: portrait ? 260 : 300,
               maxPanelWidth: 360,
               gap: 16,
-              narrowPanelHeight: 480,
+              narrowPanelHeight: portrait ? 260 : 480,
+              narrowContentMinHeight: 220,
+              narrowContentFirst: true,
+              narrowContentMaxHeight: portrait ? 360 : null,
               panel: _buildRail(),
               content: _buildStage(),
             ),
@@ -773,7 +783,9 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Then tap a shape in the library on the right and place it over the teeth.',
+                    AppBreakpoints.isPortrait(context)
+                        ? 'Then tap a shape in the library below and place it over the teeth.'
+                        : 'Then tap a shape in the library on the right and place it over the teeth.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.65),
@@ -1006,11 +1018,256 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
     );
   }
 
+  Widget _libraryHeader() {
+    return Row(
+      children: [
+        const Expanded(
+          child: Text(
+            'Shape library',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 15,
+              color: AppColors.navy,
+            ),
+          ),
+        ),
+        Text(
+          '${_shapeIndex + 1}/${ShapeLibrary.total}',
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: AppColors.muted,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _shapeTile(int i, {bool compact = false}) {
+    final item = ShapeLibrary.at(i);
+    final selected = i == _shapeIndex;
+    return Material(
+      color: selected
+          ? AppColors.dentalBlue.withValues(alpha: 0.12)
+          : const Color(0xFF0F1724),
+      borderRadius: BorderRadius.circular(10),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _selectShape(i),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected ? AppColors.dentalBlue : Colors.white12,
+              width: selected ? 2.5 : 1,
+            ),
+          ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Padding(
+                padding: EdgeInsets.fromLTRB(4, 4, 4, compact ? 16 : 18),
+                child: ShapeToothImage(item: item, fit: BoxFit.contain),
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  color: selected
+                      ? AppColors.dentalBlue.withValues(alpha: 0.9)
+                      : Colors.black54,
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Text(
+                    item.label,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: selected ? Colors.white : Colors.white70,
+                    ),
+                  ),
+                ),
+              ),
+              if (selected)
+                const Positioned(
+                  top: 4,
+                  right: 4,
+                  child: Icon(
+                    Icons.check_circle,
+                    size: 16,
+                    color: AppColors.dentalBlue,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _compactRail() {
+    return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(
+        parent: BouncingScrollPhysics(),
+      ),
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _libraryHeader(),
+          const SizedBox(height: 2),
+          Text(
+            _selected.label,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppColors.dentalBlue,
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 96,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: ShapeLibrary.total,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (context, i) => SizedBox(
+                width: 88,
+                child: _shapeTile(i, compact: true),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Divider(height: 1),
+          const SizedBox(height: 8),
+          const Text(
+            'Placement',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 4),
+          _SliderRow(
+            label: 'Size',
+            value: _scale,
+            min: 0.15,
+            max: 8.0,
+            display: '×${_scale.toStringAsFixed(2)}',
+            onChanged: (v) => setState(() {
+              _scale = v;
+              _dirty = true;
+            }),
+          ),
+          _SliderRow(
+            label: 'Width',
+            value: _width,
+            min: 0.4,
+            max: 2.4,
+            display: '×${_width.toStringAsFixed(2)}',
+            onChanged: (v) => setState(() {
+              _width = v;
+              _dirty = true;
+            }),
+          ),
+          _SliderRow(
+            label: 'Height',
+            value: _height,
+            min: 0.4,
+            max: 2.4,
+            display: '×${_height.toStringAsFixed(2)}',
+            onChanged: (v) => setState(() {
+              _height = v;
+              _dirty = true;
+            }),
+          ),
+          _SliderRow(
+            label: 'Rotate',
+            value: _rotation,
+            min: -35,
+            max: 35,
+            display: '${_rotation.toStringAsFixed(0)}°',
+            onChanged: (v) => setState(() {
+              _rotation = v;
+              _dirty = true;
+            }),
+          ),
+          _SliderRow(
+            label: 'Blend',
+            value: _opacity,
+            min: 0.25,
+            max: 1.0,
+            display: '${(_opacity * 100).round()}%',
+            onChanged: (v) => setState(() {
+              _opacity = v;
+              _dirty = true;
+            }),
+          ),
+          Row(
+            children: [
+              const Text(
+                'Nudge',
+                style: TextStyle(fontSize: 12, color: AppColors.muted),
+              ),
+              const Spacer(),
+              _NudgeBtn(
+                icon: Icons.keyboard_arrow_left,
+                onTap: () => _nudge(-4, 0),
+              ),
+              _NudgeBtn(
+                icon: Icons.keyboard_arrow_up,
+                onTap: () => _nudge(0, -4),
+              ),
+              _NudgeBtn(
+                icon: Icons.keyboard_arrow_down,
+                onTap: () => _nudge(0, 4),
+              ),
+              _NudgeBtn(
+                icon: Icons.keyboard_arrow_right,
+                onTap: () => _nudge(4, 0),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: FilterChip(
+                  label: const Text('Guides', style: TextStyle(fontSize: 12)),
+                  selected: _showGuides,
+                  onSelected: (v) => setState(() => _showGuides = v),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _lastCanvas == null
+                      ? null
+                      : () => _resetTransform(_lastCanvas!),
+                  child: const Text('Reset', style: TextStyle(fontSize: 12)),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildRail() {
     return SectionCard(
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
       child: LayoutBuilder(
         builder: (context, constraints) {
+          final compact = AppBreakpoints.isPortrait(context) ||
+              (constraints.hasBoundedHeight && constraints.maxHeight < 420);
+          if (compact) return _compactRail();
+
           final short =
               constraints.hasBoundedHeight && constraints.maxHeight < 560;
           final previewH = short ? 72.0 : 100.0;

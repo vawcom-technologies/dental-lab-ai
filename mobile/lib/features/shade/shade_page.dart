@@ -8,6 +8,7 @@ import '../../core/api/api_client.dart';
 import '../../core/haptics/app_haptics.dart';
 import '../../core/images/orient_image.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/layout/adaptive.dart';
 import '../../core/navigation/app_page_routes.dart';
 import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
@@ -50,6 +51,8 @@ class _ShadePageState extends State<ShadePage> {
   bool _saving = false;
   bool _loading = true;
   bool _sessionCollapsed = false;
+  /// Keep session open in portrait after the user explicitly expands it.
+  bool _sessionPinnedOpen = false;
   String? _saveStatus;
   String? _error;
   Uint8List? _previewBytes;
@@ -1839,8 +1842,17 @@ class _ShadePageState extends State<ShadePage> {
       return const ToothPageLoader(message: 'Loading shade detection…');
     }
 
+    final portrait = AppBreakpoints.isPortrait(context);
+    final sessionCollapsed =
+        _sessionCollapsed || (portrait && !_sessionPinnedOpen);
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+      padding: EdgeInsets.fromLTRB(
+        portrait ? 16 : 28,
+        portrait ? 16 : 24,
+        portrait ? 16 : 28,
+        portrait ? 16 : 24,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1892,33 +1904,41 @@ class _ShadePageState extends State<ShadePage> {
           ],
           const SizedBox(height: 14),
           Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  flex: 5,
-                  child: LayoutBuilder(
-                    builder: (context, colConstraints) {
-                      final actionSlotH = 66.0;
-                      final overrideH = (colConstraints.maxHeight * 0.34)
-                          .clamp(170.0, 300.0);
-                      // Keep action bar mounted whenever a photo is loaded so
-                      // the photo Expanded never resizes on select / add.
-                      final showActions = !_busy && _previewBytes != null;
-                      final editing = _editOutlineMode;
-                      final showLoupe = editing &&
-                          _magnifierViewSize != null &&
-                          _previewBytes != null;
-                      return Column(
-                        children: [
-                          Expanded(
-                            child: Padding(
-                              // Room for white card glows (blur ~14) so they
-                              // aren't clipped by the action bar / column.
-                              padding: const EdgeInsets.fromLTRB(2, 2, 2, 8),
-                              child: _ShadePhotoResultSplit(
-                                editing: editing,
-                                photo: ShadePhotoPane(
+            child: LayoutBuilder(
+              builder: (context, workspace) {
+                final stackPhotoResult = portrait ||
+                    workspace.maxWidth < AppBreakpoints.shadeStack;
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      flex: 5,
+                      child: LayoutBuilder(
+                        builder: (context, colConstraints) {
+                          final actionSlotH = 66.0;
+                          final overrideH = stackPhotoResult
+                              ? (colConstraints.maxHeight * 0.24)
+                                  .clamp(130.0, 200.0)
+                              : (colConstraints.maxHeight * 0.34)
+                                  .clamp(170.0, 300.0);
+                          // Keep action bar mounted whenever a photo is loaded so
+                          // the photo Expanded never resizes on select / add.
+                          final showActions = !_busy && _previewBytes != null;
+                          final editing = _editOutlineMode;
+                          final showLoupe = editing &&
+                              _magnifierViewSize != null &&
+                              _previewBytes != null;
+                          return Column(
+                            children: [
+                              Expanded(
+                                child: Padding(
+                                  // Room for white card glows (blur ~14) so they
+                                  // aren't clipped by the action bar / column.
+                                  padding: const EdgeInsets.fromLTRB(2, 2, 2, 8),
+                                  child: _ShadePhotoResultSplit(
+                                    editing: editing,
+                                    stacked: stackPhotoResult,
+                                    photo: ShadePhotoPane(
                                   previewBytes: _previewBytes,
                                   busy: _busy,
                                   editOutlineMode: _editOutlineMode,
@@ -2074,16 +2094,20 @@ class _ShadePageState extends State<ShadePage> {
                 ),
                 const SizedBox(width: 12),
                 ShadeSessionPane(
-                  collapsed: _sessionCollapsed,
+                  collapsed: sessionCollapsed,
                   history: _history,
                   activeSessionKey: _sessionKey(),
                   swatch: shadeSwatch,
-                  onCollapseChanged: (v) =>
-                      setState(() => _sessionCollapsed = v),
+                  onCollapseChanged: (v) => setState(() {
+                    _sessionCollapsed = v;
+                    _sessionPinnedOpen = !v;
+                  }),
                   onOpen: _openHistoryAt,
                   onDelete: _deleteHistoryAt,
                 ),
               ],
+            );
+              },
             ),
           ),
         ],
@@ -2098,12 +2122,14 @@ class _ShadePhotoResultSplit extends StatefulWidget {
     required this.editing,
     required this.photo,
     required this.result,
+    this.stacked = false,
     this.loupe,
   });
 
   final bool editing;
   final Widget photo;
   final Widget result;
+  final bool stacked;
   final Widget? loupe;
 
   @override
@@ -2147,37 +2173,67 @@ class _ShadePhotoResultSplitState extends State<_ShadePhotoResultSplit>
     return LayoutBuilder(
       builder: (context, constraints) {
         final half = math.max(0.0, (constraints.maxWidth - 12) / 2);
+        final resultH = widget.stacked
+            ? math.min(
+                constraints.maxHeight * 0.48,
+                math.max(220.0, constraints.maxHeight * 0.42),
+              )
+            : math.min(
+                280.0,
+                math.max(160.0, constraints.maxHeight * 0.36),
+              );
         return AnimatedBuilder(
           animation: _expand,
           builder: (context, child) {
             final split = (1 - _expand.value).clamp(0.0, 1.0);
             final resultOpacity = Curves.easeOutCubic.transform(split);
+            final resultPane = IgnorePointer(
+              ignoring: split < 0.08,
+              child: Opacity(
+                opacity: resultOpacity,
+                child: widget.result,
+              ),
+            );
             return Stack(
               fit: StackFit.expand,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(child: widget.photo),
-                    SizedBox(width: 12 * split),
-                    ClipRect(
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        widthFactor: split,
-                        child: SizedBox(
-                          width: half,
-                          child: IgnorePointer(
-                            ignoring: split < 0.08,
-                            child: Opacity(
-                              opacity: resultOpacity,
-                              child: widget.result,
-                            ),
+                if (widget.stacked)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(child: widget.photo),
+                      SizedBox(height: 12 * split),
+                      ClipRect(
+                        child: Align(
+                          alignment: Alignment.topCenter,
+                          heightFactor: split,
+                          child: SizedBox(
+                            height: resultH,
+                            width: double.infinity,
+                            child: resultPane,
                           ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  )
+                else
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(child: widget.photo),
+                      SizedBox(width: 12 * split),
+                      ClipRect(
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          widthFactor: split,
+                          child: SizedBox(
+                            width: half,
+                            child: resultPane,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ?widget.loupe,
               ],
             );

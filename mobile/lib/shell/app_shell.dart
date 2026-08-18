@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/api/api_client.dart';
+import '../core/layout/adaptive.dart';
 import '../core/widgets/app_switcher.dart';
 import '../core/widgets/app_snackbar.dart';
 import '../core/session/patient_session.dart';
@@ -47,6 +48,8 @@ class _AppShellState extends State<AppShell> {
   int _notificationBadge = 0;
   int _messageBadge = 0;
   bool _sidebarCollapsed = false;
+  /// When the window is narrow (iPad portrait), expand overrides auto-collapse.
+  bool _narrowSidebarOpen = false;
   late final ChatController _chat;
   late final PatientSession _patients;
   late final NotificationInboxController _inbox;
@@ -185,48 +188,67 @@ class _AppShellState extends State<AppShell> {
             ],
           ),
         ),
-        child: Row(
-          children: [
-            AppSidebar(
-              active: _active,
-              onSelect: _go,
-              collapsed: _sidebarCollapsed,
-              onToggle: () {
-                setState(() => _sidebarCollapsed = !_sidebarCollapsed);
-              },
-              messageBadge: _messageBadge,
-              notificationBadge: _notificationBadge,
-              showLaboratories: widget.api.isDentist,
-            ),
-            Expanded(
-              child: SafeArea(
-                left: false,
-                child: ClipRect(
-                  child: AppPaneFade(
-                    token: _active,
-                    child: IndexedStack(
-                      index: activeIndex < 0 ? 0 : activeIndex,
-                      sizing: StackFit.expand,
-                      children: [
-                        for (final item in _navOrder)
-                          _mountedPages.contains(item)
-                              ? KeyedSubtree(
-                                  key: _pageKey(item),
-                                  child: TickerMode(
-                                    enabled: item == _active,
-                                    child: RepaintBoundary(
-                                      child: _createPage(item),
-                                    ),
-                                  ),
-                                )
-                              : const SizedBox.shrink(),
-                      ],
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final narrow = constraints.maxHeight > constraints.maxWidth ||
+                constraints.maxWidth < AppBreakpoints.collapseSidebar;
+            final sidebarCollapsed =
+                narrow ? !_narrowSidebarOpen : _sidebarCollapsed;
+            return Row(
+              children: [
+                AppSidebar(
+                  active: _active,
+                  onSelect: (item) {
+                    if (narrow && _narrowSidebarOpen) {
+                      setState(() => _narrowSidebarOpen = false);
+                    }
+                    _go(item);
+                  },
+                  collapsed: sidebarCollapsed,
+                  onToggle: () {
+                    setState(() {
+                      if (narrow) {
+                        _narrowSidebarOpen = !_narrowSidebarOpen;
+                      } else {
+                        _sidebarCollapsed = !_sidebarCollapsed;
+                      }
+                    });
+                  },
+                  messageBadge: _messageBadge,
+                  notificationBadge: _notificationBadge,
+                  showLaboratories: widget.api.isDentist,
+                ),
+                Expanded(
+                  child: SafeArea(
+                    left: false,
+                    child: ClipRect(
+                      child: AppPaneFade(
+                        token: _active,
+                        child: IndexedStack(
+                          index: activeIndex < 0 ? 0 : activeIndex,
+                          sizing: StackFit.expand,
+                          children: [
+                            for (final item in _navOrder)
+                              _mountedPages.contains(item)
+                                  ? KeyedSubtree(
+                                      key: _pageKey(item),
+                                      child: TickerMode(
+                                        enabled: item == _active,
+                                        child: RepaintBoundary(
+                                          child: _createPage(item),
+                                        ),
+                                      ),
+                                    )
+                                  : const SizedBox.shrink(),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ),
-          ],
+              ],
+            );
+          },
         ),
       ),
     );

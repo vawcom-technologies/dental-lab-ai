@@ -603,69 +603,77 @@ class _CameraPageState extends State<CameraPage> {
   }
 
   Widget _angleBar() {
-    return GlassSurface(
-      borderRadius: BorderRadius.circular(16),
-      blur: 16,
-      tint: Colors.white.withValues(alpha: 0.5),
-      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
-      child: Row(
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+    final compact = AppBreakpoints.isPortrait(context);
+    final segments = CupertinoSlidingSegmentedControl<String>(
+      groupValue: _angle,
+      backgroundColor: AppColors.inset,
+      thumbColor: Colors.white,
+      children: {
+        for (final a in angles)
+          a: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 6 : 10,
+              vertical: compact ? 8 : 10,
+            ),
             child: Text(
-              'Angle',
+              compact
+                  ? '${_titleCase(a)} ${_countForAngle(a)}'
+                  : '${_titleCase(a)} (${_countForAngle(a)})',
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: AppFonts.style(
-                fontWeight: FontWeight.w700,
-                fontSize: 14,
+                fontSize: compact ? 13 : 14,
+                fontWeight: FontWeight.w600,
                 color: AppColors.navy,
               ),
             ),
           ),
-          Expanded(
-            child: CupertinoSlidingSegmentedControl<String>(
-              groupValue: _angle,
-              backgroundColor: AppColors.inset,
-              thumbColor: Colors.white,
-              children: {
-                for (final a in angles)
-                  a: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 10,
-                    ),
-                    child: Text(
-                      '${_titleCase(a)} (${_countForAngle(a)})',
-                      textAlign: TextAlign.center,
-                      style: AppFonts.style(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.navy,
-                      ),
-                    ),
-                  ),
-              },
-              onValueChanged: (value) {
-                if (value == null) return;
-                _setAngle(value);
-              },
-            ),
-          ),
-          if (_busy) ...[
-            const SizedBox(width: 10),
-            const ToothLoadingIndicator(size: 22, compact: true),
-            const SizedBox(width: 8),
-            Flexible(
+      },
+      onValueChanged: (value) {
+        if (value == null) return;
+        _setAngle(value);
+      },
+    );
+
+    return GlassSurface(
+      borderRadius: BorderRadius.circular(16),
+      blur: 16,
+      tint: Colors.white.withValues(alpha: 0.5),
+      padding: EdgeInsets.fromLTRB(compact ? 8 : 8, 6, 8, 6),
+      child: Row(
+        children: [
+          if (!compact)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Text(
-                _busyLabel,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+                'Angle',
                 style: AppFonts.style(
-                  fontSize: 13,
-                  color: AppColors.muted,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                  color: AppColors.navy,
                 ),
               ),
             ),
+          Expanded(child: segments),
+          if (_busy) ...[
+            const SizedBox(width: 10),
+            const ToothLoadingIndicator(size: 22, compact: true),
+            if (!compact) ...[
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  _busyLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppFonts.style(
+                    fontSize: 13,
+                    color: AppColors.muted,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
           ],
         ],
       ),
@@ -696,10 +704,12 @@ class _CameraPageState extends State<CameraPage> {
     return AdaptiveSplit(
       panelOnRight: true,
       panelFraction: 0.28,
-      minPanelWidth: 280,
+      minPanelWidth: 260,
       maxPanelWidth: 320,
       gap: 16,
-      narrowPanelHeight: 360,
+      narrowPanelHeight: AppBreakpoints.isPortrait(context) ? 172 : 360,
+      narrowContentMinHeight: 240,
+      narrowContentFirst: true,
       content: _photoGrid(),
       panel: AppSwitcher(
         child: KeyedSubtree(
@@ -713,8 +723,14 @@ class _CameraPageState extends State<CameraPage> {
   Widget _photoGrid() {
     final visible = _visiblePhotos;
     final angleLabel = _clinicalAngleLabel(_angle);
+    final portrait = AppBreakpoints.isPortrait(context);
     return SectionCard(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+      padding: EdgeInsets.fromLTRB(
+        portrait ? 12 : 16,
+        portrait ? 12 : 16,
+        portrait ? 12 : 16,
+        portrait ? 10 : 12,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -722,11 +738,11 @@ class _CameraPageState extends State<CameraPage> {
             '$_patientLabel · $angleLabel · ${visible.length} of ${_photos.length}/$maxPhotos',
             style: AppFonts.style(
               fontWeight: FontWeight.w700,
-              fontSize: 16,
+              fontSize: portrait ? 14 : 16,
               color: AppColors.navy,
             ),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: portrait ? 10 : 12),
           Expanded(
             child: visible.isEmpty
                 ? _CameraEmpty(
@@ -745,12 +761,11 @@ class _CameraPageState extends State<CameraPage> {
                     behavior: const EliteScrollBehavior(),
                     child: GridView.builder(
                       padding: const EdgeInsets.only(bottom: 8),
-                      gridDelegate:
-                          const SliverGridDelegateWithMaxCrossAxisExtent(
-                        maxCrossAxisExtent: 200,
-                        mainAxisSpacing: 12,
-                        crossAxisSpacing: 12,
-                        childAspectRatio: 0.86,
+                      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: portrait ? 168 : 200,
+                        mainAxisSpacing: portrait ? 10 : 12,
+                        crossAxisSpacing: portrait ? 10 : 12,
+                        childAspectRatio: 0.92,
                       ),
                       itemCount: visible.length,
                       itemBuilder: (context, i) {
@@ -786,50 +801,243 @@ class _CameraPageState extends State<CameraPage> {
   }
 
   Widget _photoInspector() {
+    final compact = AppBreakpoints.isPortrait(context);
     final photo = _selectedPhoto;
     if (photo == null) {
+      return _photoInspectorEmpty(compact: compact);
+    }
+    return compact
+        ? _photoInspectorCompact(photo)
+        : _photoInspectorDetail(photo);
+  }
+
+  Widget _photoInspectorEmpty({required bool compact}) {
+    final hint =
+        'Take a ${_titleCase(_angle).toLowerCase()} photo or pick one from the grid.';
+    if (compact) {
       return SectionCard(
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
+        child: Row(
           children: [
-            Text(
-              _clinicalAngleLabel(_angle),
-              style: AppFonts.style(
-                fontWeight: FontWeight.w700,
-                fontSize: 16,
-                color: AppColors.navy,
-              ),
-            ),
-            const SizedBox(height: 12),
             ClipRRect(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(12),
               child: const ColoredBox(
                 color: Color(0xFF111827),
                 child: SizedBox(
-                  height: 168,
+                  width: 120,
+                  height: 120,
                   child: Center(
-                    child: Text(
-                      'Nothing selected',
-                      style: TextStyle(color: Colors.white54, fontSize: 13),
+                    child: Icon(
+                      Icons.photo_outlined,
+                      color: Colors.white38,
+                      size: 28,
                     ),
                   ),
                 ),
               ),
             ),
-            const SizedBox(height: 14),
-            Text(
-              'Take a ${_titleCase(_angle).toLowerCase()} photo or pick one from the grid.',
-              style: AppFonts.style(
-                fontSize: 13,
-                height: 1.35,
-                color: AppColors.muted,
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    _clinicalAngleLabel(_angle),
+                    style: AppFonts.style(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                      color: AppColors.navy,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    hint,
+                    style: AppFonts.style(
+                      fontSize: 13,
+                      height: 1.3,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
         ),
       );
     }
+    return SectionCard(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            _clinicalAngleLabel(_angle),
+            style: AppFonts.style(
+              fontWeight: FontWeight.w700,
+              fontSize: 16,
+              color: AppColors.navy,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: const ColoredBox(
+                color: Color(0xFF111827),
+                child: Center(
+                  child: Text(
+                    'Nothing selected',
+                    style: TextStyle(color: Colors.white54, fontSize: 13),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            hint,
+            style: AppFonts.style(
+              fontSize: 13,
+              height: 1.35,
+              color: AppColors.muted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _inspectorPhoto({
+    required Map<String, dynamic> photo,
+    required String url,
+    required double size,
+  }) {
+    return Touchable(
+      onTap: url.isEmpty ? null : () => _viewPhoto(photo),
+      scale: 0.99,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: ColoredBox(
+          color: const Color(0xFF111827),
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: url.isEmpty
+                ? const Center(
+                    child: Text(
+                      'Photo unavailable',
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  )
+                : _FilledNetworkPhoto(
+                    url: url,
+                    headers: widget.api.mediaHeaders,
+                    fit: BoxFit.cover,
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _photoInspectorCompact(Map<String, dynamic> photo) {
+    final url = widget.api.resolveMediaUrl('${photo['file_url'] ?? ''}');
+    final name = _photoName(photo);
+    final taken = _photoSubtitle(photo);
+    return SectionCard(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _inspectorPhoto(photo: photo, url: url, size: 128),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppFonts.style(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                              letterSpacing: -0.2,
+                              color: AppColors.navy,
+                            ),
+                          ),
+                          if (taken.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              taken,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppFonts.style(
+                                fontSize: 12,
+                                color: AppColors.muted,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    AppButtons.icon(
+                      tooltip: 'View full screen',
+                      onPressed: url.isEmpty ? null : () => _viewPhoto(photo),
+                      icon: Icons.open_in_full_rounded,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    AppButtons.primary(
+                      onPressed:
+                          _busy ? null : () => _openPhotoWithSmile(photo),
+                      label: 'Smile Preview',
+                      icon: Icons.sentiment_satisfied_alt_outlined,
+                      compact: true,
+                    ),
+                    AppButtons.secondary(
+                      onPressed:
+                          _busy ? null : () => _openPhotoWithShade(photo),
+                      label: 'Shade Detection',
+                      icon: Icons.palette_outlined,
+                      compact: true,
+                    ),
+                    AppButtons.ghost(
+                      onPressed: _busy ? null : () => _renamePhoto(photo),
+                      label: 'Rename',
+                      icon: Icons.edit_outlined,
+                      compact: true,
+                    ),
+                    AppButtons.danger(
+                      onPressed: _busy ? null : () => _deletePhoto(photo),
+                      label: 'Delete',
+                      icon: Icons.delete_outline,
+                      compact: true,
+                      soft: true,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _photoInspectorDetail(Map<String, dynamic> photo) {
     final url = widget.api.resolveMediaUrl('${photo['file_url'] ?? ''}');
     final name = _photoName(photo);
     final taken = _photoSubtitle(photo);
@@ -876,15 +1084,14 @@ class _CameraPageState extends State<CameraPage> {
             ],
           ),
           const SizedBox(height: 10),
-          Touchable(
-            onTap: url.isEmpty ? null : () => _viewPhoto(photo),
-            scale: 0.99,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(14),
-              child: ColoredBox(
-                color: const Color(0xFF111827),
-                child: SizedBox(
-                  height: 168,
+          Expanded(
+            child: Touchable(
+              onTap: url.isEmpty ? null : () => _viewPhoto(photo),
+              scale: 0.99,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: ColoredBox(
+                  color: const Color(0xFF111827),
                   child: url.isEmpty
                       ? const Center(
                           child: Text(
@@ -905,12 +1112,14 @@ class _CameraPageState extends State<CameraPage> {
             onPressed: _busy ? null : () => _openPhotoWithSmile(photo),
             label: 'Smile Preview',
             icon: Icons.sentiment_satisfied_alt_outlined,
+            compact: true,
           ),
           const SizedBox(height: 8),
           AppButtons.secondary(
             onPressed: _busy ? null : () => _openPhotoWithShade(photo),
             label: 'Shade Detection',
             icon: Icons.palette_outlined,
+            compact: true,
           ),
           const SizedBox(height: 8),
           Row(
@@ -939,9 +1148,15 @@ class _CameraPageState extends State<CameraPage> {
   @override
   Widget build(BuildContext context) {
     final canCapture = !_busy && _patient != null && _photos.length < maxPhotos;
+    final portrait = AppBreakpoints.isPortrait(context);
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+      padding: EdgeInsets.fromLTRB(
+        portrait ? 16 : 28,
+        portrait ? 16 : 24,
+        portrait ? 16 : 28,
+        portrait ? 16 : 24,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1099,11 +1314,13 @@ class _FilledNetworkPhoto extends StatelessWidget {
     required this.url,
     required this.headers,
     this.interactive = false,
+    this.fit = BoxFit.contain,
   });
 
   final String url;
   final Map<String, String> headers;
   final bool interactive;
+  final BoxFit fit;
 
   @override
   Widget build(BuildContext context) {
@@ -1112,7 +1329,7 @@ class _FilledNetworkPhoto extends StatelessWidget {
         final image = Image.network(
           url,
           headers: headers,
-          fit: BoxFit.contain,
+          fit: fit,
           width: constraints.maxWidth,
           height: constraints.maxHeight,
           alignment: Alignment.center,

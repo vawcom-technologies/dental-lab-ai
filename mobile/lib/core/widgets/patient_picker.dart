@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../haptics/app_haptics.dart';
 import '../l10n/app_localizations.dart';
+import '../layout/adaptive.dart';
 import '../theme/app_theme.dart';
 import 'touchable.dart';
 import 'ui_kit.dart';
@@ -162,8 +163,9 @@ class _PatientPickerButtonState extends State<PatientPickerButton> {
         ),
       ],
       builder: (context, controller, child) {
+        final compact = AppBreakpoints.isPortrait(context);
         return SizedBox(
-          width: widget.width,
+          width: compact ? 168 : widget.width,
           child: Touchable(
             enabled: widget.enabled,
             borderRadius: AppRadii.borderSm,

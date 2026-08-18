@@ -262,8 +262,14 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final portrait = AppBreakpoints.isPortrait(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 22, 28, 22),
+      padding: EdgeInsets.fromLTRB(
+        portrait ? 16 : 28,
+        portrait ? 16 : 22,
+        portrait ? 16 : 28,
+        portrait ? 16 : 22,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -346,7 +352,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 720;
+        final wide = constraints.maxWidth >= 720 &&
+            !AppBreakpoints.isPortrait(context);
         final filters = _StatusFilterBar(
           selected: _statusFilter,
           compact: !wide,
@@ -420,25 +427,39 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       },
       onEdit: (item) => _openBookModal(existing: item),
     );
-
-    return AdaptiveSplit(
-      panelFraction: 0.42,
-      minPanelWidth: 320,
-      maxPanelWidth: 460,
-      gap: 16,
-      content: AppSwitcher(
-        child: KeyedSubtree(
-          key: ValueKey(_selectedId ?? 'none'),
-          child: _AppointmentDetailPane(
-            appointment: _selected,
-            onEdit: _selected == null
-                ? null
-                : () => _openBookModal(existing: _selected),
-            onBook: () => _openBookModal(),
-          ),
+    final detail = AppSwitcher(
+      child: KeyedSubtree(
+        key: ValueKey(_selectedId ?? 'none'),
+        child: _AppointmentDetailPane(
+          appointment: _selected,
+          onEdit: _selected == null
+              ? null
+              : () => _openBookModal(existing: _selected),
+          onBook: () => _openBookModal(),
         ),
       ),
-      panel: list,
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stacked = constraints.maxWidth < AppBreakpoints.stack ||
+            (constraints.maxHeight > constraints.maxWidth &&
+                constraints.maxWidth < 980);
+        // Portrait / narrow: the agenda is a scroll view and must own the
+        // viewport. Stacking it unbounded above the detail pane collapses
+        // the list to zero height (blank schedule).
+        if (stacked) {
+          return list;
+        }
+        return AdaptiveSplit(
+          panelFraction: 0.42,
+          minPanelWidth: 320,
+          maxPanelWidth: 460,
+          gap: 16,
+          content: detail,
+          panel: list,
+        );
+      },
     );
   }
 
@@ -1498,12 +1519,16 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
             ? 'Select patient'
             : _patientMenuLabel(selectedPatient));
 
+    final portrait = AppBreakpoints.isPortrait(context);
     return PopScope(
       canPop: !_saving,
       child: Dialog(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 48, vertical: 32),
+        insetPadding: EdgeInsets.symmetric(
+          horizontal: portrait ? 20 : 48,
+          vertical: portrait ? 24 : 32,
+        ),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 560),
           child: GlassSurface(
@@ -1731,6 +1756,8 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
   }
 
   Future<String?> _pickPatientSheet() async {
+    final maxH =
+        (MediaQuery.sizeOf(context).height * 0.55).clamp(280.0, 520.0);
     return showCupertinoModalPopup<String>(
       context: context,
       builder: (ctx) {
@@ -1739,10 +1766,9 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
           borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
           child: SafeArea(
             top: false,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 420),
+            child: SizedBox(
+              height: maxH,
               child: Column(
-                mainAxisSize: MainAxisSize.min,
                 children: [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
@@ -1766,43 +1792,49 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                       ],
                     ),
                   ),
-                  if (_patients.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Text('No patients yet'),
-                    )
-                  else
-                    Flexible(
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: _patients.length,
-                        itemBuilder: (context, i) {
-                          final p = _patients[i];
-                          final id = widget.patientSession.pidOf(p);
-                          final name = _patientMenuLabel(p);
-                          final selected = id == _patientId;
-                          return ListTile(
-                            leading: InitialsAvatar(name: name, size: 36),
-                            title: Text(
-                              name,
-                              style: AppFonts.style(
-                                fontWeight: selected
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
-                                color: AppColors.navy,
+                  Expanded(
+                    child: _patients.isEmpty
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Text(
+                                'No patients yet',
+                                style: AppFonts.style(
+                                  color: AppColors.muted,
+                                  fontSize: 15,
+                                ),
                               ),
                             ),
-                            trailing: selected
-                                ? const Icon(
-                                    Icons.check_rounded,
-                                    color: AppColors.dentalBlue,
-                                  )
-                                : null,
-                            onTap: () => Navigator.pop(ctx, id),
-                          );
-                        },
-                      ),
-                    ),
+                          )
+                        : ListView.builder(
+                            itemCount: _patients.length,
+                            itemBuilder: (context, i) {
+                              final p = _patients[i];
+                              final id = widget.patientSession.pidOf(p);
+                              final name = _patientMenuLabel(p);
+                              final selected = id == _patientId;
+                              return ListTile(
+                                leading: InitialsAvatar(name: name, size: 36),
+                                title: Text(
+                                  name,
+                                  style: AppFonts.style(
+                                    fontWeight: selected
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                    color: AppColors.navy,
+                                  ),
+                                ),
+                                trailing: selected
+                                    ? const Icon(
+                                        Icons.check_rounded,
+                                        color: AppColors.dentalBlue,
+                                      )
+                                    : null,
+                                onTap: () => Navigator.pop(ctx, id),
+                              );
+                            },
+                          ),
+                  ),
                 ],
               ),
             ),
