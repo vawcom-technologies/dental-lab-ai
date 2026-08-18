@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:record/record.dart';
@@ -12,15 +12,19 @@ import '../../../core/widgets/app_snackbar.dart';
 import '../../../core/widgets/tooth_loader.dart';
 import '../utils/voice_gain.dart';
 import '../utils/voice_record_path.dart';
+import '../utils/video_duration.dart';
 import '../widgets/chat_bubble.dart';
 
 typedef SendMediaFn = Future<void> Function({
-  required Uint8List fileBytes,
+  Uint8List? fileBytes,
+  String? filePath,
   required String fileName,
   required String mediaType,
   double? durationSeconds,
   String? content,
 });
+
+const int kChatVideoMaxBytes = 200 * 1024 * 1024;
 
 /// Composer with attach sheet + cross-platform voice notes (`record` package).
 class ChatComposer extends StatefulWidget {
@@ -85,6 +89,20 @@ class _ChatComposerState extends State<ChatComposer> {
               _pickImage(ImageSource.camera);
             },
             child: const Text('Camera'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _pickVideoFromLibrary();
+            },
+            child: const Text('Video Library'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _recordVideo();
+            },
+            child: const Text('Record Video'),
           ),
           CupertinoActionSheetAction(
             onPressed: () {
@@ -162,6 +180,89 @@ class _ChatComposerState extends State<ChatComposer> {
     } catch (e) {
       _toast(e.toString());
     }
+  }
+
+  Future<void> _pickVideoFromLibrary() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.video,
+        withData: kIsWeb,
+        compressionQuality: 0,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final picked = result.files.single;
+      await _sendPickedVideo(
+        fileName: picked.name,
+        path: picked.path,
+        bytes: picked.bytes,
+        sizeBytes: picked.size,
+      );
+    } catch (e) {
+      _toast(e.toString());
+    }
+  }
+
+  Future<void> _recordVideo() async {
+    try {
+      final picker = ImagePicker();
+      final shot = await picker.pickVideo(source: ImageSource.camera);
+      if (shot == null) return;
+      final length = await shot.length();
+      await _sendPickedVideo(
+        fileName: shot.name.trim().isNotEmpty
+            ? shot.name
+            : 'video_${DateTime.now().millisecondsSinceEpoch}.mp4',
+        path: shot.path,
+        sizeBytes: length,
+      );
+    } catch (e) {
+      _toast(e.toString());
+    }
+  }
+
+  Future<void> _sendPickedVideo({
+    required String fileName,
+    String? path,
+    Uint8List? bytes,
+    int? sizeBytes,
+  }) async {
+    final size = sizeBytes ?? bytes?.length ?? 0;
+    if (size <= 0) {
+      _toast('Could not read the selected video.');
+      return;
+    }
+    if (size > kChatVideoMaxBytes) {
+      _toast('Videos must be 200 MB or smaller.');
+      return;
+    }
+    var name = fileName.trim();
+    if (name.isEmpty) {
+      name = 'video_${DateTime.now().millisecondsSinceEpoch}.mp4';
+    }
+    final usePath = path != null && path.isNotEmpty && !kIsWeb;
+    Uint8List? payload = bytes;
+    if (!usePath && (payload == null || payload.isEmpty)) {
+      if (path == null || path.isEmpty) {
+        _toast('Could not read the selected video.');
+        return;
+      }
+      payload = await XFile(path).readAsBytes();
+      if (payload.isEmpty) {
+        _toast('Could not read the selected video.');
+        return;
+      }
+    }
+    double? durationSeconds;
+    if (usePath) {
+      durationSeconds = await probeLocalVideoDuration(path);
+    }
+    await widget.onSendMedia(
+      fileBytes: usePath ? null : payload,
+      filePath: usePath ? path : null,
+      fileName: name,
+      mediaType: 'video',
+      durationSeconds: durationSeconds,
+    );
   }
 
   Future<AudioEncoder> _resolveEncoder() async {

@@ -87,6 +87,8 @@ class ParentMessage {
         return 'Voice message';
       case 'image':
         return 'Photo';
+      case 'video':
+        return 'Video';
       case 'document':
         return 'Document';
       default:
@@ -142,7 +144,7 @@ class Message {
   /// Caption / text body. Empty for media-only messages.
   final String content;
   final String? mediaUrl;
-  /// `"voice"`, `"image"`, or `"document"`.
+  /// `"voice"`, `"image"`, `"video"`, or `"document"`.
   final String? mediaType;
   final double? durationSeconds;
   final String? replyToMessageId;
@@ -157,6 +159,7 @@ class Message {
   bool get hasMedia => mediaUrl != null && mediaUrl!.isNotEmpty;
   bool get isVoice => mediaType == 'voice';
   bool get isImage => mediaType == 'image';
+  bool get isVideo => mediaType == 'video';
   bool get isDocument => mediaType == 'document';
 
   /// Inbox / reply preview line.
@@ -169,6 +172,8 @@ class Message {
           return 'Sending voice…';
         case 'image':
           return 'Sending photo…';
+        case 'video':
+          return 'Sending video…';
         case 'document':
           return 'Sending document…';
         default:
@@ -180,6 +185,8 @@ class Message {
         return 'Voice message';
       case 'image':
         return 'Photo';
+      case 'video':
+        return 'Video';
       case 'document':
         return 'Document';
       default:

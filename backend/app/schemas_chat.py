@@ -94,13 +94,13 @@ class WSMessageSend(BaseModel):
         default=None,
         description="Optional media CDN URL (usually set via POST /api/media/chat-upload)",
     )
-    media_type: Literal["voice", "image", "document"] | None = Field(
+    media_type: Literal["voice", "image", "document", "video"] | None = Field(
         default=None,
         description="Media kind when media_url is present",
     )
     duration_seconds: float | None = Field(
         default=None,
-        description="Voice note duration in seconds",
+        description="Voice note or video duration in seconds",
     )
 
 

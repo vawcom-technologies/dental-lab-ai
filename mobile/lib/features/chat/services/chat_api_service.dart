@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../core/api/api_client.dart';
@@ -105,9 +105,11 @@ class ChatApiService {
     return PaginatedMessagesResponse.fromJson(Map<String, dynamic>.from(body));
   }
 
-  /// `POST /api/media/chat-upload` — byte-based multipart (Web / Android / iOS).
+  /// `POST /api/media/chat-upload` — streams from disk when [filePath] is set
+  /// so large videos (up to 200 MB) are not loaded fully into RAM.
   Future<Message> sendMediaMessage({
-    required Uint8List fileBytes,
+    Uint8List? fileBytes,
+    String? filePath,
     required String fileName,
     required String conversationId,
     required String mediaType,
@@ -133,15 +135,31 @@ class ChatApiService {
     }
 
     final safeName = fileName.trim().isEmpty ? 'upload.bin' : fileName.trim();
-    request.files.add(
-      http.MultipartFile.fromBytes(
-        'file',
-        fileBytes,
-        filename: safeName,
-      ),
-    );
+    final path = filePath?.trim();
+    if (path != null && path.isNotEmpty && !kIsWeb) {
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'file',
+          path,
+          filename: safeName,
+        ),
+      );
+    } else if (fileBytes != null && fileBytes.isNotEmpty) {
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'file',
+          fileBytes,
+          filename: safeName,
+        ),
+      );
+    } else {
+      throw Exception('No file to upload.');
+    }
 
-    final streamed = await _api.httpClient.send(request);
+    final timeout = mediaType == 'video'
+        ? const Duration(minutes: 10)
+        : const Duration(minutes: 2);
+    final streamed = await _api.httpClient.send(request).timeout(timeout);
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200 && res.statusCode != 201) {
       throw Exception(_errorMessage(res));

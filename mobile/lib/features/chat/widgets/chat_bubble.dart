@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/tooth_loader.dart';
 import '../models/chat_models.dart';
+import 'chat_video_player.dart';
 
 /// Formats voice duration as `m:ss`.
 String formatVoiceDuration(double? seconds) {
@@ -108,7 +109,7 @@ class ChatMessageBubble extends StatelessWidget {
                   clipBehavior: Clip.none,
                   children: [
                     Container(
-                      padding: _mediaOnly && message.isImage
+                      padding: _mediaOnly && (message.isImage || message.isVideo)
                           ? EdgeInsets.zero
                           : EdgeInsets.fromLTRB(
                               hasMediaBody && !hasText ? 10 : 14,
@@ -117,7 +118,7 @@ class ChatMessageBubble extends StatelessWidget {
                               8,
                             ),
                       decoration: BoxDecoration(
-                        color: _mediaOnly && message.isImage
+                        color: _mediaOnly && (message.isImage || message.isVideo)
                             ? Colors.transparent
                             : (mine
                                 ? _BubbleColors.mine
@@ -163,6 +164,12 @@ class ChatMessageBubble extends StatelessWidget {
                             ImageMessageBubble(
                               url: message.mediaUrl!,
                               mine: mine,
+                            )
+                          else if (message.isVideo && message.hasMedia)
+                            VideoMessageBubble(
+                              url: message.mediaUrl!,
+                              mine: mine,
+                              durationSeconds: message.durationSeconds,
                             )
                           else if (message.hasMedia)
                             DocumentMessageBubble(
@@ -661,6 +668,112 @@ class ImageMessageBubble extends StatelessWidget {
             placeholderColor: placeholderColor,
             iconColor: iconColor,
             height: 200,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Static video preview in the thread. Playback only happens in [ChatVideoPlayerPage].
+class VideoMessageBubble extends StatelessWidget {
+  const VideoMessageBubble({
+    super.key,
+    required this.url,
+    required this.mine,
+    this.durationSeconds,
+  });
+
+  final String url;
+  final bool mine;
+  final double? durationSeconds;
+
+  void _openPlayer(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => ChatVideoPlayerPage(
+          url: url,
+          durationSeconds: durationSeconds,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final placeholderColor =
+        (mine ? Colors.white : AppColors.navy).withValues(alpha: 0.10);
+    final durationLabel = (durationSeconds ?? 0) > 0.4
+        ? formatVoiceDuration(durationSeconds)
+        : null;
+
+    return GestureDetector(
+      onTap: () => _openPlayer(context),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: SizedBox(
+          width: 220,
+          height: 148,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      const Color(0xFF1C1C1E),
+                      Color.alphaBlend(
+                        placeholderColor,
+                        const Color(0xFF2C2C2E),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Center(
+                child: Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.45),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: const Icon(
+                    CupertinoIcons.play_fill,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 10,
+                bottom: 8,
+                child: Row(
+                  children: [
+                    const Icon(
+                      CupertinoIcons.videocam_fill,
+                      color: Colors.white,
+                      size: 14,
+                    ),
+                    if (durationLabel != null) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        durationLabel,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
