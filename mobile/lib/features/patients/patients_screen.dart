@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/navigation/app_page_routes.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/tooth_loader.dart';
+import '../../core/widgets/ui_kit.dart';
 import 'patient_form_screen.dart';
 
 class PatientsScreen extends StatefulWidget {
@@ -22,6 +22,7 @@ class PatientsScreen extends StatefulWidget {
 
 class _PatientsScreenState extends State<PatientsScreen> {
   late Future<List<Map<String, dynamic>>> _future;
+  Object? _toastedError;
 
   @override
   void initState() {
@@ -30,6 +31,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
   }
 
   void _reload() {
+    _toastedError = null;
     setState(() => _future = widget.api.listPatients());
   }
 
@@ -67,14 +69,16 @@ class _PatientsScreenState extends State<PatientsScreen> {
             return const ToothPageLoader(message: 'Loading patients…');
           }
           if (snap.hasError) {
+            if (!identical(_toastedError, snap.error)) {
+              _toastedError = snap.error;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) AppSnackBars.error(context, snap.error.toString());
+              });
+            }
             return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  snap.error.toString().replaceFirst('Exception: ', ''),
-                  style: const TextStyle(color: AppColors.danger),
-                  textAlign: TextAlign.center,
-                ),
+              child: TextButton(
+                onPressed: _reload,
+                child: const Text('Refresh'),
               ),
             );
           }

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/session/patient_session.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/ui_kit.dart';
 import '../models/chat_models.dart';
@@ -18,10 +19,12 @@ class ChatScreen extends StatefulWidget {
     super.key,
     this.onBack,
     this.showBack = false,
+    this.patientSession,
   });
 
   final VoidCallback? onBack;
   final bool showBack;
+  final PatientSession? patientSession;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -66,10 +69,10 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  void _send() {
+  void _send(List<PatientMention> mentions) {
     final text = _compose.text;
     if (text.trim().isEmpty) return;
-    context.read<ChatController>().sendText(text);
+    context.read<ChatController>().sendText(text, mentions: mentions);
     _compose.clear();
   }
 
@@ -136,16 +139,6 @@ class _ChatScreenState extends State<ChatScreen> {
             margin: const EdgeInsets.symmetric(horizontal: 16),
             color: Colors.white.withValues(alpha: 0.45),
           ),
-          if (controller.threadError != null)
-            Container(
-              width: double.infinity,
-              color: AppColors.dangerSoft.withValues(alpha: 0.7),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              child: Text(
-                controller.threadError!,
-                style: const TextStyle(color: AppColors.danger, fontSize: 12),
-              ),
-            ),
           Expanded(
             child: ColoredBox(
               color: _kChatCanvas,
@@ -203,6 +196,14 @@ class _ChatScreenState extends State<ChatScreen> {
                                       message.id == lastSeenMineId,
                                   onReply: () =>
                                       controller.setReplyTo(message),
+                                  onPatientMention: (patientId) {
+                                    final session = widget.patientSession;
+                                    if (session == null ||
+                                        session.openingPatientDetail) {
+                                      return;
+                                    }
+                                    session.requestOpenPatientDetail(patientId);
+                                  },
                                 );
                               },
                             );
@@ -218,6 +219,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ChatComposer(
             controller: _compose,
             sending: controller.sending,
+            patientSession: widget.patientSession,
             onSend: _send,
             onSendMedia: _sendMedia,
           ),

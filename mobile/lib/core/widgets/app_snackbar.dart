@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../errors/user_facing_error.dart';
 import '../haptics/app_haptics.dart';
+import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 
 /// App-wide floating soft-pill toasts (success / error / info).
@@ -34,9 +36,10 @@ class AppSnackBars {
     String message, {
     bool haptic = true,
   }) {
+    final loc = _locOf(context);
     _show(
       context,
-      message: message,
+      message: friendlyError(message, loc),
       background: AppColors.dangerSoft,
       foreground: AppColors.danger,
       border: AppColors.danger.withValues(alpha: 0.22),
@@ -62,6 +65,34 @@ class AppSnackBars {
       onTap: onTap,
       duration: duration,
     );
+  }
+
+  /// Call from `build` so a stored error/success is toasted once, not painted
+  /// as permanent on-screen text. Assign the return value back to the field.
+  static String? drain(
+    BuildContext context,
+    String? message, {
+    bool error = true,
+  }) {
+    final text = message?.replaceFirst('Exception: ', '').trim();
+    if (text == null || text.isEmpty) return null;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!context.mounted) return;
+      if (error) {
+        AppSnackBars.error(context, text);
+      } else {
+        AppSnackBars.success(context, text);
+      }
+    });
+    return null;
+  }
+
+  static AppLocalizations? _locOf(BuildContext context) {
+    try {
+      return AppLocalizations.of(context);
+    } catch (_) {
+      return null;
+    }
   }
 
   static void _show(

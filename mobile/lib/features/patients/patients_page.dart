@@ -19,6 +19,7 @@ class PatientsPage extends StatefulWidget {
     this.patientSession,
     this.onNewPatient,
     this.onInboxChanged,
+    this.active = true,
   });
 
   final ApiClient api;
@@ -26,6 +27,7 @@ class PatientsPage extends StatefulWidget {
   final PatientSession? patientSession;
   final VoidCallback? onNewPatient;
   final VoidCallback? onInboxChanged;
+  final bool active;
 
   @override
   State<PatientsPage> createState() => _PatientsPageState();
@@ -34,26 +36,74 @@ class PatientsPage extends StatefulWidget {
 class _PatientsPageState extends State<PatientsPage> {
   late final PatientsController _controller;
   final _search = TextEditingController();
+  bool _openingMention = false;
 
   @override
   void initState() {
     super.initState();
     _controller = PatientsController(api: widget.api);
     _controller.onAccessMutated = widget.onInboxChanged;
+    _controller.onError = (msg) {
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _toast(msg, error: true);
+      });
+    };
+    _controller.addListener(_onControllerChanged);
+    widget.patientSession?.addListener(_onSessionChanged);
     _controller.load();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (widget.active) _consumePendingPatientDetail();
+    });
   }
 
   @override
   void didUpdateWidget(covariant PatientsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     _controller.onAccessMutated = widget.onInboxChanged;
+    if (oldWidget.patientSession != widget.patientSession) {
+      oldWidget.patientSession?.removeListener(_onSessionChanged);
+      widget.patientSession?.addListener(_onSessionChanged);
+    }
+    if (widget.active && !oldWidget.active) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _consumePendingPatientDetail();
+      });
+    }
   }
 
   @override
   void dispose() {
+    widget.patientSession?.removeListener(_onSessionChanged);
+    _controller.removeListener(_onControllerChanged);
     _search.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  void _onControllerChanged() {
+    if (widget.active) _consumePendingPatientDetail();
+  }
+
+  void _onSessionChanged() {
+    if (widget.active) _consumePendingPatientDetail();
+  }
+
+  Future<void> _consumePendingPatientDetail() async {
+    final session = widget.patientSession;
+    if (session == null || !mounted || _openingMention) return;
+    final id = session.pendingPatientDetailId?.trim();
+    if (id == null || id.isEmpty) return;
+    session.takePendingPatientDetailId();
+    _openingMention = true;
+    try {
+      await _presentPatientDetail(id);
+    } catch (e) {
+      if (mounted) _toast(_friendlyError(e), error: true);
+    } finally {
+      _openingMention = false;
+      session.clearOpeningPatientDetail();
+    }
   }
 
   void _toast(String message, {bool error = false}) {
@@ -70,16 +120,15 @@ class _PatientsPageState extends State<PatientsPage> {
       if (e.isForbidden) {
         final lower = e.message.toLowerCase();
         if (lower.contains('approve') || lower.contains('reject')) {
-          return 'Permission Denied: Only the patient owner can approve or reject access requests.';
+          return 'Only the patient owner can approve or reject access requests.';
         }
-        if (lower.contains('access')) {
-          return e.message;
+        if (lower.contains('creator') || lower.contains('created this')) {
+          return 'Only the person who created this patient record can edit it.';
         }
-        return 'Permission Denied: Only the creator of this record can modify patient details.';
       }
-      return e.message;
+      return friendlyError(e.message);
     }
-    return e.toString().replaceFirst('Exception: ', '');
+    return friendlyError(e);
   }
 
   Future<void> _syncSharedPatientSession() async {
@@ -233,8 +282,15 @@ class _PatientsPageState extends State<PatientsPage> {
       );
       return;
     }
+    GdprPatient current = patient;
+    for (final row in _controller.patients) {
+      if (row.id == patient.id) {
+        current = row;
+        break;
+      }
+    }
     final next = CaseStatuses.normalize(status);
-    if (CaseStatuses.normalize(patient.status) == next) return;
+    if (CaseStatuses.normalize(current.status) == next) return;
     try {
       await _controller.updatePatient(patient.id, {'status': next});
       if (!mounted) return;
@@ -245,34 +301,43 @@ class _PatientsPageState extends State<PatientsPage> {
     }
   }
 
+  Future<void> _presentPatientDetail(String patientId, {int tab = 0}) async {
+    final detailed = await _controller.openPatient(patientId);
+    if (detailed == null || !mounted) return;
+    // Drop the shell overlay before the sheet so the profile is tappable.
+    widget.patientSession?.clearOpeningPatientDetail();
+    await AppDialogs.modalSheet<void>(
+      context: context,
+      builder: (ctx) => _PatientDetailSheet(
+        controller: _controller,
+        patient: detailed,
+        initialTab: tab,
+        onEdit: () {
+          Navigator.pop(ctx);
+          _openEdit(detailed);
+        },
+        onShare: () {
+          Navigator.pop(ctx);
+          _openShare(detailed);
+        },
+        onDelete: () {
+          Navigator.pop(ctx);
+          _confirmDelete(detailed);
+        },
+        onStatusChanged: _controller.isOwner(detailed)
+            ? (status) => _changePatientStatus(detailed, status)
+            : null,
+        onToast: _toast,
+        friendlyError: _friendlyError,
+      ),
+    );
+    _controller.clearSelected();
+  }
+
   Future<void> _openDetails(GdprPatient patient, {int tab = 0}) async {
     if (_controller.loadingDetail || _controller.mutating) return;
     try {
-      final detailed = await _controller.openPatient(patient.id);
-      if (detailed == null || !mounted) return;
-      await AppDialogs.modalSheet<void>(
-        context: context,
-        builder: (ctx) => _PatientDetailSheet(
-          controller: _controller,
-          patient: detailed,
-          initialTab: tab,
-          onEdit: () {
-            Navigator.pop(ctx);
-            _openEdit(detailed);
-          },
-          onShare: () {
-            Navigator.pop(ctx);
-            _openShare(detailed);
-          },
-          onDelete: () {
-            Navigator.pop(ctx);
-            _confirmDelete(detailed);
-          },
-          onToast: _toast,
-          friendlyError: _friendlyError,
-        ),
-      );
-      _controller.clearSelected();
+      await _presentPatientDetail(patient.id, tab: tab);
     } catch (e) {
       _toast(_friendlyError(e), error: true);
     }
@@ -315,7 +380,7 @@ class _PatientsPageState extends State<PatientsPage> {
                       tooltip: loc.refresh,
                       onPressed: _controller.loading || blocked
                           ? null
-                          : () => _controller.load(),
+                          : () => _controller.load(forceRefresh: true),
                       icon: Icons.refresh_rounded,
                       busy: _controller.loading,
                     ),
@@ -445,17 +510,6 @@ class _PatientsPageState extends State<PatientsPage> {
                     ),
                   ],
                 ),
-                if (_controller.error != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    _controller.error!,
-                    style: AppFonts.style(
-                      color: AppColors.danger,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 16),
                 Expanded(
                   child: AppSwitcher(
@@ -485,7 +539,6 @@ class _PatientsPageState extends State<PatientsPage> {
                                           AppRoles.label(widget.api.role),
                                       enabled: !blocked,
                                       onOpen: () => _openDetails(p),
-                                      onNotes: () => _openDetails(p, tab: 1),
                                       onEdit:
                                           owner ? () => _openEdit(p) : null,
                                       onShare: () => _openShare(p),
@@ -569,7 +622,6 @@ class _PatientCard extends StatelessWidget {
     required this.patient,
     required this.isOwner,
     required this.onOpen,
-    this.onNotes,
     this.roleLabel,
     this.enabled = true,
     this.onEdit,
@@ -583,7 +635,6 @@ class _PatientCard extends StatelessWidget {
   final String? roleLabel;
   final bool enabled;
   final VoidCallback onOpen;
-  final VoidCallback? onNotes;
   final VoidCallback? onEdit;
   final VoidCallback? onShare;
   final VoidCallback? onDelete;
@@ -633,12 +684,6 @@ class _PatientCard extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 10),
-                          PatientStatusMenu(
-                            status: patient.status,
-                            enabled: enabled && onStatusChanged != null,
-                            onSelected: onStatusChanged,
-                          ),
-                          const SizedBox(width: 10),
                           _AccessBadge(
                             isOwner: isOwner,
                             roleLabel: roleLabel,
@@ -654,11 +699,10 @@ class _PatientCard extends StatelessWidget {
                   runSpacing: 6,
                   alignment: WrapAlignment.end,
                   children: [
-                    AppButtons.ghost(
-                      onPressed: enabled ? (onNotes ?? onOpen) : null,
-                      icon: Icons.notes_outlined,
-                      label: 'Notes',
-                      compact: true,
+                    PatientStatusMenu(
+                      status: patient.status,
+                      enabled: enabled && onStatusChanged != null,
+                      onSelected: onStatusChanged,
                     ),
                     AppButtons.ghost(
                       onPressed: enabled ? onEdit : null,
@@ -872,7 +916,6 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
   late final TextEditingController _insurance;
   late String _status;
   bool _saving = false;
-  String? _error;
 
   @override
   void initState() {
@@ -901,13 +944,12 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
   }
 
   Future<void> _submit() async {
-    setState(() => _error = null);
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     final phoneLocal = _phone.text.trim();
     final phoneError = PhoneNumbers.validateRequired(phoneLocal);
     if (phoneError != null) {
-      setState(() => _error = phoneError);
+      AppSnackBars.error(context, phoneError);
       return;
     }
     final fields = _PatientFormFields(
@@ -925,12 +967,11 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
         fields.dateOfBirth.isEmpty ||
         fields.address.isEmpty ||
         fields.healthInsurance.isEmpty) {
-      setState(() => _error = 'All fields are required.');
+      AppSnackBars.error(context, 'All fields are required.');
       return;
     }
     setState(() {
       _saving = true;
-      _error = null;
     });
     try {
       final patient = await widget.onSubmit(fields);
@@ -938,14 +979,11 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
       Navigator.pop(context, patient);
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _saving = false;
-        _error = e is AgentApiException
-            ? (e.isForbidden
-                ? 'Permission Denied: Only the creator of this record can modify patient details.'
-                : e.message)
-            : e.toString().replaceFirst('Exception: ', '');
-      });
+      setState(() => _saving = false);
+      final msg = e is AgentApiException && e.isForbidden
+          ? 'Only the person who created this patient record can edit it.'
+          : friendlyError(e);
+      AppSnackBars.error(context, msg);
     }
   }
 
@@ -1074,17 +1112,6 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
                       ),
                     ],
                   ),
-                  if (_error != null) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      _error!,
-                      style: AppFonts.style(
-                        color: AppColors.danger,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
                   const SizedBox(height: 18),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
@@ -1923,6 +1950,7 @@ class _PatientDetailSheet extends StatefulWidget {
     required this.onDelete,
     required this.onToast,
     required this.friendlyError,
+    this.onStatusChanged,
     this.initialTab = 0,
   });
 
@@ -1932,6 +1960,7 @@ class _PatientDetailSheet extends StatefulWidget {
   final VoidCallback onEdit;
   final VoidCallback onShare;
   final VoidCallback onDelete;
+  final ValueChanged<String>? onStatusChanged;
   final void Function(String message, {bool error}) onToast;
   final String Function(Object e) friendlyError;
 
@@ -2091,10 +2120,18 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     }
   }
 
+  GdprPatient _livePatient() {
+    final id = widget.patient.id;
+    for (final row in widget.controller.patients) {
+      if (row.id == id) return row;
+    }
+    final selected = widget.controller.selected;
+    if (selected?.id == id) return selected!;
+    return widget.patient;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final p = widget.patient;
-    final owner = widget.controller.isOwner(p);
     final height = MediaQuery.sizeOf(context).height * 0.62;
     final bottomInset = MediaQuery.paddingOf(context).bottom;
 
@@ -2122,6 +2159,8 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
               final accessViewerIsOwner =
                   widget.controller.accessViewerIsOwner;
               final blocked = widget.controller.mutating;
+              final p = _livePatient();
+              final owner = widget.controller.isOwner(p);
               return BusyBarrier(
                 busy: blocked,
                 child: Column(
@@ -2188,6 +2227,11 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                         spacing: 8,
                         runSpacing: 8,
                         children: [
+                          PatientStatusMenu(
+                            status: p.status,
+                            enabled: !blocked && widget.onStatusChanged != null,
+                            onSelected: widget.onStatusChanged,
+                          ),
                           if (owner)
                             AppButtons.ghost(
                               onPressed: blocked ? null : widget.onEdit,

@@ -5,6 +5,7 @@ import '../../core/api/api_client.dart';
 import '../../core/layout/adaptive.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/navigation/app_page_routes.dart';
+import '../../core/session/patient_session.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'screens/chat_screen.dart';
 import 'screens/inbox_screen.dart';
@@ -19,11 +20,13 @@ class MessagesPage extends StatefulWidget {
     super.key,
     required this.api,
     this.chatController,
+    this.patientSession,
     this.onUnreadChanged,
   });
 
   final ApiClient api;
   final ChatController? chatController;
+  final PatientSession? patientSession;
   final ValueChanged<int>? onUnreadChanged;
 
   @override
@@ -140,6 +143,7 @@ class _MessagesPageState extends State<MessagesPage> {
                               key: const ValueKey('thread'),
                               child: ChatScreen(
                                 showBack: true,
+                                patientSession: widget.patientSession,
                                 onBack: () {
                                   _controller.setViewingThread(false);
                                   setState(() => _showThread = false);
@@ -163,7 +167,9 @@ class _MessagesPageState extends State<MessagesPage> {
                         onNewChat: _openNewChat,
                         onConversationSelected: (_) {},
                       ),
-                      content: const ChatScreen(),
+                      content: ChatScreen(
+                        patientSession: widget.patientSession,
+                      ),
                       panelFraction: 0.36,
                       minPanelWidth: 280,
                       maxPanelWidth: 420,

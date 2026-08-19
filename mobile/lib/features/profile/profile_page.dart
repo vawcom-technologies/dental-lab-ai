@@ -38,7 +38,6 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _loading = true;
   bool _saving = false;
   bool _changingPassword = false;
-  String? _error;
 
   @override
   void initState() {
@@ -68,7 +67,6 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _load() async {
     setState(() {
       _loading = true;
-      _error = null;
     });
     try {
       final me = await widget.api.fetchMe();
@@ -81,7 +79,7 @@ class _ProfilePageState extends State<ProfilePage> {
       _createdAt = _fmt(me['created_at']);
       _lastLogin = _fmt(me['last_login']);
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (mounted) AppSnackBars.error(context, e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -93,7 +91,6 @@ class _ProfilePageState extends State<ProfilePage> {
     final email = _email.text.trim();
     if (name.isEmpty || email.isEmpty) {
       final msg = AppLocalizations.of(context).errNameEmailRequired;
-      setState(() => _error = msg);
       AppSnackBars.error(context, msg);
       return;
     }
@@ -103,13 +100,11 @@ class _ProfilePageState extends State<ProfilePage> {
       message: loc.errPhoneInvalid,
     );
     if (phoneError != null) {
-      setState(() => _error = phoneError);
       AppSnackBars.error(context, phoneError);
       return;
     }
     setState(() {
       _saving = true;
-      _error = null;
     });
     try {
       final updated = await widget.api.updateProfile(
@@ -127,7 +122,6 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (e) {
       if (!mounted) return;
       final msg = e.toString().replaceFirst('Exception: ', '');
-      setState(() => _error = msg);
       AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -141,25 +135,21 @@ class _ProfilePageState extends State<ProfilePage> {
     final confirm = _confirmPassword.text;
     if (current.isEmpty || next.isEmpty) {
       final msg = AppLocalizations.of(context).errEnterPasswords;
-      setState(() => _error = msg);
       AppSnackBars.error(context, msg);
       return;
     }
     if (!PasswordValidator.isValid(next)) {
       final msg = AppLocalizations.of(context).errNewPasswordShort;
-      setState(() => _error = msg);
       AppSnackBars.error(context, msg);
       return;
     }
     if (next != confirm) {
       final msg = AppLocalizations.of(context).errNewPasswordMismatch;
-      setState(() => _error = msg);
       AppSnackBars.error(context, msg);
       return;
     }
     setState(() {
       _changingPassword = true;
-      _error = null;
     });
     try {
       await widget.api.changePassword(
@@ -177,7 +167,6 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (e) {
       if (!mounted) return;
       final msg = e.toString().replaceFirst('Exception: ', '');
-      setState(() => _error = msg);
       AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _changingPassword = false);
@@ -208,11 +197,6 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ],
           ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(_error!, style: const TextStyle(color: AppColors.danger)),
-            ),
           const SizedBox(height: 16),
           Expanded(
             child: Row(

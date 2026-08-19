@@ -72,3 +72,44 @@ def list_active_staff_profiles() -> list[dict[str, Any]]:
         logger.warning("list_active_staff_profiles failed detail=%s", exc)
         raise
     return list(getattr(result, "data", None) or [])
+
+
+def persist_signup_profile(
+    *,
+    user_id: str,
+    email: str,
+    name: str,
+    role: str,
+    clinic_name: str | None,
+    phone: str | None,
+) -> None:
+    """Write dentist | laboratory onto public.profiles after Auth signup."""
+    if not user_id:
+        return
+    row = {
+        "id": user_id,
+        "email": email,
+        "name": name,
+        "role": role,
+        "clinic_name": clinic_name,
+        "phone": phone,
+    }
+    try:
+        existing = fetch_profile(user_id)
+        admin = get_supabase_admin()
+        if existing:
+            admin.table("profiles").update(
+                {
+                    "email": email,
+                    "name": name,
+                    "role": role,
+                    "clinic_name": clinic_name,
+                    "phone": phone,
+                }
+            ).eq("id", user_id).execute()
+        else:
+            admin.table("profiles").insert(row).execute()
+    except Exception as exc:
+        logger.warning(
+            "persist_signup_profile failed user_id=%s detail=%s", user_id, exc
+        )

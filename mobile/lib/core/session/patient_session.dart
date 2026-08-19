@@ -33,6 +33,9 @@ class PatientSession extends ChangeNotifier {
   bool _navigateToSmilePreview = false;
 
   bool _navigateToNewPatient = false;
+  String? _pendingPatientDetailId;
+  bool _navigateToPatients = false;
+  bool _openingPatientDetail = false;
 
   List<Map<String, dynamic>> get patients => _patients;
   Map<String, dynamic>? get selected => _selected;
@@ -116,6 +119,40 @@ class PatientSession extends ChangeNotifier {
     return true;
   }
 
+  /// Chat @mention → Patients tab, then open this patient's profile.
+  void requestOpenPatientDetail(String patientId) {
+    final id = patientId.trim();
+    if (id.isEmpty) return;
+    if (_openingPatientDetail) return;
+    _pendingPatientDetailId = id;
+    _navigateToPatients = true;
+    _openingPatientDetail = true;
+    notifyListeners();
+  }
+
+  bool get openingPatientDetail => _openingPatientDetail;
+
+  String? get pendingPatientDetailId => _pendingPatientDetailId;
+
+  String? takePendingPatientDetailId() {
+    final id = _pendingPatientDetailId;
+    _pendingPatientDetailId = null;
+    return id;
+  }
+
+  void clearOpeningPatientDetail() {
+    if (!_openingPatientDetail && _pendingPatientDetailId == null) return;
+    _openingPatientDetail = false;
+    _pendingPatientDetailId = null;
+    notifyListeners();
+  }
+
+  bool consumeNavigateToPatients() {
+    if (!_navigateToPatients) return false;
+    _navigateToPatients = false;
+    return true;
+  }
+
   /// Avoid "notifyListeners during build" when refresh is kicked off from
   /// [State.initState] / dialog mount (common on Appointments modal open).
   void _notify() {
@@ -140,13 +177,19 @@ class PatientSession extends ChangeNotifier {
     await refresh();
   }
 
-  Future<void> refresh({bool keepSelection = true}) async {
+  Future<void> refresh({
+    bool keepSelection = true,
+    bool forceRefresh = false,
+  }) async {
     final existing = _inFlight;
     if (existing != null) {
       await existing;
       return;
     }
-    final future = _doRefresh(keepSelection: keepSelection);
+    final future = _doRefresh(
+      keepSelection: keepSelection,
+      forceRefresh: forceRefresh,
+    );
     _inFlight = future;
     try {
       await future;
@@ -155,11 +198,17 @@ class PatientSession extends ChangeNotifier {
     }
   }
 
-  Future<void> _doRefresh({required bool keepSelection}) async {
-    _loading = true;
-    _notify();
+  Future<void> _doRefresh({
+    required bool keepSelection,
+    bool forceRefresh = false,
+  }) async {
+    final showLoader = _patients.isEmpty || forceRefresh;
+    if (showLoader) {
+      _loading = true;
+      _notify();
+    }
     try {
-      final rows = await api.listPatients();
+      final rows = await api.listPatients(forceRefresh: forceRefresh);
       _patients = rows;
       _loaded = true;
       if (rows.isEmpty) {

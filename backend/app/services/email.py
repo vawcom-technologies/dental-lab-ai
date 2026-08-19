@@ -81,13 +81,13 @@ def _signup_notify_html(
     *,
     name: str,
     email: str,
-    role: str = "clinic",
+    role: str = "dentist",
     clinic_name: str | None = None,
     phone: str | None = None,
 ) -> str:
     safe_name = html.escape((name or "").strip() or "N/A")
     safe_email = html.escape((email or "").strip() or "N/A")
-    safe_role = html.escape((role or "").strip() or "clinic")
+    safe_role = html.escape((role or "").strip() or "dentist")
     safe_clinic = html.escape((clinic_name or "").strip() or "N/A")
     safe_phone = html.escape((phone or "").strip() or "N/A")
 
@@ -156,7 +156,7 @@ def _send_resend(*, to_email: str, subject: str, html_body: str) -> None:
 def send_welcome_email(
     name: str,
     email: str = "",
-    role: str = "clinic",
+    role: str = "dentist",
     clinic_name: str | None = None,
     phone: str | None = None,
 ) -> None:

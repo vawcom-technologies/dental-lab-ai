@@ -45,8 +45,9 @@ class InboxScreen extends StatelessWidget {
             chromeActions: [
               AppButtons.icon(
                 tooltip: loc.refresh,
-                onPressed:
-                    controller.loadingInbox ? null : controller.loadInbox,
+                onPressed: controller.loadingInbox
+                    ? null
+                    : () => controller.loadInbox(forceRefresh: true),
                 icon: Icons.refresh_rounded,
               ),
               if (onNewChat != null)
@@ -91,18 +92,6 @@ class InboxScreen extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (controller.error != null)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                    child: Text(
-                      controller.error!,
-                      style: AppFonts.style(
-                        color: AppColors.danger,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
                 Expanded(
                   child: controller.loadingInbox && rows.isEmpty
                       ? const ToothPageLoader(message: 'Loading conversations…')
@@ -163,7 +152,8 @@ class InboxScreen extends StatelessWidget {
                             )
                           : RefreshIndicator(
                               color: AppColors.dentalBlue,
-                              onRefresh: controller.loadInbox,
+                              onRefresh: () =>
+                                  controller.loadInbox(forceRefresh: true),
                               child: ListView.builder(
                                 padding: const EdgeInsets.fromLTRB(
                                   10,

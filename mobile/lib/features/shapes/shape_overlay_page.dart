@@ -623,7 +623,6 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
     } catch (e) {
       final msg = e.toString().replaceFirst('Exception: ', '');
       setState(() => _error = msg);
-      if (mounted) AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -637,6 +636,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
 
   @override
   Widget build(BuildContext context) {
+    _error = AppSnackBars.drain(context, _error);
     if (_loading) {
       return const ToothPageLoader(message: 'Loading smile preview…');
     }
@@ -661,19 +661,11 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildHeader(),
-          if (_status != null || _error != null) ...[
-            const SizedBox(height: 10),
-            if (_status != null)
-              Text(
-                _status!,
-                style: const TextStyle(color: AppColors.success, fontSize: 13),
-              ),
-            if (_error != null)
-              Text(
-                _error!,
-                style: const TextStyle(color: AppColors.danger, fontSize: 13),
-              ),
-          ],
+          if (_status != null)
+            Text(
+              _status!,
+              style: const TextStyle(color: AppColors.success, fontSize: 13),
+            ),
           const SizedBox(height: 16),
           Expanded(
             child: AdaptiveSplit(

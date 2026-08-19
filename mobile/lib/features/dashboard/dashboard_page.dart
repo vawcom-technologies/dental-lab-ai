@@ -29,7 +29,6 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   bool _loading = true;
-  String? _error;
 
   List<Map<String, dynamic>> _patients = [];
 
@@ -50,7 +49,6 @@ class _DashboardPageState extends State<DashboardPage> {
   Future<void> _load() async {
     setState(() {
       _loading = true;
-      _error = null;
     });
     try {
       final patients = await widget.api.listPatients();
@@ -61,10 +59,8 @@ class _DashboardPageState extends State<DashboardPage> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
-        _loading = false;
-      });
+      setState(() => _loading = false);
+      AppSnackBars.error(context, friendlyError(e));
     }
   }
 
@@ -179,16 +175,13 @@ class _DashboardPageState extends State<DashboardPage> {
           'status': CaseStatuses.normalize('${updated['status'] ?? next}'),
         };
       });
-      AppSnackBars.info(
+      AppSnackBars.success(
         context,
         'Status updated to ${StatusStyle.of(next).label}',
       );
     } catch (e) {
       if (!mounted) return;
-      AppSnackBars.error(
-        context,
-        e.toString().replaceFirst('Exception: ', ''),
-      );
+      AppSnackBars.error(context, friendlyError(e));
     }
   }
 
@@ -301,14 +294,6 @@ class _DashboardPageState extends State<DashboardPage> {
             ],
           ),
           const SizedBox(height: 20),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(
-                _error!,
-                style: const TextStyle(color: AppColors.danger, fontSize: 13),
-              ),
-            ),
           LayoutBuilder(
             builder: (context, constraints) {
               final kpis = <Widget>[

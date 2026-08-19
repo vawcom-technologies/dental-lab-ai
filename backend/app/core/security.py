@@ -11,6 +11,19 @@ from app.services.profiles import fetch_profile
 bearer_scheme = HTTPBearer(auto_error=True)
 logger = logging.getLogger("app.api.security")
 
+# Flutter registration roles + admin. Legacy clinic/lab map to laboratory.
+STAFF_ROLES = frozenset({"dentist", "laboratory", "admin"})
+_ROLE_ALIASES = {"lab": "laboratory", "clinic": "laboratory"}
+
+
+def canonicalize_role(role: str | None, *, default: str = "dentist") -> str:
+    """Normalize stored / metadata roles to dentist | laboratory | admin."""
+    raw = (role or "").strip().lower()
+    mapped = _ROLE_ALIASES.get(raw, raw)
+    if mapped in STAFF_ROLES:
+        return mapped
+    return default
+
 
 @dataclass
 class AuthUser:
@@ -35,7 +48,7 @@ def user_from_supabase(user: Any) -> AuthUser:
         id=str(user.id),
         email=email,
         name=str(meta.get("name") or email.split("@")[0] or "User"),
-        role=str(meta.get("role") or "clinic"),
+        role=canonicalize_role(meta.get("role")),
         clinic_name=meta.get("clinic_name") or None,
         phone=meta.get("phone") or None,
         raw=user,
@@ -45,7 +58,7 @@ def user_from_supabase(user: Any) -> AuthUser:
     if not profile:
         return auth_user
 
-    role = (profile.get("role") or "").strip()
+    role = canonicalize_role(profile.get("role"), default="")
     if role:
         auth_user.role = role
     name = (profile.get("name") or "").strip()
@@ -64,11 +77,11 @@ def user_from_supabase(user: Any) -> AuthUser:
 
 
 def get_user_from_token(token: str) -> AuthUser:
-    """Validate a JWT string (HTTP Bearer or WebSocket ?token=). Raises HTTPException."""
+    """Validate a JWT string (HTTP Bearer or WebSocket subprotocol). Raises HTTPException."""
     if not token or not token.strip():
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
+            detail="Your session expired. Please sign in again.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     try:
@@ -77,7 +90,7 @@ def get_user_from_token(token: str) -> AuthUser:
         logger.debug("get_user_from_token invalid detail=%s", exc)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
+            detail="Your session expired. Please sign in again.",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
 
@@ -85,7 +98,7 @@ def get_user_from_token(token: str) -> AuthUser:
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
+            detail="Your session expired. Please sign in again.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user_from_supabase(user)
@@ -97,32 +110,42 @@ def get_current_user(
     token = credentials.credentials
     logger.debug("get_current_user validating bearer token")
     auth_user = get_user_from_token(token)
-    logger.debug(
-        "get_current_user ok user_id=%s role=%s",
-        auth_user.id,
-        auth_user.role,
-    )
     return auth_user
 
 
 def require_dentist(user: AuthUser = Depends(get_current_user)) -> AuthUser:
-    # Accept legacy + current app roles (dentist / laboratory / clinic / lab / admin).
-    role = (user.role or "").strip().lower()
-    if role not in ("clinic", "dentist", "lab", "laboratory", "admin"):
+    """Any staff role: dentist, laboratory (incl. legacy clinic/lab), or admin."""
+    role = canonicalize_role(user.role, default="")
+    if role not in STAFF_ROLES:
         raise HTTPException(
-            status_code=403, detail="Clinic, dentist, or lab access required"
+            status_code=403,
+            detail="You need a dentist or laboratory account to continue.",
+        )
+    return user
+
+
+def require_dentist_only(user: AuthUser = Depends(get_current_user)) -> AuthUser:
+    """Dentist / admin only — laboratory accounts cannot call these routes."""
+    role = canonicalize_role(user.role, default="")
+    if role not in ("dentist", "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This action is only available to dentists.",
         )
     return user
 
 
 def require_admin(user: AuthUser = Depends(get_current_user)) -> AuthUser:
-    if user.role != "admin":
+    if canonicalize_role(user.role, default="") != "admin":
         logger.debug(
             "require_admin denied user_id=%s role=%s email=%s",
             user.id,
             user.role,
             user.email,
         )
-        raise HTTPException(status_code=403, detail="Admin access required")
+        raise HTTPException(
+            status_code=403,
+            detail="Only an administrator can do this.",
+        )
     logger.debug("require_admin ok user_id=%s email=%s", user.id, user.email)
     return user

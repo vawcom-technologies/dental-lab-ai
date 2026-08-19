@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/errors/user_facing_error.dart';
 import '../../core/settings/app_settings.dart';
 
 /// Live inbox: polls the server, updates the bell, and queues incoming toasts.
@@ -17,6 +18,7 @@ class NotificationInboxController extends ChangeNotifier {
   bool _inFlight = false;
   bool _queued = false;
   bool _seeded = false;
+  bool _markingAll = false;
   final Set<String> _knownIds = {};
   final List<Map<String, dynamic>> _pendingToasts = [];
 
@@ -24,6 +26,7 @@ class NotificationInboxController extends ChangeNotifier {
   int _unreadCount = 0;
   String? _error;
   AppSettings? prefs;
+  void Function(String message)? onError;
 
   List<Map<String, dynamic>> get items => _items;
   int get unreadCount => _unreadCount;
@@ -47,12 +50,12 @@ class NotificationInboxController extends ChangeNotifier {
     }
     _inFlight = true;
     try {
-      final rows = await api.listNotifications();
+      final rows = await api.listNotifications(forceRefresh: true);
       final fresh = <Map<String, dynamic>>[];
       for (final raw in rows) {
         final row = Map<String, dynamic>.from(raw);
         final id = '${row['id'] ?? ''}'.trim();
-        if (id.isEmpty) continue;
+        if (id.isEmpty || isMessageType(row)) continue;
         final isNew = _seeded && !_knownIds.contains(id);
         _knownIds.add(id);
         if (isNew && announce && row['read'] != true && _isIncoming(row)) {
@@ -60,7 +63,10 @@ class NotificationInboxController extends ChangeNotifier {
         }
       }
       _seeded = true;
-      _items = [for (final row in rows) Map<String, dynamic>.from(row)];
+      _items = [
+        for (final row in rows)
+          if (!isMessageType(row)) Map<String, dynamic>.from(row),
+      ];
       _unreadCount = _items.where((n) => n['read'] != true).length;
       _error = null;
       if (fresh.isNotEmpty) {
@@ -68,7 +74,8 @@ class NotificationInboxController extends ChangeNotifier {
       }
       notifyListeners();
     } catch (e) {
-      _error = e.toString().replaceFirst('Exception: ', '');
+      _error = friendlyError(e);
+      onError?.call(_error!);
       notifyListeners();
     } finally {
       _inFlight = false;
@@ -100,20 +107,27 @@ class NotificationInboxController extends ChangeNotifier {
   }
 
   Future<void> markAllRead() async {
-    await api.markAllNotificationsRead();
+    if (_markingAll) return;
+    if (_unreadCount == 0 && _items.every((n) => n['read'] == true)) return;
+    _markingAll = true;
     for (final n in _items) {
       n['read'] = true;
     }
     _unreadCount = 0;
     notifyListeners();
+    try {
+      await api.markAllNotificationsRead();
+    } finally {
+      _markingAll = false;
+    }
   }
 
   bool allowedBySettings(String type) {
+    if (type == 'message') return false;
     final p = prefs;
     if (p == null) return true;
     if (!p.notificationsEnabled) {
       switch (type) {
-        case 'message':
         case 'case_status':
         case 'scan_quality':
           return false;
@@ -122,8 +136,6 @@ class NotificationInboxController extends ChangeNotifier {
       }
     }
     switch (type) {
-      case 'message':
-        return p.notifyMessages;
       case 'case_status':
         return p.notifyCaseStatus;
       case 'scan_quality':
@@ -132,6 +144,9 @@ class NotificationInboxController extends ChangeNotifier {
         return true;
     }
   }
+
+  static bool isMessageType(Map<String, dynamic> row) =>
+      '${row['type'] ?? ''}'.trim().toLowerCase() == 'message';
 
   /// Activity rows written for the actor ("You declined…") stay in the inbox
   /// but should not pop a second toast on this device.

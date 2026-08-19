@@ -33,6 +33,42 @@ router = APIRouter()
 ws_router = APIRouter()
 logger = logging.getLogger("app.api.chat")
 
+WS_JWT_SUBPROTOCOL = "edp.jwt"
+
+
+def _token_from_ws_protocol(websocket: WebSocket) -> str:
+    """JWT from `Sec-WebSocket-Protocol: edp.jwt, <access_token>`."""
+    header = websocket.headers.get("sec-websocket-protocol") or ""
+    parts = [p.strip() for p in header.split(",") if p.strip()]
+    if not parts:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+        )
+    lowered = [p.lower() for p in parts]
+    try:
+        marker = lowered.index(WS_JWT_SUBPROTOCOL)
+    except ValueError:
+        marker = -1
+    token = ",".join(parts[marker + 1 :]).strip() if marker >= 0 else ""
+    if not token and len(parts) == 1 and parts[0].lower() != WS_JWT_SUBPROTOCOL:
+        token = parts[0]
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+        )
+    return token
+
+
+def _accepted_ws_subprotocol(websocket: WebSocket) -> str | None:
+    offered = {
+        p.strip().lower()
+        for p in (websocket.headers.get("sec-websocket-protocol") or "").split(",")
+        if p.strip()
+    }
+    return WS_JWT_SUBPROTOCOL if WS_JWT_SUBPROTOCOL in offered else None
+
 
 def _canonical_pair(user_id: str, other_id: str) -> tuple[str, str]:
     a, b = sorted([user_id, other_id])
@@ -332,6 +368,10 @@ async def _ws_send_message(user: AuthUser, data: dict[str, Any]) -> None:
     media_type = data.get("media_type")
     duration_seconds = data.get("duration_seconds")
     reply_to = data.get("reply_to_message_id")
+    mentions = cm.resolve_mentioned_patients(
+        data.get("mentioned_patients"),
+        user.id,
+    )
 
     if media_type is not None:
         media_type = str(media_type).strip() or None
@@ -393,6 +433,7 @@ async def _ws_send_message(user: AuthUser, data: dict[str, Any]) -> None:
             media_type=media_type,
             duration_seconds=duration_seconds,
             reply_to_message_id=str(reply_to) if reply_to else None,
+            mentioned_patients=mentions or None,
         )
     except HTTPException as exc:
         await chat_manager.send_json(
@@ -459,11 +500,13 @@ async def _ws_mark_as_read(user: AuthUser, data: dict[str, Any]) -> None:
 
 
 @ws_router.websocket("/ws/chat")
-async def websocket_chat(websocket: WebSocket, token: str = Query(...)):
+async def websocket_chat(websocket: WebSocket):
     """
     Real-time chat channel.
 
-    Connect: `ws://host/ws/chat?token=<access_token>`
+    Connect: `ws://host/ws/chat` with
+    `Sec-WebSocket-Protocol: edp.jwt, <access_token>`
+    (never put the JWT in the query string).
 
     Client → server events:
       { "type": "send_message", "conversation_id": "...", "content": "...",
@@ -477,12 +520,17 @@ async def websocket_chat(websocket: WebSocket, token: str = Query(...)):
       { "type": "error", "detail": "..." }
     """
     try:
+        token = _token_from_ws_protocol(websocket)
         user = get_user_from_token(token)
     except HTTPException:
         await websocket.close(code=4401)
         return
 
-    await chat_manager.connect(user.id, websocket)
+    await chat_manager.connect(
+        user.id,
+        websocket,
+        subprotocol=_accepted_ws_subprotocol(websocket),
+    )
     try:
         while True:
             data = await websocket.receive_json()
@@ -495,6 +543,9 @@ async def websocket_chat(websocket: WebSocket, token: str = Query(...)):
             event_type = str(
                 data.get("type") or data.get("action") or ""
             ).strip()
+            if event_type == "ping":
+                await chat_manager.send_json(user.id, {"type": "pong"})
+                continue
             logger.debug("ws event user_id=%s type=%s", user.id, event_type)
 
             if event_type == "send_message":

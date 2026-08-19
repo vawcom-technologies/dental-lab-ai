@@ -11,11 +11,13 @@ class AppointmentService {
     String? status,
     String? patientId,
     bool upcomingOnly = true,
+    bool forceRefresh = false,
   }) {
     return api.listAppointments(
       status: status,
       patientId: patientId,
       upcomingOnly: upcomingOnly,
+      forceRefresh: forceRefresh,
     );
   }
 

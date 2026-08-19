@@ -34,6 +34,11 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
   void initState() {
     super.initState();
     _controller = AdminUsersController(widget.api);
+    _controller.onError = (msg) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) AppSnackBars.error(context, msg);
+      });
+    };
     _controller.load();
   }
 
@@ -266,17 +271,6 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
                     ),
                   ],
                 ),
-                if (_controller.error != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    _controller.error!,
-                    style: AppFonts.style(
-                      color: AppColors.danger,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 16),
                 Expanded(
                   child: _controller.loading && _controller.users.isEmpty

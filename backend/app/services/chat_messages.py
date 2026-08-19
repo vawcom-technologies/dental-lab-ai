@@ -3,15 +3,26 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException, status
 
 from app.core.supabase_client import get_supabase_admin
-from app.schemas_chat import MessageOut, ReplyPreviewOut
+from app.schemas_chat import MessageOut, PatientMentionOut, ReplyPreviewOut
 from app.services.chat_manager import chat_manager
-from app.services.notify import actor_label, notify
+from app.services.patient_access import (
+    patient_display_name,
+    require_patient_access,
+)
+
+logger = logging.getLogger("app.chat.messages")
+
+_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+_MAX_MENTIONS = 10
 
 logger = logging.getLogger("app.chat.messages")
 
@@ -37,6 +48,43 @@ def is_participant(conversation: dict[str, Any], user_id: str) -> bool:
         str(conversation.get("user_a")),
         str(conversation.get("user_b")),
     )
+
+
+def resolve_mentioned_patients(raw: Any, sender_id: str) -> list[dict[str, str]]:
+    """Keep only accessible patient IDs; fill labels from the live patient row."""
+    if not isinstance(raw, list):
+        return []
+    resolved: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in raw[:_MAX_MENTIONS]:
+        if not isinstance(item, dict):
+            continue
+        pid = str(item.get("id") or "").strip()
+        if not pid or pid in seen or _UUID_RE.match(pid) is None:
+            continue
+        try:
+            patient = require_patient_access(pid, sender_id)
+        except HTTPException:
+            continue
+        seen.add(pid)
+        resolved.append({"id": pid, "label": patient_display_name(patient)})
+    return resolved
+
+
+def _mentions_out(row: dict[str, Any]) -> list[PatientMentionOut]:
+    raw = row.get("mentioned_patients") or []
+    if not isinstance(raw, list):
+        return []
+    out: list[PatientMentionOut] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        pid = str(item.get("id") or "").strip()
+        label = str(item.get("label") or "").strip()
+        if not pid:
+            continue
+        out.append(PatientMentionOut(id=pid, label=label or "Patient"))
+    return out
 
 
 def fetch_conversation(conversation_id: str) -> dict[str, Any] | None:
@@ -106,6 +154,7 @@ def message_out(
             else None
         ),
         reply_to=reply_out,
+        mentioned_patients=_mentions_out(row),
         read_at=row.get("read_at"),
         created_at=row.get("created_at"),
     )
@@ -127,6 +176,7 @@ async def insert_message_and_broadcast(
     media_type: str | None = None,
     duration_seconds: float | None = None,
     reply_to_message_id: str | None = None,
+    mentioned_patients: list[dict[str, str]] | None = None,
 ) -> MessageOut:
     """Persist a message, bump conversation.updated_at, broadcast new_message."""
     conversation_id = str(conversation["id"])
@@ -144,6 +194,8 @@ async def insert_message_and_broadcast(
         insert_row["duration_seconds"] = duration_seconds
     if reply_to_message_id:
         insert_row["reply_to_message_id"] = reply_to_message_id
+    if mentioned_patients:
+        insert_row["mentioned_patients"] = mentioned_patients
 
     try:
         inserted = (
@@ -175,24 +227,4 @@ async def insert_message_and_broadcast(
     recipient = partner_id(conversation, sender_id)
     await chat_manager.send_json(sender_id, payload)
     await chat_manager.send_json(recipient, payload)
-    preview = (content or "").strip()
-    if media_type == "voice":
-        preview = "sent a voice note"
-    elif media_type == "image":
-        preview = "sent a photo"
-    elif media_type == "video":
-        preview = "sent a video"
-    elif media_type == "document":
-        preview = "sent a file"
-    elif not preview:
-        preview = "sent a message"
-    elif len(preview) > 80:
-        preview = f"{preview[:77]}…"
-    who = actor_label(sender_id)
-    notify(
-        user_id=recipient,
-        type="message",
-        message=f"{who}: {preview}",
-        actor_id=sender_id,
-    )
     return message

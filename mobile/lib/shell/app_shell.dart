@@ -4,6 +4,7 @@ import '../core/api/api_client.dart';
 import '../core/layout/adaptive.dart';
 import '../core/widgets/app_switcher.dart';
 import '../core/widgets/app_snackbar.dart';
+import '../core/widgets/busy_action.dart';
 import '../core/session/patient_session.dart';
 import '../core/theme/app_theme.dart';
 import '../features/appointments/screens/appointments_screen.dart';
@@ -62,10 +63,22 @@ class _AppShellState extends State<AppShell> {
     super.initState();
     _dentistName = widget.dentistName;
     _chat = ChatController(api: widget.api);
+    _chat.onError = (msg) {
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) AppSnackBars.error(context, msg);
+      });
+    };
     _chat.addListener(_onChatChanged);
     _patients = PatientSession(widget.api);
     _patients.addListener(_onPatientSessionChanged);
     _inbox = NotificationInboxController(widget.api);
+    _inbox.onError = (msg) {
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) AppSnackBars.error(context, msg);
+      });
+    };
     _inbox.addListener(_onInboxChanged);
     // Warm patient list + chat so the first workflow page opens faster.
     _patients.ensureLoaded();
@@ -82,6 +95,12 @@ class _AppShellState extends State<AppShell> {
 
   void _onPatientSessionChanged() {
     if (!mounted) return;
+    final toPatients = _patients.consumeNavigateToPatients();
+    // Mention taps need an instant tab switch so the loader is not left
+    // sitting on Messages for several frames.
+    if (toPatients) {
+      _go(AppNavItem.patients);
+    }
     final toShade = _patients.consumeNavigateToShade();
     final toSmile = _patients.consumeNavigateToSmilePreview();
     final toNewPatient = _patients.consumeNavigateToNewPatient();
@@ -174,83 +193,93 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     final activeIndex = _navOrder.indexOf(_active);
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFFEAF1F8),
-              AppColors.surface,
-              Color(0xFFDCE6F2),
-            ],
-          ),
-        ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final narrow = constraints.maxHeight > constraints.maxWidth ||
-                constraints.maxWidth < AppBreakpoints.collapseSidebar;
-            final sidebarCollapsed =
-                narrow ? !_narrowSidebarOpen : _sidebarCollapsed;
-            return Row(
-              children: [
-                AppSidebar(
-                  active: _active,
-                  onSelect: (item) {
-                    if (narrow && _narrowSidebarOpen) {
-                      setState(() => _narrowSidebarOpen = false);
-                    }
-                    _go(item);
-                  },
-                  collapsed: sidebarCollapsed,
-                  onToggle: () {
-                    setState(() {
-                      if (narrow) {
-                        _narrowSidebarOpen = !_narrowSidebarOpen;
-                      } else {
-                        _sidebarCollapsed = !_sidebarCollapsed;
-                      }
-                    });
-                  },
-                  messageBadge: _messageBadge,
-                  notificationBadge: _notificationBadge,
-                  showLaboratories: widget.api.isDentist,
+    return ListenableBuilder(
+      listenable: _patients,
+      builder: (context, _) {
+        return Scaffold(
+          backgroundColor: Colors.transparent,
+          body: BusyBarrier(
+            busy: _patients.openingPatientDetail,
+            message: 'Opening patient…',
+            child: DecoratedBox(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xFFEAF1F8),
+                    AppColors.surface,
+                    Color(0xFFDCE6F2),
+                  ],
                 ),
-                Expanded(
-                  child: SafeArea(
-                    left: false,
-                    child: ClipRect(
-                      child: AppPaneFade(
-                        token: _active,
-                        child: IndexedStack(
-                          index: activeIndex < 0 ? 0 : activeIndex,
-                          sizing: StackFit.expand,
-                          children: [
-                            for (final item in _navOrder)
-                              _mountedPages.contains(item)
-                                  ? KeyedSubtree(
-                                      key: _pageKey(item),
-                                      child: TickerMode(
-                                        enabled: item == _active,
-                                        child: RepaintBoundary(
-                                          child: _createPage(item),
-                                        ),
-                                      ),
-                                    )
-                                  : const SizedBox.shrink(),
-                          ],
+              ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final narrow =
+                      constraints.maxHeight > constraints.maxWidth ||
+                          constraints.maxWidth < AppBreakpoints.collapseSidebar;
+                  final sidebarCollapsed =
+                      narrow ? !_narrowSidebarOpen : _sidebarCollapsed;
+                  return Row(
+                    children: [
+                      AppSidebar(
+                        active: _active,
+                        onSelect: (item) {
+                          if (narrow && _narrowSidebarOpen) {
+                            setState(() => _narrowSidebarOpen = false);
+                          }
+                          _go(item);
+                        },
+                        collapsed: sidebarCollapsed,
+                        onToggle: () {
+                          setState(() {
+                            if (narrow) {
+                              _narrowSidebarOpen = !_narrowSidebarOpen;
+                            } else {
+                              _sidebarCollapsed = !_sidebarCollapsed;
+                            }
+                          });
+                        },
+                        messageBadge: _messageBadge,
+                        notificationBadge: _notificationBadge,
+                        showLaboratories: widget.api.isDentist,
+                      ),
+                      Expanded(
+                        child: SafeArea(
+                          left: false,
+                          child: ClipRect(
+                            child: AppPaneFade(
+                              token: _active,
+                              child: IndexedStack(
+                                index: activeIndex < 0 ? 0 : activeIndex,
+                                sizing: StackFit.expand,
+                                children: [
+                                  for (final item in _navOrder)
+                                    _mountedPages.contains(item)
+                                        ? KeyedSubtree(
+                                            key: _pageKey(item),
+                                            child: TickerMode(
+                                              enabled: item == _active,
+                                              child: RepaintBoundary(
+                                                child: _createPage(item),
+                                              ),
+                                            ),
+                                          )
+                                        : const SizedBox.shrink(),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -279,6 +308,7 @@ class _AppShellState extends State<AppShell> {
           patientSession: _patients,
           onNewPatient: () => _go(AppNavItem.newPatient),
           onInboxChanged: _pingInbox,
+          active: active,
         );
       case AppNavItem.newPatient:
         return NewPatientPage(
@@ -329,6 +359,7 @@ class _AppShellState extends State<AppShell> {
         return MessagesPage(
           api: widget.api,
           chatController: _chat,
+          patientSession: _patients,
         );
       case AppNavItem.laboratories:
         return LaboratoriesPage(
@@ -343,6 +374,7 @@ class _AppShellState extends State<AppShell> {
         return NotificationsPage(
           inbox: _inbox,
           onNavigate: _go,
+          active: active,
         );
       case AppNavItem.reports:
         return ReportsPage(

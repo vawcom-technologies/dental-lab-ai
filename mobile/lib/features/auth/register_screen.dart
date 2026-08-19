@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/auth/app_roles.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/navigation/app_page_routes.dart';
 import '../../core/theme/app_theme.dart';
@@ -25,8 +26,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _password = TextEditingController();
   final _confirm = TextEditingController();
   bool _loading = false;
-  String? _error;
-  String? _info;
+  String _role = AppRoles.dentist;
 
   @override
   void dispose() {
@@ -52,10 +52,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         phoneLocal.isEmpty ||
         password.isEmpty ||
         _confirm.text.isEmpty) {
-      setState(() {
-        _error = loc.errAllFieldsRequired;
-        _info = null;
-      });
+      AppSnackBars.error(context, loc.errAllFieldsRequired);
       return;
     }
     final phoneError = PhoneNumbers.validateRequired(
@@ -63,32 +60,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
       message: loc.errPhoneInvalid,
     );
     if (phoneError != null) {
-      setState(() {
-        _error = phoneError;
-        _info = null;
-      });
+      AppSnackBars.error(context, phoneError);
       return;
     }
     final normalizedPhone = PhoneNumbers.compose(phoneLocal);
     if (!PasswordValidator.isValid(password)) {
-      setState(() {
-        _error = loc.errPasswordShort;
-        _info = null;
-      });
+      AppSnackBars.error(context, loc.errPasswordShort);
       return;
     }
     if (password != _confirm.text) {
-      setState(() {
-        _error = loc.errPasswordMismatch;
-        _info = null;
-      });
+      AppSnackBars.error(context, loc.errPasswordMismatch);
       return;
     }
     if (_loading) return;
     setState(() {
       _loading = true;
-      _error = null;
-      _info = null;
     });
     try {
       final data = await widget.api.signUp(
@@ -97,6 +83,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         password: password,
         clinicName: clinic,
         phone: normalizedPhone,
+        role: _role,
       );
       if (!mounted) return;
 
@@ -121,9 +108,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
             dentistName: data['name'] as String? ?? name,
           ),
         ),
-      );    } catch (e) {
-      final msg = e.toString().replaceFirst('Exception: ', '');
-      setState(() => _error = msg);
+      );
+    } catch (e) {
+      final msg = friendlyError(e, AppLocalizations.of(context));
       if (mounted) AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -174,6 +161,40 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   decoration: InputDecoration(labelText: '${loc.email} *'),
                 ),
                 const SizedBox(height: 12),
+                Text(
+                  loc.role,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.muted,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SoftPillButton(
+                        label: loc.roleDentist,
+                        selected: _role == AppRoles.dentist,
+                        onPressed: _loading
+                            ? null
+                            : () => setState(() => _role = AppRoles.dentist),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: SoftPillButton(
+                        label: loc.roleLaboratory,
+                        selected: _role == AppRoles.laboratory,
+                        onPressed: _loading
+                            ? null
+                            : () =>
+                                setState(() => _role = AppRoles.laboratory),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
                 TextField(
                   controller: _clinic,
                   decoration: InputDecoration(labelText: loc.clinic),
@@ -200,18 +221,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   onChanged: (_) => setState(() {}),
                   autofillHints: const [AutofillHints.newPassword],
                 ),
-                if (_error != null) ...[
-                  const SizedBox(height: 12),
-                  Text(_error!, style: const TextStyle(color: AppColors.danger)),
-                ],
-                if (_info != null) ...[
-                  const SizedBox(height: 12),
-                  Text(_info!, style: const TextStyle(color: AppColors.navy)),
-                ],
                 const SizedBox(height: 20),
                 FilledButton(
                   onPressed: _loading ||
-                          _info != null ||
                           !PasswordValidator.isValid(_password.text) ||
                           _password.text != _confirm.text
                       ? null
@@ -229,9 +241,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   onPressed: _loading
                       ? null
                       : () => Navigator.of(context).pop(),
-                  child: Text(
-                    _info != null ? loc.backToSignIn : loc.alreadyHaveAccount,
-                  ),
+                  child: Text(loc.alreadyHaveAccount),
                 ),
               ],
             ),

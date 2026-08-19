@@ -24,13 +24,11 @@ class _PatientFormScreenState extends State<PatientFormScreen> {
   final _insurance = TextEditingController();
   final _notes = TextEditingController();
   bool _loading = false;
-  String? _error;
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() {
       _loading = true;
-      _error = null;
     });
     try {
       final phoneLocal = _phone.text.trim();
@@ -50,7 +48,7 @@ class _PatientFormScreenState extends State<PatientFormScreen> {
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (mounted) AppSnackBars.error(context, e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -128,10 +126,6 @@ class _PatientFormScreenState extends State<PatientFormScreen> {
                     decoration: const InputDecoration(labelText: 'Notes'),
                     maxLines: 3,
                   ),
-                  if (_error != null) ...[
-                    const SizedBox(height: 12),
-                    Text(_error!, style: const TextStyle(color: AppColors.danger)),
-                  ],
                   const SizedBox(height: 24),
                   SizedBox(
                     width: double.infinity,

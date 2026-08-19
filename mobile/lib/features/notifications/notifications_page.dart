@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/haptics/app_haptics.dart';
@@ -13,10 +15,12 @@ class NotificationsPage extends StatefulWidget {
     super.key,
     required this.inbox,
     this.onNavigate,
+    this.active = true,
   });
 
   final NotificationInboxController inbox;
   final ValueChanged<AppNavItem>? onNavigate;
+  final bool active;
 
   @override
   State<NotificationsPage> createState() => _NotificationsPageState();
@@ -33,7 +37,11 @@ class _NotificationsPageState extends State<NotificationsPage> {
   void initState() {
     super.initState();
     _inbox.addListener(_onInbox);
-    _inbox.refresh(announce: false);
+    if (widget.active) {
+      unawaited(_openAndMarkRead());
+    } else {
+      unawaited(_inbox.refresh(announce: false));
+    }
   }
 
   @override
@@ -42,6 +50,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
     if (oldWidget.inbox != widget.inbox) {
       oldWidget.inbox.removeListener(_onInbox);
       widget.inbox.addListener(_onInbox);
+    }
+    if (widget.active && !oldWidget.active) {
+      unawaited(_openAndMarkRead());
     }
   }
 
@@ -62,8 +73,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
   List<Map<String, dynamic>> get _visible {
     return _items.where((n) {
       final type = '${n['type'] ?? ''}';
+      if (type == 'message') return false;
       if (!_allowedBySettings(type)) return false;
-      if (_filter == 'all') return true;
+      if (_filter == 'all' || _filter == 'message') return true;
       if (_filter == 'unread') return n['read'] != true;
       return type == _filter;
     }).toList();
@@ -87,6 +99,17 @@ class _NotificationsPageState extends State<NotificationsPage> {
     } finally {
       if (mounted) setState(() => _markingId = null);
     }
+  }
+
+  Future<void> _openAndMarkRead() async {
+    await _inbox.refresh(announce: false);
+    await _autoMarkAllRead();
+  }
+
+  Future<void> _autoMarkAllRead() async {
+    try {
+      await _inbox.markAllRead();
+    } catch (_) {}
   }
 
   Future<void> _markAll() async {
@@ -179,13 +202,6 @@ class _NotificationsPageState extends State<NotificationsPage> {
                 ),
             ],
           ),
-          if (_inbox.error != null) ...[
-            const SizedBox(height: 10),
-            Text(
-              _inbox.error!,
-              style: const TextStyle(color: AppColors.danger, fontSize: 13),
-            ),
-          ],
           const SizedBox(height: 14),
           Wrap(
             spacing: 6,
@@ -194,7 +210,6 @@ class _NotificationsPageState extends State<NotificationsPage> {
               for (final f in [
                 ('all', loc.filterAll),
                 ('unread', loc.notificationsFilterUnread),
-                ('message', loc.notificationsFilterMessages),
                 ('case_status', loc.notificationsFilterCases),
                 ('scan_quality', loc.notificationsFilterScans),
               ])

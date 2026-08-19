@@ -60,10 +60,30 @@ _PATIENT_STATUSES = frozenset(
 )
 
 _ILIKE_SPECIAL = re.compile(r"([%_\\])")
+_MACHINE_CODE_PREFIX = re.compile(
+    r"^\s*(?:ERROR|ERR|HTTP)[_-][A-Z0-9_]+\s*:\s*",
+    re.IGNORECASE,
+)
+_PERMISSION_DENIED_PREFIX = re.compile(
+    r"^\s*Permission denied[.:]\s*",
+    re.IGNORECASE,
+)
 
 
 def _escape_ilike(value: str) -> str:
     return _ILIKE_SPECIAL.sub(r"\\\1", value)
+
+
+def _user_message(message: str) -> str:
+    """Never send ERROR_403_FORBIDDEN-style prefixes to the client UI."""
+    text = str(message or "").strip()
+    while True:
+        cleaned = _MACHINE_CODE_PREFIX.sub("", text).strip()
+        if cleaned == text:
+            break
+        text = cleaned
+    text = _PERMISSION_DENIED_PREFIX.sub("", text).strip()
+    return text or "Something went wrong. Please try again."
 
 
 def _ok(
@@ -102,7 +122,7 @@ def _err(
         authenticated_user_id=user_id,
         target_patient_id=patient_id,
         payload={},
-        error=AgentError(code=code, message=message),
+        error=AgentError(code=code, message=_user_message(message)),
     )
     return JSONResponse(status_code=http_code, content=body.model_dump(mode="json"))
 

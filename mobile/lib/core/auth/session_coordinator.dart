@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../../features/auth/login_screen.dart';
 import '../api/api_client.dart';
+import '../l10n/app_localizations.dart';
 import '../navigation/app_page_routes.dart';
+import '../offline/sync_queue.dart';
 import '../widgets/app_snackbar.dart';
 
 /// Global session-expired handling + root navigator for forced re-login.
@@ -24,7 +28,8 @@ class SessionCoordinator {
         path.contains('/api/auth/register') ||
         path.contains('/api/auth/forgot') ||
         path.contains('/api/auth/reset') ||
-        path.contains('/api/auth/refresh');
+        path.contains('/api/auth/refresh') ||
+        path.contains('/api/auth/logout');
   }
 
   /// Clear auth and send the user to [LoginScreen] once.
@@ -34,6 +39,8 @@ class SessionCoordinator {
     if (api.token == null || api.token!.isEmpty) return;
 
     _handling = true;
+    api.clearHttpCache();
+    unawaited(LocalEncryptedStore.clearAll());
     api.logout();
 
     void navigate() {
@@ -49,7 +56,10 @@ class SessionCoordinator {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final ctx = navigatorKey.currentContext;
         if (ctx != null && ctx.mounted) {
-          AppSnackBars.info(ctx, 'Session expired. Please log in again.');
+          AppSnackBars.error(
+            ctx,
+            AppLocalizations.of(ctx).errSessionExpired,
+          );
         }
         // Allow a future expiry after the user signs in again.
         Future<void>.delayed(const Duration(milliseconds: 500), () {
@@ -71,7 +81,8 @@ class SessionCoordinator {
 
   /// Manual sign-out from Settings / Profile (same stack reset).
   static void signOut(ApiClient api, {String? message}) {
-    api.logout();
+    unawaited(LocalEncryptedStore.clearAll());
+    unawaited(api.signOutFull());
     final nav = navigatorKey.currentState;
     if (nav == null) return;
     nav.pushAndRemoveUntil(
@@ -81,7 +92,7 @@ class SessionCoordinator {
     if (message != null && message.isNotEmpty) {
       final ctx = navigatorKey.currentContext;
       if (ctx != null && ctx.mounted) {
-        AppSnackBars.info(ctx, message);
+        AppSnackBars.success(ctx, message);
       }
     }
   }

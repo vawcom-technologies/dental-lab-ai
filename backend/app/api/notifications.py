@@ -53,12 +53,15 @@ def list_notifications(
             .table("notifications")
             .select("*")
             .eq("user_id", user.id)
+            .neq("type", "message")
             .order("created_at", desc=True)
             .limit(limit)
         )
         if unread_only:
             q = q.eq("read", False)
         if type:
+            if type.strip().lower() == "message":
+                return []
             q = q.eq("type", type)
         result = q.execute()
     except Exception as exc:
@@ -79,6 +82,7 @@ def unread_count(user: AuthUser = Depends(require_dentist)):
             .select("id", count="exact")
             .eq("user_id", user.id)
             .eq("read", False)
+            .neq("type", "message")
             .execute()
         )
     except Exception as exc:

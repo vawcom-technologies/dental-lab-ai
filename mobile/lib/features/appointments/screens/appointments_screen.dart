@@ -44,7 +44,6 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   bool _loading = true;
   bool _refreshing = false;
   bool _patientsRefreshing = false;
-  String? _error;
   int _listGen = 0;
 
   List<Map<String, dynamic>> get _patients => widget.patientSession.patients;
@@ -143,7 +142,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       await widget.patientSession.refresh(keepSelection: true);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      AppSnackBars.error(context, friendlyError(e));
     } finally {
       if (mounted && showIndicator) {
         setState(() => _patientsRefreshing = false);
@@ -156,7 +155,6 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   Future<void> _bootstrap() async {
     setState(() {
       _loading = true;
-      _error = null;
     });
     try {
       await widget.patientSession.refresh(keepSelection: true);
@@ -164,13 +162,13 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       await _loadAppointments();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      AppSnackBars.error(context, friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  Future<void> _loadAppointments({bool soft = false}) async {
+  Future<void> _loadAppointments({bool soft = false, bool forceRefresh = false}) async {
     final gen = ++_listGen;
     if (soft) {
       setState(() => _refreshing = true);
@@ -180,18 +178,18 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         status: _statusFilter == 'all' ? null : _statusFilter,
         patientId: _patientFilterId,
         upcomingOnly: false,
+        forceRefresh: forceRefresh,
       );
       if (!mounted || gen != _listGen) return;
       final sorted = List<Appointment>.from(rows)
         ..sort((a, b) => a.startTime.compareTo(b.startTime));
       setState(() {
         _items = sorted;
-        _error = null;
         _syncSelection();
       });
     } catch (e) {
       if (!mounted || gen != _listGen) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      AppSnackBars.error(context, friendlyError(e));
     } finally {
       if (mounted && soft && gen == _listGen) {
         setState(() => _refreshing = false);
@@ -203,8 +201,11 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     setState(() => _refreshing = true);
     try {
       await Future.wait([
-        widget.patientSession.refresh(keepSelection: true),
-        _loadAppointments(),
+        widget.patientSession.refresh(
+          keepSelection: true,
+          forceRefresh: true,
+        ),
+        _loadAppointments(forceRefresh: true),
       ]);
     } finally {
       if (mounted) setState(() => _refreshing = false);
@@ -276,13 +277,6 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           _buildHeader(),
           const SizedBox(height: 16),
           _buildFilterBar(),
-          if (_error != null) ...[
-            const SizedBox(height: 10),
-            Text(
-              _error!,
-              style: AppFonts.style(color: AppColors.danger, fontSize: 13),
-            ),
-          ],
           const SizedBox(height: 16),
           Expanded(
             child: AnimatedOpacity(
@@ -1200,7 +1194,6 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
   String _status = AppointmentStatuses.scheduled;
   bool _loadingPatients = true;
   bool _saving = false;
-  String? _error;
 
   bool get _isEdit => widget.existing != null;
   bool get _canSubmit {
@@ -1252,7 +1245,6 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
   Future<void> _loadPatients() async {
     setState(() {
       _loadingPatients = true;
-      _error = null;
     });
     try {
       await widget.patientSession.refresh(keepSelection: true);
@@ -1277,8 +1269,8 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
       if (!mounted) return;
       setState(() {
         _loadingPatients = false;
-        _error = e.toString().replaceFirst('Exception: ', '');
       });
+      AppSnackBars.error(context, friendlyError(e));
     }
   }
 
@@ -1402,17 +1394,16 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
     if (!_formKey.currentState!.validate()) return;
     final patientId = _patientId;
     if (!_isEdit && (patientId == null || patientId.isEmpty)) {
-      setState(() => _error = 'Select a patient');
+      AppSnackBars.error(context, 'Select a patient');
       return;
     }
     if (_end.isBefore(_start) || _end.isAtSameMomentAs(_start)) {
-      setState(() => _error = 'End time must be after start time');
+      AppSnackBars.error(context, 'End time must be after start time');
       return;
     }
 
     setState(() {
       _saving = true;
-      _error = null;
     });
     try {
       final Appointment saved;
@@ -1436,10 +1427,8 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
       Navigator.pop(context, saved);
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _saving = false;
-        _error = e.toString().replaceFirst('Exception: ', '');
-      });
+      setState(() => _saving = false);
+      AppSnackBars.error(context, friendlyError(e));
     }
   }
 
@@ -1693,16 +1682,6 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                                             : () => setState(() => _status = s),
                                       ),
                                   ],
-                                ),
-                              ],
-                              if (_error != null) ...[
-                                const SizedBox(height: 12),
-                                Text(
-                                  _error!,
-                                  style: AppFonts.style(
-                                    color: AppColors.danger,
-                                    fontSize: 13,
-                                  ),
                                 ),
                               ],
                             ],

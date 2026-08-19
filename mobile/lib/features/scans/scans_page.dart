@@ -38,7 +38,6 @@ class _ScansPageState extends State<ScansPage> {
   bool _mediaLoading = false;
   bool _busy = false;
   bool _previewLoading = false;
-  String? _error;
   String? _previewError;
   Map<String, dynamic>? _lastResult;
   List<List<double>> _vertices = const [];
@@ -64,7 +63,6 @@ class _ScansPageState extends State<ScansPage> {
   Future<void> _bootstrap() async {
     setState(() {
       _loading = true;
-      _error = null;
     });
     try {
       await widget.patientSession.ensureLoaded();
@@ -73,7 +71,6 @@ class _ScansPageState extends State<ScansPage> {
         _patients = List<Map<String, dynamic>>.from(
           widget.patientSession.patients,
         );
-        _error = null;
       });
       final sel = widget.patientSession.selected;
       if (sel != null) {
@@ -82,7 +79,8 @@ class _ScansPageState extends State<ScansPage> {
         await _selectPatient(_patients.first);
       }
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (!mounted) return;
+      AppSnackBars.error(context, friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -125,7 +123,6 @@ class _ScansPageState extends State<ScansPage> {
       _patients = List<Map<String, dynamic>>.from(
         widget.patientSession.patients,
       );
-      _error = null;
     });
     if (_patients.isEmpty) {
       setState(() {
@@ -185,7 +182,6 @@ class _ScansPageState extends State<ScansPage> {
       _patient = patient;
       _scans = [];
       _mediaLoading = true;
-      _error = null;
       _lastResult = null;
       _vertices = const [];
       _previewBytes = null;
@@ -213,8 +209,8 @@ class _ScansPageState extends State<ScansPage> {
       if (!mounted) return;
       setState(() {
         _mediaLoading = false;
-        _error = e.toString().replaceFirst('Exception: ', '');
       });
+      AppSnackBars.error(context, friendlyError(e));
     }
   }
 
@@ -306,7 +302,6 @@ class _ScansPageState extends State<ScansPage> {
 
   Future<void> _upload() async {
     if (_busy || _patient == null) return;
-    setState(() => _error = null);
     try {
       // Web needs withData; native iPad prefers path + xFile (large PLYs).
       final result = await FilePicker.pickFiles(
@@ -325,7 +320,6 @@ class _ScansPageState extends State<ScansPage> {
         }
       }
       if (bytes == null || bytes.isEmpty) {
-        setState(() => _error = 'Could not read file bytes');
         if (mounted) AppSnackBars.error(context, 'Could not read file bytes');
         return;
       }
@@ -399,11 +393,10 @@ class _ScansPageState extends State<ScansPage> {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _error = e.toString().replaceFirst('Exception: ', '');
       });
       AppSnackBars.error(
         context,
-        e.toString().replaceFirst('Exception: ', ''),
+        friendlyError(e),
       );
     } finally {
       if (mounted && _busy) setState(() => _busy = false);
@@ -420,7 +413,6 @@ class _ScansPageState extends State<ScansPage> {
 
     setState(() {
       _busy = true;
-      _error = null;
     });
     try {
       await widget.api.deletePatientScan(scanId);
@@ -444,8 +436,7 @@ class _ScansPageState extends State<ScansPage> {
       if (mounted) AppSnackBars.success(context, 'Scan deleted');
     } catch (e) {
       if (!mounted) return;
-      final msg = e.toString().replaceFirst('Exception: ', '');
-      setState(() => _error = msg);
+      final msg = friendlyError(e);
       AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -454,6 +445,7 @@ class _ScansPageState extends State<ScansPage> {
 
   @override
   Widget build(BuildContext context) {
+    _previewError = AppSnackBars.drain(context, _previewError);
     if (_loading) {
       return const ToothPageLoader(message: 'Loading scans…');
     }
@@ -508,10 +500,6 @@ class _ScansPageState extends State<ScansPage> {
               ),
             ],
           ),
-          if (_error != null) ...[
-            const SizedBox(height: 10),
-            Text(_error!, style: const TextStyle(color: AppColors.danger)),
-          ],
           const SizedBox(height: 14),
           Expanded(
             child: AdaptiveSplit(
@@ -747,22 +735,5 @@ class _ScansPageState extends State<ScansPage> {
         .map((e) => e.map((k, v) => MapEntry(k.toString(), v)))
         .cast<Map<String, dynamic>>()
         .toList();
-  }
-
-  String _messageFor(String result, Map<String, dynamic>? last) {
-    if (last?['queued'] == true) {
-      return last?['note'] as String? ?? 'Queued for offline sync.';
-    }
-    if (last?['prompt_rescan'] == true ||
-        result == 'bad' ||
-        result == 'blurry' ||
-        result == 'missing_margin') {
-      final reasons = (last?['reasons'] as List?)?.join(' ') ?? '';
-      return 'Rescan recommended before the patient leaves. $reasons'.trim();
-    }
-    if (result == 'good' || result == 'ok') {
-      return 'Scan accepted — ready for lab review. Stored encrypted at rest.';
-    }
-    return 'Review recommended.';
   }
 }

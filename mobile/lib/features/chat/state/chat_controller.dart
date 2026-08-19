@@ -5,9 +5,11 @@ import 'package:flutter/scheduler.dart';
 
 import '../../../core/api/api_client.dart';
 import '../../../core/auth/app_roles.dart';
+import '../../../core/errors/user_facing_error.dart';
 import '../models/chat_models.dart';
 import '../services/chat_api_service.dart';
 import '../services/chat_socket_service.dart';
+import '../utils/patient_mentions.dart';
 
 /// Central chat state: inbox, active thread, compose/reply, socket lifecycle.
 class ChatController extends ChangeNotifier {
@@ -17,7 +19,9 @@ class ChatController extends ChangeNotifier {
     ChatSocketService? socketService,
   })  : _api = api,
         _apiService = apiService ?? ChatApiService(api),
-        _socket = socketService ?? ChatSocketService();
+        _socket = socketService ?? ChatSocketService() {
+    _api.addAuthListener(_onAuthChanged);
+  }
 
   final ApiClient _api;
   final ChatApiService _apiService;
@@ -42,6 +46,7 @@ class ChatController extends ChangeNotifier {
   bool _hasMore = false;
   String? _error;
   String? _threadError;
+  void Function(String message)? onError;
 
   StreamSubscription<Message>? _msgSub;
   StreamSubscription<MessagesReadEvent>? _readSub;
@@ -63,6 +68,16 @@ class ChatController extends ChangeNotifier {
   String? get error => _error;
   String? get threadError => _threadError;
   String? get currentUserId => _api.userId;
+
+  void _reportError(Object e, {bool thread = false}) {
+    final msg = friendlyError(e);
+    if (thread) {
+      _threadError = msg;
+    } else {
+      _error = msg;
+    }
+    onError?.call(msg);
+  }
 
   int get totalUnread =>
       _conversations.fold<int>(0, (sum, c) => sum + c.unreadCount);
@@ -112,16 +127,25 @@ class ChatController extends ChangeNotifier {
     try {
       await _socket.connect(httpBaseUrl: _api.baseUrl, jwtToken: token);
     } catch (e) {
-      _error = e.toString().replaceFirst('Exception: ', '');
+      _reportError(e);
       notifyListeners();
     }
+  }
+
+  void _onAuthChanged() {
+    final token = _api.token;
+    if (token == null || token.isEmpty) {
+      unawaited(_socket.disconnect());
+      return;
+    }
+    _socket.updateToken(token);
   }
 
   void _bindSocketStreams() {
     _msgSub ??= _socket.onMessage.listen(_onSocketMessage);
     _readSub ??= _socket.onRead.listen(_onSocketRead);
     _errSub ??= _socket.onError.listen((detail) {
-      _threadError = detail;
+      _reportError(detail, thread: true);
       notifyListeners();
     });
     _connSub ??= _socket.onConnectionChanged.listen((ok) {
@@ -130,17 +154,23 @@ class ChatController extends ChangeNotifier {
     });
   }
 
-  Future<void> loadInbox() async {
-    _loadingInbox = true;
-    _error = null;
-    notifyListeners();
+  Future<void> loadInbox({bool forceRefresh = false}) async {
+    final showLoader = _conversations.isEmpty;
+    if (showLoader) {
+      _loadingInbox = true;
+      _error = null;
+      notifyListeners();
+    }
     try {
-      final list = await _apiService.fetchConversations();
+      final list = await _apiService.fetchConversations(
+        forceRefresh: forceRefresh,
+      );
       _conversations
         ..clear()
         ..addAll(list);
+      _error = null;
     } catch (e) {
-      _error = e.toString().replaceFirst('Exception: ', '');
+      _reportError(e);
     } finally {
       _loadingInbox = false;
       notifyListeners();
@@ -168,13 +198,16 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final page = await _apiService.fetchMessages(conversation.id);
+      final page = await _apiService.fetchMessages(
+        conversation.id,
+        forceRefresh: true,
+      );
       // API returns newest-first → reverse for chronological list.
       _messages.addAll(page.items.reversed);
       _hasMore = page.hasMore;
       if (_viewingThread) markActiveAsRead();
     } catch (e) {
-      _threadError = e.toString().replaceFirst('Exception: ', '');
+      _reportError(e, thread: true);
     } finally {
       _loadingMessages = false;
       notifyListeners();
@@ -224,7 +257,6 @@ class ChatController extends ChangeNotifier {
       await openConversation(conversation);
       return conversation;
     } catch (e) {
-      _error = e.toString().replaceFirst('Exception: ', '');
       notifyListeners();
       rethrow;
     }
@@ -249,7 +281,7 @@ class ChatController extends ChangeNotifier {
       _messages.insertAll(0, older);
       _hasMore = page.hasMore;
     } catch (e) {
-      _threadError = e.toString().replaceFirst('Exception: ', '');
+      _reportError(e, thread: true);
     } finally {
       _loadingOlder = false;
       notifyListeners();
@@ -267,7 +299,10 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void sendText(String raw) {
+  void sendText(
+    String raw, {
+    List<PatientMention> mentions = const [],
+  }) {
     final active = _active;
     final content = raw.trim();
     // Allow typing/sending text while a media upload is in flight.
@@ -281,10 +316,11 @@ class ChatController extends ChangeNotifier {
         conversationId: active.id,
         content: content,
         replyToMessageId: _replyTo?.id,
+        mentionedPatients: mentionsPresentIn(content, mentions),
       );
       _replyTo = null;
     } catch (e) {
-      _threadError = e.toString().replaceFirst('Exception: ', '');
+      _reportError(e, thread: true);
       notifyListeners();
     }
   }
@@ -354,7 +390,7 @@ class ChatController extends ChangeNotifier {
       _replacePending(pendingId, message);
     } catch (e) {
       _messages.removeWhere((m) => m.id == pendingId);
-      _threadError = e.toString().replaceFirst('Exception: ', '');
+      _reportError(e, thread: true);
     } finally {
       _sending = _messages.any((m) => m.isPending);
       notifyListeners();
@@ -436,7 +472,7 @@ class ChatController extends ChangeNotifier {
         _active = updated;
       }
     } else {
-      loadInbox();
+      loadInbox(forceRefresh: true);
     }
   }
 
@@ -505,6 +541,7 @@ class ChatController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _api.removeAuthListener(_onAuthChanged);
     _msgSub?.cancel();
     _readSub?.cancel();
     _errSub?.cancel();

@@ -36,7 +36,6 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
   List<UserProfile> _users = [];
   bool _loading = true;
   bool _creating = false;
-  String? _error;
   String? _roleFilter; // null = all
   String _query = '';
 
@@ -60,7 +59,6 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
   Future<void> _load() async {
     setState(() {
       _loading = true;
-      _error = null;
     });
     try {
       // Fetch a broad page, then filter locally so search/role work even when
@@ -74,10 +72,8 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
-        _loading = false;
-      });
+      setState(() => _loading = false);
+      AppSnackBars.error(context, e.toString());
     }
   }
 
@@ -242,16 +238,6 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
                       ],
                     ),
                   ),
-                if (_error != null) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    _error!,
-                    style: const TextStyle(
-                      color: AppColors.danger,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 14),
                 Expanded(
                   child: DecoratedBox(

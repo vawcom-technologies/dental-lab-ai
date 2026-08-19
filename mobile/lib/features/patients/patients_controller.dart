@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/errors/user_facing_error.dart';
 import '../../core/theme/app_theme.dart';
 import 'patient_models.dart';
 import 'patients_api_service.dart';
@@ -23,6 +24,7 @@ class PatientsController extends ChangeNotifier {
   PatientAccessOwner? _accessOwner;
   bool _accessViewerIsOwner = false;
   VoidCallback? onAccessMutated;
+  void Function(String message)? onError;
   String _query = '';
   String _statusFilter = 'all';
   bool _loading = false;
@@ -86,13 +88,16 @@ class PatientsController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> load() async {
+  Future<void> load({bool forceRefresh = false}) async {
     if (_loading) return;
-    _loading = true;
-    _error = null;
-    notifyListeners();
+    final showLoader = _patients.isEmpty || forceRefresh;
+    if (showLoader) {
+      _loading = true;
+      _error = null;
+      notifyListeners();
+    }
     try {
-      final rows = await _service.listPatients();
+      final rows = await _service.listPatients(forceRefresh: forceRefresh);
       _patients
         ..clear()
         ..addAll(rows);
@@ -102,7 +107,7 @@ class PatientsController extends ChangeNotifier {
       }
       await loadPendingRequests(silent: true);
     } catch (e) {
-      _error = e.toString().replaceFirst('Exception: ', '');
+      _reportError(e);
     } finally {
       _loading = false;
       notifyListeners();
@@ -144,7 +149,6 @@ class PatientsController extends ChangeNotifier {
       await loadAccess(patientId, silent: true);
       return patient;
     } catch (e) {
-      _error = e.toString().replaceFirst('Exception: ', '');
       rethrow;
     } finally {
       _loadingDetail = false;
@@ -473,5 +477,11 @@ class PatientsController extends ChangeNotifier {
       _mutating = false;
       notifyListeners();
     }
+  }
+
+  void _reportError(Object e) {
+    final msg = friendlyError(e);
+    _error = msg;
+    onError?.call(msg);
   }
 }

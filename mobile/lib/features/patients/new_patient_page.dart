@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/session/patient_session.dart';
-import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'patient_models.dart';
 
@@ -33,14 +32,12 @@ class _NewPatientPageState extends State<NewPatientPage> {
   final _address = TextEditingController();
   final _insurance = TextEditingController();
   bool _loading = false;
-  String? _error;
 
   Future<void> _save() async {
     if (_loading) return;
     if (!_formKey.currentState!.validate()) return;
     setState(() {
       _loading = true;
-      _error = null;
     });
     try {
       final created = await widget.api.createPatient({
@@ -60,7 +57,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
       widget.onCreated();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      AppSnackBars.error(context, e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -103,7 +100,6 @@ class _NewPatientPageState extends State<NewPatientPage> {
                         _phone.clear();
                         _address.clear();
                         _insurance.clear();
-                        setState(() => _error = null);
                       },
                 label: 'Clear',
               ),
@@ -196,16 +192,6 @@ class _NewPatientPageState extends State<NewPatientPage> {
                       validator: (v) =>
                           (v == null || v.trim().isEmpty) ? 'Required' : null,
                     ),
-                    if (_error != null) ...[
-                      const SizedBox(height: 16),
-                      Text(
-                        _error!,
-                        style: const TextStyle(
-                          color: AppColors.danger,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),
