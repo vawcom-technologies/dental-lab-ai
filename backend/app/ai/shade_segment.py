@@ -24,6 +24,8 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 _MAX_TEETH = 12
+_ANTERIOR_MAX_PER_ROW = 6  # 2 centrals + up to 2 per side
+_ANTERIOR_SIDE = 2
 _VALLEY_DEPTH_RATIO = 0.52
 _MIN_REL_AREA = 0.35
 _MIN_REL_HEIGHT = 0.40
@@ -188,6 +190,12 @@ def detect_teeth(
     if cfg.relative_size_filter:
         refined_list = _filter_by_relative_size(refined_list)
 
+    refined_list = _resolve_overlaps(refined_list)
+    # Shade matching uses the two centrals plus 1–2 teeth on each side.
+    # Drop premolars / cheek fragments; do not invent leftover blobs.
+    refined_list = _keep_anterior_window(refined_list)
+    refined_list = _fill_to_contact_cuts(enamel, refined_list, lum)
+    refined_list = _trim_incisal_dark(band_raw, refined_list)
     refined_list = _resolve_overlaps(refined_list)
     # Upper row first (smaller y), then left→right within the row.
     refined_list = sorted(
@@ -1189,7 +1197,7 @@ def _grabcut_one_tooth(
     ys, xs = np.nonzero(seed)
     y0, y1 = int(ys.min()), int(ys.max()) + 1
     x0, x1 = int(xs.min()), int(xs.max()) + 1
-    pad = max(6, int(0.18 * max(y1 - y0, x1 - x0)))
+    pad = max(6, int(0.14 * max(y1 - y0, x1 - x0)))
     h, w = seed.shape
     y0p, y1p = max(0, y0 - pad), min(h, y1 + pad)
     x0p, x1p = max(0, x0 - pad), min(w, x1 + pad)
@@ -1217,7 +1225,9 @@ def _grabcut_one_tooth(
     lab = cv2.cvtColor(crop, cv2.COLOR_RGB2LAB).astype(np.float64)
     a = lab[:, :, 1] - 128.0
     L = lab[:, :, 0]
-    sure_bg = sib_c | (~enamel_c & (a >= 10.0)) | (a >= 16.0) | (L < 70)
+    seed_L = float(np.median(L[seed_c])) if np.any(seed_c) else 140.0
+    dark = L < max(62.0, 0.55 * seed_L)
+    sure_bg = sib_c | (~enamel_c & (a >= 10.0)) | (a >= 16.0) | dark
     gc[sure_bg] = cv2.GC_BGD
 
     try:
@@ -1631,7 +1641,7 @@ def _filter_to_arch_row(
 
     med_cy = float(np.median([d["cy"] for d in ref]))
     # Vertical gate: same smile row (adaptive to tooth height in this photo)
-    y_tol = max(8.0, 0.55 * med_h)
+    y_tol = max(8.0, 0.72 * med_h)
     kept = [d for d in rows if abs(d["cy"] - med_cy) <= y_tol]
     if not kept:
         kept = ref[:1]
@@ -1696,9 +1706,247 @@ def _filter_by_arch_curve_one_row(components: list[np.ndarray]) -> list[np.ndarr
     resid = np.abs(all_y - np.polyval(coeffs, all_x))
     fit_resid = np.abs(y - np.polyval(coeffs, x))
     med = float(np.median(fit_resid))
-    thr = max(8.0, 3.0 * med + 4.0)
+    med_h = float(np.median([d["h"] for d in items]))
+    # Laterals/canines sit on a smile curve; keep them, still drop far lip blobs.
+    thr = max(0.32 * med_h, 3.0 * med + 4.0)
     kept = [d["mask"] for d, r in zip(items, resid) if r <= thr]
     return kept if kept else components
+
+
+def _cluster_masks_by_row(geoms: list[dict]) -> list[list[dict]]:
+    if not geoms:
+        return []
+    med_h = float(np.median([g["h"] for g in geoms]))
+    y_tol = max(8.0, 0.70 * med_h)
+    rows: list[list[dict]] = []
+    for g in sorted(geoms, key=lambda d: d["cy"]):
+        placed = False
+        for row in rows:
+            rcy = float(np.median([x["cy"] for x in row]))
+            if abs(g["cy"] - rcy) <= y_tol:
+                row.append(g)
+                placed = True
+                break
+        if not placed:
+            rows.append([g])
+    return [sorted(row, key=lambda d: d["cx"]) for row in rows]
+
+
+def _pick_central_pair(geoms: list[dict], center_x: float) -> tuple[int, int] | None:
+    """Adjacent pair most likely to be the two central incisors."""
+    best_i: int | None = None
+    best_score = -1.0
+    for i in range(len(geoms) - 1):
+        a, b = geoms[i], geoms[i + 1]
+        area_r = min(a["area"], b["area"]) / max(a["area"], b["area"], 1)
+        h_r = min(a["h"], b["h"]) / max(a["h"], b["h"], 1)
+        if area_r < 0.38 or h_r < 0.45:
+            continue
+        gap = b["x0"] - a["x1"]
+        if gap > 0.9 * max(a["w"], b["w"], 1):
+            continue
+        mid = 0.5 * (a["cx"] + b["cx"])
+        dist = abs(mid - center_x) / max(abs(center_x), 1.0)
+        size = 0.5 * (a["area"] + b["area"])
+        score = (
+            area_r
+            * h_r
+            * size
+            / (1.0 + 4.0 * dist)
+            / (1.0 + max(0, gap) / 24.0)
+        )
+        if score > best_score:
+            best_score = score
+            best_i = i
+    if best_i is None:
+        return None
+    return best_i, best_i + 1
+
+
+def _keep_anterior_row(geoms: list[dict]) -> list[dict]:
+    """Two centrals plus up to two neighbours on each side."""
+    if len(geoms) <= 2:
+        return geoms
+    areas = [g["area"] for g in geoms]
+    ref_area = float(np.median(sorted(areas, reverse=True)[: max(2, len(geoms) // 2 + 1)]))
+    ref_h = float(np.median([g["h"] for g in geoms]))
+    plausible = [
+        g
+        for g in geoms
+        if g["area"] >= 0.38 * ref_area and g["h"] >= 0.45 * ref_h
+    ] or geoms
+    # Already in the shade window — do not drop laterals/canines.
+    if len(plausible) <= _ANTERIOR_MAX_PER_ROW:
+        return plausible
+
+    center_x = 0.5 * (
+        float(np.median([g["cx"] for g in plausible]))
+        + 0.5 * (plausible[0]["cx"] + plausible[-1]["cx"])
+    )
+    pair = _pick_central_pair(plausible, center_x)
+    if pair is None:
+        ranked = sorted(plausible, key=lambda g: abs(g["cx"] - center_x))
+        picked = ranked[: _ANTERIOR_MAX_PER_ROW]
+        return sorted(picked, key=lambda g: g["cx"])
+
+    i0, i1 = pair
+    centrals = [plausible[i0], plausible[i1]]
+    min_area = 0.38 * min(centrals[0]["area"], centrals[1]["area"])
+    min_h = 0.45 * min(centrals[0]["h"], centrals[1]["h"])
+
+    left: list[dict] = []
+    for g in reversed(plausible[:i0]):
+        if g["area"] < min_area or g["h"] < min_h:
+            continue
+        left.append(g)
+        if len(left) >= _ANTERIOR_SIDE:
+            break
+    left.reverse()
+
+    right: list[dict] = []
+    for g in plausible[i1 + 1 :]:
+        if g["area"] < min_area or g["h"] < min_h:
+            continue
+        right.append(g)
+        if len(right) >= _ANTERIOR_SIDE:
+            break
+    return left + centrals + right
+
+
+def _keep_anterior_window(masks: list[np.ndarray]) -> list[np.ndarray]:
+    """Keep the shade-relevant anterior group; drop far premolars and cheek junk."""
+    geoms = [_mask_geom(m) for m in masks if np.any(m) and int(m.sum()) >= 40]
+    if len(geoms) <= 2:
+        return [g["mask"] for g in geoms] or masks
+    out: list[np.ndarray] = []
+    for row in _cluster_masks_by_row(geoms):
+        out.extend(g["mask"] for g in _keep_anterior_row(row))
+    return out or masks
+
+
+def _column_enamel_luma(enamel: np.ndarray, lum: np.ndarray) -> np.ndarray:
+    counts = enamel.astype(np.float64).sum(axis=0)
+    sums = (lum.astype(np.float64) * enamel.astype(np.float64)).sum(axis=0)
+    out = np.full(enamel.shape[1], 255.0, dtype=np.float64)
+    nz = counts > 0
+    out[nz] = sums[nz] / np.maximum(counts[nz], 1.0)
+    return out
+
+
+def _fill_row_to_contact_cuts(
+    enamel: np.ndarray,
+    geoms: list[dict],
+    col_L: np.ndarray,
+) -> list[np.ndarray]:
+    if len(geoms) == 1:
+        return [geoms[0]["mask"]]
+    h, w = enamel.shape
+    cuts: list[int] = []
+    for a, b in zip(geoms, geoms[1:]):
+        x_lo = int(np.clip(min(a["cx"], a["x1"]), 0, w - 1))
+        x_hi = int(np.clip(max(b["cx"], b["x0"]), 0, w - 1))
+        if x_hi <= x_lo + 1:
+            cuts.append(int(round(0.5 * (a["cx"] + b["cx"]))))
+        else:
+            cuts.append(x_lo + int(np.argmin(col_L[x_lo : x_hi + 1])))
+
+    out: list[np.ndarray] = []
+    for i, g in enumerate(geoms):
+        x_left = 0 if i == 0 else cuts[i - 1]
+        x_right = w if i == len(geoms) - 1 else cuts[i]
+        m = g["mask"].copy()
+        if i > 0:
+            m[:, :x_left] = False
+        if i < len(geoms) - 1:
+            m[:, x_right:] = False
+
+        y0 = max(0, g["y0"] - int(0.08 * g["h"]))
+        y1 = min(h, g["y1"] + int(0.08 * g["h"]))
+        if i > 0:
+            y0 = min(y0, geoms[i - 1]["y0"])
+            y1 = max(y1, geoms[i - 1]["y1"])
+        if i < len(geoms) - 1:
+            y0 = min(y0, geoms[i + 1]["y0"])
+            y1 = max(y1, geoms[i + 1]["y1"])
+        y0, y1 = max(0, y0), min(h, y1)
+
+        inner_lo, inner_hi = x_left, x_right
+        if i == 0:
+            inner_lo = max(x_left, g["x0"])
+        if i == len(geoms) - 1:
+            inner_hi = min(x_right, g["x1"] + 1)
+
+        fill = np.zeros_like(enamel, dtype=bool)
+        if inner_hi > inner_lo:
+            fill[y0:y1, inner_lo:inner_hi] = enamel[y0:y1, inner_lo:inner_hi]
+        grown = m | fill
+        kept = _largest_cc(grown)
+        if kept is not None and int(kept.sum()) >= 40:
+            out.append(kept)
+        elif int(m.sum()) >= 40:
+            out.append(m)
+        else:
+            out.append(g["mask"])
+    return out
+
+
+def _fill_to_contact_cuts(
+    enamel: np.ndarray,
+    masks: list[np.ndarray],
+    lum: np.ndarray,
+) -> list[np.ndarray]:
+    """Clip neighbour spill at dark contacts; fill inward only (no cheek growth)."""
+    if len(masks) < 2 or lum.shape[:2] != enamel.shape:
+        return masks
+    geoms = [_mask_geom(m) for m in masks if np.any(m)]
+    if len(geoms) < 2:
+        return masks
+    col_L = _column_enamel_luma(enamel, lum)
+    out: list[np.ndarray] = []
+    for row in _cluster_masks_by_row(geoms):
+        out.extend(_fill_row_to_contact_cuts(enamel, row, col_L))
+    return out
+
+
+def _trim_incisal_dark(
+    band: np.ndarray, masks: list[np.ndarray]
+) -> list[np.ndarray]:
+    """Peel only dark oral-cavity pixels on the biting-edge fringe."""
+    import cv2
+
+    if not masks:
+        return masks
+    u8 = np.clip(band, 0, 255).astype(np.uint8)
+    lab = cv2.cvtColor(u8, cv2.COLOR_RGB2LAB).astype(np.float64)
+    L = lab[:, :, 0]
+    h = L.shape[0]
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    out: list[np.ndarray] = []
+    for mask in masks:
+        if not np.any(mask):
+            continue
+        eroded = cv2.erode((mask.astype(np.uint8)) * 255, k, iterations=1) > 0
+        body = eroded if int(eroded.sum()) >= 25 else mask
+        body_L = float(np.median(L[body]))
+        ys, _xs = np.nonzero(mask)
+        y0, y1 = int(ys.min()), int(ys.max())
+        cy = float(ys.mean())
+        incisal_down = cy < 0.58 * h
+        span = max(1, y1 - y0 + 1)
+        fringe_h = max(2, int(0.16 * span))
+        trimmed = mask.copy()
+        fringe = mask.copy()
+        if incisal_down:
+            fringe[: y1 - fringe_h + 1, :] = False
+        else:
+            fringe[y0 + fringe_h :, :] = False
+        drop = fringe & (L < max(68.0, 0.60 * body_L))
+        trimmed[drop] = False
+        if int(trimmed.sum()) >= 40:
+            out.append(trimmed)
+        else:
+            out.append(mask)
+    return out
 
 
 def _active_contour_refine_one(

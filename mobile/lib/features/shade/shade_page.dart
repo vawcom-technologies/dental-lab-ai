@@ -57,6 +57,7 @@ class _ShadePageState extends State<ShadePage> {
   String? _error;
   Uint8List? _previewBytes;
   String _previewFilename = 'tooth.jpg';
+  Size _previewImageSize = Size.zero;
   List<Map<String, dynamic>> _topMatches = [];
   /// Aggregated across all teeth/zones for the Result card (not zone-similar).
   List<Map<String, dynamic>> _overallTopMatches = [];
@@ -195,6 +196,8 @@ class _ShadePageState extends State<ShadePage> {
           ? null
           : Uint8List.fromList(_previewBytes!),
       'preview_filename': _previewFilename,
+      'preview_image_width': _previewImageSize.width,
+      'preview_image_height': _previewImageSize.height,
       'teeth': cloneShadeMaps(_teeth),
       'teeth_memory': cloneShadeMaps(
         _teethMemory.isEmpty ? _teeth : _teethMemory,
@@ -272,6 +275,11 @@ class _ShadePageState extends State<ShadePage> {
         ? Uint8List.fromList(bytes)
         : (bytes is List ? Uint8List.fromList(bytes.cast<int>()) : null);
     _previewFilename = ws['preview_filename'] as String? ?? 'tooth.jpg';
+    final pw = (ws['preview_image_width'] as num?)?.toDouble() ?? 0;
+    final ph = (ws['preview_image_height'] as num?)?.toDouble() ?? 0;
+    _previewImageSize = (pw > 0 && ph > 0)
+        ? Size(pw, ph)
+        : Size.zero;
     final teethRaw = ws['teeth'];
     _teeth = teethRaw is List
         ? _parseTeeth(teethRaw)
@@ -358,6 +366,7 @@ class _ShadePageState extends State<ShadePage> {
         _restoreWorkspace(Map<String, dynamic>.from(ws));
       } else {
         _previewBytes = null;
+        _previewImageSize = Size.zero;
         _teeth = [];
         _teethMemory = [];
         _isolatedToothIndex = null;
@@ -769,6 +778,20 @@ class _ShadePageState extends State<ShadePage> {
     AppHaptics.warn();
   }
 
+  Size get _overlayImageSize {
+    if (_previewImageSize.width > 1 && _previewImageSize.height > 1) {
+      return _previewImageSize;
+    }
+    return _analysisImageSize;
+  }
+
+  void _setPreviewJpeg(Uint8List jpeg, {int width = 0, int height = 0}) {
+    _previewBytes = jpeg;
+    _previewImageSize = (width > 1 && height > 1)
+        ? Size(width.toDouble(), height.toDouble())
+        : Size.zero;
+  }
+
   Map<String, dynamic> _emptyZone() => {
         'detected_shade': null,
         'delta_e_2000': null,
@@ -1002,6 +1025,7 @@ class _ShadePageState extends State<ShadePage> {
     setState(() {
       _previewBytes = null;
       _previewFilename = 'tooth.jpg';
+      _previewImageSize = Size.zero;
       _teeth = [];
       _teethMemory = [];
       _isolatedToothIndex = null;
@@ -1383,10 +1407,14 @@ class _ShadePageState extends State<ShadePage> {
     try {
       final bytes = await widget.api.downloadMediaBytes(url);
       if (!mounted) return;
-      final oriented = bakeExifOrientation(bytes);
+      final baked = bakeExifOrientationSized(bytes);
       _photoTransformController.value = Matrix4.identity();
       setState(() {
-        _previewBytes = oriented;
+        _setPreviewJpeg(
+          baked.bytes,
+          width: baked.width,
+          height: baked.height,
+        );
         _previewFilename = name;
         _exitOutlineEdit(clearStatus: false);
         _teeth = [];
@@ -1400,8 +1428,7 @@ class _ShadePageState extends State<ShadePage> {
         _overallTopMatches = [];
       });
       if (runAi) {
-        // Identical endpoint + bytes path as gallery Upload & detect.
-        await _applySuggestFromBytes(oriented, name);
+        await _applySuggestFromBytes(baked.bytes, name);
       }
     } catch (e) {
       if (!mounted) return;
@@ -1418,11 +1445,22 @@ class _ShadePageState extends State<ShadePage> {
   /// Same mapping pipeline as gallery Upload & detect (`POST /api/ai/shade/suggest`).
   Future<void> _applySuggestFromBytes(Uint8List data, String name) async {
     // Bake EXIF so preview pixels match backend transpose (camera-roll photos).
-    final oriented = bakeExifOrientation(data);
-    if (mounted && !identical(oriented, _previewBytes)) {
-      setState(() => _previewBytes = oriented);
+    final baked = bakeExifOrientationSized(data);
+    if (mounted && !identical(baked.bytes, _previewBytes)) {
+      setState(() {
+        _setPreviewJpeg(
+          baked.bytes,
+          width: baked.width,
+          height: baked.height,
+        );
+      });
     }
-    final result = await widget.api.suggestShade(oriented, name);
+    final result = await widget.api.suggestShade(baked.bytes, name);
+    if (!mounted) return;
+    _applySuggestResult(result);
+  }
+
+  void _applySuggestResult(Map<String, dynamic> result) {
     final teeth = _parseTeeth(result['teeth']);
     Map<String, dynamic>? first;
     for (final t in teeth) {
@@ -1433,7 +1471,6 @@ class _ShadePageState extends State<ShadePage> {
     }
     first ??= teeth.isEmpty ? null : teeth.first;
 
-    if (!mounted) return;
     setState(() {
       _teeth = teeth;
       _rememberTeeth();
@@ -1480,7 +1517,8 @@ class _ShadePageState extends State<ShadePage> {
       if (!confirmed || !mounted) return;
 
       final name = file.name.isNotEmpty ? file.name : 'tooth.jpg';
-      final data = bakeExifOrientation(Uint8List.fromList(bytes));
+      final baked = bakeExifOrientationSized(Uint8List.fromList(bytes));
+      final data = baked.bytes;
       final pid = _pid(_patient!);
 
       setState(() => _busy = true);
@@ -1498,7 +1536,7 @@ class _ShadePageState extends State<ShadePage> {
       setState(() {
         _allShadeItems = [uploaded, ..._allShadeItems];
         _shadeDetectionId = '${uploaded['id'] ?? ''}'.trim();
-        _previewBytes = data;
+        _setPreviewJpeg(data, width: baked.width, height: baked.height);
         _previewFilename = name;
         _photoTransformController.value = Matrix4.identity();
         _exitOutlineEdit(clearStatus: false);
@@ -1724,7 +1762,7 @@ class _ShadePageState extends State<ShadePage> {
     final outline = _editOutline;
     final bulges = _editBulges;
     if (outline == null || bulges == null) return;
-    final imgSize = _analysisImageSize == Size.zero ? box : _analysisImageSize;
+    final imgSize = _overlayImageSize == Size.zero ? box : _overlayImageSize;
     final scale =
         _photoTransformController.value.getMaxScaleOnAxis().clamp(1.0, 4.0);
     final hi = hitTestOutlineHandle(
@@ -1757,7 +1795,7 @@ class _ShadePageState extends State<ShadePage> {
     final outline = _editOutline;
     final bulges = _editBulges;
     if (outline == null || bulges == null) return;
-    final imgSize = _analysisImageSize == Size.zero ? box : _analysisImageSize;
+    final imgSize = _overlayImageSize == Size.zero ? box : _overlayImageSize;
     final dest = containRect(box, imgSize);
     final hi = _activeHandleIndex;
     final ei = _activeEdgeIndex;
@@ -1791,7 +1829,7 @@ class _ShadePageState extends State<ShadePage> {
     final outline = _editOutline;
     final bulges = _editBulges;
     if (outline == null || bulges == null) return;
-    final imgSize = _analysisImageSize == Size.zero ? box : _analysisImageSize;
+    final imgSize = _overlayImageSize == Size.zero ? box : _overlayImageSize;
     final scale =
         _photoTransformController.value.getMaxScaleOnAxis().clamp(1.0, 4.0);
     // Prefer edge; if on vertex, use nearest edge.
@@ -1942,7 +1980,7 @@ class _ShadePageState extends State<ShadePage> {
                                   teeth: _teeth,
                                   selectedToothIndex: _selectedToothIndex,
                                   isolatedToothIndex: _isolatedToothIndex,
-                                  analysisImageSize: _analysisImageSize,
+                                  analysisImageSize: _overlayImageSize,
                                   focusZone: _focusZone,
                                   editOutline: _editOutline,
                                   editBulges: _editBulges,
@@ -1995,7 +2033,7 @@ class _ShadePageState extends State<ShadePage> {
                                   magnifierFocal: _magnifierFocal,
                                   magnifierViewSize: _magnifierViewSize,
                                   previewBytes: _previewBytes,
-                                  analysisImageSize: _analysisImageSize,
+                                  analysisImageSize: _overlayImageSize,
                                   dragTick: _dragTick,
                                   editOutline: _editOutline,
                                   editBulges: _editBulges,
@@ -2014,7 +2052,7 @@ class _ShadePageState extends State<ShadePage> {
                                             viewSize: _magnifierViewSize!,
                                             previewBytes: _previewBytes!,
                                             analysisImageSize:
-                                                _analysisImageSize,
+                                                _overlayImageSize,
                                             dragTick: _dragTick,
                                             teeth: _teeth,
                                             selectedToothIndex:

@@ -676,6 +676,34 @@ def is_patient_images_url(file_url: str) -> bool:
     return "/patients/" in url and "/photos/" in url
 
 
+def download_r2_object_bytes(bucket: str, key: str) -> bytes:
+    """Read an object from R2 into memory."""
+    if not (bucket or "").strip() or not (key or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing R2 bucket or object key",
+        )
+    client = get_r2_client()
+    try:
+        obj = client.get_object(Bucket=bucket, Key=key)
+        body = obj.get("Body")
+        data = body.read() if body is not None else b""
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("R2 get_object failed bucket=%s key=%s", bucket, key)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Could not read stored photo: {str(exc).strip() or 'unknown error'}",
+        ) from exc
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Stored photo is empty",
+        )
+    return data
+
+
 def file_key_from_patient_photo_url(file_url: str) -> str:
     """Derive object key from a patient photo public URL."""
     url = (file_url or "").strip()

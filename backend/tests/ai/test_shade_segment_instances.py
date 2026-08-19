@@ -327,6 +327,94 @@ class TestLipAboveSmile:
         assert all(d["cy"] > 100 for d in kept)
 
 
+class TestAnteriorWindow:
+    def test_keeps_centrals_plus_side_teeth_drops_far_premolars(self):
+        from app.ai.shade_segment import _keep_anterior_window
+
+        h, w = 80, 400
+        masks = []
+        # 8 similar crowns; centrals around x=200
+        for x0 in (20, 60, 100, 140, 180, 220, 260, 300):
+            m = np.zeros((h, w), dtype=bool)
+            m[20:60, x0 : x0 + 32] = True
+            masks.append(m)
+        kept = _keep_anterior_window(masks)
+        assert 4 <= len(kept) <= 6
+        cxs = sorted(float(np.nonzero(m)[1].mean()) for m in kept)
+        assert min(cxs) >= 60
+        assert max(cxs) <= 290
+        # Two teeth nearest the midline must remain.
+        assert any(abs(cx - 156) < 20 for cx in cxs)
+        assert any(abs(cx - 196) < 20 for cx in cxs)
+
+    def test_drops_tiny_cheek_fragment(self):
+        from app.ai.shade_segment import _keep_anterior_window
+
+        h, w = 80, 240
+        masks = []
+        for x0 in (40, 80, 120, 160):
+            m = np.zeros((h, w), dtype=bool)
+            m[18:58, x0 : x0 + 30] = True
+            masks.append(m)
+        cheek = np.zeros((h, w), dtype=bool)
+        cheek[30:42, 210:222] = True
+        masks.append(cheek)
+        kept = _keep_anterior_window(masks)
+        cxs = [float(np.nonzero(m)[1].mean()) for m in kept]
+        assert max(cxs) < 200
+
+    def test_contact_fill_stops_central_spill_and_completes_sliver(self):
+        from app.ai.shade_segment import _fill_to_contact_cuts
+
+        h, w = 80, 160
+        enamel = np.zeros((h, w), dtype=bool)
+        enamel[20:60, 20:70] = True
+        enamel[20:60, 78:128] = True
+        lum = np.full((h, w), 200.0)
+        lum[:, 70:78] = 40.0
+        fat = np.zeros((h, w), dtype=bool)
+        fat[20:60, 20:110] = True
+        skinny = np.zeros((h, w), dtype=bool)
+        skinny[20:60, 110:128] = True
+        out = _fill_to_contact_cuts(enamel, [fat, skinny], lum)
+        assert len(out) == 2
+        geoms = sorted(
+            (int(np.nonzero(m)[1].min()), int(np.nonzero(m)[1].max()), int(m.sum()))
+            for m in out
+        )
+        assert geoms[0][1] <= 80
+        assert geoms[1][0] >= 70
+        assert geoms[1][2] > 0.55 * geoms[0][2]
+        assert int(out[0][:, 70:78].sum() + out[1][:, 70:78].sum()) < 40
+
+    def test_four_tooth_smile_keeps_both_sides(self):
+        img = _gapped_smile()
+        teeth = [t for t in detect_teeth(img) if not t.rejected]
+        assert 3 <= len(teeth) <= 6
+        cxs = [float(np.nonzero(t.mask)[1].mean()) for t in teeth]
+        assert min(cxs) < 230
+        assert max(cxs) > 340
+
+    def test_incisal_trim_does_not_keep_dark_mouth(self):
+        h, w = 400, 600
+        img = np.zeros((h, w, 3), dtype=np.uint8)
+        img[:] = (22, 16, 14)
+        gum = np.array([180, 110, 120], dtype=np.uint8)
+        enamel = np.array(VITA_SHADES["A2"], dtype=np.uint8)
+        img[int(h * 0.22) : int(h * 0.34), int(w * 0.18) : int(w * 0.82)] = gum
+        y0, y1 = int(h * 0.34), int(h * 0.56)
+        img[y0:y1, 230:298] = enamel
+        img[y0:y1, 306:374] = enamel
+        teeth = [t for t in detect_teeth(img) if not t.rejected]
+        assert len(teeth) >= 2
+        void_y0 = y1 + 6
+        for t in teeth:
+            ys, xs = np.nonzero(t.mask)
+            assert int(ys.max()) <= void_y0 + 4
+            mid = t.mask[y0:y1, 298:306]
+            assert int(mid.sum()) < 0.25 * mid.size
+
+
 class TestDebugOverlay:
     def test_overlay_has_distinct_colors_per_instance(self):
         img = _gapped_smile()

@@ -1008,6 +1008,8 @@ class ApiClient {
     return res.bodyBytes;
   }
 
+  static const _shadeAnalyzeTimeout = Duration(seconds: 90);
+
   Future<Map<String, dynamic>> suggestShade(List<int> bytes, String filename) async {
     final name = filename.trim().isEmpty ? 'tooth.jpg' : filename;
     final req = http.MultipartRequest(
@@ -1022,8 +1024,23 @@ class ApiClient {
         filename: name,
       ),
     );
-    final streamed = await _http.send(req);
+    final streamed = await _http.send(req).timeout(_shadeAnalyzeTimeout);
     final res = await http.Response.fromStream(streamed);
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  /// Analyze a shade photo already stored on the server (no image re-upload).
+  Future<Map<String, dynamic>> suggestShadeFromDetection(
+    String shadeDetectionId,
+  ) async {
+    final res = await _http
+        .post(
+          Uri.parse('$baseUrl/api/ai/shade/suggest-from-detection'),
+          headers: _jsonHeaders,
+          body: jsonEncode({'shade_detection_id': shadeDetectionId}),
+        )
+        .timeout(_shadeAnalyzeTimeout);
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
@@ -1046,8 +1063,28 @@ class ApiClient {
     );
     req.fields['outline_json'] = jsonEncode(outline);
     req.fields['tooth_index'] = '$toothIndex';
-    final streamed = await _http.send(req);
+    final streamed = await _http.send(req).timeout(_shadeAnalyzeTimeout);
     final res = await http.Response.fromStream(streamed);
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> resampleShadeOutlineFromDetection({
+    required String shadeDetectionId,
+    required List<List<double>> outline,
+    required int toothIndex,
+  }) async {
+    final res = await _http
+        .post(
+          Uri.parse('$baseUrl/api/ai/shade/resample-outline-from-detection'),
+          headers: _jsonHeaders,
+          body: jsonEncode({
+            'shade_detection_id': shadeDetectionId,
+            'outline': outline,
+            'tooth_index': toothIndex,
+          }),
+        )
+        .timeout(_shadeAnalyzeTimeout);
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
