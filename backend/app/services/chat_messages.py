@@ -12,7 +12,6 @@ from fastapi import HTTPException, status
 from app.core.supabase_client import get_supabase_admin
 from app.schemas_chat import MessageOut, PatientMentionOut, ReplyPreviewOut
 from app.services.chat_manager import chat_manager
-from app.services.notify import actor_label, notify
 from app.services.patient_access import (
     patient_display_name,
     require_patient_access,
@@ -228,24 +227,4 @@ async def insert_message_and_broadcast(
     recipient = partner_id(conversation, sender_id)
     await chat_manager.send_json(sender_id, payload)
     await chat_manager.send_json(recipient, payload)
-    preview = (content or "").strip()
-    if media_type == "voice":
-        preview = "sent a voice note"
-    elif media_type == "image":
-        preview = "sent a photo"
-    elif media_type == "video":
-        preview = "sent a video"
-    elif media_type == "document":
-        preview = "sent a file"
-    elif not preview:
-        preview = "sent a message"
-    elif len(preview) > 80:
-        preview = f"{preview[:77]}…"
-    who = actor_label(sender_id)
-    notify(
-        user_id=recipient,
-        type="message",
-        message=f"{who}: {preview}",
-        actor_id=sender_id,
-    )
     return message

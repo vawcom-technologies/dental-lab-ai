@@ -362,6 +362,7 @@ class _AppShellState extends State<AppShell> {
         return NotificationsPage(
           inbox: _inbox,
           onNavigate: _go,
+          active: active,
         );
       case AppNavItem.reports:
         return ReportsPage(

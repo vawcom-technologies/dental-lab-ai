@@ -13,19 +13,15 @@ from app.core.supabase_client import get_supabase_admin
 logger = logging.getLogger("app.patient_access")
 
 OWNER_EDIT_DENIED = (
-    "ERROR_403_FORBIDDEN: Permission denied. Only the user who created this "
-    "patient record is authorized to edit it."
+    "Only the person who created this patient record can edit it."
 )
 OWNER_ONLY_DENIED = (
-    "ERROR_403_FORBIDDEN: Permission denied. Only the patient record owner "
-    "may perform this action."
+    "Only the patient owner can perform this action."
 )
-ACCESS_DENIED = (
-    "ERROR_403_FORBIDDEN: Permission denied. You do not have access to this patient."
-)
+ACCESS_DENIED = "You do not have access to this patient."
 GRANT_DENIED = (
-    "ERROR_403_FORBIDDEN: Permission denied. Only the patient owner or an "
-    "approved shared user may grant or request access."
+    "Only the patient owner or someone with approved access can grant "
+    "or request access."
 )
 
 AccessStatus = Literal["pending", "approved", "rejected"]

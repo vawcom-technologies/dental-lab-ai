@@ -5,9 +5,9 @@ class AgentApiException implements Exception {
   AgentApiException({
     required this.httpCode,
     required this.code,
-    required this.message,
+    required String message,
     this.action,
-  });
+  }) : message = _withoutMachineCode(message);
 
   final int httpCode;
   final String code;
@@ -18,6 +18,28 @@ class AgentApiException implements Exception {
 
   @override
   String toString() => message;
+
+  static final _prefix = RegExp(
+    r'^\s*(?:ERROR|ERR|HTTP)[_-][A-Z0-9_]+\s*:\s*',
+    caseSensitive: false,
+  );
+  static final _token = RegExp(
+    r'\b(?:ERROR|ERR|HTTP)[_-][A-Z0-9_]+\b',
+    caseSensitive: false,
+  );
+
+  static String _withoutMachineCode(String text) {
+    var out = text.trim();
+    while (_prefix.hasMatch(out)) {
+      out = out.replaceFirst(_prefix, '').trim();
+    }
+    out = out.replaceAll(_token, ' ');
+    out = out.replaceFirst(
+      RegExp(r'^Permission denied[.:]\s*', caseSensitive: false),
+      '',
+    );
+    return out.replaceAll(RegExp(r'\s{2,}'), ' ').trim();
+  }
 }
 
 class AgentEnvelope {

@@ -352,6 +352,7 @@ class _ReplyQuote extends StatelessWidget {
       ),
       child: Text(
         label,
+        
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(

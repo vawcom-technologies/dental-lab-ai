@@ -17,6 +17,7 @@ class NotificationInboxController extends ChangeNotifier {
   bool _inFlight = false;
   bool _queued = false;
   bool _seeded = false;
+  bool _markingAll = false;
   final Set<String> _knownIds = {};
   final List<Map<String, dynamic>> _pendingToasts = [];
 
@@ -52,7 +53,7 @@ class NotificationInboxController extends ChangeNotifier {
       for (final raw in rows) {
         final row = Map<String, dynamic>.from(raw);
         final id = '${row['id'] ?? ''}'.trim();
-        if (id.isEmpty) continue;
+        if (id.isEmpty || isMessageType(row)) continue;
         final isNew = _seeded && !_knownIds.contains(id);
         _knownIds.add(id);
         if (isNew && announce && row['read'] != true && _isIncoming(row)) {
@@ -60,7 +61,10 @@ class NotificationInboxController extends ChangeNotifier {
         }
       }
       _seeded = true;
-      _items = [for (final row in rows) Map<String, dynamic>.from(row)];
+      _items = [
+        for (final row in rows)
+          if (!isMessageType(row)) Map<String, dynamic>.from(row),
+      ];
       _unreadCount = _items.where((n) => n['read'] != true).length;
       _error = null;
       if (fresh.isNotEmpty) {
@@ -100,20 +104,27 @@ class NotificationInboxController extends ChangeNotifier {
   }
 
   Future<void> markAllRead() async {
-    await api.markAllNotificationsRead();
+    if (_markingAll) return;
+    if (_unreadCount == 0 && _items.every((n) => n['read'] == true)) return;
+    _markingAll = true;
     for (final n in _items) {
       n['read'] = true;
     }
     _unreadCount = 0;
     notifyListeners();
+    try {
+      await api.markAllNotificationsRead();
+    } finally {
+      _markingAll = false;
+    }
   }
 
   bool allowedBySettings(String type) {
+    if (type == 'message') return false;
     final p = prefs;
     if (p == null) return true;
     if (!p.notificationsEnabled) {
       switch (type) {
-        case 'message':
         case 'case_status':
         case 'scan_quality':
           return false;
@@ -122,8 +133,6 @@ class NotificationInboxController extends ChangeNotifier {
       }
     }
     switch (type) {
-      case 'message':
-        return p.notifyMessages;
       case 'case_status':
         return p.notifyCaseStatus;
       case 'scan_quality':
@@ -132,6 +141,9 @@ class NotificationInboxController extends ChangeNotifier {
         return true;
     }
   }
+
+  static bool isMessageType(Map<String, dynamic> row) =>
+      '${row['type'] ?? ''}'.trim().toLowerCase() == 'message';
 
   /// Activity rows written for the actor ("You declined…") stay in the inbox
   /// but should not pop a second toast on this device.

@@ -1,17 +1,46 @@
 import '../l10n/app_localizations.dart';
 
+final _machineCodePrefix = RegExp(
+  r'^\s*(?:ERROR|ERR|HTTP)[_-][A-Z0-9_]+\s*:\s*',
+  caseSensitive: false,
+);
+final _machineCodeToken = RegExp(
+  r'\b(?:ERROR|ERR|HTTP)[_-][A-Z0-9_]+\b',
+  caseSensitive: false,
+);
+
+/// Drops `ERROR_403_FORBIDDEN:` / `HTTP_403` tokens from API copy.
+String stripMachineErrorCodes(String text) {
+  var out = text.trim();
+  while (_machineCodePrefix.hasMatch(out)) {
+    out = out.replaceFirst(_machineCodePrefix, '').trim();
+  }
+  out = out.replaceAll(_machineCodeToken, ' ');
+  out = out.replaceFirst(
+    RegExp(r'^Permission denied[.:]\s*', caseSensitive: false),
+    '',
+  );
+  out = out
+      .replaceAll(RegExp(r'\s{2,}'), ' ')
+      .replaceAll(RegExp(r'^[:\-–]+\s*'), '')
+      .trim();
+  return out;
+}
+
 /// Turns API codes, HTTP statuses, and raw exceptions into copy a person can read.
 String friendlyError(Object error, [AppLocalizations? loc]) {
   final raw = error is String ? error : error.toString();
-  var text = raw
-      .replaceFirst(RegExp(r'^Exception:\s*'), '')
-      .replaceFirst(RegExp(r'^HttpException:\s*'), '')
-      .replaceFirst(RegExp(r'^ClientException:\s*'), '')
-      .replaceFirst(RegExp(r'^SocketException:\s*'), '')
-      .replaceFirst(RegExp(r'^HandshakeException:\s*'), '')
-      .replaceFirst(RegExp(r'^TimeoutException:\s*'), '')
-      .replaceFirst(RegExp(r'^FormatException:\s*'), '')
-      .trim();
+  var text = stripMachineErrorCodes(
+    raw
+        .replaceFirst(RegExp(r'^Exception:\s*'), '')
+        .replaceFirst(RegExp(r'^HttpException:\s*'), '')
+        .replaceFirst(RegExp(r'^ClientException:\s*'), '')
+        .replaceFirst(RegExp(r'^SocketException:\s*'), '')
+        .replaceFirst(RegExp(r'^HandshakeException:\s*'), '')
+        .replaceFirst(RegExp(r'^TimeoutException:\s*'), '')
+        .replaceFirst(RegExp(r'^FormatException:\s*'), '')
+        .trim(),
+  );
 
   final statusFromFailed = RegExp(r'Request failed \((\d+)\)').firstMatch(text);
   if (statusFromFailed != null) {
@@ -46,7 +75,7 @@ String friendlyHttpError({
 }) {
   return _fromParts(
     statusCode: statusCode,
-    detail: detail,
+    detail: detail == null ? null : stripMachineErrorCodes(detail),
     code: code,
     loc: loc,
   );
@@ -66,6 +95,7 @@ String _fromParts({
 }
 
 String? _rewriteDetail(String text, AppLocalizations? loc) {
+  text = stripMachineErrorCodes(text);
   if (text.isEmpty) return null;
   if (_looksLikeCode(text)) return null;
 
@@ -125,13 +155,9 @@ String? _rewriteDetail(String text, AppLocalizations? loc) {
     return loc?.errGeneric ?? 'Something went wrong. Please try again.';
   }
 
-  // Drop trailing status/code fragments: "Denied ERR_FORBIDDEN"
-  var cleaned = text
-      .replaceAll(RegExp(r'\bERR_[A-Z0-9_]+\b'), '')
-      .replaceAll(RegExp(r'\bHTTP_\d{3}\b'), '')
-      .replaceAll(RegExp(r'\(\s*\d{3}\s*\)'), '')
-      .replaceAll(RegExp(r'\s{2,}'), ' ')
-      .trim();
+  var cleaned = stripMachineErrorCodes(
+    text.replaceAll(RegExp(r'\(\s*\d{3}\s*\)'), ' '),
+  );
   if (cleaned.isEmpty || _looksLikeCode(cleaned)) return null;
   return cleaned;
 }
@@ -203,7 +229,7 @@ bool _looksLikeCode(String text) {
   final t = text.trim();
   if (t.isEmpty) return true;
   if (RegExp(r'^\d{3}$').hasMatch(t)) return true;
-  if (RegExp(r'^ERR_[A-Z0-9_]+$').hasMatch(t)) return true;
+  if (RegExp(r'^(ERR|ERROR|HTTP)[_-][A-Z0-9_]+$').hasMatch(t)) return true;
   if (RegExp(r'^HTTP_\d{3}$').hasMatch(t)) return true;
   if (RegExp(r'^[A-Z][A-Z0-9_]{3,}$').hasMatch(t)) return true;
   return false;

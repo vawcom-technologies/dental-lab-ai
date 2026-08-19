@@ -114,14 +114,13 @@ class _PatientsPageState extends State<PatientsPage> {
       if (e.isForbidden) {
         final lower = e.message.toLowerCase();
         if (lower.contains('approve') || lower.contains('reject')) {
-          return 'Permission Denied: Only the patient owner can approve or reject access requests.';
+          return 'Only the patient owner can approve or reject access requests.';
         }
-        if (lower.contains('access')) {
-          return e.message;
+        if (lower.contains('creator') || lower.contains('created this')) {
+          return 'Only the person who created this patient record can edit it.';
         }
-        return 'Permission Denied: Only the creator of this record can modify patient details.';
       }
-      return e.message;
+      return friendlyError(e.message);
     }
     return friendlyError(e);
   }
@@ -990,10 +989,8 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
       if (!mounted) return;
       setState(() {
         _saving = false;
-        _error = e is AgentApiException
-            ? (e.isForbidden
-                ? 'Permission Denied: Only the creator of this record can modify patient details.'
-                : e.message)
+        _error = e is AgentApiException && e.isForbidden
+            ? 'Only the person who created this patient record can edit it.'
             : friendlyError(e);
       });
     }

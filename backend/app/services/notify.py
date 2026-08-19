@@ -15,7 +15,6 @@ from app.services.profiles import fetch_profile
 logger = logging.getLogger("app.notify")
 
 ALLOWED_TYPES = {
-    "message",
     "case_status",
     "scan_quality",
     "shade",
@@ -63,6 +62,9 @@ def notify(
     if not uid:
         return None
     if not allow_self and actor_id and str(actor_id) == uid:
+        return None
+    # Chat already has its own inbox — never write message rows here.
+    if (type or "").strip().lower() == "message":
         return None
     ntype = type if type in ALLOWED_TYPES else "case_status"
     text = (message or "").strip()
