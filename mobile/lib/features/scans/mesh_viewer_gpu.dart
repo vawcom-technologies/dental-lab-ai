@@ -551,8 +551,8 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
 
   @override
   Widget build(BuildContext context) {
-    final empty = !_hasSource && !widget.loading && widget.error == null;
-    final showError = widget.error ?? _meshError;
+    _meshError = AppSnackBars.drain(context, _meshError);
+    final empty = !_hasSource && !widget.loading;
 
     return ClipRRect(
       borderRadius: AppRadii.border,
@@ -598,11 +598,6 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
                       ),
                     ),
                   )
-                else if (showError != null)
-                  ColoredBox(
-                    color: const Color(0xFF15283F),
-                    child: MeshViewerHint(showError),
-                  )
                 else if (empty)
                   const ColoredBox(
                     color: Color(0xFF15283F),
@@ -610,10 +605,7 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
                       'Upload a PLY / STL / OBJ to preview',
                     ),
                   ),
-                if (!widget.loading &&
-                    !_meshLoading &&
-                    !empty &&
-                    showError == null) ...[
+                if (!widget.loading && !_meshLoading && !empty) ...[
                   Positioned(
                     top: 10,
                     right: 10,

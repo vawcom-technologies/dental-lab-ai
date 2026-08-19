@@ -21,7 +21,6 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   final _next = TextEditingController();
   final _confirm = TextEditingController();
   bool _loading = false;
-  String? _error;
 
   @override
   void dispose() {
@@ -38,24 +37,20 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     final confirm = _confirm.text;
 
     if (current.isEmpty || next.isEmpty || confirm.isEmpty) {
-      setState(() => _error = loc.errEnterPasswords);
       AppSnackBars.error(context, loc.errEnterPasswords);
       return;
     }
     if (!PasswordValidator.isValid(next)) {
-      setState(() => _error = loc.errNewPasswordShort);
       AppSnackBars.error(context, loc.errNewPasswordShort);
       return;
     }
     if (next != confirm) {
-      setState(() => _error = loc.errNewPasswordMismatch);
       AppSnackBars.error(context, loc.errNewPasswordMismatch);
       return;
     }
 
     setState(() {
       _loading = true;
-      _error = null;
     });
 
     try {
@@ -84,9 +79,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      final msg = friendlyError(e, AppLocalizations.of(context));
-      setState(() => _error = msg);
-      AppSnackBars.error(context, msg);
+      AppSnackBars.error(context, friendlyError(e, AppLocalizations.of(context)));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -160,13 +153,6 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                       }
                     },
                   ),
-                  if (_error != null) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      _error!,
-                      style: const TextStyle(color: AppColors.danger),
-                    ),
-                  ],
                   const SizedBox(height: 20),
                   FilledButton(
                     onPressed: _loading ||

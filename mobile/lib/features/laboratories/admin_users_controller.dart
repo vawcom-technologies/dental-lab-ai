@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/errors/user_facing_error.dart';
 import 'admin_user.dart';
 
 enum AdminUserFilter { all, unverified, verified }
@@ -20,6 +21,7 @@ class AdminUsersController extends ChangeNotifier {
   int _skip = 0;
   int _limit = 50;
   int _count = 0;
+  void Function(String message)? onError;
 
   List<AdminUser> get users => List.unmodifiable(_users);
   bool get loading => _loading;
@@ -87,7 +89,9 @@ class AdminUsersController extends ChangeNotifier {
       _limit = page.limit;
       _error = null;
     } catch (e) {
-      _error = e.toString().replaceFirst('Exception: ', '');
+      final msg = friendlyError(e);
+      _error = msg;
+      onError?.call(msg);
     } finally {
       _loading = false;
       notifyListeners();

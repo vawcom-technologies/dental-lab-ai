@@ -63,10 +63,22 @@ class _AppShellState extends State<AppShell> {
     super.initState();
     _dentistName = widget.dentistName;
     _chat = ChatController(api: widget.api);
+    _chat.onError = (msg) {
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) AppSnackBars.error(context, msg);
+      });
+    };
     _chat.addListener(_onChatChanged);
     _patients = PatientSession(widget.api);
     _patients.addListener(_onPatientSessionChanged);
     _inbox = NotificationInboxController(widget.api);
+    _inbox.onError = (msg) {
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) AppSnackBars.error(context, msg);
+      });
+    };
     _inbox.addListener(_onInboxChanged);
     // Warm patient list + chat so the first workflow page opens faster.
     _patients.ensureLoaded();

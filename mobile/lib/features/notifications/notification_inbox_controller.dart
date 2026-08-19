@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/errors/user_facing_error.dart';
 import '../../core/settings/app_settings.dart';
 
 /// Live inbox: polls the server, updates the bell, and queues incoming toasts.
@@ -25,6 +26,7 @@ class NotificationInboxController extends ChangeNotifier {
   int _unreadCount = 0;
   String? _error;
   AppSettings? prefs;
+  void Function(String message)? onError;
 
   List<Map<String, dynamic>> get items => _items;
   int get unreadCount => _unreadCount;
@@ -72,7 +74,8 @@ class NotificationInboxController extends ChangeNotifier {
       }
       notifyListeners();
     } catch (e) {
-      _error = e.toString().replaceFirst('Exception: ', '');
+      _error = friendlyError(e);
+      onError?.call(_error!);
       notifyListeners();
     } finally {
       _inFlight = false;

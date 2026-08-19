@@ -111,8 +111,8 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
 
   @override
   Widget build(BuildContext context) {
+    _sampleError = AppSnackBars.drain(context, _sampleError);
     final empty = _vertices.isEmpty && !_canSolid;
-    final showError = widget.error ?? _sampleError;
     final busy = widget.loading || _sampling;
 
     return ClipRRect(
@@ -130,8 +130,6 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
                   loadingText: 'Loading mesh…',
                 ),
               )
-            else if (showError != null)
-              MeshViewerHint(showError)
             else if (empty)
               const MeshViewerHint('Upload a PLY / STL / OBJ to preview')
             else
@@ -157,7 +155,7 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
                   child: const SizedBox.expand(),
                 ),
               ),
-            if (!busy && !empty && showError == null) ...[
+            if (!busy && !empty) ...[
               Positioned(
                 top: 10,
                 right: 10,

@@ -436,7 +436,6 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
     } catch (e) {
       final msg = e.toString().replaceFirst('Exception: ', '');
       setState(() => _error = msg);
-      if (mounted) AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -453,6 +452,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
 
   @override
   Widget build(BuildContext context) {
+    _error = AppSnackBars.drain(context, _error);
     if (_loading) {
       return const ToothPageLoader(message: 'Loading scan body…');
     }
@@ -521,11 +521,6 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text(_status!, style: const TextStyle(color: AppColors.success)),
-            ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(_error!, style: const TextStyle(color: AppColors.danger)),
             ),
           const SizedBox(height: 12),
           Expanded(

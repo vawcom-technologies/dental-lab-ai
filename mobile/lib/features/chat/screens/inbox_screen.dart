@@ -92,18 +92,6 @@ class InboxScreen extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (controller.error != null)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                    child: Text(
-                      controller.error!,
-                      style: AppFonts.style(
-                        color: AppColors.danger,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
                 Expanded(
                   child: controller.loadingInbox && rows.isEmpty
                       ? const ToothPageLoader(message: 'Loading conversations…')

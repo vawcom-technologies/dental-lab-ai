@@ -67,6 +67,26 @@ class AppSnackBars {
     );
   }
 
+  /// Call from `build` so a stored error/success is toasted once, not painted
+  /// as permanent on-screen text. Assign the return value back to the field.
+  static String? drain(
+    BuildContext context,
+    String? message, {
+    bool error = true,
+  }) {
+    final text = message?.replaceFirst('Exception: ', '').trim();
+    if (text == null || text.isEmpty) return null;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!context.mounted) return;
+      if (error) {
+        AppSnackBars.error(context, text);
+      } else {
+        AppSnackBars.success(context, text);
+      }
+    });
+    return null;
+  }
+
   static AppLocalizations? _locOf(BuildContext context) {
     try {
       return AppLocalizations.of(context);

@@ -24,16 +24,12 @@ class _LoginScreenState extends State<LoginScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
   bool _loading = false;
-  String? _error;
-  String? _info;
 
   Future<void> _submit() async {
     if (_loading) return;
     AppHaptics.light();
     setState(() {
       _loading = true;
-      _error = null;
-      _info = null;
     });
     try {
       final data = await widget.api.signIn(_email.text.trim(), _password.text);
@@ -48,7 +44,6 @@ class _LoginScreenState extends State<LoginScreen> {
       );
     } catch (e) {
       final msg = friendlyError(e, AppLocalizations.of(context));
-      setState(() => _error = msg);
       if (mounted) AppSnackBars.error(context, msg, haptic: false);
       AppHaptics.warn();
     } finally {
@@ -65,21 +60,17 @@ class _LoginScreenState extends State<LoginScreen> {
     if (result is Map) {
       final message = result['message']?.toString();
       final email = result['email']?.toString();
-      setState(() {
-        _error = null;
-        _info = message;
-        if (email != null && email.isNotEmpty) {
-          _email.text = email;
-        }
-      });
+      if (email != null && email.isNotEmpty) {
+        setState(() => _email.text = email);
+      }
+      if (message != null && message.isNotEmpty) {
+        AppSnackBars.success(context, message);
+      }
       return;
     }
 
     if (result is String && result.isNotEmpty) {
-      setState(() {
-        _error = null;
-        _info = result;
-      });
+      AppSnackBars.success(context, result);
     }
   }
 
@@ -88,7 +79,6 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() {
       _email.text = 'dentist@elitedent.demo';
       _password.text = 'demo1234';
-      _error = null;
     });
   }
 
@@ -216,22 +206,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                         ),
-                        if (_error != null) ...[
-                          Text(
-                            _error!,
-                            style: const TextStyle(color: AppColors.danger),
-                          ),
-                          const SizedBox(height: 8),
-                        ],
-                        if (_info != null) ...[
-                          Text(
-                            _info!,
-                            style: const TextStyle(color: AppColors.navy),
-                          ),
-                          const SizedBox(height: 8),
-                        ],
                         const SizedBox(height: 8),
-                        
                         FilledButton(
                           onPressed: _loading ? null : _submit,
                           child: _loading

@@ -24,7 +24,6 @@ class ReportsPage extends StatefulWidget {
 
 class _ReportsPageState extends State<ReportsPage> {
   bool _loading = false;
-  String? _error;
   int _days = 30;
   Map<String, dynamic>? _summary;
 
@@ -38,7 +37,6 @@ class _ReportsPageState extends State<ReportsPage> {
     if (_loading) return;
     setState(() {
       _loading = true;
-      _error = null;
     });
     try {
       final summary = await widget.api.fetchReportsSummary(days: _days);
@@ -52,7 +50,6 @@ class _ReportsPageState extends State<ReportsPage> {
       final loc = AppLocalizations.of(context);
       final msg = friendlyError(e, loc);
       setState(() {
-        _error = msg;
         _loading = false;
       });
       AppSnackBars.error(context, msg);
@@ -218,10 +215,6 @@ class _ReportsPageState extends State<ReportsPage> {
             ),
             onChanged: _setPeriod,
           ),
-          if (_error != null) ...[
-            const SizedBox(height: 14),
-            _ErrorBanner(message: _error!, onRetry: _loading ? null : _load),
-          ],
           const SizedBox(height: 20),
           Expanded(
             child: AppSwitcher(
@@ -291,48 +284,6 @@ class _ReportsPageState extends State<ReportsPage> {
                   ),
                 ),
               ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ErrorBanner extends StatelessWidget {
-  const _ErrorBanner({required this.message, this.onRetry});
-
-  final String message;
-  final VoidCallback? onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: AppColors.dangerSoft,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.info_outline_rounded,
-              size: 18, color: AppColors.danger),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              message,
-              style: AppFonts.style(
-                color: AppColors.danger,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-          if (onRetry != null)
-            AppButtons.ghost(
-              onPressed: onRetry,
-              label: 'Retry',
-              compact: true,
             ),
         ],
       ),

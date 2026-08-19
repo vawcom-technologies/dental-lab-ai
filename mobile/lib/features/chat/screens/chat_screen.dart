@@ -139,16 +139,6 @@ class _ChatScreenState extends State<ChatScreen> {
             margin: const EdgeInsets.symmetric(horizontal: 16),
             color: Colors.white.withValues(alpha: 0.45),
           ),
-          if (controller.threadError != null)
-            Container(
-              width: double.infinity,
-              color: AppColors.dangerSoft.withValues(alpha: 0.7),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              child: Text(
-                controller.threadError!,
-                style: const TextStyle(color: AppColors.danger, fontSize: 12),
-              ),
-            ),
           Expanded(
             child: ColoredBox(
               color: _kChatCanvas,

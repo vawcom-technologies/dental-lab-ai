@@ -1147,6 +1147,8 @@ class _CameraPageState extends State<CameraPage> {
 
   @override
   Widget build(BuildContext context) {
+    _error = AppSnackBars.drain(context, _error);
+    _status = AppSnackBars.drain(context, _status, error: false);
     final canCapture = !_busy && _patient != null && _photos.length < maxPhotos;
     final portrait = AppBreakpoints.isPortrait(context);
 
@@ -1195,16 +1197,6 @@ class _CameraPageState extends State<CameraPage> {
               ),
             ],
           ),
-          if (_status != null || _error != null) ...[
-            const SizedBox(height: 10),
-            Text(
-              _error ?? _status!,
-              style: AppFonts.style(
-                color: _error != null ? AppColors.danger : AppColors.success,
-                fontSize: 14,
-              ),
-            ),
-          ],
           const SizedBox(height: 14),
           if (_loading)
             const Expanded(

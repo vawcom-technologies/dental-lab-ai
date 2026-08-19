@@ -28,7 +28,6 @@ class _SettingsPageState extends State<SettingsPage> {
   AppSettings? _settings;
   bool _loading = true;
   bool _deleting = false;
-  String? _error;
 
   @override
   void initState() {
@@ -39,7 +38,6 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _bootstrap() async {
     setState(() {
       _loading = true;
-      _error = null;
     });
     try {
       final settings = await AppSettings.load();
@@ -53,10 +51,8 @@ class _SettingsPageState extends State<SettingsPage> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
-        _loading = false;
-      });
+      setState(() => _loading = false);
+      AppSnackBars.error(context, e.toString());
     }
   }
 
@@ -66,7 +62,6 @@ class _SettingsPageState extends State<SettingsPage> {
     mutate(s);
     setState(() {
       _settings = s;
-      _error = null;
     });
     await s.save();
     if (!mounted) return;
@@ -147,9 +142,22 @@ class _SettingsPageState extends State<SettingsPage> {
     final s = _settings;
     if (s == null) {
       return Center(
-        child: Text(
-          _error ?? AppLocalizations.of(context).settingsLoadError,
-          style: const TextStyle(color: AppColors.danger),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              AppLocalizations.of(context).settingsLoadError,
+              style: AppFonts.style(
+                color: AppColors.muted,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: _bootstrap,
+              child: Text(AppLocalizations.of(context).refresh),
+            ),
+          ],
         ),
       );
     }
@@ -198,20 +206,6 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
           ),
-          if (_error != null)
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(28, 0, 28, 8),
-              sliver: SliverToBoxAdapter(
-                child: Text(
-                  _error!,
-                  style: AppFonts.style(
-                    color: AppColors.danger,
-                    fontWeight: FontWeight.w500,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            ),
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(28, 8, 28, 36),
             sliver: SliverLayoutBuilder(

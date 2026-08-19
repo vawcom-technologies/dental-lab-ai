@@ -19,7 +19,6 @@ class ForgotPasswordScreen extends StatefulWidget {
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   late final TextEditingController _email;
   bool _loading = false;
-  String? _error;
   String? _success;
 
   @override
@@ -38,17 +37,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     final loc = AppLocalizations.of(context);
     final email = _email.text.trim();
     if (email.isEmpty) {
-      setState(() {
-        _error = loc.errEmailRequired;
-        _success = null;
-      });
+      AppSnackBars.error(context, loc.errEmailRequired);
       return;
     }
     if (_loading) return;
 
     setState(() {
       _loading = true;
-      _error = null;
       _success = null;
     });
 
@@ -61,9 +56,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       AppSnackBars.success(context, msg);
     } catch (e) {
       if (!mounted) return;
-      final msg = friendlyError(e, AppLocalizations.of(context));
-      setState(() => _error = msg);
-      AppSnackBars.error(context, msg);
+      AppSnackBars.error(context, friendlyError(e, AppLocalizations.of(context)));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -112,10 +105,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       if (!_loading && _success == null) _submit();
                     },
                   ),
-                  if (_error != null) ...[
-                    const SizedBox(height: 12),
-                    Text(_error!, style: const TextStyle(color: AppColors.danger)),
-                  ],
                   const SizedBox(height: 20),
                   if (_success == null)
                     FilledButton(

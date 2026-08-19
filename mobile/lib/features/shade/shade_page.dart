@@ -1667,7 +1667,6 @@ class _ShadePageState extends State<ShadePage> {
     } catch (e) {
       final msg = e.toString().replaceFirst('Exception: ', '');
       setState(() => _error = msg);
-      if (mounted) AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -1716,7 +1715,6 @@ class _ShadePageState extends State<ShadePage> {
       if (!mounted) return;
       final msg = e.toString().replaceFirst('Exception: ', '');
       setState(() => _error = msg);
-      AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -1838,6 +1836,7 @@ class _ShadePageState extends State<ShadePage> {
 
   @override
   Widget build(BuildContext context) {
+    _error = AppSnackBars.drain(context, _error);
     if (_loading) {
       return const ToothPageLoader(message: 'Loading shade detection…');
     }
@@ -1891,15 +1890,13 @@ class _ShadePageState extends State<ShadePage> {
               ),
             ],
           ),
-          if (_error != null || _saveStatus != null) ...[
+          if (_saveStatus != null) ...[
             const SizedBox(height: 10),
             Text(
-              _error ?? _saveStatus!,
+              _saveStatus!,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: _error != null ? AppColors.danger : AppColors.success,
-              ),
+              style: const TextStyle(color: AppColors.success),
             ),
           ],
           const SizedBox(height: 14),

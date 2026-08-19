@@ -5,6 +5,7 @@ import '../layout/adaptive.dart';
 import '../navigation/app_page_routes.dart';
 import '../theme/app_theme.dart';
 import 'glass_surface.dart';
+import 'pressable.dart';
 import 'soft_pill_button.dart';
 
 export '../errors/user_facing_error.dart';
@@ -145,19 +146,60 @@ class PatientStatusMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final chip = StatusChip(statusKey: status);
-    if (!enabled || onSelected == null) return chip;
+    final key = CaseStatuses.normalize(status);
+    final style = StatusStyle.of(key);
+    final label = AppLocalizations.of(context).statusLabel(key);
+    final interactive = enabled && onSelected != null;
 
-    // GestureDetector avoids PopupMenuButton's rectangular Material/ink chrome.
+    Widget face({required bool pressed}) {
+      final bg = pressed
+          ? Color.alphaBlend(style.fg.withValues(alpha: 0.10), style.bg)
+          : style.bg;
+      return AnimatedContainer(
+        duration: AppMotion.fast,
+        curve: AppMotion.spring,
+        constraints: const BoxConstraints(minHeight: 34),
+        padding: EdgeInsets.fromLTRB(14, 8, interactive ? 10 : 14, 8),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: style.fg.withValues(alpha: 0.22)),
+          boxShadow:
+              pressed ? NeoShadows.pressed() : NeoShadows.soft(depth: 0.3),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              softWrap: false,
+              style: AppFonts.style(
+                color: style.fg,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+            if (interactive) ...[
+              const SizedBox(width: 2),
+              Icon(
+                Icons.keyboard_arrow_down_rounded,
+                size: 18,
+                color: style.fg,
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+
+    if (!interactive) return face(pressed: false);
+
     return Tooltip(
       message: 'Change status',
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () => _pickStatus(context),
-          child: chip,
-        ),
+      child: Pressable(
+        onTap: () => _pickStatus(context),
+        scale: 0.93,
+        builder: (context, pressed) => face(pressed: pressed),
       ),
     );
   }

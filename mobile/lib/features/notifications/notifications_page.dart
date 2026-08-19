@@ -202,13 +202,6 @@ class _NotificationsPageState extends State<NotificationsPage> {
                 ),
             ],
           ),
-          if (_inbox.error != null) ...[
-            const SizedBox(height: 10),
-            Text(
-              _inbox.error!,
-              style: const TextStyle(color: AppColors.danger, fontSize: 13),
-            ),
-          ],
           const SizedBox(height: 14),
           Wrap(
             spacing: 6,
