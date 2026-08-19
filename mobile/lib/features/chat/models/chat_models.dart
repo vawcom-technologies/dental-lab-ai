@@ -60,6 +60,25 @@ class UserProfile {
       };
 }
 
+class PatientMention {
+  const PatientMention({required this.id, required this.label});
+
+  final String id;
+  final String label;
+
+  factory PatientMention.fromJson(Map<String, dynamic>? json) {
+    if (json == null) {
+      return const PatientMention(id: '', label: '');
+    }
+    return PatientMention(
+      id: '${json['id'] ?? ''}',
+      label: '${json['label'] ?? ''}'.trim(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {'id': id, 'label': label};
+}
+
 class ParentMessage {
   const ParentMessage({
     required this.id,
@@ -133,6 +152,7 @@ class Message {
     this.durationSeconds,
     this.replyToMessageId,
     this.replyTo,
+    this.mentionedPatients = const [],
     this.readAt,
     this.createdAt,
     this.isPending = false,
@@ -149,6 +169,8 @@ class Message {
   final double? durationSeconds;
   final String? replyToMessageId;
   final ParentMessage? replyTo;
+  /// Structured patient @mentions (IDs) referenced in [content].
+  final List<PatientMention> mentionedPatients;
   final DateTime? readAt;
   final DateTime? createdAt;
 
@@ -204,6 +226,7 @@ class Message {
     double? durationSeconds,
     String? replyToMessageId,
     ParentMessage? replyTo,
+    List<PatientMention>? mentionedPatients,
     DateTime? readAt,
     bool clearReadAt = false,
     DateTime? createdAt,
@@ -219,6 +242,7 @@ class Message {
       durationSeconds: durationSeconds ?? this.durationSeconds,
       replyToMessageId: replyToMessageId ?? this.replyToMessageId,
       replyTo: replyTo ?? this.replyTo,
+      mentionedPatients: mentionedPatients ?? this.mentionedPatients,
       readAt: clearReadAt ? null : (readAt ?? this.readAt),
       createdAt: createdAt ?? this.createdAt,
       isPending: isPending ?? this.isPending,
@@ -241,6 +265,7 @@ class Message {
           : replyRaw is Map
               ? ParentMessage.fromJson(Map<String, dynamic>.from(replyRaw))
               : null,
+      mentionedPatients: _mentionsFromJson(json['mentioned_patients']),
       readAt: _parseDate(json['read_at']),
       createdAt: _parseDate(json['created_at']),
     );
@@ -256,6 +281,8 @@ class Message {
         'duration_seconds': durationSeconds,
         'reply_to_message_id': replyToMessageId,
         'reply_to': replyTo?.toJson(),
+        'mentioned_patients':
+            mentionedPatients.map((m) => m.toJson()).toList(),
         'read_at': readAt?.toIso8601String(),
         'created_at': createdAt?.toIso8601String(),
       };
@@ -403,6 +430,22 @@ String? _optString(dynamic value) {
   if (value == null) return null;
   final s = value.toString().trim();
   return s.isEmpty ? null : s;
+}
+
+List<PatientMention> _mentionsFromJson(dynamic value) {
+  if (value is! List) return const [];
+  final out = <PatientMention>[];
+  for (final item in value) {
+    if (item is Map<String, dynamic>) {
+      final mention = PatientMention.fromJson(item);
+      if (mention.id.isNotEmpty) out.add(mention);
+    } else if (item is Map) {
+      final mention =
+          PatientMention.fromJson(Map<String, dynamic>.from(item));
+      if (mention.id.isNotEmpty) out.add(mention);
+    }
+  }
+  return out;
 }
 
 double? _optDouble(dynamic value) {

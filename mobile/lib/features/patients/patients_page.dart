@@ -19,6 +19,7 @@ class PatientsPage extends StatefulWidget {
     this.patientSession,
     this.onNewPatient,
     this.onInboxChanged,
+    this.active = true,
   });
 
   final ApiClient api;
@@ -26,6 +27,7 @@ class PatientsPage extends StatefulWidget {
   final PatientSession? patientSession;
   final VoidCallback? onNewPatient;
   final VoidCallback? onInboxChanged;
+  final bool active;
 
   @override
   State<PatientsPage> createState() => _PatientsPageState();
@@ -34,26 +36,68 @@ class PatientsPage extends StatefulWidget {
 class _PatientsPageState extends State<PatientsPage> {
   late final PatientsController _controller;
   final _search = TextEditingController();
+  bool _openingMention = false;
 
   @override
   void initState() {
     super.initState();
     _controller = PatientsController(api: widget.api);
     _controller.onAccessMutated = widget.onInboxChanged;
+    _controller.addListener(_onControllerChanged);
+    widget.patientSession?.addListener(_onSessionChanged);
     _controller.load();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (widget.active) _consumePendingPatientDetail();
+    });
   }
 
   @override
   void didUpdateWidget(covariant PatientsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     _controller.onAccessMutated = widget.onInboxChanged;
+    if (oldWidget.patientSession != widget.patientSession) {
+      oldWidget.patientSession?.removeListener(_onSessionChanged);
+      widget.patientSession?.addListener(_onSessionChanged);
+    }
+    if (widget.active && !oldWidget.active) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _consumePendingPatientDetail();
+      });
+    }
   }
 
   @override
   void dispose() {
+    widget.patientSession?.removeListener(_onSessionChanged);
+    _controller.removeListener(_onControllerChanged);
     _search.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  void _onControllerChanged() {
+    if (widget.active) _consumePendingPatientDetail();
+  }
+
+  void _onSessionChanged() {
+    if (widget.active) _consumePendingPatientDetail();
+  }
+
+  Future<void> _consumePendingPatientDetail() async {
+    final session = widget.patientSession;
+    if (session == null || !mounted || _openingMention) return;
+    final id = session.pendingPatientDetailId?.trim();
+    if (id == null || id.isEmpty) return;
+    session.takePendingPatientDetailId();
+    _openingMention = true;
+    try {
+      await _presentPatientDetail(id);
+    } catch (e) {
+      if (mounted) _toast(_friendlyError(e), error: true);
+    } finally {
+      _openingMention = false;
+      session.clearOpeningPatientDetail();
+    }
   }
 
   void _toast(String message, {bool error = false}) {
@@ -245,34 +289,40 @@ class _PatientsPageState extends State<PatientsPage> {
     }
   }
 
+  Future<void> _presentPatientDetail(String patientId, {int tab = 0}) async {
+    final detailed = await _controller.openPatient(patientId);
+    if (detailed == null || !mounted) return;
+    // Drop the shell overlay before the sheet so the profile is tappable.
+    widget.patientSession?.clearOpeningPatientDetail();
+    await AppDialogs.modalSheet<void>(
+      context: context,
+      builder: (ctx) => _PatientDetailSheet(
+        controller: _controller,
+        patient: detailed,
+        initialTab: tab,
+        onEdit: () {
+          Navigator.pop(ctx);
+          _openEdit(detailed);
+        },
+        onShare: () {
+          Navigator.pop(ctx);
+          _openShare(detailed);
+        },
+        onDelete: () {
+          Navigator.pop(ctx);
+          _confirmDelete(detailed);
+        },
+        onToast: _toast,
+        friendlyError: _friendlyError,
+      ),
+    );
+    _controller.clearSelected();
+  }
+
   Future<void> _openDetails(GdprPatient patient, {int tab = 0}) async {
     if (_controller.loadingDetail || _controller.mutating) return;
     try {
-      final detailed = await _controller.openPatient(patient.id);
-      if (detailed == null || !mounted) return;
-      await AppDialogs.modalSheet<void>(
-        context: context,
-        builder: (ctx) => _PatientDetailSheet(
-          controller: _controller,
-          patient: detailed,
-          initialTab: tab,
-          onEdit: () {
-            Navigator.pop(ctx);
-            _openEdit(detailed);
-          },
-          onShare: () {
-            Navigator.pop(ctx);
-            _openShare(detailed);
-          },
-          onDelete: () {
-            Navigator.pop(ctx);
-            _confirmDelete(detailed);
-          },
-          onToast: _toast,
-          friendlyError: _friendlyError,
-        ),
-      );
-      _controller.clearSelected();
+      await _presentPatientDetail(patient.id, tab: tab);
     } catch (e) {
       _toast(_friendlyError(e), error: true);
     }

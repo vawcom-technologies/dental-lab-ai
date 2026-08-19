@@ -33,6 +33,9 @@ class PatientSession extends ChangeNotifier {
   bool _navigateToSmilePreview = false;
 
   bool _navigateToNewPatient = false;
+  String? _pendingPatientDetailId;
+  bool _navigateToPatients = false;
+  bool _openingPatientDetail = false;
 
   List<Map<String, dynamic>> get patients => _patients;
   Map<String, dynamic>? get selected => _selected;
@@ -113,6 +116,40 @@ class PatientSession extends ChangeNotifier {
   bool consumeNavigateToNewPatient() {
     if (!_navigateToNewPatient) return false;
     _navigateToNewPatient = false;
+    return true;
+  }
+
+  /// Chat @mention → Patients tab, then open this patient's profile.
+  void requestOpenPatientDetail(String patientId) {
+    final id = patientId.trim();
+    if (id.isEmpty) return;
+    if (_openingPatientDetail) return;
+    _pendingPatientDetailId = id;
+    _navigateToPatients = true;
+    _openingPatientDetail = true;
+    notifyListeners();
+  }
+
+  bool get openingPatientDetail => _openingPatientDetail;
+
+  String? get pendingPatientDetailId => _pendingPatientDetailId;
+
+  String? takePendingPatientDetailId() {
+    final id = _pendingPatientDetailId;
+    _pendingPatientDetailId = null;
+    return id;
+  }
+
+  void clearOpeningPatientDetail() {
+    if (!_openingPatientDetail && _pendingPatientDetailId == null) return;
+    _openingPatientDetail = false;
+    _pendingPatientDetailId = null;
+    notifyListeners();
+  }
+
+  bool consumeNavigateToPatients() {
+    if (!_navigateToPatients) return false;
+    _navigateToPatients = false;
     return true;
   }
 

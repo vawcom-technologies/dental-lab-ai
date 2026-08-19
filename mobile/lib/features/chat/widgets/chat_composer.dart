@@ -7,13 +7,18 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:record/record.dart';
 
+import '../../../core/session/patient_session.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_snackbar.dart';
 import '../../../core/widgets/tooth_loader.dart';
+import '../models/chat_models.dart';
+import '../utils/patient_mentions.dart';
 import '../utils/voice_gain.dart';
 import '../utils/voice_record_path.dart';
 import '../utils/video_duration.dart';
 import '../widgets/chat_bubble.dart';
+
+typedef SendTextFn = void Function(List<PatientMention> mentions);
 
 typedef SendMediaFn = Future<void> Function({
   Uint8List? fileBytes,
@@ -34,12 +39,14 @@ class ChatComposer extends StatefulWidget {
     required this.sending,
     required this.onSend,
     required this.onSendMedia,
+    this.patientSession,
   });
 
   final TextEditingController controller;
   final bool sending;
-  final VoidCallback onSend;
+  final SendTextFn onSend;
   final SendMediaFn onSendMedia;
+  final PatientSession? patientSession;
 
   @override
   State<ChatComposer> createState() => _ChatComposerState();
@@ -56,9 +63,34 @@ class _ChatComposerState extends State<ChatComposer> {
   double _amplitudeNorm = 0;
   DateTime? _recordStartedAt;
   AudioEncoder _activeEncoder = AudioEncoder.aacLc;
+  final List<PatientMention> _pendingMentions = [];
+  MentionDraft? _mentionDraft;
+  List<Map<String, dynamic>> _mentionHits = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onComposeChanged);
+    widget.patientSession?.addListener(_onComposeChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatComposer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onComposeChanged);
+      widget.controller.addListener(_onComposeChanged);
+    }
+    if (oldWidget.patientSession != widget.patientSession) {
+      oldWidget.patientSession?.removeListener(_onComposeChanged);
+      widget.patientSession?.addListener(_onComposeChanged);
+    }
+  }
 
   @override
   void dispose() {
+    widget.controller.removeListener(_onComposeChanged);
+    widget.patientSession?.removeListener(_onComposeChanged);
     _ampSub?.cancel();
     _tick?.cancel();
     _holdArm?.cancel();
@@ -469,6 +501,73 @@ class _ChatComposerState extends State<ChatComposer> {
     AppSnackBars.error(context, message);
   }
 
+  void _onComposeChanged() {
+    if (!mounted || _recording) return;
+    final draft = mentionDraftAt(
+      widget.controller.text,
+      widget.controller.selection.baseOffset,
+    );
+    List<Map<String, dynamic>> hits = const [];
+    if (draft != null) {
+      final session = widget.patientSession;
+      if (session != null && !session.isLoaded) {
+        unawaited(session.ensureLoaded());
+      }
+      hits = filterPatientsForMention(
+        session?.patients ?? const [],
+        draft.query,
+      );
+    }
+    final sameDraft = _mentionDraft?.atIndex == draft?.atIndex &&
+        _mentionDraft?.query == draft?.query &&
+        hits.length == _mentionHits.length;
+    if (sameDraft) return;
+    setState(() {
+      _mentionDraft = draft;
+      _mentionHits = hits;
+    });
+  }
+
+  void _insertMention(Map<String, dynamic> row) {
+    final draft = _mentionDraft;
+    if (draft == null) return;
+    final mention = PatientMention(
+      id: '${row['id'] ?? ''}',
+      label: patientRowLabel(row),
+    );
+    if (mention.id.isEmpty) return;
+    final next = insertMention(
+      text: widget.controller.text,
+      cursor: widget.controller.selection.baseOffset,
+      draft: draft,
+      mention: mention,
+    );
+    _pendingMentions.removeWhere((m) => m.id == mention.id);
+    _pendingMentions.add(mention);
+    widget.controller.value = TextEditingValue(
+      text: next.text,
+      selection: TextSelection.collapsed(offset: next.cursor),
+    );
+    setState(() {
+      _mentionDraft = null;
+      _mentionHits = const [];
+    });
+  }
+
+  void _submitText() {
+    if (widget.sending) return;
+    final mentions = mentionsPresentIn(
+      widget.controller.text,
+      _pendingMentions,
+    );
+    widget.onSend(mentions);
+    _pendingMentions.clear();
+    setState(() {
+      _mentionDraft = null;
+      _mentionHits = const [];
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -502,6 +601,13 @@ class _ChatComposerState extends State<ChatComposer> {
                   ),
                 ],
               ),
+            ),
+          if (!_recording && _mentionDraft != null)
+            _PatientMentionPicker(
+              query: _mentionDraft!.query,
+              hits: _mentionHits,
+              loading: widget.patientSession?.loading == true,
+              onSelect: _insertMention,
             ),
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
@@ -578,7 +684,7 @@ class _ChatComposerState extends State<ChatComposer> {
                                   color: Colors.white.withValues(alpha: 0.75),
                                 ),
                               ),
-                              onSubmitted: (_) => widget.onSend(),
+                              onSubmitted: (_) => _submitText(),
                             );
                           },
                         ),
@@ -623,7 +729,7 @@ class _ChatComposerState extends State<ChatComposer> {
                         background: canSend
                             ? AppColors.dentalBlue
                             : const Color(0xFFC7C7CC),
-                        onPressed: canSend ? widget.onSend : null,
+                        onPressed: canSend ? _submitText : null,
                       );
                     },
                   ),
@@ -720,6 +826,97 @@ class _LiveAmplitudeBars extends StatelessWidget {
           }),
         );
       },
+    );
+  }
+}
+
+class _PatientMentionPicker extends StatelessWidget {
+  const _PatientMentionPicker({
+    required this.query,
+    required this.hits,
+    required this.loading,
+    required this.onSelect,
+  });
+
+  final String query;
+  final List<Map<String, dynamic>> hits;
+  final bool loading;
+  final ValueChanged<Map<String, dynamic>> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Material(
+        color: Colors.white.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(14),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 220),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+                child: Text(
+                  query.isEmpty ? 'Tag a patient' : 'Patients matching “$query”',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.muted,
+                  ),
+                ),
+              ),
+              if (loading && hits.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Center(
+                    child: ToothLoadingIndicator(
+                      size: 18,
+                      compact: true,
+                      color: kToothLoaderBlue,
+                    ),
+                  ),
+                )
+              else if (hits.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(12, 4, 12, 14),
+                  child: Text(
+                    'No matching patients',
+                    style: TextStyle(fontSize: 13, color: AppColors.muted),
+                  ),
+                )
+              else
+                ListView.builder(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.only(bottom: 6),
+                  itemCount: hits.length,
+                  itemBuilder: (context, index) {
+                    final row = hits[index];
+                    final name = patientRowLabel(row);
+                    return ListTile(
+                      dense: true,
+                      leading: const Icon(
+                        CupertinoIcons.person_crop_circle,
+                        color: AppColors.dentalBlue,
+                      ),
+                      title: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.navy,
+                        ),
+                      ),
+                      onTap: () => onSelect(row),
+                    );
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

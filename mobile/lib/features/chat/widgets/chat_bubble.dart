@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/tooth_loader.dart';
 import '../models/chat_models.dart';
+import '../utils/patient_mentions.dart';
 import 'chat_video_player.dart';
 
 /// Formats voice duration as `m:ss`.
@@ -55,12 +57,14 @@ class ChatMessageBubble extends StatelessWidget {
     required this.message,
     required this.mine,
     required this.onReply,
+    this.onPatientMention,
     this.showSeenEye = false,
   });
 
   final Message message;
   final bool mine;
   final VoidCallback onReply;
+  final ValueChanged<String>? onPatientMention;
   final bool showSeenEye;
 
   bool get _mediaOnly =>
@@ -178,13 +182,18 @@ class ChatMessageBubble extends StatelessWidget {
                             ),
                           if (hasText) ...[
                             if (hasMediaBody) const SizedBox(height: 6),
-                            Text(
-                              message.content,
+                            _MentionRichText(
+                              text: message.content,
+                              mentions: message.mentionedPatients,
                               style: TextStyle(
                                 color: fg,
                                 fontSize: 16,
                                 height: 1.28,
                               ),
+                              mentionColor: mine
+                                  ? Colors.white
+                                  : AppColors.dentalBlue,
+                              onMentionTap: onPatientMention,
                             ),
                           ],
                         ],
@@ -238,6 +247,85 @@ class ChatMessageBubble extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+
+class _MentionRichText extends StatefulWidget {
+  const _MentionRichText({
+    required this.text,
+    required this.mentions,
+    required this.style,
+    required this.mentionColor,
+    this.onMentionTap,
+  });
+
+  final String text;
+  final List<PatientMention> mentions;
+  final TextStyle style;
+  final Color mentionColor;
+  final ValueChanged<String>? onMentionTap;
+
+  @override
+  State<_MentionRichText> createState() => _MentionRichTextState();
+}
+
+class _MentionRichTextState extends State<_MentionRichText> {
+  final List<TapGestureRecognizer> _recognizers = [];
+
+  @override
+  void dispose() {
+    for (final recognizer in _recognizers) {
+      recognizer.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    for (final recognizer in _recognizers) {
+      recognizer.dispose();
+    }
+    _recognizers.clear();
+
+    final spans = mentionSpansIn(widget.text, widget.mentions);
+    if (spans.isEmpty) {
+      return Text(widget.text, style: widget.style);
+    }
+
+    final children = <InlineSpan>[];
+    var cursor = 0;
+    for (final span in spans) {
+      if (span.start > cursor) {
+        children.add(TextSpan(text: widget.text.substring(cursor, span.start)));
+      }
+      final id = span.mention.id;
+      final recognizer = TapGestureRecognizer()
+        ..onTap = widget.onMentionTap == null
+            ? null
+            : () => widget.onMentionTap!(id);
+      _recognizers.add(recognizer);
+      children.add(
+        TextSpan(
+          text: widget.text.substring(span.start, span.end),
+          style: widget.style.copyWith(
+            color: widget.mentionColor,
+            fontWeight: FontWeight.w700,
+            decoration: TextDecoration.underline,
+            decorationColor: widget.mentionColor.withValues(alpha: 0.7),
+          ),
+          recognizer: recognizer,
+        ),
+      );
+      cursor = span.end;
+    }
+    if (cursor < widget.text.length) {
+      children.add(TextSpan(text: widget.text.substring(cursor)));
+    }
+
+    return Text.rich(
+      TextSpan(style: widget.style, children: children),
     );
   }
 }

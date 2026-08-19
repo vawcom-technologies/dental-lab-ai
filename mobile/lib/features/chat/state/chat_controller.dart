@@ -8,6 +8,7 @@ import '../../../core/auth/app_roles.dart';
 import '../models/chat_models.dart';
 import '../services/chat_api_service.dart';
 import '../services/chat_socket_service.dart';
+import '../utils/patient_mentions.dart';
 
 /// Central chat state: inbox, active thread, compose/reply, socket lifecycle.
 class ChatController extends ChangeNotifier {
@@ -267,7 +268,10 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void sendText(String raw) {
+  void sendText(
+    String raw, {
+    List<PatientMention> mentions = const [],
+  }) {
     final active = _active;
     final content = raw.trim();
     // Allow typing/sending text while a media upload is in flight.
@@ -281,6 +285,7 @@ class ChatController extends ChangeNotifier {
         conversationId: active.id,
         content: content,
         replyToMessageId: _replyTo?.id,
+        mentionedPatients: mentionsPresentIn(content, mentions),
       );
       _replyTo = null;
     } catch (e) {

@@ -332,6 +332,10 @@ async def _ws_send_message(user: AuthUser, data: dict[str, Any]) -> None:
     media_type = data.get("media_type")
     duration_seconds = data.get("duration_seconds")
     reply_to = data.get("reply_to_message_id")
+    mentions = cm.resolve_mentioned_patients(
+        data.get("mentioned_patients"),
+        user.id,
+    )
 
     if media_type is not None:
         media_type = str(media_type).strip() or None
@@ -393,6 +397,7 @@ async def _ws_send_message(user: AuthUser, data: dict[str, Any]) -> None:
             media_type=media_type,
             duration_seconds=duration_seconds,
             reply_to_message_id=str(reply_to) if reply_to else None,
+            mentioned_patients=mentions or None,
         )
     except HTTPException as exc:
         await chat_manager.send_json(

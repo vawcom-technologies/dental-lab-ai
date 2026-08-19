@@ -22,6 +22,13 @@ class ChatProfileOut(BaseModel):
     phone: str | None = None
 
 
+class PatientMentionOut(BaseModel):
+    """Structured @mention of a GDPR patient."""
+
+    id: str
+    label: str
+
+
 class ReplyPreviewOut(BaseModel):
     id: str
     sender_id: str
@@ -42,6 +49,7 @@ class MessageOut(BaseModel):
     duration_seconds: float | None = None
     reply_to_message_id: str | None = None
     reply_to: ReplyPreviewOut | None = None
+    mentioned_patients: list[PatientMentionOut] = Field(default_factory=list)
     read_at: datetime | None = None
     created_at: datetime | None = None
 
@@ -101,6 +109,10 @@ class WSMessageSend(BaseModel):
     duration_seconds: float | None = Field(
         default=None,
         description="Voice note or video duration in seconds",
+    )
+    mentioned_patients: list[dict] | None = Field(
+        default=None,
+        description='Optional patient @mentions: [{"id": "<uuid>", "label": "Jane Doe"}]',
     )
 
 

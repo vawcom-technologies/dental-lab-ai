@@ -57,6 +57,7 @@ class ChatSocketService {
     required String content,
     String? replyToMessageId,
     String? mediaUrl,
+    List<PatientMention> mentionedPatients = const [],
   }) {
     _send({
       'type': 'send_message',
@@ -65,6 +66,9 @@ class ChatSocketService {
       'content': content,
       if (replyToMessageId != null) 'reply_to_message_id': replyToMessageId,
       if (mediaUrl != null) 'media_url': mediaUrl,
+      if (mentionedPatients.isNotEmpty)
+        'mentioned_patients':
+            mentionedPatients.map((m) => m.toJson()).toList(),
     });
   }
 
