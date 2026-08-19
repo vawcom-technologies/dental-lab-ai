@@ -51,6 +51,18 @@ class AppLocalizations {
   String get addPatient => _t('common.addPatient');
   String get searchPatients => _t('common.searchPatients');
   String get noPatientsYet => _t('common.noPatientsYet');
+  String get errSessionExpired => _t('errors.sessionExpired');
+  String get errNoPermission => _t('errors.noPermission');
+  String get errNotFound => _t('errors.notFound');
+  String get errValidation => _t('errors.validation');
+  String get errNetwork => _t('errors.network');
+  String get errTimeout => _t('errors.timeout');
+  String get errServer => _t('errors.server');
+  String get errGeneric => _t('errors.generic');
+  String get errBadCredentials => _t('errors.badCredentials');
+  String get errTooMany => _t('errors.tooMany');
+  String get errConflict => _t('errors.conflict');
+  String get errDownloadFailed => _t('errors.downloadFailed');
 
   // ── Auth ─────────────────────────────────────────────────────────────────
   String get signIn => _t('auth.signIn');
@@ -377,6 +389,22 @@ class AppLocalizations {
     'common.offline': 'Offline',
     'common.preferenceSaved': 'Preference saved',
     'common.addPatient': 'Add patient',
+    'errors.sessionExpired': 'Your session expired. Please sign in again.',
+    'errors.noPermission': 'You do not have permission to do this.',
+    'errors.notFound': 'We could not find that. It may have been removed.',
+    'errors.validation':
+        'Please check the information you entered and try again.',
+    'errors.network':
+        'Cannot reach the server. Check your connection and try again.',
+    'errors.timeout': 'That took too long. Please try again.',
+    'errors.server': 'Something went wrong on our side. Please try again.',
+    'errors.generic': 'Something went wrong. Please try again.',
+    'errors.badCredentials':
+        'Email or password is incorrect. Please try again.',
+    'errors.tooMany': 'Too many attempts. Please wait a moment and try again.',
+    'errors.conflict':
+        'That change conflicts with existing data. Please refresh and try again.',
+    'errors.downloadFailed': 'Could not download the file. Please try again.',
     'common.searchPatients': 'Search patients…',
     'common.noPatientsYet': 'No patients yet',
     'auth.signIn': 'Sign in',
@@ -660,6 +688,27 @@ class AppLocalizations {
     'common.offline': 'Offline',
     'common.preferenceSaved': 'Einstellung gespeichert',
     'common.addPatient': 'Patient hinzufügen',
+    'errors.sessionExpired':
+        'Ihre Sitzung ist abgelaufen. Bitte erneut anmelden.',
+    'errors.noPermission': 'Sie haben keine Berechtigung für diese Aktion.',
+    'errors.notFound':
+        'Der Eintrag wurde nicht gefunden. Er wurde möglicherweise entfernt.',
+    'errors.validation':
+        'Bitte prüfen Sie Ihre Angaben und versuchen Sie es erneut.',
+    'errors.network':
+        'Server nicht erreichbar. Prüfen Sie die Verbindung und versuchen Sie es erneut.',
+    'errors.timeout': 'Das hat zu lange gedauert. Bitte erneut versuchen.',
+    'errors.server':
+        'Auf unserer Seite ist etwas schiefgelaufen. Bitte erneut versuchen.',
+    'errors.generic': 'Etwas ist schiefgelaufen. Bitte erneut versuchen.',
+    'errors.badCredentials':
+        'E-Mail oder Passwort ist falsch. Bitte erneut versuchen.',
+    'errors.tooMany':
+        'Zu viele Versuche. Bitte kurz warten und erneut versuchen.',
+    'errors.conflict':
+        'Die Änderung steht im Konflikt mit vorhandenen Daten. Bitte aktualisieren und erneut versuchen.',
+    'errors.downloadFailed':
+        'Die Datei konnte nicht heruntergeladen werden. Bitte erneut versuchen.',
     'common.searchPatients': 'Patienten suchen…',
     'common.noPatientsYet': 'Noch keine Patienten',
     'auth.signIn': 'Anmelden',

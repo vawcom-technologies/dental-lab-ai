@@ -8,25 +8,48 @@ import 'core/l10n/locale_controller.dart';
 import 'core/theme/app_theme.dart';
 import 'core/widgets/touchable.dart';
 import 'features/auth/login_screen.dart';
+import 'shell/app_shell.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final localeController = LocaleController();
   await localeController.load();
-  runApp(DentalLabApp(localeController: localeController));
+  final api = ApiClient();
+  runApp(DentalLabApp(localeController: localeController, api: api));
 }
 
 class DentalLabApp extends StatefulWidget {
-  const DentalLabApp({super.key, required this.localeController});
+  const DentalLabApp({
+    super.key,
+    required this.localeController,
+    required this.api,
+  });
 
   final LocaleController localeController;
+  final ApiClient api;
 
   @override
   State<DentalLabApp> createState() => _DentalLabAppState();
 }
 
 class _DentalLabAppState extends State<DentalLabApp> {
-  final ApiClient _api = ApiClient();
+  bool _ready = false;
+  bool _signedIn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _restore();
+  }
+
+  Future<void> _restore() async {
+    final ok = await widget.api.tryRestoreSession();
+    if (!mounted) return;
+    setState(() {
+      _signedIn = ok;
+      _ready = true;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -67,9 +90,29 @@ class _DentalLabAppState extends State<DentalLabApp> {
                 ),
               );
             },
-            home: LoginScreen(api: _api),
+            home: !_ready
+                ? const _SessionRestoreSplash()
+                : _signedIn
+                    ? AppShell(
+                        api: widget.api,
+                        dentistName: widget.api.userName ?? 'Dentist',
+                      )
+                    : LoginScreen(api: widget.api),
           );
         },
+      ),
+    );
+  }
+}
+
+class _SessionRestoreSplash extends StatelessWidget {
+  const _SessionRestoreSplash();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(
+        child: CupertinoActivityIndicator(radius: 14),
       ),
     );
   }

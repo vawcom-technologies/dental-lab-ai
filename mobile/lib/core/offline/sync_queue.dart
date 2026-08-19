@@ -2,39 +2,89 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:encrypt/encrypt.dart' as enc;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Local AES encrypted cache (chairside) before sync.
-/// Uses SharedPreferences so it works on web + iPad.
-class LocalEncryptedStore {
-  LocalEncryptedStore({String? passphrase})
-      : _key = enc.Key.fromUtf8(
-          (passphrase ?? 'elite-dent-week2-dev-key!!').padRight(32).substring(0, 32),
-        );
+import 'enc_cache_scrub.dart'
+    if (dart.library.io) 'enc_cache_scrub_io.dart' as disk;
 
-  final enc.Key _key;
-  final _iv = enc.IV.fromLength(16);
+/// Local AES cache (chairside) before sync.
+///
+/// Key material lives in [FlutterSecureStorage] (per-device). Ciphertext is
+/// stored in SharedPreferences under `enc_file_*` (and wiped on logout).
+class LocalEncryptedStore {
+  LocalEncryptedStore({FlutterSecureStorage? storage})
+      : _storage = storage ??
+            const FlutterSecureStorage(
+              aOptions: AndroidOptions(encryptedSharedPreferences: true),
+            );
+
+  static const prefsPrefix = 'enc_file_';
+  static const _deviceKeyName = 'edp.device_aes_key';
+
+  final FlutterSecureStorage _storage;
+  enc.Key? _key;
+
+  Future<enc.Key> _ensureKey() async {
+    final cached = _key;
+    if (cached != null) return cached;
+    var b64 = await _storage.read(key: _deviceKeyName);
+    if (b64 == null || b64.isEmpty) {
+      final generated = enc.Key.fromSecureRandom(32);
+      b64 = base64Encode(generated.bytes);
+      await _storage.write(key: _deviceKeyName, value: b64);
+      _key = generated;
+      return generated;
+    }
+    final key = enc.Key(base64Decode(b64));
+    _key = key;
+    return key;
+  }
 
   Future<void> save({
     required String relativePath,
     required Uint8List bytes,
   }) async {
-    final encrypted = enc.Encrypter(enc.AES(_key)).encryptBytes(bytes, iv: _iv);
+    final key = await _ensureKey();
+    final iv = enc.IV.fromSecureRandom(16);
+    final cipher = enc.Encrypter(enc.AES(key)).encryptBytes(bytes, iv: iv);
+    final packed = Uint8List(16 + cipher.bytes.length)
+      ..setAll(0, iv.bytes)
+      ..setAll(16, cipher.bytes);
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('enc_file_$relativePath', base64Encode(encrypted.bytes));
+    await prefs.setString('$prefsPrefix$relativePath', base64Encode(packed));
   }
 
   Future<Uint8List> read(String relativePath) async {
     final prefs = await SharedPreferences.getInstance();
-    final b64 = prefs.getString('enc_file_$relativePath');
+    final b64 = prefs.getString('$prefsPrefix$relativePath');
     if (b64 == null) {
       throw StateError('Missing encrypted cache: $relativePath');
     }
-    final decrypted = enc.Encrypter(enc.AES(_key)).decryptBytes(
-      enc.Encrypted(base64Decode(b64)),
-      iv: _iv,
+    final packed = base64Decode(b64);
+    if (packed.length <= 16) {
+      throw StateError('Corrupt encrypted cache: $relativePath');
+    }
+    final key = await _ensureKey();
+    final iv = enc.IV(packed.sublist(0, 16));
+    final decrypted = enc.Encrypter(enc.AES(key)).decryptBytes(
+      enc.Encrypted(packed.sublist(16)),
+      iv: iv,
     );
     return Uint8List.fromList(decrypted);
+  }
+
+  /// Drop every `enc_file_*` cache entry (prefs + leftover files on disk).
+  static Future<void> clearAll() async {
+    final prefs = await SharedPreferences.getInstance();
+    final keys = [
+      for (final key in prefs.getKeys())
+        if (key.startsWith(prefsPrefix)) key,
+    ];
+    for (final key in keys) {
+      await prefs.remove(key);
+    }
+    await disk.scrubEncFilesOnDisk(prefix: prefsPrefix);
   }
 }
 

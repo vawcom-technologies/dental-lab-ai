@@ -84,7 +84,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      final msg = e.toString().replaceFirst('Exception: ', '');
+      final msg = friendlyError(e, AppLocalizations.of(context));
       setState(() => _error = msg);
       AppSnackBars.error(context, msg);
     } finally {

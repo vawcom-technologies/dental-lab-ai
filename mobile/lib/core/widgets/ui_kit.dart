@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import 'glass_surface.dart';
 import 'soft_pill_button.dart';
 
+export '../errors/user_facing_error.dart';
 export 'app_buttons.dart';
 export 'app_dialogs.dart';
 export 'app_snackbar.dart';

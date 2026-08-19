@@ -24,18 +24,24 @@ WS_DESCRIPTION = """
 ### Connection URL
 
 ```
-ws://<host>/ws/chat?token=<SUPABASE_JWT>
+ws://<host>/ws/chat
 ```
 
 Production / TLS:
 
 ```
-wss://<host>/ws/chat?token=<SUPABASE_JWT>
+wss://<host>/ws/chat
 ```
 
-| Query param | Type | Required | Description |
-|-------------|------|----------|-------------|
-| `token` | string (JWT) | **Yes** | Supabase Auth **access_token** from `POST /api/auth/signin` |
+Authenticate with the **Sec-WebSocket-Protocol** header (never a query JWT):
+
+```
+Sec-WebSocket-Protocol: edp.jwt, <SUPABASE_JWT>
+```
+
+| Header | Type | Required | Description |
+|--------|------|----------|-------------|
+| `Sec-WebSocket-Protocol` | `edp.jwt, <JWT>` | **Yes** | Marker plus Supabase Auth **access_token** from `POST /api/auth/signin` |
 
 On auth failure the socket closes with code **4401**.
 
@@ -128,19 +134,20 @@ See schema **`WSErrorEvent`**.
 
 #### 1) Postman
 1. Sign in via `POST /api/auth/signin` and copy `access_token`.
-2. New → **WebSocket** request → URL `ws://127.0.0.1:8000/ws/chat?token=<access_token>`.
+2. New → **WebSocket** request → URL `ws://127.0.0.1:8000/ws/chat`.
+   Set protocol / subprotocol to `edp.jwt,<access_token>` (or equivalent header).
 3. Connect, then send a `send_message` / `mark_as_read` JSON frame.
 
 #### 2) Hoppscotch
 1. Open **Realtime → WebSocket**.
-2. URL: `ws://127.0.0.1:8000/ws/chat?token=<access_token>`.
+2. URL: `ws://127.0.0.1:8000/ws/chat` with protocol `edp.jwt,<access_token>`.
 3. Connect and send the same JSON payloads.
 
 #### 3) Browser console
 
 ```javascript
 const token = "<PASTE_ACCESS_TOKEN>";
-const ws = new WebSocket(`ws://127.0.0.1:8000/ws/chat?token=${encodeURIComponent(token)}`);
+const ws = new WebSocket("ws://127.0.0.1:8000/ws/chat", ["edp.jwt", token]);
 ws.onopen = () => console.log("connected");
 ws.onmessage = (e) => console.log("←", JSON.parse(e.data));
 ws.onerror = (e) => console.error(e);
@@ -223,11 +230,11 @@ def build_openapi_schema(app: FastAPI) -> dict:
             "operationId": "websocket_chat_docs",
             "parameters": [
                 {
-                    "name": "token",
-                    "in": "query",
+                    "name": "Sec-WebSocket-Protocol",
+                    "in": "header",
                     "required": True,
-                    "description": "Supabase Auth JWT access_token from sign-in.",
-                    "schema": {"type": "string", "title": "token"},
+                    "description": "Must be `edp.jwt, <access_token>` (marker plus JWT).",
+                    "schema": {"type": "string", "example": "edp.jwt, eyJhbGciOi..."},
                 }
             ],
             "responses": {
@@ -274,7 +281,7 @@ def build_openapi_schema(app: FastAPI) -> dict:
                 },
             },
             "x-websocket": True,
-            "x-websocket-url": "ws://<host>/ws/chat?token=<SUPABASE_JWT>",
+            "x-websocket-url": "ws://<host>/ws/chat",
         }
     }
 

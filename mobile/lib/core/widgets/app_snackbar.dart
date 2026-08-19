@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../errors/user_facing_error.dart';
 import '../haptics/app_haptics.dart';
+import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 
 /// App-wide floating soft-pill toasts (success / error / info).
@@ -34,9 +36,10 @@ class AppSnackBars {
     String message, {
     bool haptic = true,
   }) {
+    final loc = _locOf(context);
     _show(
       context,
-      message: message,
+      message: friendlyError(message, loc),
       background: AppColors.dangerSoft,
       foreground: AppColors.danger,
       border: AppColors.danger.withValues(alpha: 0.22),
@@ -62,6 +65,14 @@ class AppSnackBars {
       onTap: onTap,
       duration: duration,
     );
+  }
+
+  static AppLocalizations? _locOf(BuildContext context) {
+    try {
+      return AppLocalizations.of(context);
+    } catch (_) {
+      return null;
+    }
   }
 
   static void _show(

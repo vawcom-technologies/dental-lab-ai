@@ -42,5 +42,8 @@ class Settings(BaseSettings):
     # Prefer a long random secret; derived via SHA-256 → Fernet key.
     patient_notes_encryption_key: str = ""
 
+    # INFO in production — DEBUG logs request metadata only (no bodies).
+    log_level: str = "INFO"
+
 
 settings = Settings()

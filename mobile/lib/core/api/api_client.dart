@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -8,7 +9,10 @@ import '../../features/laboratories/admin_user.dart';
 import '../auth/app_roles.dart';
 import '../auth/auth_aware_http_client.dart';
 import '../auth/session_coordinator.dart';
+import '../auth/token_store.dart';
+import '../errors/user_facing_error.dart';
 import '../haptics/app_haptics.dart';
+import '../offline/sync_queue.dart';
 import 'cached_http_client.dart';
 
 class ApiClient {
@@ -18,7 +22,8 @@ class ApiClient {
       defaultValue: 'http://127.0.0.1:8000',
     ),
     http.Client? httpClient,
-  }) {
+    TokenStore? tokenStore,
+  }) : _tokens = tokenStore ?? TokenStore() {
     if (httpClient is CachedHttpClient) {
       _http = httpClient;
     } else {
@@ -27,6 +32,8 @@ class ApiClient {
             inner: http.Client(),
             onUnauthorized: () => SessionCoordinator.onUnauthorized(this),
             isAuthExempt: SessionCoordinator.isAuthExemptUri,
+            refreshAccess: tryRefreshAccess,
+            currentAccessToken: () => _token,
           );
       _http = CachedHttpClient(inner: inner);
     }
@@ -34,6 +41,9 @@ class ApiClient {
 
   final String baseUrl;
   late final http.Client _http;
+  final TokenStore _tokens;
+  final List<void Function()> _authListeners = [];
+  Future<bool>? _refreshInFlight;
 
   /// Shared client for feature services (patients, chat, …).
   http.Client get httpClient => _http;
@@ -59,6 +69,27 @@ class ApiClient {
 
   void setToken(String? token) => _token = token;
 
+  void addAuthListener(void Function() listener) {
+    _authListeners.add(listener);
+  }
+
+  void removeAuthListener(void Function() listener) {
+    _authListeners.remove(listener);
+  }
+
+  void _notifyAuthListeners() {
+    for (final listener in List<void Function()>.from(_authListeners)) {
+      listener();
+    }
+  }
+
+  Future<void> _persistTokens() async {
+    await _tokens.save(
+      accessToken: _token,
+      refreshToken: _refreshToken,
+    );
+  }
+
   String? _asString(dynamic value) {
     if (value == null) return null;
     if (value is String) return value;
@@ -77,6 +108,8 @@ class ApiClient {
     _email = data['email'] as String?;
     _clinicName = data['clinic_name'] as String?;
     _phone = data['phone'] as String?;
+    unawaited(_persistTokens());
+    _notifyAuthListeners();
   }
 
   void _applyProfile(Map<String, dynamic> data) {
@@ -98,6 +131,77 @@ class ApiClient {
     _email = null;
     _clinicName = null;
     _phone = null;
+    unawaited(_tokens.clear());
+    unawaited(LocalEncryptedStore.clearAll());
+    _notifyAuthListeners();
+  }
+
+  /// Best-effort server revoke, then local purge.
+  Future<void> signOutFull() async {
+    final refresh = _refreshToken;
+    final access = _token;
+    logout();
+    try {
+      await _http.post(
+        Uri.parse('$baseUrl/api/auth/logout'),
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          if (refresh != null && refresh.isNotEmpty) 'refresh_token': refresh,
+          if (access != null && access.isNotEmpty) 'access_token': access,
+        }),
+      );
+    } catch (_) {}
+    await _tokens.clear();
+  }
+
+  /// Cold start: rotate the stored refresh token into a live session.
+  Future<bool> tryRestoreSession() async {
+    final refresh = await _tokens.readRefresh();
+    if (refresh == null || refresh.isEmpty) return false;
+    _refreshToken = refresh;
+    _token = await _tokens.readAccess();
+    final ok = await tryRefreshAccess();
+    if (!ok) {
+      logout();
+      await _tokens.clear();
+      return false;
+    }
+    return true;
+  }
+
+  /// Rotate refresh → new access. Shared by 401 interceptor and auto-signin.
+  Future<bool> tryRefreshAccess() async {
+    final existing = _refreshInFlight;
+    if (existing != null) return existing;
+    final future = _refreshAccessOnce();
+    _refreshInFlight = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_refreshInFlight, future)) {
+        _refreshInFlight = null;
+      }
+    }
+  }
+
+  Future<bool> _refreshAccessOnce() async {
+    final refresh = _refreshToken ?? await _tokens.readRefresh();
+    if (refresh == null || refresh.isEmpty) return false;
+    try {
+      final res = await _http.post(
+        Uri.parse('$baseUrl/api/auth/refresh'),
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode({'refresh_token': refresh}),
+      );
+      if (res.statusCode != 200) return false;
+      final decoded = jsonDecode(res.body);
+      if (decoded is! Map) return false;
+      _applyAuth(Map<String, dynamic>.from(decoded));
+      await _persistTokens();
+      return _token != null && _token!.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Drop in-memory GET responses (logout / account switch).
@@ -167,6 +271,7 @@ class ApiClient {
     required String password,
     String? clinicName,
     String? phone,
+    String? role,
   }) async {
     final res = await _http.post(
       Uri.parse('$baseUrl/api/auth/signup'),
@@ -177,6 +282,7 @@ class ApiClient {
         'password': password,
         'clinic_name': clinicName,
         'phone': phone,
+        if (role != null && role.trim().isNotEmpty) 'role': role.trim(),
       }),
     );
     if (res.statusCode != 200 && res.statusCode != 201) {
@@ -197,6 +303,7 @@ class ApiClient {
     required String password,
     String? clinicName,
     String? phone,
+    String? role,
   }) =>
       signUp(
         email: email,
@@ -204,6 +311,7 @@ class ApiClient {
         password: password,
         clinicName: clinicName,
         phone: phone,
+        role: role,
       );
 
   Future<Map<String, dynamic>> forgotPassword(String email) async {
@@ -371,7 +479,7 @@ class ApiClient {
       if (patient is Map) return Map<String, dynamic>.from(patient);
       return Map<String, dynamic>.from(decoded);
     }
-    throw Exception('Invalid create patient response');
+      throw Exception('Could not create the patient. Please try again.');
   }
 
   Future<Map<String, dynamic>> updatePatient(
@@ -390,7 +498,7 @@ class ApiClient {
       AppHaptics.selection();
       return Map<String, dynamic>.from(patient);
     }
-    throw Exception('Patient payload missing');
+    throw Exception('Could not update the patient. Please try again.');
   }
 
   Future<void> deletePatient(Object id, {bool hard = false}) async {
@@ -716,7 +824,7 @@ class ApiClient {
   Map<String, dynamic> _decodeMap(String body) {
     final decoded = jsonDecode(body);
     if (decoded is Map) return Map<String, dynamic>.from(decoded);
-    throw Exception('Unexpected response');
+    throw Exception('Something went wrong. Please try again.');
   }
 
   Future<List<Map<String, dynamic>>> listPatientScans(
@@ -895,7 +1003,7 @@ class ApiClient {
       headers: _getAuthHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) {
-      throw Exception('Failed to download file (${res.statusCode})');
+      throw Exception('Could not download the file. Please try again.');
     }
     return res.bodyBytes;
   }
@@ -1467,25 +1575,36 @@ class ApiClient {
   }
 
   String _errorMessage(http.Response res) {
+    String? detail;
+    String? code;
     try {
       final body = jsonDecode(res.body);
       if (body is Map) {
-        // GDPR AgentResponse envelope
         if (body['status'] == 'ERROR') {
           final err = body['error'];
-          if (err is Map && err['message'] != null) {
-            return err['message'].toString();
+          if (err is Map) {
+            if (err['message'] != null) {
+              detail = err['message'].toString();
+            }
+            if (err['code'] != null) {
+              code = err['code'].toString();
+            }
           }
         }
-        if (body['detail'] != null) {
-          return _formatDetail(body['detail']);
+        code ??= body['code']?.toString();
+        if (detail == null && body['detail'] != null) {
+          detail = _formatDetail(body['detail']);
         }
-        if (body['message'] is String) {
-          return body['message'] as String;
+        if (detail == null && body['message'] is String) {
+          detail = body['message'] as String;
         }
       }
     } catch (_) {}
-    return 'Request failed (${res.statusCode})';
+    return friendlyHttpError(
+      statusCode: res.statusCode,
+      detail: detail,
+      code: code,
+    );
   }
 
   String _formatDetail(dynamic detail) {

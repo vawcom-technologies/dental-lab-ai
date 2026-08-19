@@ -12,7 +12,9 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255))
-    role: Mapped[str] = mapped_column(String(32), default="dentist")  # dentist | lab | admin
+    role: Mapped[str] = mapped_column(
+        String(32), default="dentist"
+    )  # dentist | laboratory | admin
     password_hash: Mapped[str] = mapped_column(String(255))
     clinic_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(64), nullable=True)

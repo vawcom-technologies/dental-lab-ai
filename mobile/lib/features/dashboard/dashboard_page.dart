@@ -179,16 +179,13 @@ class _DashboardPageState extends State<DashboardPage> {
           'status': CaseStatuses.normalize('${updated['status'] ?? next}'),
         };
       });
-      AppSnackBars.info(
+      AppSnackBars.success(
         context,
         'Status updated to ${StatusStyle.of(next).label}',
       );
     } catch (e) {
       if (!mounted) return;
-      AppSnackBars.error(
-        context,
-        e.toString().replaceFirst('Exception: ', ''),
-      );
+      AppSnackBars.error(context, friendlyError(e));
     }
   }
 

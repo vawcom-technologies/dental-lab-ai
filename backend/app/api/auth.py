@@ -4,13 +4,15 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
 from app.core.config import settings
-from app.core.security import AuthUser, get_current_user, user_from_supabase
+from app.core.security import AuthUser, canonicalize_role, get_current_user, user_from_supabase
 from app.core.supabase_client import get_supabase, get_supabase_admin
 from app.schemas import (
     AuthMessageOut,
     DeleteAccountRequest,
     ForgotPasswordRequest,
+    LogoutRequest,
     PasswordChange,
+    RefreshTokenRequest,
     SignInRequest,
     SignUpRequest,
     TokenOut,
@@ -18,7 +20,7 @@ from app.schemas import (
 )
 from app.services.account_deletion import purge_user_account
 from app.services.email import send_welcome_email
-from app.services.profiles import fetch_profile
+from app.services.profiles import fetch_profile, persist_signup_profile
 
 router = APIRouter()
 logger = logging.getLogger("app.api.auth")
@@ -101,12 +103,14 @@ def _profile_fields(user: Any) -> dict[str, Any]:
             "user_id": auth_user.id,
             "email": auth_user.email,
             "name": auth_user.name,
-            "role": auth_user.role or "clinic",
+            "role": canonicalize_role(auth_user.role),
             "clinic_name": auth_user.clinic_name,
             "phone": auth_user.phone,
         }
 
-    role = (profile.get("role") or "").strip() or auth_user.role or "clinic"
+    role = canonicalize_role(
+        (profile.get("role") or "").strip() or auth_user.role
+    )
     name = (profile.get("name") or "").strip() or auth_user.name
     email = (
         (profile.get("email") or "").strip().lower()
@@ -176,9 +180,10 @@ def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
     clinic_name = _clean_optional(payload.clinic_name)
     # Validated + normalized to +49XXXXXXXXXXX (11 digits) by SignUpRequest
     phone = payload.phone
+    role = payload.role
     metadata = {
         "name": name,
-        "role": "clinic",
+        "role": role,
         "clinic_name": clinic_name,
         "phone": phone,
     }
@@ -215,12 +220,21 @@ def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
             detail="An account with this email address already exists.",
         )
 
+    persist_signup_profile(
+        user_id=str(user.id),
+        email=email,
+        name=name,
+        role=role,
+        clinic_name=clinic_name,
+        phone=phone,
+    )
+
     # Notify only after a real, non-duplicate signup succeeded
     background_tasks.add_task(
         send_welcome_email,
         name,
         email,
-        "clinic",
+        role,
         clinic_name,
         phone,
     )
@@ -243,7 +257,7 @@ def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
 @router.post("/signin", response_model=TokenOut)
 def signin(payload: SignInRequest):
     email = str(payload.email).lower().strip()
-    logger.debug("signin start email=%s", email)
+    logger.debug("signin start")
     try:
         result = get_supabase().auth.sign_in_with_password(
             {"email": email, "password": payload.password}
@@ -271,6 +285,68 @@ def signin(payload: SignInRequest):
     token = _token_out(session, user)
     logger.debug("signin ok user_id=%s role=%s", token.user_id, token.role)
     return token
+
+
+@router.post("/login", response_model=TokenOut, include_in_schema=False)
+def login(payload: SignInRequest):
+    """Alias of /signin for clients that expect /api/auth/login."""
+    return signin(payload)
+
+
+@router.post("/refresh", response_model=TokenOut)
+def refresh_tokens(payload: RefreshTokenRequest):
+    """
+    Exchange a valid refresh_token for a new access + refresh pair.
+
+    Supabase rotates refresh tokens: the presented token is revoked and a
+    new one is issued. Replaying a used refresh_token is rejected (reuse
+    detection). Access-token lifetime is configured in the Supabase project
+    (JWT expiry); refresh lifetime is the GoTrue refresh-token TTL.
+    """
+    raw = payload.refresh_token.strip()
+    try:
+        result = get_supabase().auth.refresh_session(raw)
+    except Exception as exc:
+        logger.debug("refresh failed detail=%s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+    user = getattr(result, "user", None)
+    session = getattr(result, "session", None)
+    if user is None or session is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user_id = str(user.id)
+    profile = fetch_profile(user_id)
+    _enforce_signin_access(profile, user_id=user_id)
+    token = _token_out(session, user)
+    logger.debug("refresh ok user_id=%s role=%s", token.user_id, token.role)
+    return token
+
+
+@router.post("/logout", response_model=AuthMessageOut)
+def logout(payload: LogoutRequest):
+    """Revoke the current GoTrue session so the refresh token cannot be replayed."""
+    refresh = (payload.refresh_token or "").strip()
+    access = (payload.access_token or "").strip()
+    if refresh:
+        try:
+            client = get_supabase()
+            if access:
+                client.auth.set_session(access, refresh)
+            else:
+                client.auth.refresh_session(refresh)
+            client.auth.sign_out()
+        except Exception as exc:
+            logger.debug("logout revoke skipped detail=%s", exc)
+    return AuthMessageOut(message="Signed out")
 
 
 @router.post("/forgot-password", response_model=AuthMessageOut)

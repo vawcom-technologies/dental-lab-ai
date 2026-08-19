@@ -7,14 +7,15 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../models/chat_models.dart';
 
-/// Persistent WebSocket client for `/ws/chat?token=...`.
+/// Persistent WebSocket client for `/ws/chat`.
 ///
-/// Outbound: `send_message`, `mark_as_read`
-/// Inbound: `new_message`, `messages_read`, `error`
+/// Auth: `Sec-WebSocket-Protocol: edp.jwt, <access_token>` (never a query JWT).
 class ChatSocketService {
+  static const protocolMarker = 'edp.jwt';
   WebSocketChannel? _channel;
   StreamSubscription? _sub;
   Timer? _reconnectTimer;
+  Timer? _heartbeat;
   String? _token;
   String? _httpBaseUrl;
   bool _manualClose = false;
@@ -48,8 +49,16 @@ class ChatSocketService {
     _manualClose = true;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
+    _stopHeartbeat();
     await _tearDown();
     _connection.add(false);
+  }
+
+  /// Keep the next reconnect on a rotated access token without dropping
+  /// an already-healthy socket.
+  void updateToken(String jwtToken) {
+    if (jwtToken.isEmpty || jwtToken == _token) return;
+    _token = jwtToken;
   }
 
   void sendMessage({
@@ -92,17 +101,19 @@ class ChatSocketService {
     final wsBase = base
         .replaceFirst(RegExp(r'^https://', caseSensitive: false), 'wss://')
         .replaceFirst(RegExp(r'^http://', caseSensitive: false), 'ws://');
-    final uri = Uri.parse('$wsBase/ws/chat').replace(
-      queryParameters: {'token': token},
-    );
+    final uri = Uri.parse('$wsBase/ws/chat');
 
     try {
-      final channel = WebSocketChannel.connect(uri);
+      final channel = WebSocketChannel.connect(
+        uri,
+        protocols: [protocolMarker, token],
+      );
       _channel = channel;
       await channel.ready;
       _attempt = 0;
       _connecting = false;
       _connection.add(true);
+      _startHeartbeat();
 
       _sub = channel.stream.listen(
         _onData,
@@ -148,12 +159,28 @@ class ChatSocketService {
           final detail = '${map['detail'] ?? 'WebSocket error'}';
           _errors.add(detail);
           break;
+        case 'pong':
+        case 'ping':
+          break;
         default:
           break;
       }
     } catch (e) {
       debugPrint('ChatSocket parse error: $e');
     }
+  }
+
+  void _startHeartbeat() {
+    _heartbeat?.cancel();
+    _heartbeat = Timer.periodic(const Duration(seconds: 25), (_) {
+      if (_channel == null || _manualClose) return;
+      _send({'type': 'ping'});
+    });
+  }
+
+  void _stopHeartbeat() {
+    _heartbeat?.cancel();
+    _heartbeat = null;
   }
 
   void _send(Map<String, dynamic> payload) {
@@ -180,6 +207,7 @@ class ChatSocketService {
   }
 
   Future<void> _tearDown() async {
+    _stopHeartbeat();
     await _sub?.cancel();
     _sub = null;
     try {

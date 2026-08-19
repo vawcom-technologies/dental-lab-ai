@@ -1,7 +1,7 @@
 """Shared Pydantic schemas — split further per domain as APIs grow."""
 
 from datetime import date, datetime
-from typing import Optional
+from typing import Literal, Optional
 import re
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
@@ -60,6 +60,7 @@ class SignUpRequest(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     clinic_name: str | None = Field(default=None, max_length=255)
     phone: str = Field(min_length=1, max_length=64)
+    role: Literal["dentist", "laboratory"] = "dentist"
 
     @field_validator("phone")
     @classmethod
@@ -70,6 +71,18 @@ class SignUpRequest(BaseModel):
     @classmethod
     def _password_complexity(cls, v: str) -> str:
         return validate_password_complexity(v)
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def _signup_role(cls, v: object) -> str:
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return "dentist"
+        raw = str(v).strip().lower()
+        if raw in ("lab", "clinic"):
+            raw = "laboratory"
+        if raw not in ("dentist", "laboratory"):
+            raise ValueError("Role must be dentist or laboratory")
+        return raw
 
 
 class SignInRequest(BaseModel):
@@ -95,6 +108,17 @@ class DeleteAccountRequest(BaseModel):
     """Confirm identity before permanent self-service account deletion."""
 
     password: str = Field(min_length=1, max_length=128)
+
+
+class RefreshTokenRequest(BaseModel):
+    """Rotate Supabase refresh token → new access + refresh pair."""
+
+    refresh_token: str = Field(min_length=1, max_length=4096)
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: str | None = Field(default=None, max_length=4096)
+    access_token: str | None = Field(default=None, max_length=4096)
 
 
 class AuthMessageOut(BaseModel):

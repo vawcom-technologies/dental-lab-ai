@@ -1,4 +1,8 @@
-"""Request/response debug logging for every API call."""
+"""Request/response debug logging for every API call.
+
+Never logs response bodies, Authorization headers, or query strings that may
+contain JWTs — those are PHI / credential material.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +17,12 @@ from starlette.responses import Response
 logger = logging.getLogger("app.api")
 
 
+def _safe_path(request: Request) -> str:
+    path = request.url.path
+    # JWTs arrive as ?token= on the chat WebSocket; never echo query strings.
+    return path
+
+
 class DebugRequestMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         # BaseHTTPMiddleware can break WebSocket upgrades — skip WS paths
@@ -21,17 +31,15 @@ class DebugRequestMiddleware(BaseHTTPMiddleware):
 
         request_id = uuid.uuid4().hex[:8]
         method = request.method
-        path = request.url.path
-        query = str(request.url.query) if request.url.query else ""
+        path = _safe_path(request)
         client = request.client.host if request.client else "-"
         auth = "yes" if request.headers.get("authorization") else "no"
 
         logger.debug(
-            "[%s] → %s %s%s client=%s auth=%s",
+            "[%s] → %s %s client=%s auth=%s",
             request_id,
             method,
             path,
-            f"?{query}" if query else "",
             client,
             auth,
         )
@@ -42,7 +50,7 @@ class DebugRequestMiddleware(BaseHTTPMiddleware):
         except Exception:
             elapsed_ms = (time.perf_counter() - started) * 1000
             logger.exception(
-                "[%s] ✕ %s %s crashed after %.1fms",
+                "[%s] crashed %s %s after %.1fms",
                 request_id,
                 method,
                 path,
@@ -50,52 +58,31 @@ class DebugRequestMiddleware(BaseHTTPMiddleware):
             )
             raise
 
-        # Consume body so we can log the full response the client receives
-        body = b""
-        async for chunk in response.body_iterator:
-            body += chunk if isinstance(chunk, (bytes, bytearray)) else chunk.encode()
-
         elapsed_ms = (time.perf_counter() - started) * 1000
         content_type = response.headers.get("content-type", "")
-        try:
-            body_text = body.decode("utf-8")
-        except UnicodeDecodeError:
-            body_text = f"<binary {len(body)} bytes content_type={content_type!r}>"
-
+        length = response.headers.get("content-length", "-")
         logger.debug(
-            "[%s] ← %s %s status=%s %.1fms\nresponse_body=%s",
+            "[%s] ← %s %s status=%s %.1fms bytes=%s type=%s",
             request_id,
             method,
             path,
             response.status_code,
             elapsed_ms,
-            body_text,
-        )
-        # Also print so it always shows in the uvicorn terminal
-        print(
-            f"[DEBUG {request_id}] {method} {path} -> {response.status_code} "
-            f"({elapsed_ms:.1f}ms)\n{body_text}\n",
-            flush=True,
+            length,
+            content_type.split(";")[0] if content_type else "-",
         )
 
-        headers = {
-            k: v
-            for k, v in response.headers.items()
-            if k.lower() not in ("content-length", "content-encoding")
-        }
-        headers["X-Request-Id"] = request_id
-
-        return Response(
-            content=body,
-            status_code=response.status_code,
-            headers=headers,
-            media_type=response.media_type,
-            background=response.background,
-        )
+        response.headers["X-Request-Id"] = request_id
+        return response
 
 
-def configure_api_logging(level: int = logging.DEBUG) -> None:
-    """Ensure API debug logs show in the uvicorn console."""
+def configure_api_logging(level: int | None = None) -> None:
+    """Console logging. Default INFO so PHI is not dumped at DEBUG."""
+    from app.core.config import settings
+
+    if level is None:
+        name = (getattr(settings, "log_level", None) or "INFO").upper()
+        level = getattr(logging, name, logging.INFO)
     root = logging.getLogger("app")
     if not root.handlers:
         handler = logging.StreamHandler()

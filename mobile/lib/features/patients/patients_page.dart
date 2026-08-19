@@ -123,7 +123,7 @@ class _PatientsPageState extends State<PatientsPage> {
       }
       return e.message;
     }
-    return e.toString().replaceFirst('Exception: ', '');
+    return friendlyError(e);
   }
 
   Future<void> _syncSharedPatientSession() async {
@@ -994,7 +994,7 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
             ? (e.isForbidden
                 ? 'Permission Denied: Only the creator of this record can modify patient details.'
                 : e.message)
-            : e.toString().replaceFirst('Exception: ', '');
+            : friendlyError(e);
       });
     }
   }

@@ -47,7 +47,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     } catch (e) {
-      final msg = e.toString().replaceFirst('Exception: ', '');
+      final msg = friendlyError(e, AppLocalizations.of(context));
       setState(() => _error = msg);
       if (mounted) AppSnackBars.error(context, msg, haptic: false);
       AppHaptics.warn();

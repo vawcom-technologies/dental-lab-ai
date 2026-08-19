@@ -49,10 +49,13 @@ class _ReportsPageState extends State<ReportsPage> {
       });
     } catch (e) {
       if (!mounted) return;
+      final loc = AppLocalizations.of(context);
+      final msg = friendlyError(e, loc);
       setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
+        _error = msg;
         _loading = false;
       });
+      AppSnackBars.error(context, msg);
     }
   }
 

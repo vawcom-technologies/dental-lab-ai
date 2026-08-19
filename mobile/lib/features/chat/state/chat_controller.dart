@@ -18,7 +18,9 @@ class ChatController extends ChangeNotifier {
     ChatSocketService? socketService,
   })  : _api = api,
         _apiService = apiService ?? ChatApiService(api),
-        _socket = socketService ?? ChatSocketService();
+        _socket = socketService ?? ChatSocketService() {
+    _api.addAuthListener(_onAuthChanged);
+  }
 
   final ApiClient _api;
   final ChatApiService _apiService;
@@ -116,6 +118,15 @@ class ChatController extends ChangeNotifier {
       _error = e.toString().replaceFirst('Exception: ', '');
       notifyListeners();
     }
+  }
+
+  void _onAuthChanged() {
+    final token = _api.token;
+    if (token == null || token.isEmpty) {
+      unawaited(_socket.disconnect());
+      return;
+    }
+    _socket.updateToken(token);
   }
 
   void _bindSocketStreams() {
@@ -519,6 +530,7 @@ class ChatController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _api.removeAuthListener(_onAuthChanged);
     _msgSub?.cancel();
     _readSub?.cancel();
     _errSub?.cancel();

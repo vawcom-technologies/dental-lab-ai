@@ -51,7 +51,7 @@ def list_available_contacts(
     ),
     role: str | None = Query(
         default=None,
-        description="Optional role filter (e.g. clinic, dentist, lab, admin)",
+        description="Optional role filter (dentist, laboratory, admin; legacy clinic/lab aliases accepted)",
     ),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),

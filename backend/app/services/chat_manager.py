@@ -16,8 +16,14 @@ class ConnectionManager:
     def __init__(self) -> None:
         self._connections: dict[str, WebSocket] = {}
 
-    async def connect(self, user_id: str, websocket: WebSocket) -> None:
-        await websocket.accept()
+    async def connect(
+        self,
+        user_id: str,
+        websocket: WebSocket,
+        *,
+        subprotocol: str | None = None,
+    ) -> None:
+        await websocket.accept(subprotocol=subprotocol)
         # Replace any prior socket for this user (single device / latest wins)
         previous = self._connections.get(user_id)
         if previous is not None and previous is not websocket:
