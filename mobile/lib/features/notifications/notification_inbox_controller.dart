@@ -47,7 +47,7 @@ class NotificationInboxController extends ChangeNotifier {
     }
     _inFlight = true;
     try {
-      final rows = await api.listNotifications();
+      final rows = await api.listNotifications(forceRefresh: true);
       final fresh = <Map<String, dynamic>>[];
       for (final raw in rows) {
         final row = Map<String, dynamic>.from(raw);

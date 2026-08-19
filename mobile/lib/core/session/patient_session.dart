@@ -177,13 +177,19 @@ class PatientSession extends ChangeNotifier {
     await refresh();
   }
 
-  Future<void> refresh({bool keepSelection = true}) async {
+  Future<void> refresh({
+    bool keepSelection = true,
+    bool forceRefresh = false,
+  }) async {
     final existing = _inFlight;
     if (existing != null) {
       await existing;
       return;
     }
-    final future = _doRefresh(keepSelection: keepSelection);
+    final future = _doRefresh(
+      keepSelection: keepSelection,
+      forceRefresh: forceRefresh,
+    );
     _inFlight = future;
     try {
       await future;
@@ -192,11 +198,17 @@ class PatientSession extends ChangeNotifier {
     }
   }
 
-  Future<void> _doRefresh({required bool keepSelection}) async {
-    _loading = true;
-    _notify();
+  Future<void> _doRefresh({
+    required bool keepSelection,
+    bool forceRefresh = false,
+  }) async {
+    final showLoader = _patients.isEmpty || forceRefresh;
+    if (showLoader) {
+      _loading = true;
+      _notify();
+    }
     try {
-      final rows = await api.listPatients();
+      final rows = await api.listPatients(forceRefresh: forceRefresh);
       _patients = rows;
       _loaded = true;
       if (rows.isEmpty) {

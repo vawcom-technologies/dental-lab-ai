@@ -45,8 +45,9 @@ class InboxScreen extends StatelessWidget {
             chromeActions: [
               AppButtons.icon(
                 tooltip: loc.refresh,
-                onPressed:
-                    controller.loadingInbox ? null : controller.loadInbox,
+                onPressed: controller.loadingInbox
+                    ? null
+                    : () => controller.loadInbox(forceRefresh: true),
                 icon: Icons.refresh_rounded,
               ),
               if (onNewChat != null)
@@ -163,7 +164,8 @@ class InboxScreen extends StatelessWidget {
                             )
                           : RefreshIndicator(
                               color: AppColors.dentalBlue,
-                              onRefresh: controller.loadInbox,
+                              onRefresh: () =>
+                                  controller.loadInbox(forceRefresh: true),
                               child: ListView.builder(
                                 padding: const EdgeInsets.fromLTRB(
                                   10,

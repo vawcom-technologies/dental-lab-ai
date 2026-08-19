@@ -170,7 +170,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     }
   }
 
-  Future<void> _loadAppointments({bool soft = false}) async {
+  Future<void> _loadAppointments({bool soft = false, bool forceRefresh = false}) async {
     final gen = ++_listGen;
     if (soft) {
       setState(() => _refreshing = true);
@@ -180,6 +180,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         status: _statusFilter == 'all' ? null : _statusFilter,
         patientId: _patientFilterId,
         upcomingOnly: false,
+        forceRefresh: forceRefresh,
       );
       if (!mounted || gen != _listGen) return;
       final sorted = List<Appointment>.from(rows)
@@ -203,8 +204,11 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     setState(() => _refreshing = true);
     try {
       await Future.wait([
-        widget.patientSession.refresh(keepSelection: true),
-        _loadAppointments(),
+        widget.patientSession.refresh(
+          keepSelection: true,
+          forceRefresh: true,
+        ),
+        _loadAppointments(forceRefresh: true),
       ]);
     } finally {
       if (mounted) setState(() => _refreshing = false);

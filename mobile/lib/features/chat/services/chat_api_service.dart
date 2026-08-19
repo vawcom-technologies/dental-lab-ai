@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../core/api/api_client.dart';
+import '../../../core/api/cached_http_client.dart';
 import '../models/chat_models.dart';
 
 /// REST client for `/api/conversations*` and `/api/media/chat-upload`.
@@ -20,15 +21,22 @@ class ChatApiService {
         if (_api.token != null) 'Authorization': 'Bearer ${_api.token}',
       };
 
+  Map<String, String> _headersFor({bool forceRefresh = false}) => {
+        ..._headers,
+        if (forceRefresh) CachedHttpClient.forceRefreshHeader: '1',
+      };
+
   Map<String, String> get _authHeaders => {
         'Accept': 'application/json',
         if (_api.token != null) 'Authorization': 'Bearer ${_api.token}',
       };
 
-  Future<List<Conversation>> fetchConversations() async {
+  Future<List<Conversation>> fetchConversations({
+    bool forceRefresh = false,
+  }) async {
     final res = await _api.httpClient.get(
       Uri.parse('$_base/api/conversations'),
-      headers: _headers,
+      headers: _headersFor(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) {
       throw Exception(_errorMessage(res));
@@ -63,6 +71,7 @@ class ChatApiService {
     String? role,
     int limit = 20,
     int offset = 0,
+    bool forceRefresh = false,
   }) async {
     final params = <String, String>{
       'limit': '$limit',
@@ -71,7 +80,10 @@ class ChatApiService {
       if (role != null && role.trim().isNotEmpty) 'role': role.trim(),
     };
     final uri = Uri.parse('$_base/api/users').replace(queryParameters: params);
-    final res = await _api.httpClient.get(uri, headers: _headers);
+    final res = await _api.httpClient.get(
+      uri,
+      headers: _headersFor(forceRefresh: forceRefresh),
+    );
     if (res.statusCode != 200) {
       throw Exception(_errorMessage(res));
     }
@@ -87,6 +99,7 @@ class ChatApiService {
     String conversationId, {
     String? before,
     int limit = 50,
+    bool forceRefresh = false,
   }) async {
     final params = <String, String>{
       'limit': '$limit',
@@ -94,7 +107,10 @@ class ChatApiService {
     };
     final uri = Uri.parse('$_base/api/conversations/$conversationId/messages')
         .replace(queryParameters: params);
-    final res = await _api.httpClient.get(uri, headers: _headers);
+    final res = await _api.httpClient.get(
+      uri,
+      headers: _headersFor(forceRefresh: forceRefresh),
+    );
     if (res.statusCode != 200) {
       throw Exception(_errorMessage(res));
     }

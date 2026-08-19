@@ -131,15 +131,21 @@ class ChatController extends ChangeNotifier {
     });
   }
 
-  Future<void> loadInbox() async {
-    _loadingInbox = true;
-    _error = null;
-    notifyListeners();
+  Future<void> loadInbox({bool forceRefresh = false}) async {
+    final showLoader = _conversations.isEmpty;
+    if (showLoader) {
+      _loadingInbox = true;
+      _error = null;
+      notifyListeners();
+    }
     try {
-      final list = await _apiService.fetchConversations();
+      final list = await _apiService.fetchConversations(
+        forceRefresh: forceRefresh,
+      );
       _conversations
         ..clear()
         ..addAll(list);
+      _error = null;
     } catch (e) {
       _error = e.toString().replaceFirst('Exception: ', '');
     } finally {
@@ -169,7 +175,10 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final page = await _apiService.fetchMessages(conversation.id);
+      final page = await _apiService.fetchMessages(
+        conversation.id,
+        forceRefresh: true,
+      );
       // API returns newest-first → reverse for chronological list.
       _messages.addAll(page.items.reversed);
       _hasMore = page.hasMore;
@@ -441,7 +450,7 @@ class ChatController extends ChangeNotifier {
         _active = updated;
       }
     } else {
-      loadInbox();
+      loadInbox(forceRefresh: true);
     }
   }
 

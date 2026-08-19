@@ -365,7 +365,7 @@ class _PatientsPageState extends State<PatientsPage> {
                       tooltip: loc.refresh,
                       onPressed: _controller.loading || blocked
                           ? null
-                          : () => _controller.load(),
+                          : () => _controller.load(forceRefresh: true),
                       icon: Icons.refresh_rounded,
                       busy: _controller.loading,
                     ),

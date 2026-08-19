@@ -9,6 +9,7 @@ import '../auth/app_roles.dart';
 import '../auth/auth_aware_http_client.dart';
 import '../auth/session_coordinator.dart';
 import '../haptics/app_haptics.dart';
+import 'cached_http_client.dart';
 
 class ApiClient {
   ApiClient({
@@ -18,12 +19,17 @@ class ApiClient {
     ),
     http.Client? httpClient,
   }) {
-    _http = httpClient ??
-        AuthAwareHttpClient(
-          inner: http.Client(),
-          onUnauthorized: () => SessionCoordinator.onUnauthorized(this),
-          isAuthExempt: SessionCoordinator.isAuthExemptUri,
-        );
+    if (httpClient is CachedHttpClient) {
+      _http = httpClient;
+    } else {
+      final inner = httpClient ??
+          AuthAwareHttpClient(
+            inner: http.Client(),
+            onUnauthorized: () => SessionCoordinator.onUnauthorized(this),
+            isAuthExempt: SessionCoordinator.isAuthExemptUri,
+          );
+      _http = CachedHttpClient(inner: inner);
+    }
   }
 
   final String baseUrl;
@@ -83,6 +89,7 @@ class ApiClient {
   }
 
   void logout() {
+    clearHttpCache();
     _token = null;
     _refreshToken = null;
     _userId = null;
@@ -93,6 +100,14 @@ class ApiClient {
     _phone = null;
   }
 
+  /// Drop in-memory GET responses (logout / account switch).
+  void clearHttpCache() {
+    final client = _http;
+    if (client is CachedHttpClient) {
+      client.clearCache();
+    }
+  }
+
   Map<String, String> get _jsonHeaders => {
         'Content-Type': 'application/json',
         if (_token != null) 'Authorization': 'Bearer $_token',
@@ -100,6 +115,16 @@ class ApiClient {
 
   Map<String, String> get _authHeaders => {
         if (_token != null) 'Authorization': 'Bearer $_token',
+      };
+
+  Map<String, String> _getHeaders({bool forceRefresh = false}) => {
+        ..._jsonHeaders,
+        if (forceRefresh) CachedHttpClient.forceRefreshHeader: '1',
+      };
+
+  Map<String, String> _getAuthHeaders({bool forceRefresh = false}) => {
+        ..._authHeaders,
+        if (forceRefresh) CachedHttpClient.forceRefreshHeader: '1',
       };
 
   /// Headers for authenticated media (thumbnails, Image.network).
@@ -191,10 +216,10 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> fetchMe() async {
+  Future<Map<String, dynamic>> fetchMe({bool forceRefresh = false}) async {
     final res = await _http.get(
       Uri.parse('$baseUrl/api/auth/me'),
-      headers: _jsonHeaders,
+      headers: _getHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -265,8 +290,13 @@ class ApiClient {
     return 'Account deleted';
   }
 
-  Future<List<Map<String, dynamic>>> listPatients() async {
-    final res = await _http.get(Uri.parse('$baseUrl/api/patients'), headers: _jsonHeaders);
+  Future<List<Map<String, dynamic>>> listPatients({
+    bool forceRefresh = false,
+  }) async {
+    final res = await _http.get(
+      Uri.parse('$baseUrl/api/patients'),
+      headers: _getHeaders(forceRefresh: forceRefresh),
+    );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     final decoded = jsonDecode(res.body);
     // GDPR AgentResponse envelope
@@ -296,11 +326,17 @@ class ApiClient {
   }
 
   /// Contacts for patient access sharing (`GET /api/users`).
-  Future<List<Map<String, dynamic>>> listChatContacts({int limit = 100}) async {
+  Future<List<Map<String, dynamic>>> listChatContacts({
+    int limit = 100,
+    bool forceRefresh = false,
+  }) async {
     final uri = Uri.parse('$baseUrl/api/users').replace(
       queryParameters: {'limit': '$limit'},
     );
-    final res = await _http.get(uri, headers: _jsonHeaders);
+    final res = await _http.get(
+      uri,
+      headers: _getHeaders(forceRefresh: forceRefresh),
+    );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     final body = jsonDecode(res.body);
     if (body is! List) return const [];
@@ -399,10 +435,13 @@ class ApiClient {
     return Map<String, dynamic>.from(decoded);
   }
 
-  Future<List<Map<String, dynamic>>> listPatientPhotos(String patientId) async {
+  Future<List<Map<String, dynamic>>> listPatientPhotos(
+    String patientId, {
+    bool forceRefresh = false,
+  }) async {
     final res = await _http.get(
       Uri.parse('$baseUrl/api/patients/$patientId/photos'),
-      headers: _jsonHeaders,
+      headers: _getHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     final payload = _agentPayload(res, fallback: 'Failed to list photos');
@@ -509,8 +548,11 @@ class ApiClient {
     return _decodeMap(res.body);
   }
 
-  Future<List<Map<String, dynamic>>> listCases() async {
-    final res = await _http.get(Uri.parse('$baseUrl/api/cases'), headers: _jsonHeaders);
+  Future<List<Map<String, dynamic>>> listCases({bool forceRefresh = false}) async {
+    final res = await _http.get(
+      Uri.parse('$baseUrl/api/cases'),
+      headers: _getHeaders(forceRefresh: forceRefresh),
+    );
     // Cases router is not always mounted (GDPR cutover) — treat as empty.
     if (res.statusCode == 404) return const [];
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
@@ -547,10 +589,13 @@ class ApiClient {
     await updateCaseStatus(caseId, 'in_progress');
   }
 
-  Future<List<Map<String, dynamic>>> listPhotos(int caseId) async {
+  Future<List<Map<String, dynamic>>> listPhotos(
+    int caseId, {
+    bool forceRefresh = false,
+  }) async {
     final res = await _http.get(
       Uri.parse('$baseUrl/api/cases/$caseId/photos'),
-      headers: _jsonHeaders,
+      headers: _getHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
@@ -577,10 +622,13 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
-  Future<List<Map<String, dynamic>>> listScans(int caseId) async {
+  Future<List<Map<String, dynamic>>> listScans(
+    int caseId, {
+    bool forceRefresh = false,
+  }) async {
     final res = await _http.get(
       Uri.parse('$baseUrl/api/cases/$caseId/scans'),
-      headers: _jsonHeaders,
+      headers: _getHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
@@ -590,10 +638,11 @@ class ApiClient {
   Future<Map<String, dynamic>> fetchScanPreview({
     required int caseId,
     required int scanId,
+    bool forceRefresh = false,
   }) async {
     final res = await _http.get(
       Uri.parse('$baseUrl/api/cases/$caseId/scans/$scanId/preview'),
-      headers: _jsonHeaders,
+      headers: _getHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return jsonDecode(res.body) as Map<String, dynamic>;
@@ -603,10 +652,11 @@ class ApiClient {
   Future<({Uint8List bytes, String filename})> fetchScanFile({
     required int caseId,
     required int scanId,
+    bool forceRefresh = false,
   }) async {
     final res = await _http.get(
       Uri.parse('$baseUrl/api/cases/$caseId/scans/$scanId/file'),
-      headers: _authHeaders,
+      headers: _getAuthHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     var name = 'scan.ply';
@@ -669,10 +719,13 @@ class ApiClient {
     throw Exception('Unexpected response');
   }
 
-  Future<List<Map<String, dynamic>>> listPatientScans(String patientId) async {
+  Future<List<Map<String, dynamic>>> listPatientScans(
+    String patientId, {
+    bool forceRefresh = false,
+  }) async {
     final res = await _http.get(
       Uri.parse('$baseUrl/api/patients/$patientId/scans'),
-      headers: _jsonHeaders,
+      headers: _getHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return _decodeMapList(res.body);
@@ -712,11 +765,12 @@ class ApiClient {
   }
 
   Future<List<Map<String, dynamic>>> listShadeDetections(
-    String patientId,
-  ) async {
+    String patientId, {
+    bool forceRefresh = false,
+  }) async {
     final res = await _http.get(
       Uri.parse('$baseUrl/api/patients/$patientId/shade-detections'),
-      headers: _jsonHeaders,
+      headers: _getHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return _decodeMapList(res.body);
@@ -786,11 +840,12 @@ class ApiClient {
   }
 
   Future<List<Map<String, dynamic>>> listSmilePreviews(
-    String patientId,
-  ) async {
+    String patientId, {
+    bool forceRefresh = false,
+  }) async {
     final res = await _http.get(
       Uri.parse('$baseUrl/api/patients/$patientId/smile-previews'),
-      headers: _jsonHeaders,
+      headers: _getHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return _decodeMapList(res.body);
@@ -830,9 +885,15 @@ class ApiClient {
   }
 
   /// Download media bytes from a public (or signed) URL such as R2 `file_url`.
-  Future<Uint8List> downloadMediaBytes(String url) async {
+  Future<Uint8List> downloadMediaBytes(
+    String url, {
+    bool forceRefresh = false,
+  }) async {
     final uri = Uri.parse(resolveMediaUrl(url));
-    final res = await _http.get(uri, headers: _authHeaders);
+    final res = await _http.get(
+      uri,
+      headers: _getAuthHeaders(forceRefresh: forceRefresh),
+    );
     if (res.statusCode != 200) {
       throw Exception('Failed to download file (${res.statusCode})');
     }
@@ -971,11 +1032,17 @@ class ApiClient {
   }
 
   /// Clinic analytics. Pass [days] = 0 for all-time.
-  Future<Map<String, dynamic>> fetchReportsSummary({int days = 30}) async {
+  Future<Map<String, dynamic>> fetchReportsSummary({
+    int days = 30,
+    bool forceRefresh = false,
+  }) async {
     final uri = Uri.parse('$baseUrl/api/reports/summary').replace(
       queryParameters: {'days': '$days'},
     );
-    final res = await _http.get(uri, headers: _jsonHeaders);
+    final res = await _http.get(
+      uri,
+      headers: _getHeaders(forceRefresh: forceRefresh),
+    );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
@@ -1018,10 +1085,13 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>?> latestShape(int caseId) async {
+  Future<Map<String, dynamic>?> latestShape(
+    int caseId, {
+    bool forceRefresh = false,
+  }) async {
     final res = await _http.get(
       Uri.parse('$baseUrl/api/cases/$caseId/shape'),
-      headers: _jsonHeaders,
+      headers: _getHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     if (res.body.isEmpty || res.body == 'null') return null;
@@ -1066,10 +1136,12 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
-  Future<List<Map<String, dynamic>>> scanBodyTable() async {
+  Future<List<Map<String, dynamic>>> scanBodyTable({
+    bool forceRefresh = false,
+  }) async {
     final res = await _http.get(
       Uri.parse('$baseUrl/api/ai/scan-body/table'),
-      headers: _jsonHeaders,
+      headers: _getHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -1108,29 +1180,37 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>?> latestScanBody(int caseId) async {
+  Future<Map<String, dynamic>?> latestScanBody(
+    int caseId, {
+    bool forceRefresh = false,
+  }) async {
     final res = await _http.get(
       Uri.parse('$baseUrl/api/cases/$caseId/scan-body'),
-      headers: _jsonHeaders,
+      headers: _getHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     if (res.body.isEmpty || res.body == 'null') return null;
     return jsonDecode(res.body) as Map<String, dynamic>?;
   }
 
-  Future<List<Map<String, dynamic>>> listMessageThreads() async {
+  Future<List<Map<String, dynamic>>> listMessageThreads({
+    bool forceRefresh = false,
+  }) async {
     final res = await _http.get(
       Uri.parse('$baseUrl/api/messages/threads'),
-      headers: _jsonHeaders,
+      headers: _getHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
   }
 
-  Future<List<Map<String, dynamic>>> listMessages(int caseId) async {
+  Future<List<Map<String, dynamic>>> listMessages(
+    int caseId, {
+    bool forceRefresh = false,
+  }) async {
     final res = await _http.get(
       Uri.parse('$baseUrl/api/cases/$caseId/messages'),
-      headers: _jsonHeaders,
+      headers: _getHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
@@ -1164,6 +1244,7 @@ class ApiClient {
   Future<List<Map<String, dynamic>>> listNotifications({
     bool unreadOnly = false,
     String? type,
+    bool forceRefresh = false,
   }) async {
     final params = <String, String>{};
     if (unreadOnly) params['unread_only'] = 'true';
@@ -1171,15 +1252,18 @@ class ApiClient {
     final uri = Uri.parse('$baseUrl/api/notifications').replace(
       queryParameters: params.isEmpty ? null : params,
     );
-    final res = await _http.get(uri, headers: _jsonHeaders);
+    final res = await _http.get(
+      uri,
+      headers: _getHeaders(forceRefresh: forceRefresh),
+    );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
   }
 
-  Future<int> notificationsUnreadCount() async {
+  Future<int> notificationsUnreadCount({bool forceRefresh = false}) async {
     final res = await _http.get(
       Uri.parse('$baseUrl/api/notifications/unread-count'),
-      headers: _jsonHeaders,
+      headers: _getHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -1208,6 +1292,7 @@ class ApiClient {
     String? status,
     String? patientId,
     bool upcomingOnly = true,
+    bool forceRefresh = false,
   }) async {
     final params = <String, String>{
       'upcoming_only': '$upcomingOnly',
@@ -1221,7 +1306,10 @@ class ApiClient {
     final uri = Uri.parse('$baseUrl/api/appointments').replace(
       queryParameters: params,
     );
-    final res = await _http.get(uri, headers: _jsonHeaders);
+    final res = await _http.get(
+      uri,
+      headers: _getHeaders(forceRefresh: forceRefresh),
+    );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     final decoded = jsonDecode(res.body);
     if (decoded is! List) return const [];
@@ -1301,6 +1389,7 @@ class ApiClient {
   Future<AdminUsersListResult> listAdminUsers({
     int skip = 0,
     int limit = 50,
+    bool forceRefresh = false,
   }) async {
     final uri = Uri.parse('$baseUrl/api/admin/users').replace(
       queryParameters: {
@@ -1308,7 +1397,10 @@ class ApiClient {
         'limit': '$limit',
       },
     );
-    final res = await _http.get(uri, headers: _jsonHeaders);
+    final res = await _http.get(
+      uri,
+      headers: _getHeaders(forceRefresh: forceRefresh),
+    );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     final rawItems = data['items'];

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../core/api/api_client.dart';
+import '../../core/api/cached_http_client.dart';
 import '../../core/auth/auth_aware_http_client.dart';
 import '../../core/auth/session_coordinator.dart';
 import 'patient_models.dart';
@@ -19,6 +20,11 @@ class PatientsApiService {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
         if (_api.token != null) 'Authorization': 'Bearer ${_api.token}',
+      };
+
+  Map<String, String> _headersFor({bool forceRefresh = false}) => {
+        ..._headers,
+        if (forceRefresh) CachedHttpClient.forceRefreshHeader: '1',
       };
 
   Future<AgentEnvelope> _send(
@@ -64,9 +70,12 @@ class PatientsApiService {
     return envelope;
   }
 
-  Future<List<GdprPatient>> listPatients() async {
+  Future<List<GdprPatient>> listPatients({bool forceRefresh = false}) async {
     final env = await _send(
-      () => _api.httpClient.get(Uri.parse('$_base/api/patients'), headers: _headers),
+      () => _api.httpClient.get(
+        Uri.parse('$_base/api/patients'),
+        headers: _headersFor(forceRefresh: forceRefresh),
+      ),
     );
     final raw = env.payload['patients'];
     if (raw is! List) return const [];
@@ -76,11 +85,14 @@ class PatientsApiService {
         .toList();
   }
 
-  Future<GdprPatient> getPatient(String patientId) async {
+  Future<GdprPatient> getPatient(
+    String patientId, {
+    bool forceRefresh = false,
+  }) async {
     final env = await _send(
       () => _api.httpClient.get(
         Uri.parse('$_base/api/patients/$patientId'),
-        headers: _headers,
+        headers: _headersFor(forceRefresh: forceRefresh),
       ),
     );
     final raw = env.payload['patient'];
@@ -203,11 +215,13 @@ class PatientsApiService {
     );
   }
 
-  Future<List<PendingAccessRequest>> listPendingAccessRequests() async {
+  Future<List<PendingAccessRequest>> listPendingAccessRequests({
+    bool forceRefresh = false,
+  }) async {
     final env = await _send(
       () => _api.httpClient.get(
         Uri.parse('$_base/api/patients/access/pending'),
-        headers: _headers,
+        headers: _headersFor(forceRefresh: forceRefresh),
       ),
     );
     final raw = env.payload['pending_requests'];
@@ -218,11 +232,14 @@ class PatientsApiService {
         .toList();
   }
 
-  Future<List<EligibleAccessUser>> listEligibleUsers(String patientId) async {
+  Future<List<EligibleAccessUser>> listEligibleUsers(
+    String patientId, {
+    bool forceRefresh = false,
+  }) async {
     final env = await _send(
       () => _api.httpClient.get(
         Uri.parse('$_base/api/patients/$patientId/eligible-users'),
-        headers: _headers,
+        headers: _headersFor(forceRefresh: forceRefresh),
       ),
     );
     final raw = env.payload['eligible_users'];
@@ -255,11 +272,14 @@ class PatientsApiService {
     return PatientAccessEntry.fromJson(Map<String, dynamic>.from(raw));
   }
 
-  Future<PatientAccessSnapshot> listPatientAccess(String patientId) async {
+  Future<PatientAccessSnapshot> listPatientAccess(
+    String patientId, {
+    bool forceRefresh = false,
+  }) async {
     final env = await _send(
       () => _api.httpClient.get(
         Uri.parse('$_base/api/patients/$patientId/access'),
-        headers: _headers,
+        headers: _headersFor(forceRefresh: forceRefresh),
       ),
     );
     final ownerRaw = env.payload['owner'];
@@ -288,11 +308,14 @@ class PatientsApiService {
     );
   }
 
-  Future<List<PatientNote>> listNotes(String patientId) async {
+  Future<List<PatientNote>> listNotes(
+    String patientId, {
+    bool forceRefresh = false,
+  }) async {
     final env = await _send(
       () => _api.httpClient.get(
         Uri.parse('$_base/api/patients/$patientId/notes'),
-        headers: _headers,
+        headers: _headersFor(forceRefresh: forceRefresh),
       ),
     );
     final raw = env.payload['notes'];

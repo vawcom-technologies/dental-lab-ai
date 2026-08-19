@@ -34,6 +34,7 @@ class SessionCoordinator {
     if (api.token == null || api.token!.isEmpty) return;
 
     _handling = true;
+    api.clearHttpCache();
     api.logout();
 
     void navigate() {
@@ -71,6 +72,7 @@ class SessionCoordinator {
 
   /// Manual sign-out from Settings / Profile (same stack reset).
   static void signOut(ApiClient api, {String? message}) {
+    api.clearHttpCache();
     api.logout();
     final nav = navigatorKey.currentState;
     if (nav == null) return;
