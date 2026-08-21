@@ -226,58 +226,66 @@ class _NotificationsPageState extends State<NotificationsPage> {
               child: KeyedSubtree(
                 key: ValueKey('$_filter-${visible.length}'),
                 child: visible.isEmpty
-                    ? Center(
-                        child: SectionCard(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 28,
-                            vertical: 22,
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.notifications_off_outlined,
-                                size: 28,
-                                color: AppColors.muted.withValues(alpha: 0.7),
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                loc.notificationsEmpty,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.muted,
-                                  fontSize: 13.5,
+                    ? IpadRefresh.fill(
+                        onRefresh: () => _inbox.refresh(announce: false),
+                        child: Center(
+                          child: SectionCard(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 28,
+                              vertical: 22,
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.notifications_off_outlined,
+                                  size: 28,
+                                  color: AppColors.muted.withValues(alpha: 0.7),
                                 ),
-                              ),
-                            ],
+                                const SizedBox(height: 10),
+                                Text(
+                                  loc.notificationsEmpty,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.muted,
+                                    fontSize: 13.5,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       )
                     : SectionCard(
                         padding: EdgeInsets.zero,
                         depth: 0.9,
-                        child: ListView.separated(
-                          itemCount: visible.length,
-                          separatorBuilder: (_, _) => Divider(
-                            height: 1,
-                            indent: 56,
-                            endIndent: 14,
-                            color: AppColors.border.withValues(alpha: 0.55),
-                          ),
-                          itemBuilder: (context, i) {
-                            final n = visible[i];
-                            return _NotificationTile(
-                              item: n,
-                              marking: _markingId == '${n['id']}',
-                              enabled: !_markingAll && _markingId == null,
-                              onTap: () => _open(n),
-                              onMarkRead: () {
-                                AppHaptics.selection();
-                                _markOne(n);
+                        child: IpadRefresh(
+                          onRefresh: () => _inbox.refresh(announce: false),
+                          slivers: [
+                            SliverList.separated(
+                              itemCount: visible.length,
+                              separatorBuilder: (_, _) => Divider(
+                                height: 1,
+                                indent: 56,
+                                endIndent: 14,
+                                color: AppColors.border.withValues(alpha: 0.55),
+                              ),
+                              itemBuilder: (context, i) {
+                                final n = visible[i];
+                                return _NotificationTile(
+                                  item: n,
+                                  marking: _markingId == '${n['id']}',
+                                  enabled: !_markingAll && _markingId == null,
+                                  onTap: () => _open(n),
+                                  onMarkRead: () {
+                                    AppHaptics.selection();
+                                    _markOne(n);
+                                  },
+                                );
                               },
-                            );
-                          },
+                            ),
+                          ],
                         ),
                       ),
                     ),

@@ -292,11 +292,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                   ),
                   child: _loading
                       ? const ToothPageLoader(message: 'Loading appointments…')
-                      : RefreshIndicator(
-                          color: AppColors.dentalBlue,
-                          onRefresh: _refreshAll,
-                          child: _buildBody(),
-                        ),
+                      : _buildBody(),
                 ),
               ),
             ),
@@ -398,23 +394,19 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 
   Widget _buildBody() {
     if (_items.isEmpty) {
-      return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        children: [
-          SizedBox(
-            height: mathMaxEmptyHeight(context),
-            child: _AppointmentsEmpty(
-              filtered: _statusFilter != 'all' || _patientFilterId != null,
-              onBook: () => _openBookModal(),
-            ),
-          ),
-        ],
+      return IpadRefresh.fill(
+        onRefresh: _refreshAll,
+        child: _AppointmentsEmpty(
+          filtered: _statusFilter != 'all' || _patientFilterId != null,
+          onBook: () => _openBookModal(),
+        ),
       );
     }
 
     final list = _AppointmentsAgenda(
       groups: _groups,
       selectedId: _selectedId,
+      onRefresh: _refreshAll,
       onSelect: (item) {
         AppHaptics.selection();
         setState(() => _selectedId = item.id);
@@ -455,11 +447,6 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         );
       },
     );
-  }
-
-  double mathMaxEmptyHeight(BuildContext context) {
-    final h = MediaQuery.sizeOf(context).height;
-    return (h * 0.55).clamp(320.0, 560.0);
   }
 }
 
@@ -791,18 +778,23 @@ class _AppointmentsAgenda extends StatelessWidget {
     required this.selectedId,
     required this.onSelect,
     required this.onEdit,
+    required this.onRefresh,
   });
 
   final List<_DayGroup> groups;
   final String? selectedId;
   final ValueChanged<Appointment> onSelect;
   final ValueChanged<Appointment> onEdit;
+  final Future<void> Function() onRefresh;
 
   @override
   Widget build(BuildContext context) {
     return CustomScrollView(
-      physics: const AlwaysScrollableScrollPhysics(),
+      physics: const BouncingScrollPhysics(
+        parent: AlwaysScrollableScrollPhysics(),
+      ),
       slivers: [
+        CupertinoSliverRefreshControl(onRefresh: onRefresh),
         for (final group in groups) ...[
           SliverToBoxAdapter(
             child: Padding(

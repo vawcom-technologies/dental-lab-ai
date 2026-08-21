@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0B1F3A" />
+  <meta name="robots" content="index,follow" />
+  <meta id="meta-desc" name="description" content="Elite Dent Support — Hilfe für Zahnarztpraxen und Dentallabore. iPad-App, kein Patientenportal." />
+  <title>Support — Elite Dent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --navy: #0B1F3A;
+      --accent: #2F6FED;
+      --surface: #F5F7FB;
+      --text: #0B1F3A;
+      --muted: #6B7A90;
+      --card: #FFFFFF;
+      --silver: #A8B0BD;
+      --success: #1F8A5B;
+      --warning: #C47B16;
+      --danger: #C0392B;
+      --line: rgba(11, 31, 58, 0.10);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: var(--surface);
+      line-height: 1.65;
+      font-size: 17px;
+      -webkit-font-smoothing: antialiased;
+    }
+    .skip {
+      position: absolute; left: -999px; top: 8px;
+      background: var(--navy); color: #fff; padding: 8px 12px; z-index: 20;
+    }
+    .skip:focus { left: 8px; }
+    header {
+      background: var(--navy);
+      color: #fff;
+      position: sticky; top: 0; z-index: 10;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .header-inner {
+      max-width: 880px; margin: 0 auto;
+      padding: 14px 22px;
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    }
+    .wordmark {
+      font-family: "Source Serif 4", Georgia, serif;
+      font-weight: 700; font-size: 1.25rem; letter-spacing: -0.02em;
+      color: #fff; text-decoration: none;
+    }
+    .wordmark span { font-weight: 600; opacity: 0.72; padding-left: 8px; font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; font-family: "DM Sans", sans-serif; }
+    .header-tools { display: flex; align-items: center; gap: 14px; }
+    .lang {
+      display: inline-flex; border: 1px solid rgba(255,255,255,0.28); border-radius: 4px; overflow: hidden;
+    }
+    .lang button {
+      background: transparent; color: rgba(255,255,255,0.72); border: 0;
+      font: 600 12px/1 "DM Sans", sans-serif; letter-spacing: 0.06em;
+      padding: 6px 10px; cursor: pointer;
+    }
+    .lang button[aria-pressed="true"] { background: #fff; color: var(--navy); }
+    main { max-width: 880px; margin: 0 auto; padding: 36px 22px 64px; }
+    .kicker {
+      font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 8px;
+    }
+    h1 { font-size: 2rem; font-weight: 700; letter-spacing: -0.03em; line-height: 1.2; margin-bottom: 12px; }
+    .lede { color: var(--muted); font-size: 1.05rem; max-width: 46rem; margin-bottom: 28px; }
+    h2 {
+      font-size: 1.15rem; font-weight: 700; letter-spacing: -0.02em;
+      margin: 36px 0 12px; padding-top: 8px;
+      border-top: 1px solid var(--line);
+    }
+    h2:first-of-type { border-top: 0; padding-top: 0; }
+    p { margin: 0 0 12px; }
+    ul, ol { margin: 0 0 14px 1.2rem; }
+    li { margin: 0 0 6px; }
+    a { color: var(--accent); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 20px 22px;
+      margin: 0 0 16px;
+    }
+    .callout {
+      border-left: 3px solid var(--accent);
+      background: #fff;
+      padding: 14px 18px;
+      margin: 0 0 16px;
+    }
+    .callout.warn { border-left-color: var(--warning); }
+    .callout.review { border-left-color: var(--accent); background: #EEF3FC; }
+    .mailto {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--accent); color: #fff; text-decoration: none;
+      font-weight: 600; font-size: 0.95rem;
+      padding: 11px 18px; border-radius: 6px; margin: 8px 0 14px;
+    }
+    .mailto:hover { filter: brightness(1.05); }
+    .ph {
+      font-style: italic;
+      background: #EEF2F8;
+      border: 1px dashed var(--silver);
+      border-radius: 3px;
+      padding: 0 0.35em;
+    }
+    details {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      margin: 0 0 8px;
+      padding: 0 16px;
+    }
+    summary {
+      cursor: pointer; font-weight: 600; padding: 12px 0;
+      list-style: none;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: "+"; float: right; color: var(--muted); font-weight: 500; }
+    details[open] summary::after { content: "–"; }
+    details p, details ul { padding-bottom: 12px; }
+    .meta { color: var(--muted); font-size: 0.88rem; }
+    footer {
+      background: var(--navy); color: rgba(255,255,255,0.78);
+      padding: 28px 22px 36px; font-size: 0.9rem;
+    }
+    .footer-inner { max-width: 880px; margin: 0 auto; }
+    footer a { color: #fff; text-decoration: none; border-bottom: 1px solid rgba(255,255,255,0.35); }
+    footer nav { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-bottom: 14px; }
+    footer .copy { color: rgba(255,255,255,0.55); margin-top: 8px; }
+    .lang-block { display: none; }
+    html[lang="de"] .lang-block[data-lang="de"],
+    html[lang="en"] .lang-block[data-lang="en"] { display: block; }
+    .i18n-en { display: none; }
+    html[lang="en"] .i18n-de { display: none; }
+    html[lang="en"] .i18n-en { display: inline; }
+    @media (max-width: 560px) {
+      h1 { font-size: 1.55rem; }
+      body { font-size: 16px; }
+      .header-inner { padding: 12px 16px; }
+      main { padding: 24px 16px 48px; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main"><span class="i18n-de">Zum Inhalt</span><span class="i18n-en">Skip to content</span></a>
+  <header>
+    <div class="header-inner">
+      <a class="wordmark" href="./">Elite Dent <span>Support</span></a>
+      <div class="header-tools">
+        <div class="lang" role="group" aria-label="Language">
+          <button type="button" data-set-lang="de" aria-pressed="true">DE</button>
+          <button type="button" data-set-lang="en" aria-pressed="false">EN</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <article class="lang-block" data-lang="de">
+      <p class="kicker">Elite Dent · iPad · Version 1.0.0</p>
+      <h1>Support</h1>
+      <p class="lede">Elite Dent ist eine iPad-App für Zahnarztpraxen und Dentallabore: Patienten- und Fallakten, Qualitätsprüfung intraoraler Scans (PLY), Zahnfarbe (VITA Classical A1–D4 mit verpflichtender manueller Bestätigung), Formvorschau, Chairside-Fotos, Chat zwischen Praxis und Labor (Text, Sprache, Video) sowie DATEV/XML-Export.</p>
+
+      <div class="card">
+        <p class="meta" style="margin-bottom:8px;">Weitere öffentliche Seiten</p>
+        <p><a href="../privacy/">Datenschutzerklärung</a> · <a href="../impressum/">Impressum</a></p>
+      </div>
+
+      <h2>Für wen</h2>
+      <ul>
+        <li>Zugelassene Zahnärztinnen und Zahnärzte sowie Laborpersonal mit einem Elite-Dent-Konto</li>
+        <li>Nicht für Patientinnen und Patienten</li>
+        <li>Nicht für den medizinischen Notfall</li>
+        <li>Kein diagnostisches Medizinprodukt</li>
+      </ul>
+      <div class="callout warn">
+        <p><strong>Hinweis zur klinischen Nutzung.</strong> KI-Hinweise zu Zahnfarbe, Scanqualität und Scanbody-Durchmesser sind ausschließlich assistierend. Die behandelnde Person muss jedes Ergebnis selbst prüfen und bestätigen, bevor es für die Versorgung verwendet wird.</p>
+      </div>
+
+      <h2 id="kontakt">Hilfe erhalten</h2>
+      <p>Schreiben Sie uns. Das ist der vorgesehene Weg für App-Review, Praxen und Labore.</p>
+      <p>
+        <a class="mailto" href="mailto:support@elitedent.example">support@elitedent.example</a>
+      </p>
+      <p class="meta">Platzhalter-Adresse — vor der Einreichung durch das echte Postfach ersetzen.</p>
+      <ul>
+        <li>Antwortzeit: in der Regel innerhalb von <strong>2 Werktagen (MEZ/MESZ)</strong></li>
+        <li>Bitte angeben: iPad-Modell und iPadOS-Version, App-Version (Einstellungen → Über), Konto-E-Mail, Schritte zum Nachvollziehen</li>
+        <li><strong>Nicht</strong> in die Nachricht kopieren: Patientennamen, Fotos, Scans, Versicherungsdaten oder sonstige Gesundheitsdaten</li>
+      </ul>
+
+      <h2>Häufige Fragen</h2>
+
+      <details>
+        <summary>Anmeldung nicht möglich / Passwort vergessen</summary>
+        <p>Nutzen Sie in der App <strong>Anmelden → Passwort vergessen</strong>. Es wird ein Link an die Konto-E-Mail geschickt. Es gibt keine öffentliche Registrierung — Konten richtet Elite Dent bzw. die Praxis ein.</p>
+        <p>Wenn Sie bereits eine E-Mail mit Reset-Link haben, öffnen Sie ihn auf dem iPad. Die zugehörige Seite liegt unter <a href="../forgot-password/">/forgot-password</a> (sofern auf derselben Domain gehostet).</p>
+      </details>
+      <details>
+        <summary>Die App erreicht den Laborserver nicht</summary>
+        <p>In der Produktion muss die API unter einer <strong>öffentlichen HTTPS-Adresse</strong> erreichbar sein. <code>127.0.0.1</code> oder eine lokale Entwicklungs-URL funktioniert nur auf dem Rechner, auf dem der Server läuft — auf einem physischen iPad ist das das iPad selbst, nicht Ihr Mac.</p>
+        <p>Prüfen Sie WLAN/VPN, die Basis-URL unter Einstellungen, und ob das Labor die API öffentlich und mit gültigem Zertifikat bereitstellt.</p>
+      </details>
+      <details>
+        <summary>Kamera, Mikrofon oder Mediathek verweigert</summary>
+        <p>Elite Dent fragt nur nach, wenn Sie Fotos, Sprache oder Video tatsächlich verwenden. Wurde die Erlaubnis abgelehnt: iPad <strong>Einstellungen → Elite Dent</strong> und Kamera, Mikrofon bzw. Fotos erlauben.</p>
+      </details>
+      <details>
+        <summary>Offline / Sync-Warteschlange</summary>
+        <p>Die App ist offline-fähig. Chairside-Aufnahmen können lokal zwischengespeichert und in eine Warteschlange gestellt werden. Sobald das iPad wieder Netz hat, wird synchronisiert. Offene Einträge sehen Sie in den Einstellungen; dort können Sie den Sync auch manuell anstoßen.</p>
+      </details>
+      <details>
+        <summary>Die Farb-KI weicht von meiner Einschätzung ab</summary>
+        <p>Der VITA-Classical-Vorschlag (A1–D4) ist nur ein Hinweis. Eine <strong>manuelle Bestätigung bzw. Überschreibung ist verpflichtend</strong>. Die App darf die KI-Farbe nicht ungeprüft übernehmen.</p>
+      </details>
+      <details>
+        <summary>Scanqualität als körnig oder verzerrt markiert</summary>
+        <p>Bitte den PLY-Scan erneut aufnehmen, <strong>bevor die Patientin oder der Patient die Praxis verlässt</strong>. Die Kennzeichnung ist assistierend — die klinische Entscheidung zum Rescan liegt bei Ihnen.</p>
+      </details>
+      <details>
+        <summary>Konto löschen</summary>
+        <p>In der App: <strong>Einstellungen → Konto löschen</strong>. Sie bestätigen mit <code>DELETE</code> und dem Kontopasswort. Damit wird das Benutzerkonto und die damit verbundenen App-Daten gelöscht. Patientenakten der Praxis können gesondert betroffen sein — siehe Datenschutz und den Abschnitt zu Datenauskünften unten.</p>
+      </details>
+
+      <h2>Konto- und Datenanfragen (DSGVO)</h2>
+      <ul>
+        <li><strong>Konto löschen:</strong> in der App unter Einstellungen (vollständige Kontolöschung ist vorhanden).</li>
+        <li><strong>Auskunft, Export oder Löschung von Patientendaten:</strong> E-Mail an <a href="mailto:support@elitedent.example">support@elitedent.example</a>. Verantwortliche Stelle für den Betrieb der App ist Elite Dent, Deutschland. Die Praxis gibt Patientendaten ein; die genaue Rollenverteilung (Verantwortliche / Auftragsverarbeiterin) steht in der Datenschutzerklärung und im (noch zu finalisierenden) Auftragsverarbeitungsvertrag.</li>
+        <li><strong>Demokonten</strong> (z. B. <code>dentist@elitedent.demo</code>) sind keine Produktivkonten und enthalten keine echten Patientendaten.</li>
+      </ul>
+
+      <h2>Hinweis für die App-Store-Prüfung</h2>
+      <div class="callout review">
+        <p>Elite Dent ist eine B2B-Praxis-App. Es gibt <strong>keine öffentliche Registrierung</strong>. Apple Review: Wenn Sie einen Demo-Zugang benötigen, schreiben Sie an <a href="mailto:support@elitedent.example">support@elitedent.example</a>. Wir stellen Prüferzugangsdaten bereit. Demo-Passwörter stehen nicht auf dieser Seite.</p>
+      </div>
+
+      <p class="meta">Bundle-ID <code>com.elitedent.dentalLabAi</code> · iPad · kein Verbraucherprodukt.</p>
+    </article>
+
+    <article class="lang-block" data-lang="en">
+      <p class="kicker">Elite Dent · iPad · Version 1.0.0</p>
+      <h1>Support</h1>
+      <p class="lede">Elite Dent is an iPad app for dental clinics and labs: patient and case records, intraoral scan quality checks (PLY), tooth shade (VITA Classical A1–D4 with mandatory manual override), shape preview, chairside photos, dentist↔lab chat (text, voice, video), and DATEV/XML export.</p>
+
+      <div class="card">
+        <p class="meta" style="margin-bottom:8px;">Also on this site</p>
+        <p><a href="../privacy/">Privacy Policy</a> · <a href="../impressum/">Impressum (legal notice)</a></p>
+      </div>
+
+      <h2>Who it’s for</h2>
+      <ul>
+        <li>Licensed dental professionals and lab staff with an Elite Dent account</li>
+        <li>Not for patients</li>
+        <li>Not for emergency medical use</li>
+        <li>Not a diagnostic medical device</li>
+      </ul>
+      <div class="callout warn">
+        <p><strong>Clinical use.</strong> AI shade, scan-quality, and scan-body diameter hints are assistive only. The clinician must review and confirm every result before it is used in treatment.</p>
+      </div>
+
+      <h2 id="contact">How to get help</h2>
+      <p>Email is the support channel App Review and clinics should use.</p>
+      <p>
+        <a class="mailto" href="mailto:support@elitedent.example">support@elitedent.example</a>
+      </p>
+      <p class="meta">Placeholder address — replace with the live inbox before App Store submission.</p>
+      <ul>
+        <li>Response time: we typically reply within <strong>2 business days (CET)</strong></li>
+        <li>Please include: iPad model and iPadOS version, app version (Settings → About), account email, and steps to reproduce</li>
+        <li><strong>Never</strong> paste patient names, photos, scans, insurance numbers, or other health data in the ticket</li>
+      </ul>
+
+      <h2>Common issues</h2>
+
+      <details>
+        <summary>Can’t sign in / forgot password</summary>
+        <p>Use in-app <strong>Sign in → Forgot password</strong>. A reset link is sent to the account email. There is no public sign-up — Elite Dent or the clinic provisions accounts.</p>
+        <p>If you already have a reset email, open the link on the iPad. The landing page lives at <a href="../forgot-password/">/forgot-password</a> when hosted on the same domain.</p>
+      </details>
+      <details>
+        <summary>App can’t reach the lab server</summary>
+        <p>In production the API must be a <strong>public HTTPS URL</strong>. <code>127.0.0.1</code> or a local dev URL only works on the machine running the server — on a physical iPad that address is the iPad itself, not your Mac.</p>
+        <p>Check Wi-Fi/VPN, the base URL in Settings, and that the lab’s API is publicly reachable with a valid certificate.</p>
+      </details>
+      <details>
+        <summary>Camera, microphone, or photo library denied</summary>
+        <p>Elite Dent asks for these only when you use photos, voice, or video. If permission was denied: iPad <strong>Settings → Elite Dent</strong> and enable Camera, Microphone, and/or Photos.</p>
+      </details>
+      <details>
+        <summary>Offline / sync queue</summary>
+        <p>The app is offline-capable. Chairside captures can be stored locally and queued. They sync when the iPad is back on a network. Pending items appear in Settings; you can also trigger sync there.</p>
+      </details>
+      <details>
+        <summary>Shade AI doesn’t match my judgement</summary>
+        <p>The VITA Classical (A1–D4) suggestion is a hint only. A <strong>manual override / confirmation is required</strong>. The app must not apply the AI shade without the clinician’s confirmation.</p>
+      </details>
+      <details>
+        <summary>Scan quality flagged grainy or distorted</summary>
+        <p>Recapture the PLY scan <strong>before the patient leaves</strong>. The flag is assistive — the clinical decision to rescan is yours.</p>
+      </details>
+      <details>
+        <summary>How to delete your account</summary>
+        <p>In the app: <strong>Settings → Delete account</strong>. You confirm by typing <code>DELETE</code> and entering the account password. That removes the user account and associated app data. Clinic patient records may be handled separately — see the Privacy Policy and data-request section below.</p>
+      </details>
+
+      <h2>Account and data requests (GDPR / App Store 5.1.1)</h2>
+      <ul>
+        <li><strong>Delete account:</strong> in-app Settings (full account deletion is already implemented).</li>
+        <li><strong>Access, export, or deletion of patient data:</strong> email <a href="mailto:support@elitedent.example">support@elitedent.example</a>. The controller for operating the app is Elite Dent, Germany. Clinics enter patient data; roles (controller / processor) are described in the Privacy Policy and in the data-processing agreement, which is not yet finalized.</li>
+        <li><strong>Demo accounts</strong> (for example <code>dentist@elitedent.demo</code>) are not production and must not contain real patient data.</li>
+      </ul>
+
+      <h2>App Store reviewer note</h2>
+      <div class="callout review">
+        <p>This is a B2B clinic app. There is <strong>no public sign-up</strong>. Apple Review: if you need a demo login, email <a href="mailto:support@elitedent.example">support@elitedent.example</a> and we will provide credentials. Demo passwords are not published on this page.</p>
+      </div>
+
+      <p class="meta">Bundle ID <code>com.elitedent.dentalLabAi</code> · iPad · not a consumer product.</p>
+    </article>
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+      <nav aria-label="Footer">
+        <a href="./">Support</a>
+        <a href="../privacy/"><span class="i18n-de">Datenschutz</span><span class="i18n-en">Privacy Policy</span></a>
+        <a href="../impressum/">Impressum</a>
+      </nav>
+      <p>© Elite Dent</p>
+      <p class="copy">
+        <span class="i18n-de">Kein Medizinprodukt zur Diagnose. Nur für die zahnärztliche / zahntechnische Fachnutzung.</span>
+        <span class="i18n-en">Not a medical device for diagnosis. For professional dental use only.</span>
+      </p>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      var KEY = "elitedent-lang";
+      var titles = { de: "Support — Elite Dent", en: "Support — Elite Dent" };
+      var descs = {
+        de: "Elite Dent Support — Hilfe für Zahnarztpraxen und Dentallabore. iPad-App, kein Patientenportal.",
+        en: "Elite Dent support for dental clinics and labs. iPad app — not a patient portal."
+      };
+      var html = document.documentElement;
+      var params = new URLSearchParams(window.location.search);
+      var q = params.get("lang");
+      var lang = q === "en" || q === "de" ? q : (function () {
+        try { return localStorage.getItem(KEY); } catch (e) { return null; }
+      })() || "de";
+      if (lang !== "en") lang = "de";
+      function apply(next) {
+        html.lang = next;
+        try { localStorage.setItem(KEY, next); } catch (e) {}
+        document.title = titles[next];
+        var meta = document.getElementById("meta-desc");
+        if (meta) meta.setAttribute("content", descs[next]);
+        document.querySelectorAll("[data-set-lang]").forEach(function (btn) {
+          btn.setAttribute("aria-pressed", btn.getAttribute("data-set-lang") === next ? "true" : "false");
+        });
+      }
+      apply(lang);
+      document.addEventListener("click", function (e) {
+        var btn = e.target.closest("[data-set-lang]");
+        if (!btn) return;
+        e.preventDefault();
+        apply(btn.getAttribute("data-set-lang"));
+      });
+    })();
+  </script>
+</body>
+</html>

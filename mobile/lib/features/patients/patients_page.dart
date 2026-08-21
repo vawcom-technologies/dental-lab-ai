@@ -520,37 +520,51 @@ class _PatientsPageState extends State<PatientsPage> {
                       child: _controller.loading && rows.isEmpty
                           ? const ToothPageLoader(message: 'Loading patients…')
                           : rows.isEmpty
-                              ? _EmptyPatients(
-                                  filtered:
-                                      _controller.statusFilter != 'all' ||
-                                          _controller.query.trim().isNotEmpty,
+                              ? IpadRefresh.fill(
+                                  onRefresh: () => _controller.load(
+                                    forceRefresh: true,
+                                    silent: true,
+                                  ),
+                                  child: _EmptyPatients(
+                                    filtered:
+                                        _controller.statusFilter != 'all' ||
+                                            _controller.query.trim().isNotEmpty,
+                                  ),
                                 )
-                              : ListView.separated(
-                                  itemCount: rows.length,
-                                  separatorBuilder: (_, _) =>
-                                      const SizedBox(height: 12),
-                                  itemBuilder: (context, i) {
-                                    final p = rows[i];
-                                    final owner = _controller.isOwner(p);
-                                    return _PatientCard(
-                                      patient: p,
-                                      isOwner: owner,
-                                      roleLabel:
-                                          AppRoles.label(widget.api.role),
-                                      enabled: !blocked,
-                                      onOpen: () => _openDetails(p),
-                                      onEdit:
-                                          owner ? () => _openEdit(p) : null,
-                                      onShare: () => _openShare(p),
-                                      onDelete: owner
-                                          ? () => _confirmDelete(p)
-                                          : null,
-                                      onStatusChanged: owner
-                                          ? (status) =>
-                                              _changePatientStatus(p, status)
-                                          : null,
-                                    );
-                                  },
+                              : IpadRefresh(
+                                  onRefresh: () => _controller.load(
+                                    forceRefresh: true,
+                                    silent: true,
+                                  ),
+                                  slivers: [
+                                    SliverList.separated(
+                                      itemCount: rows.length,
+                                      separatorBuilder: (_, _) =>
+                                          const SizedBox(height: 12),
+                                      itemBuilder: (context, i) {
+                                        final p = rows[i];
+                                        final owner = _controller.isOwner(p);
+                                        return _PatientCard(
+                                          patient: p,
+                                          isOwner: owner,
+                                          roleLabel:
+                                              AppRoles.label(widget.api.role),
+                                          enabled: !blocked,
+                                          onOpen: () => _openDetails(p),
+                                          onEdit:
+                                              owner ? () => _openEdit(p) : null,
+                                          onShare: () => _openShare(p),
+                                          onDelete: owner
+                                              ? () => _confirmDelete(p)
+                                              : null,
+                                          onStatusChanged: owner
+                                              ? (status) =>
+                                                  _changePatientStatus(p, status)
+                                              : null,
+                                        );
+                                      },
+                                    ),
+                                  ],
                                 ),
                     ),
                   ),

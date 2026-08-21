@@ -33,11 +33,13 @@ class _ReportsPageState extends State<ReportsPage> {
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool silent = false}) async {
     if (_loading) return;
-    setState(() {
-      _loading = true;
-    });
+    if (!silent) {
+      setState(() {
+        _loading = true;
+      });
+    }
     try {
       final summary = await widget.api.fetchReportsSummary(days: _days);
       if (!mounted) return;
@@ -240,44 +242,38 @@ class _ReportsPageState extends State<ReportsPage> {
                         loc: loc,
                         byStatus: _byStatus,
                         total: totalCases,
-                        expand: landscape,
                       );
                       final attention = _AttentionSection(
                         loc: loc,
                         rows: _attention,
-                        expand: landscape,
                         onOpenPatients: () =>
                             widget.onNavigate(AppNavItem.patients),
                       );
 
-                      // Landscape: full-width KPI strip, then equal-height columns.
-                      if (landscape) {
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            hero,
-                            const SizedBox(height: 18),
-                            Expanded(
+                      return IpadRefresh(
+                        onRefresh: () => _load(silent: true),
+                        slivers: [
+                          SliverToBoxAdapter(child: hero),
+                          const SliverToBoxAdapter(child: SizedBox(height: 18)),
+                          if (landscape)
+                            SliverToBoxAdapter(
                               child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Expanded(child: pipeline),
                                   const SizedBox(width: 18),
                                   Expanded(child: attention),
                                 ],
                               ),
+                            )
+                          else ...[
+                            SliverToBoxAdapter(child: pipeline),
+                            const SliverToBoxAdapter(
+                              child: SizedBox(height: 18),
                             ),
+                            SliverToBoxAdapter(child: attention),
                           ],
-                        );
-                      }
-
-                      return ListView(
-                        children: [
-                          hero,
-                          const SizedBox(height: 18),
-                          pipeline,
-                          const SizedBox(height: 18),
-                          attention,
+                          const SliverToBoxAdapter(child: SizedBox(height: 12)),
                         ],
                       );
                     },
@@ -493,13 +489,11 @@ class _PipelineSection extends StatelessWidget {
     required this.loc,
     required this.byStatus,
     required this.total,
-    this.expand = false,
   });
 
   final AppLocalizations loc;
   final Map<String, dynamic> byStatus;
   final int total;
-  final bool expand;
 
   int _n(String key) {
     final v = byStatus[key];
@@ -597,18 +591,14 @@ class _PipelineSection extends StatelessWidget {
       children: [
         header,
         const SizedBox(height: 22),
-        if (expand)
-          Expanded(child: SingleChildScrollView(child: list))
-        else
-          list,
+        list,
       ],
     );
 
-    final card = SectionCard(
+    return SectionCard(
       padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
-      child: expand ? SizedBox.expand(child: body) : body,
+      child: body,
     );
-    return expand ? SizedBox.expand(child: card) : card;
   }
 }
 
@@ -617,13 +607,11 @@ class _AttentionSection extends StatelessWidget {
     required this.loc,
     required this.rows,
     required this.onOpenPatients,
-    this.expand = false,
   });
 
   final AppLocalizations loc;
   final List<Map<String, dynamic>> rows;
   final VoidCallback onOpenPatients;
-  final bool expand;
 
   /// Backend now sends patient UUID strings; older payloads used numeric ids.
   String _caseLabel(dynamic caseId) {
@@ -753,9 +741,7 @@ class _AttentionSection extends StatelessWidget {
       children: [
         header,
         const SizedBox(height: 16),
-        if (expand)
-          Expanded(child: rows.isEmpty ? empty : SingleChildScrollView(child: list))
-        else if (rows.isEmpty)
+        if (rows.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 28),
             child: empty,
@@ -765,10 +751,9 @@ class _AttentionSection extends StatelessWidget {
       ],
     );
 
-    final card = SectionCard(
+    return SectionCard(
       padding: const EdgeInsets.fromLTRB(22, 20, 22, 16),
-      child: expand ? SizedBox.expand(child: body) : body,
+      child: body,
     );
-    return expand ? SizedBox.expand(child: card) : card;
   }
 }

@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0B1F3A" />
+  <meta name="robots" content="index,follow" />
+  <meta id="meta-desc" name="description" content="Datenschutzerklärung der iPad-App Elite Dent für Zahnarztpraxen und Dentallabore (Deutschland / DSGVO)." />
+  <title>Datenschutz — Elite Dent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --navy: #0B1F3A;
+      --accent: #2F6FED;
+      --surface: #F5F7FB;
+      --text: #0B1F3A;
+      --muted: #6B7A90;
+      --card: #FFFFFF;
+      --silver: #A8B0BD;
+      --warning: #C47B16;
+      --line: rgba(11, 31, 58, 0.10);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: var(--surface);
+      line-height: 1.65;
+      font-size: 17px;
+      -webkit-font-smoothing: antialiased;
+    }
+    .skip {
+      position: absolute; left: -999px; top: 8px;
+      background: var(--navy); color: #fff; padding: 8px 12px; z-index: 20;
+    }
+    .skip:focus { left: 8px; }
+    header {
+      background: var(--navy);
+      color: #fff;
+      position: sticky; top: 0; z-index: 10;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .header-inner {
+      max-width: 880px; margin: 0 auto;
+      padding: 14px 22px;
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    }
+    .wordmark {
+      font-family: "Source Serif 4", Georgia, serif;
+      font-weight: 700; font-size: 1.25rem; letter-spacing: -0.02em;
+      color: #fff; text-decoration: none;
+    }
+    .wordmark span { font-weight: 600; opacity: 0.72; padding-left: 8px; font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; font-family: "DM Sans", sans-serif; }
+    .lang {
+      display: inline-flex; border: 1px solid rgba(255,255,255,0.28); border-radius: 4px; overflow: hidden;
+    }
+    .lang button {
+      background: transparent; color: rgba(255,255,255,0.72); border: 0;
+      font: 600 12px/1 "DM Sans", sans-serif; letter-spacing: 0.06em;
+      padding: 6px 10px; cursor: pointer;
+    }
+    .lang button[aria-pressed="true"] { background: #fff; color: var(--navy); }
+    main { max-width: 880px; margin: 0 auto; padding: 36px 22px 64px; }
+    .kicker {
+      font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 8px;
+    }
+    h1 { font-size: 2rem; font-weight: 700; letter-spacing: -0.03em; line-height: 1.2; margin-bottom: 12px; }
+    .lede { color: var(--muted); font-size: 1.05rem; max-width: 46rem; margin-bottom: 28px; }
+    h2 {
+      font-size: 1.15rem; font-weight: 700; letter-spacing: -0.02em;
+      margin: 36px 0 12px; padding-top: 8px;
+      border-top: 1px solid var(--line);
+    }
+    p { margin: 0 0 12px; }
+    ul, ol { margin: 0 0 14px 1.2rem; }
+    li { margin: 0 0 6px; }
+    a { color: var(--accent); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 20px 22px;
+      margin: 0 0 16px;
+    }
+    .callout {
+      border-left: 3px solid var(--accent);
+      background: #fff;
+      padding: 14px 18px;
+      margin: 0 0 16px;
+    }
+    .callout.warn { border-left-color: var(--warning); }
+    .ph {
+      font-style: italic;
+      background: #EEF2F8;
+      border: 1px dashed var(--silver);
+      border-radius: 3px;
+      padding: 0 0.35em;
+    }
+    .meta { color: var(--muted); font-size: 0.88rem; }
+    table {
+      width: 100%; border-collapse: collapse; font-size: 0.95rem;
+      background: #fff; margin: 0 0 16px;
+    }
+    th, td {
+      text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    th { font-size: 0.78rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+    footer {
+      background: var(--navy); color: rgba(255,255,255,0.78);
+      padding: 28px 22px 36px; font-size: 0.9rem;
+    }
+    .footer-inner { max-width: 880px; margin: 0 auto; }
+    footer a { color: #fff; text-decoration: none; border-bottom: 1px solid rgba(255,255,255,0.35); }
+    footer nav { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-bottom: 14px; }
+    footer .copy { color: rgba(255,255,255,0.55); margin-top: 8px; }
+    .lang-block { display: none; }
+    html[lang="de"] .lang-block[data-lang="de"],
+    html[lang="en"] .lang-block[data-lang="en"] { display: block; }
+    .i18n-en { display: none; }
+    html[lang="en"] .i18n-de { display: none; }
+    html[lang="en"] .i18n-en { display: inline; }
+    @media (max-width: 560px) {
+      h1 { font-size: 1.55rem; }
+      body { font-size: 16px; }
+      table { display: block; overflow-x: auto; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main"><span class="i18n-de">Zum Inhalt</span><span class="i18n-en">Skip to content</span></a>
+  <header>
+    <div class="header-inner">
+      <a class="wordmark" href="../support/">Elite Dent <span class="i18n-de">Datenschutz</span><span class="i18n-en">Privacy</span></a>
+      <div class="lang" role="group" aria-label="Language">
+        <button type="button" data-set-lang="de" aria-pressed="true">DE</button>
+        <button type="button" data-set-lang="en" aria-pressed="false">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <article class="lang-block" data-lang="de">
+      <p class="kicker">Datenschutzerklärung · Stand 20. August 2026</p>
+      <h1>Datenschutz</h1>
+      <p class="lede">Diese Erklärung beschreibt, welche Daten die iPad-App Elite Dent verarbeitet. Sie ist in einfacher Sprache gehalten und an die DSGVO (Anwendbarkeit in Deutschland) angelehnt. Es werden keine Zertifizierungen behauptet, die nicht vorliegen.</p>
+      <p class="meta">Bei Abweichungen gilt die deutsche Fassung.</p>
+
+      <h2>1. Verantwortliche Stelle</h2>
+      <div class="card">
+        <p><strong>Elite Dent</strong> (Marke / Angebot der App)<br />
+        Inhaber: Erlan Djaniev<br />
+        Rechtsträger: <span class="ph">[LEGAL NAME — PLACEHOLDER]</span><br />
+        <span class="ph">[STREET ADDRESS — PLACEHOLDER]</span><br />
+        <span class="ph">[POSTCODE CITY — PLACEHOLDER]</span><br />
+        Deutschland<br />
+        E-Mail: <a href="mailto:support@elitedent.example">support@elitedent.example</a><br />
+        USt-IdNr.: <span class="ph">[VAT ID — PLACEHOLDER]</span><br />
+        Datenschutzbeauftragte/r: <span class="ph">[DPO — PLACEHOLDER]</span> (falls nicht bestellt: Kontakt über die Verantwortliche Stelle)</p>
+      </div>
+
+      <h2>2. Wofür die App da ist</h2>
+      <p>Elite Dent ist eine Fachanwendung für Zahnarztpraxen und Dentallabore (iPad). Sie ist <strong>kein Patientenportal</strong> und <strong>kein diagnostisches Medizinprodukt</strong>. Verarbeitet werden nur Daten, die für den Labor-Fallablauf nötig sind: Akten, Scans, Farbe, Form, Fotos, Chat, Export.</p>
+
+      <h2>3. Welche Daten wir erheben</h2>
+      <p>Das entspricht der Privacy-Angabe der App (<code>PrivacyInfo.xcprivacy</code>) und dem tatsächlichen Funktionsumfang. Zweck jeweils: App-Funktion, nicht Werbung. <strong>Kein Tracking, keine Werbung, kein Verkauf von Daten</strong> (<code>NSPrivacyTracking</code> ist false).</p>
+      <table>
+        <thead>
+          <tr><th>Kategorie</th><th>Beispiele</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Praxis- / Laborkonto</td>
+            <td>Name, E-Mail, Benutzer-ID, Passwort (gehasht bzw. über den Auth-Anbieter)</td>
+          </tr>
+          <tr>
+            <td>Patientenakte</td>
+            <td>Vor- und Nachname, Geburtsdatum, Anschrift, Telefon, Notizen, Krankenversicherung</td>
+          </tr>
+          <tr>
+            <td>Gesundheit / Klinik</td>
+            <td>Fallnotizen, VITA-Farbe, Ergebnisse der Scanqualitätsprüfung, Hinweise zum Scanbody-Durchmesser</td>
+          </tr>
+          <tr>
+            <td>Medien</td>
+            <td>Chairside-Fotos, intraorale Scans (PLY), Chat-Bilder, Sprache und Video</td>
+          </tr>
+          <tr>
+            <td>Gerät</td>
+            <td>Sprache, App-Einstellungen, Offline-Sync-Warteschlange. Kamera, Mikrofon und Mediathek nur, wenn Sie die jeweilige Funktion nutzen.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>Apple-Privacy-Typen in der App (verknüpft mit dem Konto, nicht für Tracking): Name, E-Mail, Telefonnummer, Fotos/Videos, Gesundheitsdaten, Benutzer-ID — jeweils zum Zweck „App-Funktionalität“.</p>
+
+      <h2>4. Zwecke</h2>
+      <p>Ausschließlich der Betrieb des zahntechnischen Fallablaufs: Anmeldung, Akten, Qualitätsprüfung, Farb- und Formarbeit, Austausch Praxis↔Labor, DATEV/XML-Export, Offline-Nutzung am Stuhl. Keine Marketingprofile, keine Drittanbieter-Werbung.</p>
+
+      <h2>5. Rechtsgrundlagen und Rollen</h2>
+      <p><strong>Kontodaten</strong> der Zahnärztinnen/Zahnärzte und des Labors: in der Regel Art. 6 Abs. 1 lit. b DSGVO (Vertrag über die Nutzung der App) sowie lit. f (sicherer Betrieb), soweit anwendbar.</p>
+      <p><strong>Gesundheits- und Patientendaten</strong> (Art. 9 DSGVO): Die <strong>Praxis gibt diese Daten ein</strong> im Rahmen der Behandlung. Elite Dent <strong>hostet sie, damit die App funktioniert</strong>. Üblich ist:</p>
+      <ul>
+        <li>die Praxis als Verantwortliche für die Patientenakte,</li>
+        <li>Elite Dent als Auftragsverarbeiterin (Art. 28 DSGVO) für Hosting und App-Betrieb,</li>
+        <li>gegebenenfalls gemeinsame Verantwortung (Art. 26) für einzelne Schritte — das wird im Auftragsverarbeitungsvertrag festgehalten.</li>
+      </ul>
+      <div class="callout warn">
+        <p>Der Auftragsverarbeitungsvertrag und die Aufbewahrungsregeln mit der Praxis sind <strong>noch nicht final</strong>: <span class="ph">[DPA / RETENTION — PLACEHOLDER]</span>. Bis dahin keine echten Patientendaten in Nicht-EU- oder reinen Demo-Umgebungen ablegen.</p>
+      </div>
+
+      <h2>6. Speicherung und Sicherheit</h2>
+      <ul>
+        <li><strong>Ort:</strong> Hosting in der EU ist vorgesehen. Die konkrete Region ist: <span class="ph">[HOSTING / SUBPROCESSORS — PLACEHOLDER]</span>. Die EU-Region für Datenbank und Objektspeicher ist intern noch nicht als abgeschlossen dokumentiert.</li>
+        <li><strong>Übertragung:</strong> In der Produktion per HTTPS/TLS. (TLS in Produktion steht auf der internen Checkliste noch offen — sobald live, gilt TLS.)</li>
+        <li><strong>Gerät:</strong> Die App verschlüsselt den lokalen Offline-Zwischenspeicher (Fotos/Scans in der Warteschlange) auf dem iPad. In den Einstellungen heißt es sinngemäß: Patientendaten werden auf dem Gerät und auf dem Weg zur EU-API verschlüsselt.</li>
+        <li><strong>Ruhende Daten auf dem Server:</strong> Eine vollständige AES-256-Verschlüsselung im Ruhezustand für Scans/Fotos/XML ist dokumentiert und <strong>wird abgeschlossen</strong>; sie ist intern noch nicht als erledigt abgehakt. Wir behaupten sie hier nicht als fertig.</li>
+      </ul>
+      <p>Zugriff in der App ist rollenbasiert (Praxis sieht eigene Patientinnen/Patienten; Labor den Fallablauf). Eine lückenlose Protokollierung sensibler Aktionen ist teilweise vorhanden und wird erweitert.</p>
+
+      <h2>7. Speicherdauer</h2>
+      <p>Kontodaten: für die Dauer des Nutzungsvertrags plus gesetzliche Pflichten. Patienten- und Falldaten: nach Weisung der Praxis und nach anwendbaren berufs- und handelsrechtlichen Aufbewahrungsregeln in Deutschland. Konkrete Fristen: <span class="ph">[DPA / RETENTION — PLACEHOLDER]</span>.</p>
+
+      <h2>8. Empfänger und Auftragsverarbeiter</h2>
+      <ul>
+        <li><strong>Apple:</strong> Bereitstellung über den App Store. Kauf, Geräteprüfung und Systemdienste unterliegen Apples Bedingungen. Ein gesondertes Analytics-SDK ist in der App <strong>nicht</strong> eingebunden. Push (APNs) ist derzeit nicht als eigener Dienst verdrahtet.</li>
+        <li><strong>Auth / Passwort-Reset:</strong> Die Webseite zum Zurücksetzen des Passworts nutzt <strong>Supabase</strong> (Authentifizierung). Region, AV-Vertrag und Subprozessoren-Liste: <span class="ph">[HOSTING / SUBPROCESSORS — PLACEHOLDER]</span>.</li>
+        <li><strong>API / Dateihosting:</strong> Server und Speicher für Fälle, Medien und Export — Anbieter und Ort: <span class="ph">[HOSTING / SUBPROCESSORS — PLACEHOLDER]</span>.</li>
+      </ul>
+      <p>Keine Weitergabe zum Verkauf. Keine Werbenetzwerke.</p>
+
+      <h2>9. Ihre Rechte</h2>
+      <p>Soweit die DSGVO greift, können betroffene Personen verlangen:</p>
+      <ul>
+        <li>Auskunft (Art. 15)</li>
+        <li>Berichtigung (Art. 16)</li>
+        <li>Löschung (Art. 17)</li>
+        <li>Einschränkung (Art. 18)</li>
+        <li>Datenübertragbarkeit (Art. 20)</li>
+        <li>Widerspruch, soweit Art. 21 greift</li>
+      </ul>
+      <p>Anfragen: <a href="mailto:support@elitedent.example">support@elitedent.example</a>. Patientendaten bitte über die behandelnde Praxis steuern; wir unterstützen die Praxis als Host.</p>
+      <p>Beschwerde: bei der zuständigen deutschen Aufsichtsbehörde — dem <strong>Bundesbeauftragten für den Datenschutz und die Informationsfreiheit (BfDI)</strong> bzw. der <strong>Landesdatenschutzbehörde</strong> des Bundeslands, in dem Elite Dent niedergelassen ist (abhängig von der Adresse oben).</p>
+
+      <h2>10. Kinder</h2>
+      <p>Die App richtet sich nicht an Kinder. Nur berufliche Nutzerinnen und Nutzer mit Konto. Patientendaten Minderjähriger dürfen nur die Praxis im Behandlungsverhältnis eintragen.</p>
+
+      <h2>11. Kontolöschung</h2>
+      <p>In der App: <strong>Einstellungen → Konto löschen</strong> (Bestätigung mit <code>DELETE</code> und Passwort). Das entfernt das Benutzerkonto. Löschung oder Export von Patientenakten der Praxis zusätzlich per E-Mail an den Support, abgestimmt mit der Praxis.</p>
+
+      <h2>12. Änderungen</h2>
+      <p>Wir passen diese Erklärung an, wenn sich Verarbeitung oder Rechtslage ändern. Das Datum oben ist der letzte Stand.</p>
+      <p class="meta">Letzte Aktualisierung: 20. August 2026 · Elite Dent 1.0.0 · Bundle-ID com.elitedent.dentalLabAi</p>
+    </article>
+
+    <article class="lang-block" data-lang="en">
+      <p class="kicker">Privacy policy · Last updated 20 August 2026</p>
+      <h1>Privacy Policy</h1>
+      <p class="lede">This notice explains what the Elite Dent iPad app processes. It is written in plain language and aligned with the GDPR as it applies in Germany. We do not claim certifications we do not have.</p>
+      <p class="meta">If translations differ, the German text prevails.</p>
+
+      <h2>1. Controller</h2>
+      <div class="card">
+        <p><strong>Elite Dent</strong> (app brand)<br />
+        Owner: Erlan Djaniev<br />
+        Legal entity: <span class="ph">[LEGAL NAME — PLACEHOLDER]</span><br />
+        <span class="ph">[STREET ADDRESS — PLACEHOLDER]</span><br />
+        <span class="ph">[POSTCODE CITY — PLACEHOLDER]</span><br />
+        Germany<br />
+        Email: <a href="mailto:support@elitedent.example">support@elitedent.example</a><br />
+        VAT ID: <span class="ph">[VAT ID — PLACEHOLDER]</span><br />
+        Data protection officer: <span class="ph">[DPO — PLACEHOLDER]</span> (if none appointed, contact the controller)</p>
+      </div>
+
+      <h2>2. What the app is</h2>
+      <p>Elite Dent is a professional app for dental clinics and labs (iPad). It is <strong>not a patient-facing product</strong> and <strong>not a diagnostic medical device</strong>. We process data only as needed for the lab case workflow: records, scans, shade, shape, photos, chat, and export.</p>
+
+      <h2>3. What we collect</h2>
+      <p>This matches the app’s privacy manifest (<code>PrivacyInfo.xcprivacy</code>) and the features actually used. Purpose: app functionality, not advertising. <strong>No tracking, no ads, no sale of data</strong> (<code>NSPrivacyTracking</code> is false).</p>
+      <table>
+        <thead>
+          <tr><th>Category</th><th>Examples</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Dentist / lab account</td>
+            <td>Name, email, user ID, password (hashed or via the auth provider)</td>
+          </tr>
+          <tr>
+            <td>Patient records</td>
+            <td>First and last name, date of birth, address, phone, notes, health insurance</td>
+          </tr>
+          <tr>
+            <td>Health / clinical</td>
+            <td>Case notes, VITA shade, scan-quality results, scan-body diameter hints</td>
+          </tr>
+          <tr>
+            <td>Media</td>
+            <td>Chairside photos, intraoral scans (PLY), chat images, voice, and video</td>
+          </tr>
+          <tr>
+            <td>Device</td>
+            <td>Language, app settings, offline sync queue. Camera, microphone, and photo library only when you use those features.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>Apple privacy types declared in the app (linked to the account, not used for tracking): name, email, phone number, photos/videos, health, user ID — each for “App Functionality”.</p>
+
+      <h2>4. Why</h2>
+      <p>Only to run the dental-lab case workflow: sign-in, records, quality checks, shade and shape work, clinic↔lab communication, DATEV/XML export, and chairside offline use. No marketing profiles, no third-party ads.</p>
+
+      <h2>5. Legal bases and roles</h2>
+      <p><strong>Account data</strong> for dentists and lab staff: typically GDPR Art. 6(1)(b) (contract to use the app) and, where applicable, Art. 6(1)(f) (keeping the service secure).</p>
+      <p><strong>Health and patient data</strong> (Art. 9): the <strong>clinic enters this data</strong> in the course of care. Elite Dent <strong>hosts it so the app can run</strong>. In practice:</p>
+      <ul>
+        <li>the clinic is controller of the patient record,</li>
+        <li>Elite Dent is processor (Art. 28) for hosting and operating the app,</li>
+        <li>joint controllership (Art. 26) may apply to some steps — to be set out in the data-processing agreement.</li>
+      </ul>
+      <div class="callout warn">
+        <p>The clinic DPA and retention policy are <strong>not yet finalized</strong>: <span class="ph">[DPA / RETENTION — PLACEHOLDER]</span>. Until then, do not put real patient data in non-EU or demo-only environments.</p>
+      </div>
+
+      <h2>6. Where data lives and how it is protected</h2>
+      <ul>
+        <li><strong>Location:</strong> EU hosting is intended. Concrete region: <span class="ph">[HOSTING / SUBPROCESSORS — PLACEHOLDER]</span>. EU-region Postgres and object storage are not yet marked complete on the internal checklist.</li>
+        <li><strong>In transit:</strong> HTTPS/TLS in production. (Production TLS is still an open checklist item — once live, TLS applies.)</li>
+        <li><strong>On device:</strong> the app encrypts the local offline cache (queued photos/scans) on the iPad. Settings state that patient data is encrypted on device and in transit to the EU API.</li>
+        <li><strong>At rest on the server:</strong> AES-256 at rest for scans/photos/XML is documented and <strong>being completed</strong>; it is not internally checked off as done. We do not claim it as finished here.</li>
+      </ul>
+      <p>In-app access is role-scoped (clinic staff see their patients; the lab sees the case workflow). Activity logging on sensitive actions is partially in place and is being extended.</p>
+
+      <h2>7. Retention</h2>
+      <p>Account data: for the life of the service contract plus legal duties. Patient and case data: as instructed by the clinic and as required by applicable German professional and commercial retention rules. Exact periods: <span class="ph">[DPA / RETENTION — PLACEHOLDER]</span>.</p>
+
+      <h2>8. Recipients and subprocessors</h2>
+      <ul>
+        <li><strong>Apple:</strong> distribution via the App Store. Purchase, device checks, and OS services follow Apple’s terms. The app does <strong>not</strong> ship a third-party analytics SDK. Apple Push Notification service (APNs) is not wired as a separate processor today.</li>
+        <li><strong>Auth / password reset:</strong> the password-reset web page uses <strong>Supabase</strong> for authentication. Region, DPA, and subprocessor list: <span class="ph">[HOSTING / SUBPROCESSORS — PLACEHOLDER]</span>.</li>
+        <li><strong>API / file hosting:</strong> servers and storage for cases, media, and export — provider and location: <span class="ph">[HOSTING / SUBPROCESSORS — PLACEHOLDER]</span>.</li>
+      </ul>
+      <p>No sale of data. No advertising networks.</p>
+
+      <h2>9. Your rights</h2>
+      <p>Where the GDPR applies, data subjects may request:</p>
+      <ul>
+        <li>access (Art. 15)</li>
+        <li>rectification (Art. 16)</li>
+        <li>erasure (Art. 17)</li>
+        <li>restriction (Art. 18)</li>
+        <li>portability (Art. 20)</li>
+        <li>objection where Art. 21 applies</li>
+      </ul>
+      <p>Contact: <a href="mailto:support@elitedent.example">support@elitedent.example</a>. Patient-record requests should go through the treating clinic; we support the clinic as host.</p>
+      <p>You may lodge a complaint with a German supervisory authority — the <strong>Federal Commissioner for Data Protection and Freedom of Information (BfDI)</strong> or the <strong>state data protection authority</strong> of the Land where Elite Dent is established (depends on the address above).</p>
+
+      <h2>10. Children</h2>
+      <p>The app is not directed at children. Professional account holders only. A clinic may record a minor’s patient data only in the course of treatment.</p>
+
+      <h2>11. Account deletion</h2>
+      <p>In the app: <strong>Settings → Delete account</strong> (confirm with <code>DELETE</code> and the password). That removes the user account. Deletion or export of the clinic’s patient records is handled by emailing support, coordinated with the clinic.</p>
+
+      <h2>12. Changes</h2>
+      <p>We will update this notice if processing or the law changes. The date at the top is the current version.</p>
+      <p class="meta">Last updated: 20 August 2026 · Elite Dent 1.0.0 · Bundle ID com.elitedent.dentalLabAi</p>
+    </article>
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+      <nav aria-label="Footer">
+        <a href="../support/">Support</a>
+        <a href="./"><span class="i18n-de">Datenschutz</span><span class="i18n-en">Privacy Policy</span></a>
+        <a href="../impressum/">Impressum</a>
+      </nav>
+      <p>© Elite Dent</p>
+      <p class="copy">
+        <span class="i18n-de">Kein Medizinprodukt zur Diagnose. Nur für die zahnärztliche / zahntechnische Fachnutzung.</span>
+        <span class="i18n-en">Not a medical device for diagnosis. For professional dental use only.</span>
+      </p>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      var KEY = "elitedent-lang";
+      var titles = { de: "Datenschutz — Elite Dent", en: "Privacy Policy — Elite Dent" };
+      var descs = {
+        de: "Datenschutzerklärung der iPad-App Elite Dent für Zahnarztpraxen und Dentallabore (Deutschland / DSGVO).",
+        en: "Privacy policy for the Elite Dent iPad app for dental clinics and labs (Germany / GDPR)."
+      };
+      var html = document.documentElement;
+      var params = new URLSearchParams(window.location.search);
+      var q = params.get("lang");
+      var lang = q === "en" || q === "de" ? q : (function () {
+        try { return localStorage.getItem(KEY); } catch (e) { return null; }
+      })() || "de";
+      if (lang !== "en") lang = "de";
+      function apply(next) {
+        html.lang = next;
+        try { localStorage.setItem(KEY, next); } catch (e) {}
+        document.title = titles[next];
+        var meta = document.getElementById("meta-desc");
+        if (meta) meta.setAttribute("content", descs[next]);
+        document.querySelectorAll("[data-set-lang]").forEach(function (btn) {
+          btn.setAttribute("aria-pressed", btn.getAttribute("data-set-lang") === next ? "true" : "false");
+        });
+      }
+      apply(lang);
+      document.addEventListener("click", function (e) {
+        var btn = e.target.closest("[data-set-lang]");
+        if (!btn) return;
+        e.preventDefault();
+        apply(btn.getAttribute("data-set-lang"));
+      });
+    })();
+  </script>
+</body>
+</html>

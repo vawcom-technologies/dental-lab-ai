@@ -33,6 +33,12 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Store / local API URLs (keep examples)
+.env
+.env.production
+!.env.example
+!.env.production.example
+
 # Symbolication related
 app.*.symbols
 

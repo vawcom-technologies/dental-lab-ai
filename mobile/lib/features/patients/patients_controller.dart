@@ -88,9 +88,9 @@ class PatientsController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> load({bool forceRefresh = false}) async {
+  Future<void> load({bool forceRefresh = false, bool silent = false}) async {
     if (_loading) return;
-    final showLoader = _patients.isEmpty || forceRefresh;
+    final showLoader = !silent && (_patients.isEmpty || forceRefresh);
     if (showLoader) {
       _loading = true;
       _error = null;

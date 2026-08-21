@@ -96,10 +96,13 @@ class InboxScreen extends StatelessWidget {
                   child: controller.loadingInbox && rows.isEmpty
                       ? const ToothPageLoader(message: 'Loading conversations…')
                       : rows.isEmpty
-                          ? Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(28),
-                                child: Column(
+                          ? IpadRefresh.fill(
+                              onRefresh: () =>
+                                  controller.loadInbox(forceRefresh: true),
+                              child: Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(28),
+                                  child: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Container(
@@ -149,38 +152,46 @@ class InboxScreen extends StatelessWidget {
                                   ],
                                 ),
                               ),
-                            )
-                          : RefreshIndicator(
-                              color: AppColors.dentalBlue,
+                            ),
+                          )
+                          : IpadRefresh(
                               onRefresh: () =>
                                   controller.loadInbox(forceRefresh: true),
-                              child: ListView.builder(
-                                padding: const EdgeInsets.fromLTRB(
-                                  10,
-                                  0,
-                                  10,
-                                  12,
+                              slivers: [
+                                SliverPadding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    10,
+                                    0,
+                                    10,
+                                    12,
+                                  ),
+                                  sliver: SliverList.builder(
+                                    itemCount: rows.length,
+                                    itemBuilder: (context, i) {
+                                      final c = rows[i];
+                                      final selected =
+                                          controller.activeConversation?.id ==
+                                              c.id;
+                                      return Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 6,
+                                        ),
+                                        child: _ConversationTile(
+                                          conversation: c,
+                                          selected: selected,
+                                          enabled: !controller.loadingMessages,
+                                          onTap: () async {
+                                            await controller.openConversation(
+                                              c,
+                                            );
+                                            onConversationSelected?.call(c);
+                                          },
+                                        ),
+                                      );
+                                    },
+                                  ),
                                 ),
-                                itemCount: rows.length,
-                                itemBuilder: (context, i) {
-                                  final c = rows[i];
-                                  final selected =
-                                      controller.activeConversation?.id ==
-                                          c.id;
-                                  return Padding(
-                                    padding: const EdgeInsets.only(bottom: 6),
-                                    child: _ConversationTile(
-                                      conversation: c,
-                                      selected: selected,
-                                      enabled: !controller.loadingMessages,
-                                      onTap: () async {
-                                        await controller.openConversation(c);
-                                        onConversationSelected?.call(c);
-                                      },
-                                    ),
-                                  );
-                                },
-                              ),
+                              ],
                             ),
                 ),
               ],

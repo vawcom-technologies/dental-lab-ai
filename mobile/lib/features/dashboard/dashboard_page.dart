@@ -46,10 +46,12 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-    });
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _loading = true;
+      });
+    }
     try {
       final patients = await widget.api.listPatients();
       if (!mounted) return;
@@ -387,31 +389,41 @@ class _DashboardPageState extends State<DashboardPage> {
                                   message: 'Loading recent cases…',
                                 )
                               : _recentRows.isEmpty
-                                  ? Center(
-                                      child: Text(
-                                        loc.dashNoCasesEmpty,
-                                        style: const TextStyle(color: AppColors.muted),
+                                  ? IpadRefresh.fill(
+                                      onRefresh: () => _load(silent: true),
+                                      child: Center(
+                                        child: Text(
+                                          loc.dashNoCasesEmpty,
+                                          style: const TextStyle(
+                                            color: AppColors.muted,
+                                          ),
+                                        ),
                                       ),
                                     )
-                                  : ListView.builder(
-                                      itemCount: _recentRows.length,
-                                      itemBuilder: (context, i) {
-                                        final row = _recentRows[i];
-                                        return _PatientRow(
-                                          id: row.caseLabel,
-                                          name: row.patientName,
-                                          dentist: row.dentist,
-                                          status: row.status,
-                                          updated: row.updated,
-                                          canEditStatus: row.canEditStatus,
-                                          onStatusChanged: row.canEditStatus
-                                              ? (status) => _changeStatus(
-                                                    row.patientId,
-                                                    status,
-                                                  )
-                                              : null,
-                                        );
-                                      },
+                                  : IpadRefresh(
+                                      onRefresh: () => _load(silent: true),
+                                      slivers: [
+                                        SliverList.builder(
+                                          itemCount: _recentRows.length,
+                                          itemBuilder: (context, i) {
+                                            final row = _recentRows[i];
+                                            return _PatientRow(
+                                              id: row.caseLabel,
+                                              name: row.patientName,
+                                              dentist: row.dentist,
+                                              status: row.status,
+                                              updated: row.updated,
+                                              canEditStatus: row.canEditStatus,
+                                              onStatusChanged: row.canEditStatus
+                                                  ? (status) => _changeStatus(
+                                                        row.patientId,
+                                                        status,
+                                                      )
+                                                  : null,
+                                            );
+                                          },
+                                        ),
+                                      ],
                                     ),
                         ),
                       ],
@@ -436,19 +448,32 @@ class _DashboardPageState extends State<DashboardPage> {
                                   message: 'Loading activity…',
                                 )
                               : _activity.isEmpty
-                                  ? Text(
-                                      loc.dashActivityEmpty,
-                                      style: const TextStyle(color: AppColors.muted, fontSize: 13),
+                                  ? IpadRefresh.fill(
+                                      onRefresh: () => _load(silent: true),
+                                      child: Center(
+                                        child: Text(
+                                          loc.dashActivityEmpty,
+                                          style: const TextStyle(
+                                            color: AppColors.muted,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ),
                                     )
-                                  : ListView.builder(
-                                      itemCount: _activity.length,
-                                      itemBuilder: (context, i) {
-                                        final a = _activity[i];
-                                        return _Activity(
-                                          time: _clock(a.at),
-                                          text: a.text,
-                                        );
-                                      },
+                                  : IpadRefresh(
+                                      onRefresh: () => _load(silent: true),
+                                      slivers: [
+                                        SliverList.builder(
+                                          itemCount: _activity.length,
+                                          itemBuilder: (context, i) {
+                                            final a = _activity[i];
+                                            return _Activity(
+                                              time: _clock(a.at),
+                                              text: a.text,
+                                            );
+                                          },
+                                        ),
+                                      ],
                                     ),
                         ),
                       ],

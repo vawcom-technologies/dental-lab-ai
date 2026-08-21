@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0B1F3A" />
+  <meta name="robots" content="index,follow" />
+  <meta id="meta-desc" name="description" content="Impressum von Elite Dent gemäß TMG — Anbieterkennzeichnung für die öffentlichen Support- und Datenschutzseiten." />
+  <title>Impressum — Elite Dent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --navy: #0B1F3A;
+      --accent: #2F6FED;
+      --surface: #F5F7FB;
+      --text: #0B1F3A;
+      --muted: #6B7A90;
+      --card: #FFFFFF;
+      --silver: #A8B0BD;
+      --warning: #C47B16;
+      --line: rgba(11, 31, 58, 0.10);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: var(--surface);
+      line-height: 1.65;
+      font-size: 17px;
+      -webkit-font-smoothing: antialiased;
+    }
+    .skip {
+      position: absolute; left: -999px; top: 8px;
+      background: var(--navy); color: #fff; padding: 8px 12px; z-index: 20;
+    }
+    .skip:focus { left: 8px; }
+    header {
+      background: var(--navy);
+      color: #fff;
+      position: sticky; top: 0; z-index: 10;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .header-inner {
+      max-width: 880px; margin: 0 auto;
+      padding: 14px 22px;
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    }
+    .wordmark {
+      font-family: "Source Serif 4", Georgia, serif;
+      font-weight: 700; font-size: 1.25rem; letter-spacing: -0.02em;
+      color: #fff; text-decoration: none;
+    }
+    .wordmark span { font-weight: 600; opacity: 0.72; padding-left: 8px; font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; font-family: "DM Sans", sans-serif; }
+    .lang {
+      display: inline-flex; border: 1px solid rgba(255,255,255,0.28); border-radius: 4px; overflow: hidden;
+    }
+    .lang button {
+      background: transparent; color: rgba(255,255,255,0.72); border: 0;
+      font: 600 12px/1 "DM Sans", sans-serif; letter-spacing: 0.06em;
+      padding: 6px 10px; cursor: pointer;
+    }
+    .lang button[aria-pressed="true"] { background: #fff; color: var(--navy); }
+    main { max-width: 880px; margin: 0 auto; padding: 36px 22px 64px; }
+    .kicker {
+      font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 8px;
+    }
+    h1 { font-size: 2rem; font-weight: 700; letter-spacing: -0.03em; line-height: 1.2; margin-bottom: 12px; }
+    .lede { color: var(--muted); font-size: 1.05rem; max-width: 46rem; margin-bottom: 28px; }
+    h2 {
+      font-size: 1.15rem; font-weight: 700; letter-spacing: -0.02em;
+      margin: 36px 0 12px; padding-top: 8px;
+      border-top: 1px solid var(--line);
+    }
+    p { margin: 0 0 12px; }
+    ul { margin: 0 0 14px 1.2rem; }
+    li { margin: 0 0 6px; }
+    a { color: var(--accent); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 20px 22px;
+      margin: 0 0 16px;
+    }
+    .callout {
+      border-left: 3px solid var(--warning);
+      background: #fff;
+      padding: 14px 18px;
+      margin: 0 0 16px;
+    }
+    .ph {
+      font-style: italic;
+      background: #EEF2F8;
+      border: 1px dashed var(--silver);
+      border-radius: 3px;
+      padding: 0 0.35em;
+    }
+    .meta { color: var(--muted); font-size: 0.88rem; }
+    dl { display: grid; grid-template-columns: 11rem 1fr; gap: 8px 16px; margin: 0; }
+    dt { color: var(--muted); font-size: 0.85rem; font-weight: 600; }
+    dd { margin: 0; }
+    @media (max-width: 560px) {
+      dl { grid-template-columns: 1fr; gap: 2px 0; }
+      dt { margin-top: 10px; }
+      h1 { font-size: 1.55rem; }
+    }
+    footer {
+      background: var(--navy); color: rgba(255,255,255,0.78);
+      padding: 28px 22px 36px; font-size: 0.9rem;
+    }
+    .footer-inner { max-width: 880px; margin: 0 auto; }
+    footer a { color: #fff; text-decoration: none; border-bottom: 1px solid rgba(255,255,255,0.35); }
+    footer nav { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-bottom: 14px; }
+    footer .copy { color: rgba(255,255,255,0.55); margin-top: 8px; }
+    .lang-block { display: none; }
+    html[lang="de"] .lang-block[data-lang="de"],
+    html[lang="en"] .lang-block[data-lang="en"] { display: block; }
+    .i18n-en { display: none; }
+    html[lang="en"] .i18n-de { display: none; }
+    html[lang="en"] .i18n-en { display: inline; }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main"><span class="i18n-de">Zum Inhalt</span><span class="i18n-en">Skip to content</span></a>
+  <header>
+    <div class="header-inner">
+      <a class="wordmark" href="../support/">Elite Dent <span>Impressum</span></a>
+      <div class="lang" role="group" aria-label="Language">
+        <button type="button" data-set-lang="de" aria-pressed="true">DE</button>
+        <button type="button" data-set-lang="en" aria-pressed="false">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <article class="lang-block" data-lang="de">
+      <p class="kicker">Angaben gemäß § 5 TMG</p>
+      <h1>Impressum</h1>
+      <p class="lede">Anbieterkennzeichnung für die öffentlichen Seiten von Elite Dent (Support, Datenschutz). Die gestrichelten Felder muss Elite Dent vor der Veröffentlichung durch echte Register- und Kontaktdaten ersetzen.</p>
+
+      <div class="callout">
+        <p>Ohne vollständige Anschrift, Rechtsform und Erreichbarkeit ist ein Impressum in Deutschland nicht TMG-konform. Die Platzhalter sind bewusst sichtbar, damit nichts „fertig“ wirkt, das rechtlich noch fehlt.</p>
+      </div>
+
+      <h2>Anbieter</h2>
+      <div class="card">
+        <dl>
+          <dt>Marke</dt>
+          <dd>Elite Dent</dd>
+          <dt>Rechtsträger</dt>
+          <dd><span class="ph">[LEGAL NAME — PLACEHOLDER]</span></dd>
+          <dt>Anschrift</dt>
+          <dd>
+            <span class="ph">[STREET ADDRESS — PLACEHOLDER]</span><br />
+            <span class="ph">[POSTCODE CITY — PLACEHOLDER]</span><br />
+            Deutschland
+          </dd>
+          <dt>Vertreten durch</dt>
+          <dd><span class="ph">[MANAGING DIRECTOR — PLACEHOLDER]</span> (Inhaber laut Projektangabe: Erlan Djaniev — nur eintragen, wenn das der Registereintrag ist)</dd>
+          <dt>Kontakt</dt>
+          <dd>
+            E-Mail: <a href="mailto:support@elitedent.example">support@elitedent.example</a><br />
+            Telefon: <span class="ph">[PHONE — PLACEHOLDER]</span>
+          </dd>
+          <dt>Register</dt>
+          <dd><span class="ph">[HANDELSREGISTER — PLACEHOLDER]</span> (Registergericht und HRB, falls eingetragen)</dd>
+          <dt>USt-IdNr.</dt>
+          <dd><span class="ph">[VAT ID — PLACEHOLDER]</span></dd>
+        </dl>
+      </div>
+
+      <h2>Inhalt dieser Website</h2>
+      <p>Diese Domain-Pfade dienen der App-Store-Pflicht zu Support- und Datenschutz-URLs sowie der Anbieterkennzeichnung. Elite Dent ist eine iPad-Fachanwendung für Zahnarztpraxen und Dentallabore. Kein Patientenportal, kein diagnostisches Medizinprodukt.</p>
+
+      <h2>Verantwortlich für den Inhalt</h2>
+      <p>Nach § 18 Abs. 2 MStV, soweit anwendbar: <span class="ph">[MANAGING DIRECTOR — PLACEHOLDER]</span>, Anschrift wie oben.</p>
+
+      <h2>Haftungshinweis</h2>
+      <p>Trotz sorgfältiger Kontrolle übernehmen wir keine Haftung für Inhalte externer Links. Für die Inhalte verlinkter Seiten sind deren Betreiber verantwortlich.</p>
+      <p>Die App-Hinweise zu Zahnfarbe, Scanqualität und Scanbody sind assistierend. Die klinische Verantwortung bleibt bei der behandelnden Person.</p>
+
+      <h2>Datenschutz</h2>
+      <p>Siehe <a href="../privacy/">Datenschutzerklärung</a>. Support: <a href="../support/">/support</a>.</p>
+      <p class="meta">Stand: 20. August 2026</p>
+    </article>
+
+    <article class="lang-block" data-lang="en">
+      <p class="kicker">Legal notice · German TMG § 5</p>
+      <h1>Impressum</h1>
+      <p class="lede">Provider identification for Elite Dent’s public pages (Support, Privacy). Dashed fields must be replaced with Elite Dent’s real registry and contact details before this site goes live. The German text is the legally relevant version.</p>
+
+      <div class="callout">
+        <p>Under German law a public site needs a complete address, legal form, and a reliable way to contact the provider. Placeholders are left visible on purpose so unfinished legal details are not presented as complete.</p>
+      </div>
+
+      <h2>Provider</h2>
+      <div class="card">
+        <dl>
+          <dt>Brand</dt>
+          <dd>Elite Dent</dd>
+          <dt>Legal entity</dt>
+          <dd><span class="ph">[LEGAL NAME — PLACEHOLDER]</span></dd>
+          <dt>Address</dt>
+          <dd>
+            <span class="ph">[STREET ADDRESS — PLACEHOLDER]</span><br />
+            <span class="ph">[POSTCODE CITY — PLACEHOLDER]</span><br />
+            Germany
+          </dd>
+          <dt>Represented by</dt>
+          <dd><span class="ph">[MANAGING DIRECTOR — PLACEHOLDER]</span> (project owner: Erlan Djaniev — use only if that matches the commercial register)</dd>
+          <dt>Contact</dt>
+          <dd>
+            Email: <a href="mailto:support@elitedent.example">support@elitedent.example</a><br />
+            Phone: <span class="ph">[PHONE — PLACEHOLDER]</span>
+          </dd>
+          <dt>Register</dt>
+          <dd><span class="ph">[HANDELSREGISTER — PLACEHOLDER]</span> (court and HRB number if registered)</dd>
+          <dt>VAT ID</dt>
+          <dd><span class="ph">[VAT ID — PLACEHOLDER]</span></dd>
+        </dl>
+      </div>
+
+      <h2>What this site is</h2>
+      <p>These paths exist so App Store Connect has working Support and Privacy Policy URLs, and so the public site has a German legal notice. Elite Dent is an iPad app for dental clinics and labs. Not a patient portal, not a diagnostic medical device.</p>
+
+      <h2>Responsible for content</h2>
+      <p>Where Interstate Media Treaty § 18(2) applies: <span class="ph">[MANAGING DIRECTOR — PLACEHOLDER]</span>, address as above.</p>
+
+      <h2>Liability</h2>
+      <p>We are not responsible for the content of external sites we link to. Operators of those sites are.</p>
+      <p>In-app shade, scan-quality, and scan-body hints are assistive. Clinical responsibility stays with the treating professional.</p>
+
+      <h2>Privacy</h2>
+      <p>See the <a href="../privacy/">Privacy Policy</a>. Support: <a href="../support/">/support</a>.</p>
+      <p class="meta">Last updated: 20 August 2026</p>
+    </article>
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+      <nav aria-label="Footer">
+        <a href="../support/">Support</a>
+        <a href="../privacy/"><span class="i18n-de">Datenschutz</span><span class="i18n-en">Privacy Policy</span></a>
+        <a href="./">Impressum</a>
+      </nav>
+      <p>© Elite Dent</p>
+      <p class="copy">
+        <span class="i18n-de">Kein Medizinprodukt zur Diagnose. Nur für die zahnärztliche / zahntechnische Fachnutzung.</span>
+        <span class="i18n-en">Not a medical device for diagnosis. For professional dental use only.</span>
+      </p>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      var KEY = "elitedent-lang";
+      var titles = { de: "Impressum — Elite Dent", en: "Legal notice — Elite Dent" };
+      var descs = {
+        de: "Impressum von Elite Dent gemäß TMG — Anbieterkennzeichnung für die öffentlichen Support- und Datenschutzseiten.",
+        en: "Elite Dent legal notice (German TMG) for the public support and privacy pages."
+      };
+      var html = document.documentElement;
+      var params = new URLSearchParams(window.location.search);
+      var q = params.get("lang");
+      var lang = q === "en" || q === "de" ? q : (function () {
+        try { return localStorage.getItem(KEY); } catch (e) { return null; }
+      })() || "de";
+      if (lang !== "en") lang = "de";
+      function apply(next) {
+        html.lang = next;
+        try { localStorage.setItem(KEY, next); } catch (e) {}
+        document.title = titles[next];
+        var meta = document.getElementById("meta-desc");
+        if (meta) meta.setAttribute("content", descs[next]);
+        document.querySelectorAll("[data-set-lang]").forEach(function (btn) {
+          btn.setAttribute("aria-pressed", btn.getAttribute("data-set-lang") === next ? "true" : "false");
+        });
+      }
+      apply(lang);
+      document.addEventListener("click", function (e) {
+        var btn = e.target.closest("[data-set-lang]");
+        if (!btn) return;
+        e.preventDefault();
+        apply(btn.getAttribute("data-set-lang"));
+      });
+    })();
+  </script>
+</body>
+</html>

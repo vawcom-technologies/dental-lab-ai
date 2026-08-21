@@ -72,13 +72,19 @@ class AdminUsersController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> load({int skip = 0, int limit = 50}) async {
+  Future<void> load({
+    int skip = 0,
+    int limit = 50,
+    bool silent = false,
+  }) async {
     if (_loading) return;
-    _loading = true;
     _error = null;
     _skip = skip;
     _limit = limit;
-    notifyListeners();
+    if (!silent) {
+      _loading = true;
+      notifyListeners();
+    }
     try {
       final page = await _api.listAdminUsers(skip: skip, limit: limit);
       _users
@@ -98,7 +104,8 @@ class AdminUsersController extends ChangeNotifier {
     }
   }
 
-  Future<void> refresh() => load(skip: _skip, limit: _limit);
+  Future<void> refresh({bool silent = false}) =>
+      load(skip: _skip, limit: _limit, silent: silent);
 
   Future<String> verifyUser(String userId) async {
     if (_actionBusy) {

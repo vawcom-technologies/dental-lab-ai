@@ -8,22 +8,27 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
-		<!-- ponytail: dev-only cleartext to the LAN backend; drop this when the API is HTTPS -->
-		<key>NSAllowsArbitraryLoads</key>
+		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Elite Dent connects to the lab server on your local network.</string>
+	<string>Elite Dent connects to the lab server on your local network during clinic setup.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Elite Dent needs the camera to capture chairside patient photos and record chat video messages.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Elite Dent needs the microphone to record voice notes and videos in chat.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Elite Dent can import existing patient photos and chat videos from your library when needed.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Elite Dent can save chairside photos to your library when you choose to export them.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.medical</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<key>CFBundleDisplayName</key>
-	<string>Dental Lab Ai</string>
+	<string>Elite Dent</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

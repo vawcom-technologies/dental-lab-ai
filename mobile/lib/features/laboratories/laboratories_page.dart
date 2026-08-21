@@ -273,36 +273,47 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
                 ),
                 const SizedBox(height: 16),
                 Expanded(
-                  child: _controller.loading && _controller.users.isEmpty
-                      ? const ToothPageLoader(
-                          message: 'Loading laboratories…',
-                        )
-                      : visible.isEmpty
-                          ? _EmptyState(
-                              title: _controller.users.isEmpty
-                                  ? loc.labsEmpty
-                                  : loc.labsEmptyFilter,
-                              subtitle: _controller.users.isEmpty
-                                  ? 'Verified labs will appear here.'
-                                  : 'Try another filter or search.',
+                      child: _controller.loading && _controller.users.isEmpty
+                          ? const ToothPageLoader(
+                              message: 'Loading laboratories…',
                             )
-                          : ListView.separated(
-                              itemCount: visible.length,
-                              separatorBuilder: (_, _) =>
-                                  const SizedBox(height: 12),
-                              itemBuilder: (context, i) {
-                                final user = visible[i];
-                                return _LabCard(
-                                  user: user,
-                                  busy: blocked,
-                                  canMessage: widget.onMessageLab != null,
-                                  onOpen: () => _openLabDetails(user),
-                                  onMessage: () => _messageLab(user),
-                                  onVerify: () => _verify(user),
-                                  onDelete: () => _confirmDelete(user),
-                                );
-                              },
-                            ),
+                          : visible.isEmpty
+                              ? IpadRefresh.fill(
+                                  onRefresh: () =>
+                                      _controller.refresh(silent: true),
+                                  child: _EmptyState(
+                                    title: _controller.users.isEmpty
+                                        ? loc.labsEmpty
+                                        : loc.labsEmptyFilter,
+                                    subtitle: _controller.users.isEmpty
+                                        ? 'Verified labs will appear here.'
+                                        : 'Try another filter or search.',
+                                  ),
+                                )
+                              : IpadRefresh(
+                                  onRefresh: () =>
+                                      _controller.refresh(silent: true),
+                                  slivers: [
+                                    SliverList.separated(
+                                      itemCount: visible.length,
+                                      separatorBuilder: (_, _) =>
+                                          const SizedBox(height: 12),
+                                      itemBuilder: (context, i) {
+                                        final user = visible[i];
+                                        return _LabCard(
+                                          user: user,
+                                          busy: blocked,
+                                          canMessage:
+                                              widget.onMessageLab != null,
+                                          onOpen: () => _openLabDetails(user),
+                                          onMessage: () => _messageLab(user),
+                                          onVerify: () => _verify(user),
+                                          onDelete: () => _confirmDelete(user),
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
                 ),
               ],
             ),

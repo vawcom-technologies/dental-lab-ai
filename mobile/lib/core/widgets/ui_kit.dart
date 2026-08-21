@@ -16,6 +16,7 @@ export 'app_switcher.dart';
 export 'busy_action.dart';
 export 'dental_date_picker.dart';
 export 'glass_surface.dart';
+export 'ipad_refresh.dart';
 export 'pressable.dart';
 export 'password_checklist.dart';
 export 'patient_media_dialogs.dart';
