@@ -129,7 +129,7 @@ class PatientStatusMenu extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
                 Text(
-                  StatusStyle.of(key).label,
+                  AppLocalizations.of(context).statusLabel(key),
                   style: AppFonts.style(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -171,13 +171,17 @@ class PatientStatusMenu extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              label,
-              softWrap: false,
-              style: AppFonts.style(
-                color: style.fg,
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
+                style: AppFonts.style(
+                  color: style.fg,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
               ),
             ),
             if (interactive) ...[
@@ -196,7 +200,7 @@ class PatientStatusMenu extends StatelessWidget {
     if (!interactive) return face(pressed: false);
 
     return Tooltip(
-      message: 'Change status',
+      message: AppLocalizations.of(context).changeStatus,
       child: Pressable(
         onTap: () => _pickStatus(context),
         scale: 0.93,

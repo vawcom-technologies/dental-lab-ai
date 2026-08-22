@@ -66,6 +66,19 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
     WidgetsBinding.instance.addObserver(this);
   }
 
+  void _applyViewSize(Size size) {
+    final tj = _three;
+    if (tj == null) return;
+    _viewSize = size;
+    tj.screenSize = size;
+    if (!_sceneReady) return;
+    try {
+      tj.camera.aspect = size.width / math.max(size.height, 1.0);
+      tj.camera.updateProjectionMatrix();
+      tj.renderer?.setSize(size.width, size.height, false);
+    } catch (_) {}
+  }
+
   void _boot(Size size) {
     if (_three != null) return;
     _viewSize = size;
@@ -563,7 +576,8 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
           builder: (context, constraints) {
             final w = constraints.maxWidth;
             final h = constraints.maxHeight;
-            if (w > 2 && h > 2) {
+            final bounded = w.isFinite && h.isFinite && w > 2 && h > 2;
+            if (bounded) {
               final next = Size(w, h);
               if (_three == null) {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -571,21 +585,24 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
                   _boot(next);
                   setState(() {});
                 });
-              } else if (_viewSize != null &&
-                  ((_viewSize!.width - w).abs() > 2 ||
-                      (_viewSize!.height - h).abs() > 2)) {
-                _viewSize = next;
+              } else if (_viewSize == null ||
+                  (_viewSize!.width - w).abs() > 2 ||
+                  (_viewSize!.height - h).abs() > 2) {
+                _applyViewSize(next);
               }
             }
 
             return Stack(
               fit: StackFit.expand,
+              clipBehavior: Clip.hardEdge,
               children: [
                 if (_three != null)
-                  SizedBox(
-                    width: w,
-                    height: h,
-                    child: _three!.build(),
+                  Positioned.fill(
+                    child: FittedBox(
+                      fit: BoxFit.fill,
+                      clipBehavior: Clip.hardEdge,
+                      child: _three!.build(),
+                    ),
                   ),
                 if (widget.loading || _meshLoading)
                   const ColoredBox(

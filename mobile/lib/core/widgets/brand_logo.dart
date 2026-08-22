@@ -19,6 +19,8 @@ class BrandLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final cacheHeight = (height * scale * dpr).round().clamp(64, 2048);
     return Transform.scale(
       scale: scale,
       child: Image.asset(
@@ -26,6 +28,7 @@ class BrandLogo extends StatelessWidget {
         height: height,
         fit: BoxFit.contain,
         filterQuality: FilterQuality.high,
+        cacheHeight: cacheHeight,
         errorBuilder: (_, _, _) {
           if (!showWordmarkFallback) return const SizedBox.shrink();
           return Text(

@@ -117,10 +117,12 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
 
     return ClipRRect(
       borderRadius: AppRadii.border,
+      clipBehavior: Clip.hardEdge,
       child: ColoredBox(
         color: const Color(0xFF15283F),
         child: Stack(
           fit: StackFit.expand,
+          clipBehavior: Clip.hardEdge,
           children: [
             if (busy)
               const Center(
