@@ -150,8 +150,8 @@ class _PatientsPageState extends State<PatientsPage> {
       builder: (ctx) => Material(
         type: MaterialType.transparency,
         child: _PatientFormDialog(
-          title: 'New Patient',
-          submitLabel: 'Create patient',
+          title: AppLocalizations.of(context).newPatientTitle,
+          submitLabel: AppLocalizations.of(context).createPatient,
           saving: false,
           onSubmit: (fields) => _controller.createPatient(
             firstName: fields.firstName,
@@ -169,7 +169,7 @@ class _PatientsPageState extends State<PatientsPage> {
     if (created == null || !mounted) return;
     await _syncSharedPatientSession();
     if (!mounted) return;
-    _toast('Patient created successfully');
+    _toast(AppLocalizations.of(context).patientsCreatedToast);
   }
 
   Future<void> _openEdit(GdprPatient patient) async {
@@ -189,8 +189,8 @@ class _PatientsPageState extends State<PatientsPage> {
         builder: (ctx) => Material(
           type: MaterialType.transparency,
           child: _PatientFormDialog(
-            title: 'Edit Patient',
-            submitLabel: 'Save changes',
+            title: AppLocalizations.of(context).patientsEditTitle,
+            submitLabel: AppLocalizations.of(context).patientsSaveChanges,
             initial: patient,
             onSubmit: (fields) => _controller.updatePatient(patient.id, {
               'first_name': fields.firstName,
@@ -208,7 +208,7 @@ class _PatientsPageState extends State<PatientsPage> {
       if (updated == null || !mounted) return;
       await _syncSharedPatientSession();
       if (!mounted) return;
-      _toast('Patient updated');
+      _toast(AppLocalizations.of(context).patientsUpdatedToast);
     } catch (e) {
       _toast(_friendlyError(e), error: true);
     }
@@ -294,7 +294,11 @@ class _PatientsPageState extends State<PatientsPage> {
     try {
       await _controller.updatePatient(patient.id, {'status': next});
       if (!mounted) return;
-      _toast('Status updated to ${StatusStyle.of(next).label}');
+      _toast(
+        AppLocalizations.of(context).statusUpdatedTo(
+          AppLocalizations.of(context).statusLabel(next),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       _toast(_friendlyError(e), error: true);
@@ -492,10 +496,13 @@ class _PatientsPageState extends State<PatientsPage> {
                               color: AppColors.navy,
                             ),
                             items: [
-                              for (final f in CaseStatuses.filters)
+                              for (final key in CaseStatuses.filterKeys)
                                 DropdownMenuItem<String>(
-                                  value: f.key,
-                                  child: Text(f.label),
+                                  value: key,
+                                  child: Text(
+                                    AppLocalizations.of(context)
+                                        .statusLabel(key),
+                                  ),
                                 ),
                             ],
                             onChanged: blocked
@@ -656,6 +663,7 @@ class _PatientCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
     return GlassSurface(
       borderRadius: BorderRadius.circular(20),
       blur: 16,
@@ -721,19 +729,19 @@ class _PatientCard extends StatelessWidget {
                     AppButtons.ghost(
                       onPressed: enabled ? onEdit : null,
                       icon: Icons.edit_outlined,
-                      label: 'Edit',
+                      label: loc.commonEdit,
                       compact: true,
                     ),
                     AppButtons.ghost(
                       onPressed: enabled ? onShare : null,
                       icon: Icons.share_outlined,
-                      label: isOwner ? 'Share' : 'Request',
+                      label: isOwner ? loc.commonShare : 'Request',
                       compact: true,
                     ),
                     AppButtons.danger(
                       onPressed: enabled ? onDelete : null,
                       icon: Icons.delete_outline_rounded,
-                      label: 'Delete',
+                      label: loc.commonDelete,
                       soft: true,
                       compact: true,
                     ),
@@ -1031,100 +1039,82 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  _InsetGroup(
-                    children: [
-                      _DialogField(
-                        controller: _first,
-                        label: 'First name',
-                        requiredField: true,
-                        validator: (v) =>
-                            (v == null || v.trim().isEmpty) ? 'Required' : null,
-                      ),
-                      const _InsetDivider(),
-                      _DialogField(
-                        controller: _last,
-                        label: 'Last name',
-                        requiredField: true,
-                        validator: (v) =>
-                            (v == null || v.trim().isEmpty) ? 'Required' : null,
-                      ),
-                      const _InsetDivider(),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-                        child: DobPickerField(
-                          controller: _dob,
-                          labelText: 'Date of birth',
-                          onChanged: (_) => setState(() {}),
-                        ),
-                      ),
-                      const _InsetDivider(),
-                      _DialogField(
-                        controller: _email,
-                        label: 'Email',
-                        requiredField: true,
-                        keyboardType: TextInputType.emailAddress,
-                        autofillHints: const [AutofillHints.email],
-                        validator: validatePatientEmail,
-                      ),
-                      const _InsetDivider(),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-                        child: PhoneField(
-                          controller: _phone,
-                          labelText: 'Phone',
-                        ),
-                      ),
-                      const _InsetDivider(),
-                      _DialogField(
-                        controller: _insurance,
-                        label: 'Health insurance',
-                        requiredField: true,
-                        validator: (v) =>
-                            (v == null || v.trim().isEmpty) ? 'Required' : null,
-                      ),
-                      const _InsetDivider(),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-                        child: DropdownButtonFormField<String>(
-                          initialValue: _status,
-                          decoration: InputDecoration(
-                            labelText: 'Status',
-                            labelStyle: AppFonts.style(
-                              fontSize: 13,
-                              color: AppColors.muted,
-                            ),
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                            isDense: true,
-                            contentPadding: EdgeInsets.zero,
+                  _DialogField(
+                    controller: _first,
+                    label: 'First name',
+                    requiredField: true,
+                    validator: (v) =>
+                        (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 12),
+                  _DialogField(
+                    controller: _last,
+                    label: 'Last name',
+                    requiredField: true,
+                    validator: (v) =>
+                        (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 12),
+                  DobPickerField(
+                    controller: _dob,
+                    labelText: 'Date of birth',
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+                  _DialogField(
+                    controller: _email,
+                    label: 'Email',
+                    requiredField: true,
+                    keyboardType: TextInputType.emailAddress,
+                    autofillHints: const [AutofillHints.email],
+                    validator: validatePatientEmail,
+                  ),
+                  const SizedBox(height: 12),
+                  PhoneField(
+                    controller: _phone,
+                    labelText: 'Phone',
+                  ),
+                  const SizedBox(height: 12),
+                  _DialogField(
+                    controller: _insurance,
+                    label: 'Health insurance',
+                    requiredField: true,
+                    validator: (v) =>
+                        (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: _status,
+                    isExpanded: true,
+                    borderRadius: BorderRadius.circular(14),
+                    decoration: InputDecoration(
+                      labelText: AppLocalizations.of(context).colStatus,
+                    ),
+                    items: [
+                      for (final key in CaseStatuses.all)
+                        DropdownMenuItem<String>(
+                          value: key,
+                          child: Text(
+                            AppLocalizations.of(context).statusLabel(key),
                           ),
-                          items: [
-                            for (final key in CaseStatuses.all)
-                              DropdownMenuItem<String>(
-                                value: key,
-                                child: Text(StatusStyle.of(key).label),
-                              ),
-                          ],
-                          onChanged: _saving
-                              ? null
-                              : (value) {
-                                  if (value == null) return;
-                                  setState(() => _status = value);
-                                },
                         ),
-                      ),
-                      const _InsetDivider(),
-                      _DialogField(
-                        controller: _address,
-                        label: 'Address',
-                        requiredField: true,
-                        minLines: 2,
-                        maxLines: 3,
-                        validator: (v) =>
-                            (v == null || v.trim().isEmpty) ? 'Required' : null,
-                      ),
                     ],
+                    onChanged: _saving
+                        ? null
+                        : (value) {
+                            if (value == null) return;
+                            setState(() => _status = value);
+                          },
+                  ),
+                  const SizedBox(height: 12),
+                  _DialogField(
+                    controller: _address,
+                    label: 'Address',
+                    requiredField: true,
+                    minLines: 2,
+                    maxLines: 3,
+                    validator: (v) =>
+                        (v == null || v.trim().isEmpty) ? 'Required' : null,
                   ),
                   const SizedBox(height: 18),
                   Row(
@@ -1133,7 +1123,7 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
                       AppButtons.ghost(
                         onPressed:
                             _saving ? null : () => Navigator.pop(context),
-                        label: 'Cancel',
+                        label: AppLocalizations.of(context).cancel,
                         compact: true,
                       ),
                       const SizedBox(width: 8),
@@ -1178,37 +1168,16 @@ class _DialogField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-      child: TextFormField(
-        controller: controller,
-        keyboardType: keyboardType,
-        autofillHints: autofillHints,
-        minLines: minLines,
-        maxLines: maxLines,
-        style: AppFonts.style(
-          fontSize: 16,
-          fontWeight: FontWeight.w500,
-          color: AppColors.navy,
-        ),
-        decoration: InputDecoration(
-          labelText: requiredField ? '$label *' : label,
-          labelStyle: AppFonts.style(
-            color: AppColors.muted,
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-          ),
-          border: InputBorder.none,
-          enabledBorder: InputBorder.none,
-          focusedBorder: InputBorder.none,
-          errorBorder: InputBorder.none,
-          focusedErrorBorder: InputBorder.none,
-          filled: false,
-          isDense: true,
-          contentPadding: EdgeInsets.zero,
-        ),
-        validator: validator,
+    return TextFormField(
+      controller: controller,
+      keyboardType: keyboardType,
+      autofillHints: autofillHints,
+      minLines: minLines,
+      maxLines: maxLines,
+      decoration: InputDecoration(
+        labelText: requiredField ? '$label *' : label,
       ),
+      validator: validator,
     );
   }
 }
@@ -2148,6 +2117,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
   Widget build(BuildContext context) {
     final height = MediaQuery.sizeOf(context).height * 0.62;
     final bottomInset = MediaQuery.paddingOf(context).bottom;
+    final loc = AppLocalizations.of(context);
 
     return Padding(
       padding: EdgeInsets.fromLTRB(16, 0, 16, 12 + bottomInset),
@@ -2250,20 +2220,20 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                             AppButtons.ghost(
                               onPressed: blocked ? null : widget.onEdit,
                               icon: Icons.edit_outlined,
-                              label: 'Edit',
+                              label: loc.commonEdit,
                               compact: true,
                             ),
                           AppButtons.ghost(
                             onPressed: blocked ? null : widget.onShare,
                             icon: Icons.share_outlined,
-                            label: owner ? 'Share' : 'Request',
+                            label: owner ? loc.commonShare : 'Request',
                             compact: true,
                           ),
                           if (owner)
                             AppButtons.danger(
                               onPressed: blocked ? null : widget.onDelete,
                               icon: Icons.delete_outline_rounded,
-                              label: 'Delete',
+                              label: loc.commonDelete,
                               soft: true,
                               compact: true,
                             ),

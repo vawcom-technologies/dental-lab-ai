@@ -132,7 +132,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
               child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Center(child: BrandLogo(height: 64, scale: 1.15)),
+                Center(
+                  child: Transform.translate(
+                    offset: const Offset(10, 0),
+                    child: const BrandLogo(height: 64, scale: 1.15),
+                  ),
+                ),
                 const SizedBox(height: 16),
                 Text(
                   loc.registerTitle,

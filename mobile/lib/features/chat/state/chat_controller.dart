@@ -32,11 +32,14 @@ class ChatController extends ChangeNotifier {
 
   final List<Conversation> _conversations = [];
   final List<Message> _messages = []; // chronological (oldest → newest)
+  /// Conversation id for [_messages] — kept after hide so reopen is instant.
+  String? _messagesForConversationId;
   Conversation? _active;
   Message? _replyTo;
   String _inboxQuery = '';
   /// True only while [ChatScreen] is mounted / visible.
   bool _viewingThread = false;
+  bool _disposed = false;
 
   bool _loadingInbox = false;
   bool _loadingMessages = false;
@@ -189,9 +192,20 @@ class ChatController extends ChangeNotifier {
       if (_viewingThread) markActiveAsRead();
       return;
     }
+    // Re-show a thread that was only hidden — keep cached messages.
+    if (_messagesForConversationId == conversation.id &&
+        _messages.isNotEmpty) {
+      _active = conversation;
+      _replyTo = null;
+      _threadError = null;
+      if (_viewingThread) markActiveAsRead();
+      notifyListeners();
+      return;
+    }
     _active = conversation;
     _replyTo = null;
     _messages.clear();
+    _messagesForConversationId = null;
     _hasMore = false;
     _threadError = null;
     _loadingMessages = true;
@@ -204,6 +218,7 @@ class ChatController extends ChangeNotifier {
       );
       // API returns newest-first → reverse for chronological list.
       _messages.addAll(page.items.reversed);
+      _messagesForConversationId = conversation.id;
       _hasMore = page.hasMore;
       if (_viewingThread) markActiveAsRead();
     } catch (e) {
@@ -216,26 +231,19 @@ class ChatController extends ChangeNotifier {
 
   /// Call when ChatScreen is shown/hidden. Read receipts only while visible.
   void setViewingThread(bool viewing) {
+    if (_disposed) return;
     if (_viewingThread == viewing) return;
     _viewingThread = viewing;
-    if (viewing) {
-      markActiveAsRead();
-    }
-    // Defer: ChatScreen.dispose() may call this while the tree is locked.
-    final phase = SchedulerBinding.instance.schedulerPhase;
-    if (phase == SchedulerPhase.idle ||
-        phase == SchedulerPhase.postFrameCallbacks) {
-      notifyListeners();
-    } else {
-      SchedulerBinding.instance.addPostFrameCallback((_) {
-        if (hasListeners) notifyListeners();
-      });
-    }
+    if (viewing) markActiveAsRead();
+    // Always defer — may be called from State.dispose while the tree is locked.
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!_disposed) notifyListeners();
+    });
   }
 
+  /// Hide the open thread without wiping inbox or message cache.
   void clearActiveConversation() {
     _active = null;
-    _messages.clear();
     _replyTo = null;
     _viewingThread = false;
     _threadError = null;
@@ -541,6 +549,7 @@ class ChatController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _api.removeAuthListener(_onAuthChanged);
     _msgSub?.cancel();
     _readSub?.cancel();

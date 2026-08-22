@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/haptics/app_haptics.dart';
 import '../../../core/layout/adaptive.dart';
+import '../../../core/l10n/app_localizations.dart';
 import '../../../core/navigation/app_page_routes.dart';
 import '../../../core/session/patient_session.dart';
 import '../../../core/theme/app_theme.dart';
@@ -257,7 +258,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     widget.onInboxChanged?.call();
     AppSnackBars.success(
       context,
-      'Appointment saved. Email notification sent to patient via Resend.',
+      AppLocalizations.of(context).appointmentsSavedToast,
     );
   }
 
@@ -303,14 +304,15 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   }
 
   Widget _buildHeader() {
+    final loc = AppLocalizations.of(context);
     final busy = _loading || _refreshing || _patientsRefreshing;
     return PageHeader(
       icon: Icons.calendar_today_outlined,
-      title: 'Appointments',
-      subtitle: 'Schedule visits and send confirmation emails',
+      title: loc.appointmentsTitle,
+      subtitle: loc.appointmentsSubtitle,
       chromeActions: [
         AppButtons.icon(
-          tooltip: 'Refresh',
+          tooltip: loc.refresh,
           onPressed: busy ? null : _refreshAll,
           icon: Icons.refresh_rounded,
           busy: busy,
@@ -319,7 +321,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       actions: [
         AppButtons.primary(
           onPressed: _loading ? null : () => _openBookModal(),
-          label: 'Book',
+          label: loc.appointmentsBook,
           icon: Icons.add_rounded,
         ),
       ],
@@ -426,26 +428,17 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       ),
     );
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final stacked = constraints.maxWidth < AppBreakpoints.stack ||
-            (constraints.maxHeight > constraints.maxWidth &&
-                constraints.maxWidth < 980);
-        // Portrait / narrow: the agenda is a scroll view and must own the
-        // viewport. Stacking it unbounded above the detail pane collapses
-        // the list to zero height (blank schedule).
-        if (stacked) {
-          return list;
-        }
-        return AdaptiveSplit(
-          panelFraction: 0.42,
-          minPanelWidth: 320,
-          maxPanelWidth: 460,
-          gap: 16,
-          content: detail,
-          panel: list,
-        );
-      },
+    // Portrait stacks agenda above detail with a bounded list height so the
+    // scroll view does not collapse when sharing the column with the pane.
+    return AdaptiveSplit(
+      panelFraction: 0.42,
+      minPanelWidth: 320,
+      maxPanelWidth: 460,
+      gap: 16,
+      narrowPanelHeight: 340,
+      narrowContentMinHeight: 220,
+      content: detail,
+      panel: list,
     );
   }
 }
@@ -456,14 +449,15 @@ class _DayGroup {
   final List<Appointment> items;
 }
 
-String _dayHeading(DateTime day) {
+String _dayHeading(BuildContext context, DateTime day) {
+  final loc = AppLocalizations.of(context);
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
   final tomorrow = today.add(const Duration(days: 1));
   final yesterday = today.subtract(const Duration(days: 1));
-  if (day == today) return 'Today';
-  if (day == tomorrow) return 'Tomorrow';
-  if (day == yesterday) return 'Yesterday';
+  if (day == today) return loc.commonToday;
+  if (day == tomorrow) return loc.commonTomorrow;
+  if (day == yesterday) return loc.commonYesterday;
   return DateFormat('EEEE, MMM d').format(day);
 }
 
@@ -480,18 +474,19 @@ class _StatusFilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
     if (compact) {
       return Wrap(
         spacing: 8,
         runSpacing: 8,
         children: [
-          for (final f in AppointmentStatuses.filters)
+          for (final f in AppointmentStatuses.filterKeys)
             SoftPillButton(
-              label: f.label,
-              selected: selected == f.key,
+              label: loc.appointmentStatusLabel(f),
+              selected: selected == f,
               compact: false,
               selectionHaptic: true,
-              onPressed: () => onSelected(f.key),
+              onPressed: () => onSelected(f),
             ),
         ],
       );
@@ -507,11 +502,11 @@ class _StatusFilterBar extends StatelessWidget {
         backgroundColor: AppColors.inset,
         thumbColor: Colors.white,
         children: {
-          for (final f in AppointmentStatuses.filters)
-            f.key: Padding(
+          for (final f in AppointmentStatuses.filterKeys)
+            f: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
               child: Text(
-                f.label,
+                loc.appointmentStatusLabel(f),
                 textAlign: TextAlign.center,
                 style: AppFonts.style(
                   fontSize: 13,
@@ -554,9 +549,10 @@ class _PatientFilterButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
     final selected = this.selected;
     final label = selected == null
-        ? 'All patients'
+        ? loc.appointmentsAllPatients
         : (_name(selected).isEmpty ? 'Patient' : _name(selected));
     final subtitle = selected == null
         ? '${patients.length} in clinic'
@@ -581,9 +577,9 @@ class _PatientFilterButton extends StatelessWidget {
           trailingIcon: selected == null
               ? const Icon(Icons.check, size: 16, color: AppColors.dentalBlue)
               : null,
-          child: const SizedBox(
+          child: SizedBox(
             width: 180,
-            child: Text('All patients'),
+            child: Text(loc.appointmentsAllPatients),
           ),
         ),
         const Divider(height: 8),
@@ -716,6 +712,7 @@ class _AppointmentsEmpty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
@@ -737,7 +734,7 @@ class _AppointmentsEmpty extends StatelessWidget {
               ),
               const SizedBox(height: 18),
               Text(
-                filtered ? 'Nothing matches this filter' : 'No visits yet',
+                filtered ? 'Nothing matches this filter' : loc.appointmentsEmpty,
                 textAlign: TextAlign.center,
                 style: AppFonts.style(
                   color: AppColors.navy,
@@ -761,7 +758,7 @@ class _AppointmentsEmpty extends StatelessWidget {
               const SizedBox(height: 22),
               AppButtons.primary(
                 onPressed: onBook,
-                label: 'Book Appointment',
+                label: loc.appointmentsBookTitle,
                 icon: Icons.add_rounded,
               ),
             ],
@@ -802,7 +799,7 @@ class _AppointmentsAgenda extends StatelessWidget {
               child: Row(
                 children: [
                   Text(
-                    _dayHeading(group.day),
+                    _dayHeading(context, group.day),
                     style: AppFonts.style(
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
@@ -879,6 +876,8 @@ class _AppointmentRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final style = AppointmentStatusStyle.of(appointment.status);
+    final statusLabel =
+        AppLocalizations.of(context).appointmentStatusLabel(appointment.status);
     final name = appointment.patientName.isEmpty
         ? 'Patient'
         : appointment.patientName;
@@ -957,7 +956,7 @@ class _AppointmentRow extends StatelessWidget {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          style.label,
+                          statusLabel,
                           style: AppFonts.style(
                             color: style.fg,
                             fontSize: 11,
@@ -1019,6 +1018,8 @@ class _AppointmentDetailPane extends StatelessWidget {
     }
 
     final style = AppointmentStatusStyle.of(appointment.status);
+    final loc = AppLocalizations.of(context);
+    final statusLabel = loc.appointmentStatusLabel(appointment.status);
     final name = appointment.patientName.isEmpty
         ? 'Patient'
         : appointment.patientName;
@@ -1058,7 +1059,7 @@ class _AppointmentDetailPane extends StatelessWidget {
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
-                        style.label,
+                        statusLabel,
                         style: AppFonts.style(
                           color: style.fg,
                           fontSize: 13,
@@ -1074,12 +1075,12 @@ class _AppointmentDetailPane extends StatelessWidget {
           const SizedBox(height: 22),
           _DetailRow(
             icon: Icons.calendar_today_outlined,
-            label: 'Date',
+            label: loc.appointmentsDate,
             value: _dateFmt.format(appointment.startTime),
           ),
           _DetailRow(
             icon: Icons.schedule_outlined,
-            label: 'Time',
+            label: loc.appointmentsTime,
             value:
                 '${_timeFmt.format(appointment.startTime)} – ${_timeFmt.format(appointment.endTime)} · $mins min',
           ),
@@ -1091,13 +1092,13 @@ class _AppointmentDetailPane extends StatelessWidget {
             ),
           _DetailRow(
             icon: Icons.notes_outlined,
-            label: 'Notes',
+            label: loc.appointmentsNotes,
             value: notes.isEmpty ? 'No notes' : notes,
           ),
           const Spacer(),
           AppButtons.primary(
             onPressed: onEdit,
-            label: 'Edit Appointment',
+            label: loc.appointmentsEditTitle,
             icon: Icons.edit_outlined,
           ),
         ],
@@ -1332,7 +1333,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                       children: [
                         AppButtons.ghost(
                           onPressed: () => Navigator.pop(ctx),
-                          label: 'Cancel',
+                          label: AppLocalizations.of(ctx).cancel,
                           compact: true,
                         ),
                         const Spacer(),
@@ -1482,6 +1483,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
     final dateLabel = DateFormat('EEE, MMM d, yyyy').format(_start);
     final timeLabel = DateFormat('h:mm a').format(_start);
     final endLabel = DateFormat('h:mm a').format(_end);
@@ -1497,7 +1499,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
             ? 'Patient'
             : widget.existing!.patientName)
         : (selectedPatient == null
-            ? 'Select patient'
+            ? loc.appointmentsSelectPatient
             : _patientMenuLabel(selectedPatient));
 
     final portrait = AppBreakpoints.isPortrait(context);
@@ -1522,7 +1524,9 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  _isEdit ? 'Edit Appointment' : 'Book Appointment',
+                  _isEdit
+                      ? loc.appointmentsEditTitle
+                      : loc.appointmentsBookTitle,
                   style: AppFonts.style(
                     fontSize: 24,
                     fontWeight: FontWeight.w700,
@@ -1547,7 +1551,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                                   icon: Icons.person_outline,
                                   label: 'Patient',
                                   value: _loadingPatients && _patients.isEmpty
-                                      ? 'Loading…'
+                                      ? loc.loading
                                       : patientLabel,
                                   onTap: _saving || _loadingPatients
                                       ? null
@@ -1572,7 +1576,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                                   Expanded(
                                     child: _sheetTile(
                                       icon: Icons.calendar_today_outlined,
-                                      label: 'Date',
+                                      label: loc.appointmentsDate,
                                       value: dateLabel,
                                       onTap: _saving ? null : _pickDate,
                                     ),
@@ -1590,7 +1594,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                               ),
                               const SizedBox(height: 16),
                               Text(
-                                'Duration',
+                                loc.appointmentsDuration,
                                 style: AppFonts.style(
                                   fontWeight: FontWeight.w600,
                                   fontSize: 13,
@@ -1642,16 +1646,16 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                                 controller: _descriptionCtrl,
                                 enabled: !_saving,
                                 maxLines: 3,
-                                decoration: const InputDecoration(
-                                  labelText: 'Notes',
-                                  hintText: 'Clinical notes / visit summary',
+                                decoration: InputDecoration(
+                                  labelText: loc.appointmentsNotes,
+                                  hintText: loc.appointmentsNotesHint,
                                   alignLabelWithHint: true,
                                 ),
                               ),
                               if (_isEdit) ...[
                                 const SizedBox(height: 16),
                                 Text(
-                                  'Status',
+                                  loc.appointmentsStatus,
                                   style: AppFonts.style(
                                     fontWeight: FontWeight.w600,
                                     fontSize: 13,
@@ -1665,7 +1669,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                                   children: [
                                     for (final s in AppointmentStatuses.all)
                                       SoftPillButton(
-                                        label: AppointmentStatuses.label(s),
+                                        label: loc.appointmentStatusLabel(s),
                                         selected: _status == s,
                                         compact: false,
                                         selectionHaptic: true,
@@ -1708,12 +1712,14 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                     AppButtons.ghost(
                       onPressed:
                           _saving ? null : () => Navigator.pop(context),
-                      label: 'Cancel',
+                      label: loc.cancel,
                     ),
                     const Spacer(),
                     AppButtons.primary(
                       onPressed: _canSubmit ? _submit : null,
-                      label: _isEdit ? 'Save changes' : 'Book appointment',
+                      label: _isEdit
+                          ? loc.appointmentsSaveChanges
+                          : loc.appointmentsBookSubmit,
                       busy: _saving,
                     ),
                   ],
@@ -1746,7 +1752,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                     child: Row(
                       children: [
                         Text(
-                          'Select patient',
+                          AppLocalizations.of(context).appointmentsSelectPatient,
                           style: AppFonts.style(
                             fontSize: 17,
                             fontWeight: FontWeight.w700,
@@ -1755,7 +1761,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                         ),
                         const Spacer(),
                         AppButtons.icon(
-                          tooltip: 'Refresh',
+                          tooltip: AppLocalizations.of(context).refresh,
                           onPressed: _loadPatients,
                           icon: Icons.refresh_rounded,
                           busy: _loadingPatients,

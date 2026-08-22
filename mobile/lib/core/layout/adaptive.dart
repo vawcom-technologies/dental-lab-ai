@@ -79,9 +79,13 @@ class AdaptiveSplit extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
+        // Use screen orientation — not LayoutBuilder height — so opening the
+        // keyboard (which shrinks maxHeight) does not flip stacked ↔ row and
+        // remount focused text fields (e.g. Messages composer in portrait).
+        final screen = MediaQuery.sizeOf(context);
+        final portrait = screen.height > screen.width;
         final stacked = constraints.maxWidth < breakpoint ||
-            (constraints.maxHeight > constraints.maxWidth &&
-                constraints.maxWidth < 980);
+            (portrait && constraints.maxWidth < 980);
         if (!stacked) {
           final w = (constraints.maxWidth * panelFraction)
               .clamp(minPanelWidth, maxPanelWidth);

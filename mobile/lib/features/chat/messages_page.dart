@@ -64,10 +64,9 @@ class _MessagesPageState extends State<MessagesPage> {
     final controller = _controller;
     final owns = _ownsController;
     super.dispose();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      controller.setViewingThread(false);
-      if (owns) controller.dispose();
-    });
+    if (owns) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => controller.dispose());
+    }
   }
 
   Future<void> _openNewChat() async {
@@ -95,6 +94,8 @@ class _MessagesPageState extends State<MessagesPage> {
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
+    // Prefer screen width (stable when keyboard opens) so we don't swap
+    // AnimatedSwitcher ↔ AdaptiveSplit and drop composer focus.
     final narrow = MediaQuery.sizeOf(context).width < 900;
 
     return ChangeNotifierProvider<ChatController>.value(
@@ -110,7 +111,7 @@ class _MessagesPageState extends State<MessagesPage> {
                 return PageHeader(
                   icon: Icons.chat_bubble_outline_rounded,
                   title: loc.messagesTitle,
-                  subtitle: 'Inbox and conversations with the lab',
+                  subtitle: loc.messagesSubtitle,
                 );
               },
             ),
@@ -166,9 +167,15 @@ class _MessagesPageState extends State<MessagesPage> {
                         embedded: true,
                         onNewChat: _openNewChat,
                         onConversationSelected: (_) {},
+                        onSwipeCloseChat: () {
+                          if (_controller.activeConversation != null) {
+                            _controller.clearActiveConversation();
+                          }
+                        },
                       ),
                       content: ChatScreen(
                         patientSession: widget.patientSession,
+                        onClose: () => _controller.clearActiveConversation(),
                       ),
                       panelFraction: 0.36,
                       minPanelWidth: 280,
