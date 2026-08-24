@@ -215,6 +215,15 @@ class ShadePhotoPane extends StatelessWidget {
                                         if (ei != null) {
                                           return (kind: 'e', index: ei);
                                         }
+                                        if (hitTestOutlineBody(
+                                          local: local,
+                                          box: box,
+                                          imageSize: imgSize,
+                                          outline: outline,
+                                          bulges: editBulges,
+                                        )) {
+                                          return (kind: 'b', index: 0);
+                                        }
                                         return null;
                                       }
 
@@ -345,7 +354,7 @@ class ShadePhotoPane extends StatelessWidget {
                   bottom: 12,
                   child: Text(
                     editOutlineMode
-                        ? 'Drag corners · hold mid-edge to curve · double-tap edge to add a point · Apply.'
+                        ? 'Hold inside the outline and drag to move it · corners reshape · mid-edge curves · Apply.'
                         : 'Pinch to zoom · Tap to select · Press & hold for photo actions · Triple-tap to focus a tooth.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
@@ -376,7 +385,7 @@ class ShadePhotoPane extends StatelessWidget {
                     ),
                   ),
                 ),
-              if (editOutlineMode)
+              if (editOutlineMode || canUndo || canRedo)
                 Positioned(
                   top: 10,
                   right: 10,
@@ -395,13 +404,14 @@ class ShadePhotoPane extends StatelessWidget {
                           color: Colors.white,
                           disabledColor: Colors.white38,
                         ),
-                        IconButton(
-                          tooltip: 'Redo',
-                          onPressed: canRedo ? onRedo : null,
-                          icon: const Icon(Icons.redo_rounded),
-                          color: Colors.white,
-                          disabledColor: Colors.white38,
-                        ),
+                        if (editOutlineMode)
+                          IconButton(
+                            tooltip: 'Redo',
+                            onPressed: canRedo ? onRedo : null,
+                            icon: const Icon(Icons.redo_rounded),
+                            color: Colors.white,
+                            disabledColor: Colors.white38,
+                          ),
                       ],
                     ),
                   ),

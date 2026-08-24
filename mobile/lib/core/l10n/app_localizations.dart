@@ -340,6 +340,8 @@ class AppLocalizations {
   // ── Case statuses ────────────────────────────────────────────────────────
   String statusLabel(String key) {
     switch (key) {
+      case 'all':
+        return filterAll;
       case 'in_progress':
         return _t('status.inProgress');
       case 'pending':
@@ -359,6 +361,97 @@ class AppLocalizations {
         return key;
     }
   }
+
+  String appointmentStatusLabel(String key) {
+    switch (key) {
+      case 'all':
+        return filterAll;
+      case 'scheduled':
+        return _t('appointments.statusScheduled');
+      case 'completed':
+        return _t('appointments.statusCompleted');
+      case 'cancelled':
+        return _t('appointments.statusCancelled');
+      case 'no_show':
+        return _t('appointments.statusNoShow');
+      default:
+        return key;
+    }
+  }
+
+  String statusUpdatedTo(String label) =>
+      _t('common.statusUpdated').replaceAll('{label}', label);
+
+  // ── Appointments ─────────────────────────────────────────────────────────
+  String get appointmentsTitle => _t('appointments.title');
+  String get appointmentsSubtitle => _t('appointments.subtitle');
+  String get appointmentsBook => _t('appointments.book');
+  String get appointmentsBookTitle => _t('appointments.bookTitle');
+  String get appointmentsEditTitle => _t('appointments.editTitle');
+  String get appointmentsEmpty => _t('appointments.empty');
+  String get appointmentsAllPatients => _t('appointments.allPatients');
+  String get appointmentsSavedToast => _t('appointments.savedToast');
+  String get appointmentsNotesHint => _t('appointments.notesHint');
+  String get appointmentsSelectPatient => _t('appointments.selectPatient');
+  String get appointmentsDate => _t('appointments.date');
+  String get appointmentsTime => _t('appointments.time');
+  String get appointmentsDuration => _t('appointments.duration');
+  String get appointmentsNotes => _t('appointments.notes');
+  String get appointmentsStatus => _t('appointments.status');
+  String get appointmentsSaveChanges => _t('appointments.saveChanges');
+  String get appointmentsBookSubmit => _t('appointments.bookSubmit');
+
+  // ── Messages ─────────────────────────────────────────────────────────────
+  String get messagesSubtitle => _t('messages.subtitle');
+  String get messagesPlaceholder => _t('messages.placeholder');
+  String get messagesNewChat => _t('messages.newChat');
+  String get messagesStartChat => _t('messages.startChat');
+  String get messagesEmpty => _t('messages.empty');
+  String get messagesSelectConversation => _t('messages.selectConversation');
+  String get messagesAttach => _t('messages.attach');
+  String get messagesActive => _t('messages.active');
+  String get messagesReconnecting => _t('messages.reconnecting');
+  String get messagesNoConversations => _t('messages.noConversations');
+  String get messagesNoMatch => _t('messages.noMatch');
+  String get messagesNewTitle => _t('messages.newTitle');
+  String get commonSearch => _t('common.search');
+  String get commonEdit => _t('common.edit');
+  String get commonDelete => _t('common.delete');
+  String get commonShare => _t('common.share');
+  String get commonToday => _t('common.today');
+  String get commonTomorrow => _t('common.tomorrow');
+  String get commonYesterday => _t('common.yesterday');
+  String get commonFullscreen => _t('common.fullscreen');
+  String get commonExitFullscreen => _t('common.exitFullscreen');
+  String get changeStatus => _t('common.changeStatus');
+
+  // ── Scans ────────────────────────────────────────────────────────────────
+  String get scansSubtitle => _t('scans.subtitle');
+  String get scansUpload => _t('scans.upload');
+  String get scansUploading => _t('scans.uploading');
+  String get scansDelete => _t('scans.delete');
+  String get scansDeleted => _t('scans.deleted');
+  String get scansNoneSelected => _t('scans.noneSelected');
+  String get scansSelectPatient => _t('scans.selectPatient');
+  String scansEmptyFor(String name) =>
+      _t('scans.emptyFor').replaceAll('{name}', name);
+  String get scansRescanNow => _t('scans.rescanNow');
+
+  // ── Shade ────────────────────────────────────────────────────────────────
+  String get shadeCancel => _t('shade.cancel');
+  String get shadeReset => _t('shade.reset');
+  String get shadeApply => _t('shade.apply');
+  String get shadeAdjustEdges => _t('shade.adjustEdges');
+  String get shadeDelete => _t('shade.delete');
+  String get shadeAddTooth => _t('shade.addTooth');
+  String get shadeUpload => _t('shade.upload');
+  String get shadeReupload => _t('shade.reupload');
+
+  // ── Patients extras ──────────────────────────────────────────────────────
+  String get patientsEditTitle => _t('patients.editTitle');
+  String get patientsSaveChanges => _t('patients.saveChanges');
+  String get patientsCreatedToast => _t('patients.createdToast');
+  String get patientsUpdatedToast => _t('patients.updatedToast');
 
   static const _en = <String, String>{
     'nav.dashboard': 'Dashboard',
@@ -657,6 +750,74 @@ class AppLocalizations {
     'status.complete': 'Complete',
     'status.rejected': 'Rejected',
     'status.noCase': 'No case',
+    'common.statusUpdated': 'Status updated to {label}',
+    'common.search': 'Search',
+    'common.edit': 'Edit',
+    'common.delete': 'Delete',
+    'common.share': 'Share',
+    'common.today': 'Today',
+    'common.tomorrow': 'Tomorrow',
+    'common.yesterday': 'Yesterday',
+    'common.fullscreen': 'Fullscreen',
+    'common.exitFullscreen': 'Exit fullscreen',
+    'common.changeStatus': 'Change status',
+    'appointments.title': 'Appointments',
+    'appointments.subtitle':
+        'Schedule visits and send confirmation emails to patients',
+    'appointments.book': 'Book',
+    'appointments.bookTitle': 'Book Appointment',
+    'appointments.editTitle': 'Edit Appointment',
+    'appointments.empty': 'No visits yet',
+    'appointments.allPatients': 'All patients',
+    'appointments.savedToast':
+        'Appointment saved. Email notification sent to patient.',
+    'appointments.notesHint': 'Clinical notes / visit summary',
+    'appointments.selectPatient': 'Select a patient',
+    'appointments.date': 'Date',
+    'appointments.time': 'Time',
+    'appointments.duration': 'Duration',
+    'appointments.notes': 'Notes',
+    'appointments.status': 'Status',
+    'appointments.saveChanges': 'Save changes',
+    'appointments.bookSubmit': 'Book appointment',
+    'appointments.statusScheduled': 'Scheduled',
+    'appointments.statusCompleted': 'Completed',
+    'appointments.statusCancelled': 'Cancelled',
+    'appointments.statusNoShow': 'No Show',
+    'messages.subtitle': 'Inbox and conversations with the lab',
+    'messages.placeholder': 'Message',
+    'messages.newChat': 'New chat',
+    'messages.startChat': 'Start a chat',
+    'messages.empty': 'No messages yet — say hello.',
+    'messages.selectConversation': 'Select a conversation to start messaging',
+    'messages.attach': 'Attach',
+    'messages.active': 'Active',
+    'messages.reconnecting': 'Reconnecting…',
+    'messages.noConversations': 'No conversations yet.',
+    'messages.noMatch': 'No conversations match your search.',
+    'messages.newTitle': 'New Message',
+    'scans.subtitle':
+        'Upload PLY / STL / OBJ · preview Dots / Solid on device',
+    'scans.upload': 'Upload scan',
+    'scans.uploading': 'Uploading…',
+    'scans.delete': 'Delete scan',
+    'scans.deleted': 'Scan deleted',
+    'scans.noneSelected': 'No scan selected',
+    'scans.selectPatient': 'Select a patient',
+    'scans.emptyFor': 'No scans for {name} yet',
+    'scans.rescanNow': 'Rescan now — before patient leaves',
+    'shade.cancel': 'Cancel',
+    'shade.reset': 'Reset',
+    'shade.apply': 'Apply',
+    'shade.adjustEdges': 'Adjust edges',
+    'shade.delete': 'Delete',
+    'shade.addTooth': 'Add tooth',
+    'shade.upload': 'Upload',
+    'shade.reupload': 'Re-upload',
+    'patients.editTitle': 'Edit Patient',
+    'patients.saveChanges': 'Save changes',
+    'patients.createdToast': 'Patient created successfully',
+    'patients.updatedToast': 'Patient updated',
   };
 
   static const _de = <String, String>{
@@ -967,5 +1128,74 @@ class AppLocalizations {
     'status.complete': 'Abgeschlossen',
     'status.rejected': 'Abgelehnt',
     'status.noCase': 'Kein Fall',
+    'common.statusUpdated': 'Status aktualisiert: {label}',
+    'common.search': 'Suchen',
+    'common.edit': 'Bearbeiten',
+    'common.delete': 'Löschen',
+    'common.share': 'Teilen',
+    'common.today': 'Heute',
+    'common.tomorrow': 'Morgen',
+    'common.yesterday': 'Gestern',
+    'common.fullscreen': 'Vollbild',
+    'common.exitFullscreen': 'Vollbild beenden',
+    'common.changeStatus': 'Status ändern',
+    'appointments.title': 'Termine',
+    'appointments.subtitle':
+        'Besuche planen und Bestätigungs-E-Mails an Patienten senden',
+    'appointments.book': 'Buchen',
+    'appointments.bookTitle': 'Termin buchen',
+    'appointments.editTitle': 'Termin bearbeiten',
+    'appointments.empty': 'Noch keine Termine',
+    'appointments.allPatients': 'Alle Patienten',
+    'appointments.savedToast':
+        'Termin gespeichert. E-Mail-Benachrichtigung an den Patienten gesendet.',
+    'appointments.notesHint': 'Klinische Notizen / Besuchszusammenfassung',
+    'appointments.selectPatient': 'Patient auswählen',
+    'appointments.date': 'Datum',
+    'appointments.time': 'Uhrzeit',
+    'appointments.duration': 'Dauer',
+    'appointments.notes': 'Notizen',
+    'appointments.status': 'Status',
+    'appointments.saveChanges': 'Änderungen speichern',
+    'appointments.bookSubmit': 'Termin buchen',
+    'appointments.statusScheduled': 'Geplant',
+    'appointments.statusCompleted': 'Abgeschlossen',
+    'appointments.statusCancelled': 'Abgesagt',
+    'appointments.statusNoShow': 'Nicht erschienen',
+    'messages.subtitle': 'Posteingang und Gespräche mit dem Labor',
+    'messages.placeholder': 'Nachricht',
+    'messages.newChat': 'Neuer Chat',
+    'messages.startChat': 'Chat starten',
+    'messages.empty': 'Noch keine Nachrichten — schreiben Sie hallo.',
+    'messages.selectConversation':
+        'Wählen Sie eine Unterhaltung zum Schreiben',
+    'messages.attach': 'Anhängen',
+    'messages.active': 'Aktiv',
+    'messages.reconnecting': 'Verbinde erneut…',
+    'messages.noConversations': 'Noch keine Unterhaltungen.',
+    'messages.noMatch': 'Keine Unterhaltungen passen zur Suche.',
+    'messages.newTitle': 'Neue Nachricht',
+    'scans.subtitle':
+        'PLY / STL / OBJ hochladen · Vorschau Punkte / Solid auf dem Gerät',
+    'scans.upload': 'Scan hochladen',
+    'scans.uploading': 'Wird hochgeladen…',
+    'scans.delete': 'Scan löschen',
+    'scans.deleted': 'Scan gelöscht',
+    'scans.noneSelected': 'Kein Scan ausgewählt',
+    'scans.selectPatient': 'Patient auswählen',
+    'scans.emptyFor': 'Noch keine Scans für {name}',
+    'scans.rescanNow': 'Jetzt neu scannen — bevor der Patient geht',
+    'shade.cancel': 'Abbrechen',
+    'shade.reset': 'Zurücksetzen',
+    'shade.apply': 'Übernehmen',
+    'shade.adjustEdges': 'Ränder anpassen',
+    'shade.delete': 'Löschen',
+    'shade.addTooth': 'Zahn hinzufügen',
+    'shade.upload': 'Hochladen',
+    'shade.reupload': 'Erneut hochladen',
+    'patients.editTitle': 'Patient bearbeiten',
+    'patients.saveChanges': 'Änderungen speichern',
+    'patients.createdToast': 'Patient erfolgreich angelegt',
+    'patients.updatedToast': 'Patient aktualisiert',
   };
 }

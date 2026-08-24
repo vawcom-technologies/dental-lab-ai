@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/navigation/app_page_routes.dart';
 import '../../core/widgets/app_buttons.dart';
@@ -66,6 +67,7 @@ class ShadeActionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
     final wide = maxWidth >= 520;
     final gap = wide ? 10.0 : 6.0;
     final iconSize = wide ? 16.0 : 14.0;
@@ -92,7 +94,7 @@ class ShadeActionBar extends StatelessWidget {
                 minH: minH,
                 fontSize: fontSize,
               ),
-              child: label('Cancel'),
+              child: label(loc.shadeCancel),
             ),
           ),
           SizedBox(width: gap),
@@ -105,7 +107,7 @@ class ShadeActionBar extends StatelessWidget {
                 minH: minH,
                 fontSize: fontSize,
               ),
-              child: label('Reset'),
+              child: label(loc.shadeReset),
             ),
           ),
           SizedBox(width: gap),
@@ -114,7 +116,7 @@ class ShadeActionBar extends StatelessWidget {
             child: FilledButton.icon(
               onPressed: onApply,
               icon: Icon(Icons.check, size: iconSize),
-              label: label('Apply'),
+              label: label(loc.shadeApply),
               style: compactActionFilled(
                 AppColors.dentalBlue,
                 minH: minH,
@@ -131,7 +133,7 @@ class ShadeActionBar extends StatelessWidget {
             child: FilledButton.icon(
               onPressed: canEditTooth ? onAdjustEdges : null,
               icon: Icon(Icons.open_with, size: iconSize),
-              label: label('Adjust edges'),
+              label: label(loc.shadeAdjustEdges),
               style: compactActionFilled(
                 AppColors.navy,
                 minH: minH,
@@ -144,7 +146,7 @@ class ShadeActionBar extends StatelessWidget {
             child: OutlinedButton.icon(
               onPressed: canEditTooth ? onDelete : null,
               icon: Icon(Icons.delete_outline, size: iconSize),
-              label: label('Delete'),
+              label: label(loc.shadeDelete),
               style: compactActionOutlined(
                 fg: AppColors.danger,
                 side: AppColors.danger,
@@ -158,7 +160,7 @@ class ShadeActionBar extends StatelessWidget {
             child: OutlinedButton.icon(
               onPressed: onAddTooth,
               icon: Icon(Icons.add, size: iconSize),
-              label: label('Add tooth'),
+              label: label(loc.shadeAddTooth),
               style: compactActionOutlined(
                 fg: AppColors.navy,
                 side: AppColors.navy,
@@ -172,7 +174,7 @@ class ShadeActionBar extends StatelessWidget {
             child: FilledButton.icon(
               onPressed: onUpload,
               icon: Icon(Icons.upload_file, size: iconSize),
-              label: label(hasPreview ? 'Re-upload' : 'Upload'),
+              label: label(hasPreview ? loc.shadeReupload : loc.shadeUpload),
               style: compactActionFilled(
                 AppColors.dentalBlue,
                 minH: minH,

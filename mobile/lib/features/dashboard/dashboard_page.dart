@@ -179,7 +179,9 @@ class _DashboardPageState extends State<DashboardPage> {
       });
       AppSnackBars.success(
         context,
-        'Status updated to ${StatusStyle.of(next).label}',
+        AppLocalizations.of(context).statusUpdatedTo(
+          AppLocalizations.of(context).statusLabel(next),
+        ),
       );
     } catch (e) {
       if (!mounted) return;

@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:record/record.dart';
 
+import '../../../core/l10n/app_localizations.dart';
 import '../../../core/session/patient_session.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_snackbar.dart';
@@ -103,10 +104,11 @@ class _ChatComposerState extends State<ChatComposer> {
 
   Future<void> _showAttachSheet() async {
     if (_recording) return;
+    final loc = AppLocalizations.of(context);
     await showCupertinoModalPopup<void>(
       context: context,
       builder: (ctx) => CupertinoActionSheet(
-        title: const Text('Attach'),
+        title: Text(loc.messagesAttach),
         actions: [
           CupertinoActionSheetAction(
             onPressed: () {
@@ -147,7 +149,7 @@ class _ChatComposerState extends State<ChatComposer> {
         cancelButton: CupertinoActionSheetAction(
           isDefaultAction: true,
           onPressed: () => Navigator.pop(ctx),
-          child: const Text('Cancel'),
+          child: Text(loc.cancel),
         ),
       ),
     );
@@ -668,7 +670,8 @@ class _ChatComposerState extends State<ChatComposer> {
                                 horizontal: 14,
                                 vertical: 10,
                               ),
-                              placeholder: 'Message',
+                              placeholder:
+                                  AppLocalizations.of(context).messagesPlaceholder,
                               placeholderStyle: const TextStyle(
                                 color: Color(0xFF8E8E93),
                                 fontSize: 16,

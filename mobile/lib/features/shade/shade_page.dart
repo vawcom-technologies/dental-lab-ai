@@ -70,6 +70,13 @@ class _ShadePageState extends State<ShadePage> {
   List<Map<String, dynamic>> _teeth = [];
   /// Full AI detection set — kept across isolate so other teeth stay tappable.
   List<Map<String, dynamic>> _teethMemory = [];
+  /// Snapshots taken just before a tooth delete — overlay Undo restores them.
+  final List<
+      ({
+        List<Map<String, dynamic>> teeth,
+        int? selected,
+        int? isolated,
+      })> _teethUndo = [];
   /// Triple-tap focus: Result pane shows this tooth; overlay keeps all.
   int? _isolatedToothIndex;
   int? _selectedToothIndex;
@@ -90,6 +97,8 @@ class _ShadePageState extends State<ShadePage> {
   List<double>? _editBulgesBackup;
   int? _activeHandleIndex;
   int? _activeEdgeIndex;
+  bool _movingOutline = false;
+  Offset? _bodyDragLast;
   /// Loupe follows this without setState — Image.memory stays mounted.
   final _magnifierFocal = ValueNotifier<Offset?>(null);
   Size? _magnifierViewSize;
@@ -731,6 +740,11 @@ class _ShadePageState extends State<ShadePage> {
   void _deleteSelectedTooth() {
     final idx = _selectedToothIndex;
     if (idx == null || _editOutlineMode) return;
+    _teethUndo.add((
+      teeth: _cloneTeeth(_teeth),
+      selected: _selectedToothIndex,
+      isolated: _isolatedToothIndex,
+    ));
     final remaining = <Map<String, dynamic>>[];
     for (final t in _teeth) {
       final ti = (t['tooth_index'] as num?)?.toInt();
@@ -763,7 +777,7 @@ class _ShadePageState extends State<ShadePage> {
         _confidence = 0;
         _topMatches = [];
         _selected = '—';
-        _saveStatus = 'Removed tooth — re-detect or upload if needed.';
+        _saveStatus = 'Removed tooth — tap Undo to restore, or re-detect.';
       } else {
         // Prefer the neighbor that was to the right, else the new last.
         final next = idx.clamp(0, remaining.length - 1);
@@ -771,11 +785,38 @@ class _ShadePageState extends State<ShadePage> {
         if (_isolatedToothIndex != null) _isolatedToothIndex = next;
         _syncUiFromSelection();
         _saveStatus =
-            'Removed tooth. ${remaining.length} remaining (renumbered left → right).';
+            'Removed tooth. ${remaining.length} remaining — tap Undo to restore.';
       }
       _upsertSessionEntry(onlyIfExists: true);
     });
     AppHaptics.warn();
+  }
+
+  void _undoDeletedTooth() {
+    if (_teethUndo.isEmpty || _editOutlineMode) return;
+    final snap = _teethUndo.removeLast();
+    setState(() {
+      _teeth = _cloneTeeth(snap.teeth);
+      _rememberTeeth();
+      _selectedToothIndex = snap.selected;
+      _isolatedToothIndex = snap.isolated;
+      _syncUiFromSelection();
+      _saveStatus = 'Restored deleted tooth.';
+      _upsertSessionEntry(onlyIfExists: true);
+    });
+    AppHaptics.success();
+  }
+
+  bool get _canUndo =>
+      (_editOutlineMode && _outlineHistory.canUndo) ||
+      (!_editOutlineMode && _teethUndo.isNotEmpty);
+
+  void _undoFromOverlay() {
+    if (_editOutlineMode) {
+      _undoOutlineEdit();
+      return;
+    }
+    _undoDeletedTooth();
   }
 
   Size get _overlayImageSize {
@@ -900,7 +941,7 @@ class _ShadePageState extends State<ShadePage> {
       _error = null;
       _syncUiFromSelection();
       _saveStatus =
-          'Added Tooth ${idx + 1} — drag corners to match the crown, then Apply.';
+          'Added Tooth ${idx + 1} — hold inside the outline and drag it onto the tooth, then Apply.';
       _upsertSessionEntry(onlyIfExists: true);
     });
     _startOutlineEdit();
@@ -960,11 +1001,13 @@ class _ShadePageState extends State<ShadePage> {
       _editBulgesBackup = OutlineEditHistory.cloneBulges(bulges);
       _activeHandleIndex = null;
       _activeEdgeIndex = null;
+      _movingOutline = false;
+      _bodyDragLast = null;
       _clearMagnifier();
       _outlineBeforeDrag = null;
       _outlineHistory.clear();
       _saveStatus =
-          'Drag corners · hold mid-edge to curve · double-tap edge to add a point · Apply.';
+          'Drag inside to move · drag corners · hold mid-edge to curve · Apply.';
     });
   }
 
@@ -981,6 +1024,8 @@ class _ShadePageState extends State<ShadePage> {
       _editBulges = OutlineEditHistory.cloneBulges(bakB);
       _activeHandleIndex = null;
       _activeEdgeIndex = null;
+      _movingOutline = false;
+      _bodyDragLast = null;
       _clearMagnifier();
       _outlineBeforeDrag = null;
       _outlineHistory.clear();
@@ -1015,6 +1060,8 @@ class _ShadePageState extends State<ShadePage> {
     _editBulgesBackup = null;
     _activeHandleIndex = null;
     _activeEdgeIndex = null;
+    _movingOutline = false;
+    _bodyDragLast = null;
     _clearMagnifier();
     _outlineBeforeDrag = null;
     _outlineHistory.clear();
@@ -1028,6 +1075,7 @@ class _ShadePageState extends State<ShadePage> {
       _previewImageSize = Size.zero;
       _teeth = [];
       _teethMemory = [];
+      _teethUndo.clear();
       _isolatedToothIndex = null;
       _selectedToothIndex = null;
       _analysisImageSize = Size.zero;
@@ -1052,6 +1100,8 @@ class _ShadePageState extends State<ShadePage> {
     setState(() {
       _activeHandleIndex = null;
       _activeEdgeIndex = null;
+      _movingOutline = false;
+      _bodyDragLast = null;
       _clearMagnifier();
     });
   }
@@ -1474,6 +1524,7 @@ class _ShadePageState extends State<ShadePage> {
     setState(() {
       _teeth = teeth;
       _rememberTeeth();
+      _teethUndo.clear();
       _isolatedToothIndex = null;
       _selectedToothIndex = (first?['tooth_index'] as num?)?.toInt();
       _focusZone = 'middle';
@@ -1781,14 +1832,25 @@ class _ShadePageState extends State<ShadePage> {
             maxDist: 22 / scale,
           )
         : null;
-    if (hi == null && ei == null) return;
+    final moving = hi == null &&
+        ei == null &&
+        hitTestOutlineBody(
+          local: local,
+          box: box,
+          imageSize: imgSize,
+          outline: outline,
+          bulges: bulges,
+        );
+    if (hi == null && ei == null && !moving) return;
     setState(() {
       _activeHandleIndex = hi;
       _activeEdgeIndex = ei;
-      _magnifierViewSize = box;
+      _movingOutline = moving;
+      _bodyDragLast = moving ? local : null;
+      _magnifierViewSize = moving ? null : box;
       _outlineBeforeDrag = OutlineEditHistory.snapOf(outline, bulges);
     });
-    _magnifierFocal.value = local;
+    if (!moving) _magnifierFocal.value = local;
   }
 
   void _onHandleDragUpdate(Offset local, Size box) {
@@ -1799,6 +1861,22 @@ class _ShadePageState extends State<ShadePage> {
     final dest = containRect(box, imgSize);
     final hi = _activeHandleIndex;
     final ei = _activeEdgeIndex;
+    if (_movingOutline) {
+      final last = _bodyDragLast;
+      if (last == null) return;
+      final from = localToNorm(last, dest);
+      final to = localToNorm(local, dest);
+      final next = clampOutlineToImage(
+        translateOutline(outline, to[0] - from[0], to[1] - from[1]),
+      );
+      for (var i = 0; i < outline.length && i < next.length; i++) {
+        outline[i][0] = next[i][0];
+        outline[i][1] = next[i][1];
+      }
+      _bodyDragLast = local;
+      _dragTick.value++;
+      return;
+    }
     if (hi != null) {
       final norm = localToNorm(local, dest);
       outline[hi] = [norm[0], norm[1]];
@@ -1989,8 +2067,9 @@ class _ShadePageState extends State<ShadePage> {
                                   photoTransformController:
                                       _photoTransformController,
                                   dragTick: _dragTick,
-                                  canUndo: _outlineHistory.canUndo,
-                                  canRedo: _outlineHistory.canRedo,
+                                  canUndo: _canUndo,
+                                  canRedo: _editOutlineMode &&
+                                      _outlineHistory.canRedo,
                                   onUpload: _runAiFromGallery,
                                   onClearPhoto: _clearUploadedPhoto,
                                   onSelectTooth: _onToothTap,
@@ -1998,7 +2077,7 @@ class _ShadePageState extends State<ShadePage> {
                                   onHandleDragUpdate: _onHandleDragUpdate,
                                   onHandleDragEnd: _endOutlineDrag,
                                   onEdgeDoubleTap: _onEdgeDoubleTap,
-                                  onUndo: _undoOutlineEdit,
+                                  onUndo: _undoFromOverlay,
                                   onRedo: _redoOutlineEdit,
                                 ),
                                 result: ShadeResultPane(

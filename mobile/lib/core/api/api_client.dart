@@ -13,17 +13,16 @@ import '../auth/token_store.dart';
 import '../errors/user_facing_error.dart';
 import '../haptics/app_haptics.dart';
 import '../offline/sync_queue.dart';
+import 'api_host.dart';
 import 'cached_http_client.dart';
 
 class ApiClient {
   ApiClient({
-    this.baseUrl = const String.fromEnvironment(
-      'API_BASE',
-      defaultValue: 'http://127.0.0.1:8000',
-    ),
+    String? baseUrl,
     http.Client? httpClient,
     TokenStore? tokenStore,
-  }) : _tokens = tokenStore ?? TokenStore() {
+  }) : baseUrl = baseUrl ?? resolveApiBase(),
+       _tokens = tokenStore ?? TokenStore() {
     if (httpClient is CachedHttpClient) {
       _http = httpClient;
     } else {

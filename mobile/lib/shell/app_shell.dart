@@ -215,9 +215,12 @@ class _AppShellState extends State<AppShell> {
               ),
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final narrow =
-                      constraints.maxHeight > constraints.maxWidth ||
-                          constraints.maxWidth < AppBreakpoints.collapseSidebar;
+                  // Screen size, not laid-out height — keyboard insets must not
+                  // flip sidebar collapsed/expanded (that remounts Messages and
+                  // dismisses the composer immediately).
+                  final screen = MediaQuery.sizeOf(context);
+                  final narrow = screen.height > screen.width ||
+                      constraints.maxWidth < AppBreakpoints.collapseSidebar;
                   final sidebarCollapsed =
                       narrow ? !_narrowSidebarOpen : _sidebarCollapsed;
                   return Row(

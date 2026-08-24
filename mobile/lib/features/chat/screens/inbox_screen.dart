@@ -18,12 +18,15 @@ class InboxScreen extends StatelessWidget {
     super.key,
     this.onConversationSelected,
     this.onNewChat,
+    this.onSwipeCloseChat,
     this.embedded = false,
   });
 
   /// Called after a conversation is opened (useful when not embedded).
   final ValueChanged<Conversation>? onConversationSelected;
   final VoidCallback? onNewChat;
+  /// Swipe right on the people list to hide the open chat pane.
+  final VoidCallback? onSwipeCloseChat;
   final bool embedded;
 
   @override
@@ -32,7 +35,7 @@ class InboxScreen extends StatelessWidget {
     final controller = context.watch<ChatController>();
     final rows = controller.visibleConversations;
 
-    return Column(
+    final column = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (!embedded)
@@ -41,7 +44,7 @@ class InboxScreen extends StatelessWidget {
             title: loc.messagesTitle,
             subtitle: controller.socketConnected
                 ? 'Live · ${controller.totalUnread} unread'
-                : 'Reconnecting…',
+                : loc.messagesReconnecting,
             chromeActions: [
               AppButtons.icon(
                 tooltip: loc.refresh,
@@ -52,7 +55,7 @@ class InboxScreen extends StatelessWidget {
               ),
               if (onNewChat != null)
                 AppButtons.icon(
-                  tooltip: 'New chat',
+                  tooltip: loc.messagesNewChat,
                   onPressed: onNewChat,
                   icon: Icons.edit_square,
                 ),
@@ -84,7 +87,7 @@ class InboxScreen extends StatelessWidget {
                       if (onNewChat != null) ...[
                         const SizedBox(width: 6),
                         _GlassIconButton(
-                          tooltip: 'New chat',
+                          tooltip: loc.messagesNewChat,
                           icon: CupertinoIcons.square_pencil,
                           onPressed: onNewChat,
                         ),
@@ -130,8 +133,8 @@ class InboxScreen extends StatelessWidget {
                                     const SizedBox(height: 14),
                                     Text(
                                       controller.inboxQuery.isEmpty
-                                          ? 'No conversations yet.'
-                                          : 'No conversations match your search.',
+                                          ? loc.messagesNoConversations
+                                          : loc.messagesNoMatch,
                                       textAlign: TextAlign.center,
                                       style: AppFonts.style(
                                         color: AppColors.muted,
@@ -145,7 +148,7 @@ class InboxScreen extends StatelessWidget {
                                       AppButtons.primary(
                                         onPressed: onNewChat,
                                         icon: Icons.edit_square,
-                                        label: 'Start a chat',
+                                        label: loc.messagesStartChat,
                                         compact: true,
                                       ),
                                     ],
@@ -200,6 +203,16 @@ class InboxScreen extends StatelessWidget {
         ),
       ],
     );
+
+    if (onSwipeCloseChat == null) return column;
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragEnd: (details) {
+        final v = details.primaryVelocity ?? 0;
+        if (v > 350) onSwipeCloseChat!();
+      },
+      child: column,
+    );
   }
 }
 
@@ -219,7 +232,7 @@ class _GlassSearchField extends StatelessWidget {
         ),
       ),
       child: CupertinoSearchTextField(
-        placeholder: 'Search',
+        placeholder: AppLocalizations.of(context).commonSearch,
         backgroundColor: Colors.transparent,
         borderRadius: BorderRadius.circular(16),
         prefixIcon: const Icon(

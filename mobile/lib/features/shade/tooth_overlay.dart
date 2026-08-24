@@ -219,6 +219,19 @@ int? hitTestOutlineEdge({
   return best;
 }
 
+/// True when [local] is inside the curved outline (not on a handle).
+bool hitTestOutlineBody({
+  required Offset local,
+  required Size box,
+  required Size imageSize,
+  required List<List<double>> outline,
+  List<double>? bulges,
+}) {
+  if (outline.length < 3) return false;
+  final dest = containRect(box, imageSize);
+  return curvedPathFromNorm(outline, dest, bulges: bulges).contains(local);
+}
+
 /// Simplify a dense outline to ~8–12 control points for edge editing.
 ///
 /// Keep in sync with backend `EDIT_HANDLES_MAX` / `EDIT_HANDLES_MIN`.
@@ -583,7 +596,7 @@ class ToothOverlayPainter extends CustomPainter {
 
   static const _zoneColors = {
     'cervical': Color(0xFFE09B2D),
-    'middle': Color(0xFF4A90E2),
+    'middle': Color(0xFFE05252),
     'incisal': Color(0xFF1F9D63),
   };
 

@@ -16,12 +16,13 @@ class AppointmentStatuses {
     noShow,
   ];
 
-  static const filters = <({String key, String label})>[
-    (key: 'all', label: 'All'),
-    (key: scheduled, label: 'Scheduled'),
-    (key: completed, label: 'Completed'),
-    (key: cancelled, label: 'Cancelled'),
-    (key: noShow, label: 'No Show'),
+  /// Filter keys — localize with [AppLocalizations.appointmentStatusLabel].
+  static const filterKeys = <String>[
+    'all',
+    scheduled,
+    completed,
+    cancelled,
+    noShow,
   ];
 
   static String normalize(String? raw) {
@@ -32,26 +33,11 @@ class AppointmentStatuses {
     if (all.contains(s)) return s;
     return scheduled;
   }
-
-  static String label(String? raw) {
-    switch (normalize(raw)) {
-      case completed:
-        return 'Completed';
-      case cancelled:
-        return 'Cancelled';
-      case noShow:
-        return 'No Show';
-      case scheduled:
-      default:
-        return 'Scheduled';
-    }
-  }
 }
 
 class AppointmentStatusStyle {
-  const AppointmentStatusStyle(this.label, this.fg, this.bg);
+  const AppointmentStatusStyle(this.fg, this.bg);
 
-  final String label;
   final Color fg;
   final Color bg;
 
@@ -59,26 +45,22 @@ class AppointmentStatusStyle {
     switch (AppointmentStatuses.normalize(raw)) {
       case AppointmentStatuses.completed:
         return const AppointmentStatusStyle(
-          'Completed',
           AppColors.muted,
           Color(0xFFE8EDF4),
         );
       case AppointmentStatuses.cancelled:
         return const AppointmentStatusStyle(
-          'Cancelled',
           AppColors.danger,
           AppColors.dangerSoft,
         );
       case AppointmentStatuses.noShow:
         return const AppointmentStatusStyle(
-          'No Show',
           AppColors.warning,
           AppColors.warningSoft,
         );
       case AppointmentStatuses.scheduled:
       default:
         return const AppointmentStatusStyle(
-          'Scheduled',
           AppColors.dentalBlue,
           Color(0xFFEAF3FC),
         );

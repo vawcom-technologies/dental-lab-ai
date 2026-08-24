@@ -114,7 +114,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [AppColors.navy, Color(0xFF2A4A73), AppColors.dentalBlue],
+                  colors: [
+                    Color(0xFFEAF3FB),
+                    Color(0xFFD7E7F6),
+                    Color(0xFFC8DCF0),
+                  ],
                 ),
               ),
               child: Padding(
@@ -127,12 +131,20 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 20),
                     Text(
                       loc.proEdition,
-                      style: const TextStyle(color: Colors.white70, fontSize: 16),
+                      style: const TextStyle(
+                        color: AppColors.navy,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     Text(
                       loc.loginHero,
-                      style: const TextStyle(color: Colors.white70, fontSize: 15, height: 1.45),
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 15,
+                        height: 1.45,
+                      ),
                     ),
                   ],
                 ),

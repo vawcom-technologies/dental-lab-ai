@@ -431,51 +431,45 @@ class AppTheme {
 }
 
 class StatusStyle {
-  final String label;
   final Color fg;
   final Color bg;
 
-  const StatusStyle(this.label, this.fg, this.bg);
+  const StatusStyle(this.fg, this.bg);
 
   static StatusStyle of(String key) {
     switch (key) {
       case 'in_progress':
         return const StatusStyle(
-          'In Progress',
           AppColors.dentalBlue,
           Color(0xFFEAF3FC),
         );
       case 'pending':
       case 'awaiting_scan':
         return const StatusStyle(
-          'Awaiting Scan',
           AppColors.warning,
           AppColors.warningSoft,
         );
       case 'in_review':
         return const StatusStyle(
-          'In Review',
           AppColors.review,
           AppColors.reviewSoft,
         );
       case 'completed':
       case 'complete':
         return const StatusStyle(
-          'Complete',
           AppColors.success,
           AppColors.successSoft,
         );
       case 'rejected':
         return const StatusStyle(
-          'Rejected',
           AppColors.danger,
           AppColors.dangerSoft,
         );
       case 'none':
       case 'no_case':
-        return const StatusStyle('No case', AppColors.muted, Color(0xFFE8EDF4));
+        return const StatusStyle(AppColors.muted, Color(0xFFE8EDF4));
       default:
-        return StatusStyle(key, AppColors.muted, AppColors.surface);
+        return const StatusStyle(AppColors.muted, AppColors.surface);
     }
   }
 }
@@ -496,14 +490,14 @@ class CaseStatuses {
     rejected,
   ];
 
-  /// Filter chips shown on Patients (excludes raw aliases).
-  static const filters = <({String key, String label})>[
-    (key: 'all', label: 'All'),
-    (key: pending, label: 'Awaiting Scan'),
-    (key: inProgress, label: 'In Progress'),
-    (key: inReview, label: 'In Review'),
-    (key: completed, label: 'Complete'),
-    (key: rejected, label: 'Rejected'),
+  /// Filter chip keys on Patients (`all` + [all]). Localize via [AppLocalizations].
+  static const filterKeys = <String>[
+    'all',
+    pending,
+    inProgress,
+    inReview,
+    completed,
+    rejected,
   ];
 
   static String normalize(String? raw) {

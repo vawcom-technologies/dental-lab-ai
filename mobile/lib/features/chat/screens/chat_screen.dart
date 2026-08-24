@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/l10n/app_localizations.dart';
 import '../../../core/session/patient_session.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/ui_kit.dart';
@@ -18,11 +19,14 @@ class ChatScreen extends StatefulWidget {
   const ChatScreen({
     super.key,
     this.onBack,
+    this.onClose,
     this.showBack = false,
     this.patientSession,
   });
 
   final VoidCallback? onBack;
+  /// Hides the open thread (wide split) without deleting messages.
+  final VoidCallback? onClose;
   final bool showBack;
   final PatientSession? patientSession;
 
@@ -53,13 +57,9 @@ class _ChatScreenState extends State<ChatScreen> {
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
     _compose.dispose();
+    // Sync while ChatController is still alive (parent may dispose it next frame).
+    chat?.setViewingThread(false);
     super.dispose();
-    // Notify after unmount so ListenableBuilders aren't rebuilt while locked.
-    if (chat != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        chat.setViewingThread(false);
-      });
-    }
   }
 
   void _onScroll() {
@@ -100,6 +100,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final active = controller.activeConversation;
 
     if (active == null) {
+      final loc = AppLocalizations.of(context);
       return GlassSurface(
         borderRadius: BorderRadius.circular(28),
         blur: 28,
@@ -107,7 +108,7 @@ class _ChatScreenState extends State<ChatScreen> {
         border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
         child: Center(
           child: Text(
-            'Select a conversation to start messaging',
+            loc.messagesSelectConversation,
             style: AppFonts.style(
               color: AppColors.muted,
               fontWeight: FontWeight.w500,
@@ -133,6 +134,7 @@ class _ChatScreenState extends State<ChatScreen> {
             connected: controller.socketConnected,
             showBack: widget.showBack,
             onBack: widget.onBack,
+            onClose: widget.onClose,
           ),
           Container(
             height: 0.6,
@@ -145,10 +147,10 @@ class _ChatScreenState extends State<ChatScreen> {
               child: controller.loadingMessages && messages.isEmpty
                   ? const ToothPageLoader(message: 'Loading chat…')
                   : messages.isEmpty
-                      ? const Center(
+                      ? Center(
                           child: Text(
-                            'No messages yet — say hello.',
-                            style: TextStyle(
+                            AppLocalizations.of(context).messagesEmpty,
+                            style: const TextStyle(
                               color: AppColors.muted,
                               fontSize: 16,
                             ),
@@ -235,18 +237,21 @@ class _ChatHeader extends StatelessWidget {
     required this.connected,
     required this.showBack,
     this.onBack,
+    this.onClose,
   });
 
   final UserProfile partner;
   final bool connected;
   final bool showBack;
   final VoidCallback? onBack;
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
     return Container(
       color: Colors.white.withValues(alpha: 0.92),
-      padding: const EdgeInsets.fromLTRB(8, 10, 14, 10),
+      padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
       child: Row(
         children: [
           if (showBack)
@@ -291,9 +296,9 @@ class _ChatHeader extends StatelessWidget {
                 Text(
                   connected
                       ? (partner.subtitle.isEmpty
-                          ? 'Active'
+                          ? loc.messagesActive
                           : partner.subtitle)
-                      : 'Reconnecting…',
+                      : loc.messagesReconnecting,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -307,6 +312,16 @@ class _ChatHeader extends StatelessWidget {
               ],
             ),
           ),
+          if (onClose != null)
+            CupertinoButton(
+              padding: const EdgeInsets.all(6),
+              onPressed: onClose,
+              child: const Icon(
+                CupertinoIcons.xmark_circle_fill,
+                color: AppColors.muted,
+                size: 26,
+              ),
+            ),
         ],
       ),
     );

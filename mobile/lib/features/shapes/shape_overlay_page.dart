@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/layout/adaptive.dart';
+import '../../core/navigation/app_page_routes.dart';
 import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/patient_picker.dart';
@@ -148,7 +149,8 @@ class ShapeOverlayPage extends StatefulWidget {
   State<ShapeOverlayPage> createState() => _ShapeOverlayPageState();
 }
 
-class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
+class _ShapeOverlayPageState extends State<ShapeOverlayPage>
+    with SingleTickerProviderStateMixin {
   List<Map<String, dynamic>> _patients = [];
   Map<String, dynamic>? _patient;
   Map<String, dynamic>? _case;
@@ -164,7 +166,6 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
   bool _showOverlay = true;
   bool _comparing = false;
   bool _showGuides = true;
-  bool _fullscreen = false;
   bool _placementOpen = true;
 
   double _baseScale = 1.0;
@@ -179,13 +180,39 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
   String? _status;
   String? _error;
   List<Map<String, dynamic>> _smileItems = [];
+  late final AnimationController _fsController;
+  late final Animation<double> _fsExpand;
 
   ShapeLibraryItem get _selected => ShapeLibrary.at(_shapeIndex);
 
   @override
   void initState() {
     super.initState();
+    _fsController = AnimationController(
+      vsync: this,
+      duration: AppMotion.page,
+      reverseDuration: AppMotion.normal,
+    );
+    _fsExpand = CurvedAnimation(
+      parent: _fsController,
+      curve: AppMotion.spring,
+      reverseCurve: AppMotion.easeOut,
+    );
     _bootstrap();
+  }
+
+  @override
+  void dispose() {
+    _fsController.dispose();
+    super.dispose();
+  }
+
+  void _toggleFullscreen() {
+    if (_fsController.value > 0.5) {
+      _fsController.reverse();
+    } else {
+      _fsController.forward();
+    }
   }
 
   @override
@@ -641,49 +668,86 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
       return const ToothPageLoader(message: 'Loading smile preview…');
     }
 
-    if (_fullscreen) {
-      return ColoredBox(
-        color: const Color(0xFF0F1724),
-        child: _photoBytes == null ? _emptyStage() : _photoStage(),
-      );
-    }
-
     final portrait = AppBreakpoints.isPortrait(context);
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        portrait ? 16 : 28,
-        portrait ? 16 : 24,
-        portrait ? 16 : 28,
-        portrait ? 16 : 24,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildHeader(),
-          if (_status != null)
-            Text(
-              _status!,
-              style: const TextStyle(color: AppColors.success, fontSize: 13),
-            ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: AdaptiveSplit(
-              panelOnRight: true,
-              panelFraction: 0.3,
-              minPanelWidth: portrait ? 260 : 300,
-              maxPanelWidth: 360,
-              gap: 16,
-              narrowPanelHeight: portrait ? 260 : 480,
-              narrowContentMinHeight: 220,
-              narrowContentFirst: true,
-              narrowContentMaxHeight: portrait ? 360 : null,
-              panel: _buildRail(),
-              content: _buildStage(),
+    return AnimatedBuilder(
+      animation: _fsExpand,
+      builder: (context, _) {
+        final t = _fsExpand.value.clamp(0.0, 1.0);
+        final chrome = (1.0 - t).clamp(0.0, 1.0);
+        final pad = EdgeInsets.lerp(
+          EdgeInsets.fromLTRB(
+            portrait ? 16 : 28,
+            portrait ? 16 : 24,
+            portrait ? 16 : 28,
+            portrait ? 16 : 24,
+          ),
+          EdgeInsets.zero,
+          t,
+        )!;
+        return ColoredBox(
+          color: Color.lerp(
+                Theme.of(context).scaffoldBackgroundColor,
+                const Color(0xFF0F1724),
+                t,
+              ) ??
+              const Color(0xFF0F1724),
+          child: Padding(
+            padding: pad,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClipRect(
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    heightFactor: chrome,
+                    child: Opacity(
+                      opacity: chrome,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildHeader(),
+                          if (_status != null)
+                            Text(
+                              _status!,
+                              style: const TextStyle(
+                                color: AppColors.success,
+                                fontSize: 13,
+                              ),
+                            ),
+                          const SizedBox(height: 16),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: AdaptiveSplit(
+                    panelOnRight: true,
+                    panelFraction: 0.3 * chrome.clamp(0.001, 1.0),
+                    minPanelWidth: (portrait ? 260.0 : 300.0) * chrome,
+                    maxPanelWidth: 360 * chrome,
+                    gap: 16 * chrome,
+                    narrowPanelHeight: (portrait ? 260.0 : 480.0) * chrome,
+                    narrowContentMinHeight: 220,
+                    narrowContentFirst: true,
+                    narrowContentMaxHeight: portrait ? 360 : null,
+                    panel: IgnorePointer(
+                      ignoring: t > 0.2,
+                      child: Opacity(
+                        opacity: chrome,
+                        child: _buildRail(),
+                      ),
+                    ),
+                    content: _buildStage(chrome: chrome, expand: t),
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -726,11 +790,17 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
     );
   }
 
-  Widget _buildStage() {
+  Widget _buildStage({double chrome = 1, double expand = 0}) {
     return SectionCard(
+      depth: chrome <= 0 ? 0 : chrome,
+      color: Color.lerp(AppColors.card, const Color(0xFF0F1724), expand),
       padding: EdgeInsets.zero,
       child: ClipRRect(
-        borderRadius: AppRadii.border,
+        borderRadius: BorderRadius.lerp(
+          BorderRadius.zero,
+          AppRadii.border,
+          chrome,
+        )!,
         child: _photoBytes == null ? _emptyStage() : _photoStage(),
       ),
     );
@@ -800,9 +870,13 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
           right: 12,
           bottom: 12,
           child: _StageIconBtn(
-            icon: _fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
-            tip: _fullscreen ? 'Exit fullscreen' : 'Fullscreen',
-            onTap: () => setState(() => _fullscreen = !_fullscreen),
+            icon: _fsController.value > 0.5
+                ? Icons.fullscreen_exit
+                : Icons.fullscreen,
+            tip: _fsController.value > 0.5
+                ? 'Exit fullscreen'
+                : 'Fullscreen',
+            onTap: _toggleFullscreen,
           ),
         ),
       ],
@@ -997,11 +1071,13 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage> {
               right: 12,
               bottom: 12,
               child: _StageIconBtn(
-                icon: _fullscreen
+                icon: _fsController.value > 0.5
                     ? Icons.fullscreen_exit
                     : Icons.fullscreen,
-                tip: _fullscreen ? 'Exit fullscreen' : 'Fullscreen',
-                onTap: () => setState(() => _fullscreen = !_fullscreen),
+                tip: _fsController.value > 0.5
+                    ? 'Exit fullscreen'
+                    : 'Fullscreen',
+                onTap: _toggleFullscreen,
               ),
             ),
           ],

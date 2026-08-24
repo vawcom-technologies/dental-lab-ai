@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/layout/adaptive.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/navigation/app_page_routes.dart';
 import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/patient_picker.dart';
@@ -29,7 +30,8 @@ class ScansPage extends StatefulWidget {
   State<ScansPage> createState() => _ScansPageState();
 }
 
-class _ScansPageState extends State<ScansPage> {
+class _ScansPageState extends State<ScansPage>
+    with SingleTickerProviderStateMixin {
   List<Map<String, dynamic>> _patients = [];
   Map<String, dynamic>? _patient;
   List<Map<String, dynamic>> _scans = [];
@@ -45,11 +47,38 @@ class _ScansPageState extends State<ScansPage> {
   String? _previewFilename;
   int? _vertexCount;
   Object? _previewScanId;
+  final _meshViewerKey = GlobalKey();
+  late final AnimationController _fsController;
+  late final Animation<double> _fsExpand;
 
   @override
   void initState() {
     super.initState();
+    _fsController = AnimationController(
+      vsync: this,
+      duration: AppMotion.page,
+      reverseDuration: AppMotion.normal,
+    );
+    _fsExpand = CurvedAnimation(
+      parent: _fsController,
+      curve: AppMotion.spring,
+      reverseCurve: AppMotion.easeOut,
+    );
     _bootstrap();
+  }
+
+  @override
+  void dispose() {
+    _fsController.dispose();
+    super.dispose();
+  }
+
+  void _toggleFullscreen() {
+    if (_fsController.value > 0.5) {
+      _fsController.reverse();
+    } else {
+      _fsController.forward();
+    }
   }
 
   @override
@@ -433,7 +462,7 @@ class _ScansPageState extends State<ScansPage> {
       if (next.isNotEmpty) {
         await _loadPreviewFor(next.first);
       }
-      if (mounted) AppSnackBars.success(context, 'Scan deleted');
+      if (mounted) AppSnackBars.success(context, AppLocalizations.of(context).scansDeleted);
     } catch (e) {
       if (!mounted) return;
       final msg = friendlyError(e);
@@ -441,6 +470,18 @@ class _ScansPageState extends State<ScansPage> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Widget _meshViewer() {
+    return MeshViewer(
+      key: _meshViewerKey,
+      bytes: _previewBytes,
+      filename: _previewFilename,
+      previewVertices: _vertices,
+      loading: _previewLoading,
+      error: _previewError,
+      vertexCount: _vertexCount,
+    );
   }
 
   @override
@@ -460,267 +501,404 @@ class _ScansPageState extends State<ScansPage> {
         result == 'blurry' ||
         result == 'missing_margin';
     final canUpload = !_busy && _patient != null;
+    final loc = AppLocalizations.of(context);
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          PageHeader(
-            icon: Icons.view_in_ar_outlined,
-            title: AppLocalizations.of(context).scansTitle,
-            subtitle: 'Upload PLY / STL / OBJ · preview Dots / Solid on device',
-            actions: [
-              PatientPickerButton(
-                patients: _patients,
-                selected: _patient,
-                enabled: !_busy,
-                onSelect: _selectPatient,
-                onAdd: _openNewPatientPage,
-                onRefresh: () async {
-                  setState(() => _busy = true);
-                  try {
-                    await _reloadPatients();
-                  } finally {
-                    if (mounted) setState(() => _busy = false);
-                  }
-                },
-                emptyHint: 'No patients yet — add one to upload scans.',
-              ),
-              FilledButton.icon(
-                onPressed: canUpload ? _upload : null,
-                icon: _busy
-                    ? const ToothLoadingIndicator(
-                        size: 16,
-                        compact: true,
-                        color: Colors.white,
-                      )
-                    : const Icon(Icons.cloud_upload_outlined, size: 18),
-                label: Text(_busy ? 'Uploading…' : 'Upload scan'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Expanded(
-            child: AdaptiveSplit(
-              narrowPanelHeight: 280,
-              panel: Column(
-                    children: [
-                      InkWell(
-                        onTap: canUpload ? _upload : null,
-                        borderRadius: AppRadii.border,
-                        child: SectionCard(
-                          child: Column(
-                            children: [
-                              Icon(Icons.cloud_upload_outlined,
-                                  color: AppColors.dentalBlue, size: 28),
-                              const SizedBox(height: 8),
-                              Text(
-                                _busy ? 'Uploading…' : 'Upload scan file',
-                                style: const TextStyle(fontWeight: FontWeight.w600),
+    return AnimatedBuilder(
+      animation: _fsExpand,
+      builder: (context, _) {
+        final t = _fsExpand.value.clamp(0.0, 1.0);
+        final chrome = (1.0 - t).clamp(0.0, 1.0);
+        final pad = EdgeInsets.lerp(
+          const EdgeInsets.fromLTRB(28, 24, 28, 24),
+          EdgeInsets.zero,
+          t,
+        )!;
+        return ColoredBox(
+          color: Color.lerp(
+                Theme.of(context).scaffoldBackgroundColor,
+                const Color(0xFF15283F),
+                t,
+              ) ??
+              const Color(0xFF15283F),
+          child: Padding(
+            padding: pad,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClipRect(
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    heightFactor: chrome,
+                    child: Opacity(
+                      opacity: chrome,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          PageHeader(
+                            icon: Icons.view_in_ar_outlined,
+                            title: loc.scansTitle,
+                            subtitle: loc.scansSubtitle,
+                            actions: [
+                              PatientPickerButton(
+                                patients: _patients,
+                                selected: _patient,
+                                enabled: !_busy,
+                                onSelect: _selectPatient,
+                                onAdd: _openNewPatientPage,
+                                onRefresh: () async {
+                                  setState(() => _busy = true);
+                                  try {
+                                    await _reloadPatients();
+                                  } finally {
+                                    if (mounted) {
+                                      setState(() => _busy = false);
+                                    }
+                                  }
+                                },
+                                emptyHint:
+                                    'No patients yet — add one to upload scans.',
                               ),
-                              const SizedBox(height: 4),
-                              const Text(
-                                'PLY, STL, OBJ — preview Dots / Solid on device',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(color: AppColors.muted, fontSize: 12),
+                              FilledButton.icon(
+                                onPressed: canUpload ? _upload : null,
+                                icon: _busy
+                                    ? const ToothLoadingIndicator(
+                                        size: 16,
+                                        compact: true,
+                                        color: Colors.white,
+                                      )
+                                    : const Icon(
+                                        Icons.cloud_upload_outlined,
+                                        size: 18,
+                                      ),
+                                label: Text(
+                                  _busy
+                                      ? loc.scansUploading
+                                      : loc.scansUpload,
+                                ),
                               ),
                             ],
                           ),
+                          const SizedBox(height: 14),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: AdaptiveSplit(
+                    narrowPanelHeight: 280 * chrome,
+                    panelFraction: 0.32 * chrome.clamp(0.001, 1.0),
+                    minPanelWidth: 260 * chrome,
+                    maxPanelWidth: 380 * chrome,
+                    gap: 12 * chrome,
+                    panel: IgnorePointer(
+                      ignoring: t > 0.2,
+                      child: Opacity(
+                        opacity: chrome,
+                        child: Column(
+                          children: [
+                            InkWell(
+                              onTap: canUpload ? _upload : null,
+                              borderRadius: AppRadii.border,
+                              child: SectionCard(
+                                child: Column(
+                                  children: [
+                                    const Icon(
+                                      Icons.cloud_upload_outlined,
+                                      color: AppColors.dentalBlue,
+                                      size: 28,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      _busy
+                                          ? loc.scansUploading
+                                          : loc.scansUpload,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      loc.scansSubtitle,
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        color: AppColors.muted,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Expanded(
+                              child: SectionCard(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 8),
+                                child: _mediaLoading
+                                    ? const Center(
+                                        child: ToothLoadingIndicator(
+                                          size: 40,
+                                          loadingText: 'Loading scans…',
+                                        ),
+                                      )
+                                    : _scans.isEmpty
+                                        ? Center(
+                                            child: Text(
+                                              _patient == null
+                                                  ? loc.scansSelectPatient
+                                                  : loc.scansEmptyFor(
+                                                      _patientLabel,
+                                                    ),
+                                              style: const TextStyle(
+                                                color: AppColors.muted,
+                                              ),
+                                              textAlign: TextAlign.center,
+                                            ),
+                                          )
+                                        : ListView.builder(
+                                            itemCount: _scans.length,
+                                            itemBuilder: (context, i) {
+                                              final s = _scans[i];
+                                              final selected = i == _selected;
+                                              final file =
+                                                  '${s['filename'] ?? 'Scan #${s['id']}'}';
+                                              final short = file.length > 28
+                                                  ? '${file.substring(0, 26)}…'
+                                                  : file;
+                                              return ListTile(
+                                                selected: selected,
+                                                selectedTileColor:
+                                                    AppColors.sidebarActive,
+                                                onTap: () {
+                                                  setState(
+                                                    () => _selected = i,
+                                                  );
+                                                  _loadPreviewFor(s);
+                                                },
+                                                title: Text(
+                                                  short,
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                                subtitle: Text(
+                                                  '${s['patient_name'] ?? _patientLabel}'
+                                                  ' · ${s['validation_result'] ?? 'pending'}'
+                                                  ' · #${s['id']}',
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    fontSize: 11.5,
+                                                  ),
+                                                ),
+                                                trailing: IconButton(
+                                                  tooltip: loc.scansDelete,
+                                                  onPressed: _busy
+                                                      ? null
+                                                      : () => _deleteScan(s),
+                                                  icon: const Icon(
+                                                    Icons.delete_outline,
+                                                    size: 18,
+                                                    color: AppColors.danger,
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                          ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      Expanded(
-                        child: SectionCard(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: _mediaLoading
-                              ? const Center(
-                                  child: ToothLoadingIndicator(
-                                    size: 40,
-                                    loadingText: 'Loading scans…',
-                                  ),
-                                )
-                              : _scans.isEmpty
-                              ? Center(
-                                  child: Text(
-                                    _patient == null
-                                        ? 'Select a patient'
-                                        : 'No scans for $_patientLabel yet',
-                                    style: const TextStyle(color: AppColors.muted),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                )
-                              : ListView.builder(
-                                  itemCount: _scans.length,
-                                  itemBuilder: (context, i) {
-                                    final s = _scans[i];
-                                    final selected = i == _selected;
-                                    final file = '${s['filename'] ?? 'Scan #${s['id']}'}';
-                                    final short = file.length > 28
-                                        ? '${file.substring(0, 26)}…'
-                                        : file;
-                                    return ListTile(
-                                      selected: selected,
-                                      selectedTileColor: AppColors.sidebarActive,
-                                      onTap: () {
-                                        setState(() => _selected = i);
-                                        _loadPreviewFor(s);
-                                      },
-                                      title: Text(
-                                        short,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
+                    ),
+                    content: SectionCard(
+                      depth: chrome <= 0 ? 0 : chrome,
+                      color: Color.lerp(
+                        AppColors.card,
+                        const Color(0xFF15283F),
+                        t,
+                      ),
+                      padding: EdgeInsets.all(18 * chrome),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ClipRect(
+                            child: Align(
+                              alignment: Alignment.topCenter,
+                              heightFactor: chrome,
+                              child: Opacity(
+                                opacity: chrome,
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        scan == null
+                                            ? loc.scansNoneSelected
+                                            : '${scan['filename'] ?? 'Scan #${scan['id']}'}'
+                                                ' · ${scan['patient_name'] ?? _patientLabel}',
                                         style: const TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 16,
                                         ),
                                       ),
-                                      subtitle: Text(
-                                        '${s['patient_name'] ?? _patientLabel}'
-                                        ' · ${s['validation_result'] ?? 'pending'}'
-                                        ' · #${s['id']}',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(fontSize: 11.5),
-                                      ),
-                                      trailing: IconButton(
-                                        tooltip: 'Delete scan',
+                                    ),
+                                    if (scan != null)
+                                      IconButton(
+                                        tooltip: loc.scansDelete,
                                         onPressed: _busy
                                             ? null
-                                            : () => _deleteScan(s),
+                                            : () => _deleteScan(scan),
                                         icon: const Icon(
                                           Icons.delete_outline,
-                                          size: 18,
                                           color: AppColors.danger,
                                         ),
                                       ),
-                                    );
-                                  },
+                                  ],
                                 ),
-                        ),
-                      ),
-                    ],
-                  ),
-              content: SectionCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                scan == null
-                                    ? 'No scan selected'
-                                    : '${scan['filename'] ?? 'Scan #${scan['id']}'}'
-                                        ' · ${scan['patient_name'] ?? _patientLabel}',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 16,
-                                ),
-                              ),
-                            ),
-                            if (scan != null)
-                              IconButton(
-                                tooltip: 'Delete scan',
-                                onPressed: _busy ? null : () => _deleteScan(scan),
-                                icon: const Icon(
-                                  Icons.delete_outline,
-                                  color: AppColors.danger,
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Expanded(
-                          child: MeshViewer(
-                            bytes: _previewBytes,
-                            filename: _previewFilename,
-                            previewVertices: _vertices,
-                            loading: _previewLoading,
-                            error: _previewError,
-                            vertexCount: _vertexCount,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        if (scan == null) ...[
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: AppColors.border.withValues(alpha: 0.35),
-                              borderRadius: AppRadii.border,
-                            ),
-                            child: Text(
-                              _patient == null
-                                  ? 'Select a patient, then upload a scan to see quality results.'
-                                  : 'No scan uploaded yet — upload a PLY, STL, or OBJ to run the quality check.',
-                              style: const TextStyle(
-                                color: AppColors.muted,
-                                fontWeight: FontWeight.w600,
-                                height: 1.35,
                               ),
                             ),
                           ),
-                        ] else ...[
-                          const SizedBox(height: 12),
-                          if (_issuesFor(scan, _lastResult).isNotEmpty) ...[
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
-                              children: _issuesFor(scan, _lastResult).map((issue) {
-                                final sev = issue['severity']?.toString() ?? 'medium';
-                                final color = sev == 'high'
-                                    ? AppColors.danger
-                                    : sev == 'medium'
-
-                                        ? AppColors.warning
-                                        : AppColors.muted;
-                                return Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: color.withValues(alpha: 0.12),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: color.withValues(alpha: 0.4)),
-                                  ),
-                                  child: Text(
-                                    '${issue['code']}: ${issue['message']}',
-                                    style: TextStyle(
-                                      color: color,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
+                          if (chrome > 0.01) SizedBox(height: 16 * chrome),
+                          Expanded(
+                            child: Stack(
+                              fit: StackFit.expand,
+                              clipBehavior: Clip.hardEdge,
+                              children: [
+                                _meshViewer(),
+                                Positioned(
+                                  right: 12,
+                                  bottom: 12,
+                                  child: SafeArea(
+                                    child: _ScanFullscreenButton(
+                                      fullscreen: t > 0.5,
+                                      onTap: _toggleFullscreen,
                                     ),
                                   ),
-                                );
-                              }).toList(),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 12),
-                          ],
-                          if (needsRescan) ...[
-                            const SizedBox(height: 10),
-                            SizedBox(
-                              width: double.infinity,
-                              child: FilledButton.icon(
-                                onPressed: canUpload ? _upload : null,
-                                icon: const Icon(Icons.refresh),
-                                label: const Text('Rescan now — before patient leaves'),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: AppColors.danger,
+                          ),
+                          ClipRect(
+                            child: Align(
+                              alignment: Alignment.bottomCenter,
+                              heightFactor: chrome,
+                              child: Opacity(
+                                opacity: chrome,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    const SizedBox(height: 16),
+                                    if (scan == null) ...[
+                                      Container(
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.border
+                                              .withValues(alpha: 0.35),
+                                          borderRadius: AppRadii.border,
+                                        ),
+                                        child: Text(
+                                          _patient == null
+                                              ? 'Select a patient, then upload a scan to see quality results.'
+                                              : 'No scan uploaded yet — upload a PLY, STL, or OBJ to run the quality check.',
+                                          style: const TextStyle(
+                                            color: AppColors.muted,
+                                            fontWeight: FontWeight.w600,
+                                            height: 1.35,
+                                          ),
+                                        ),
+                                      ),
+                                    ] else ...[
+                                      const SizedBox(height: 12),
+                                      if (_issuesFor(scan, _lastResult)
+                                          .isNotEmpty) ...[
+                                        Wrap(
+                                          spacing: 6,
+                                          runSpacing: 6,
+                                          children: _issuesFor(
+                                            scan,
+                                            _lastResult,
+                                          ).map((issue) {
+                                            final sev = issue['severity']
+                                                    ?.toString() ??
+                                                'medium';
+                                            final color = sev == 'high'
+                                                ? AppColors.danger
+                                                : sev == 'medium'
+                                                    ? AppColors.warning
+                                                    : AppColors.muted;
+                                            return Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 10,
+                                                vertical: 6,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: color.withValues(
+                                                  alpha: 0.12,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                border: Border.all(
+                                                  color: color.withValues(
+                                                    alpha: 0.4,
+                                                  ),
+                                                ),
+                                              ),
+                                              child: Text(
+                                                '${issue['code']}: ${issue['message']}',
+                                                style: TextStyle(
+                                                  color: color,
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            );
+                                          }).toList(),
+                                        ),
+                                        const SizedBox(height: 12),
+                                      ],
+                                      if (needsRescan) ...[
+                                        const SizedBox(height: 10),
+                                        SizedBox(
+                                          width: double.infinity,
+                                          child: FilledButton.icon(
+                                            onPressed:
+                                                canUpload ? _upload : null,
+                                            icon: const Icon(Icons.refresh),
+                                            label: Text(loc.scansRescanNow),
+                                            style: FilledButton.styleFrom(
+                                              backgroundColor:
+                                                  AppColors.danger,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ],
                                 ),
                               ),
                             ),
-                          ],
+                          ),
                         ],
-                      ],
+                      ),
                     ),
                   ),
-
+                ),
+              ],
             ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -735,5 +913,39 @@ class _ScansPageState extends State<ScansPage> {
         .map((e) => e.map((k, v) => MapEntry(k.toString(), v)))
         .cast<Map<String, dynamic>>()
         .toList();
+  }
+}
+
+class _ScanFullscreenButton extends StatelessWidget {
+  const _ScanFullscreenButton({
+    required this.fullscreen,
+    required this.onTap,
+  });
+
+  final bool fullscreen;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+    return Tooltip(
+      message: fullscreen ? loc.commonExitFullscreen : loc.commonFullscreen,
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Icon(
+              fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+              color: Colors.white,
+              size: 18,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
