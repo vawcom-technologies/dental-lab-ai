@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class LocaleController extends ChangeNotifier {
   static const prefsKey = 'settings_language';
 
-  String _code = 'en';
+  String _code = 'de';
 
   String get code => _code;
   Locale get locale => Locale(_code);
@@ -13,8 +13,8 @@ class LocaleController extends ChangeNotifier {
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
-    _code = prefs.getString(prefsKey) ?? 'en';
-    if (_code != 'en' && _code != 'de') _code = 'en';
+    _code = prefs.getString(prefsKey) ?? 'de';
+    if (_code != 'en' && _code != 'de') _code = 'de';
     notifyListeners();
   }
 

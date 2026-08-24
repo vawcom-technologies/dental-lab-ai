@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
+import '../../core/l10n/app_localizations.dart';
 
 /// Tooth shape library from client (20 smile previews in a 4×5 grid).
 class SmilePreviewPage extends StatefulWidget {
@@ -54,7 +55,7 @@ class _SmilePreviewPageState extends State<SmilePreviewPage> {
                 FilledButton.icon(
                   onPressed: () {},
                   icon: const Icon(Icons.check, size: 18),
-                  label: Text('Use shape ${_selected! + 1}'),
+                  label: Text(AppLocalizations.of(context).smileUseShape(_selected! + 1)),
                 ),
             ],
           ),
@@ -215,9 +216,9 @@ class _SmilePreviewPageState extends State<SmilePreviewPage> {
                             ),
                           ),
                           const SizedBox(height: 8),
-                          const _SliderRow(label: 'Scale', value: 0.7),
-                          const _SliderRow(label: 'Rotate', value: 0.5),
-                          const _SliderRow(label: 'Opacity', value: 0.85),
+                          _SliderRow(label: AppLocalizations.of(context).smileScale, value: 0.7),
+                          _SliderRow(label: AppLocalizations.of(context).smileRotate, value: 0.5),
+                          _SliderRow(label: AppLocalizations.of(context).smileOpacity, value: 0.85),
                         ] else
                           Expanded(
                             child: Center(

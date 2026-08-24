@@ -55,7 +55,7 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
     if (!user.verified) {
       AppSnackBars.error(
         context,
-        'Verify this laboratory before messaging.',
+        AppLocalizations.of(context).labsVerifyBeforeMessage,
       );
       return;
     }
@@ -169,10 +169,10 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
         return BusyBarrier(
           busy: blocked && _controller.users.isNotEmpty,
           message: _openingChat
-              ? 'Opening conversation…'
+              ? loc.labsOpeningChat
               : _controller.actionBusy
-                  ? 'Updating…'
-                  : 'Loading laboratories…',
+                  ? loc.updating
+                  : loc.labsLoading,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
             child: Column(
@@ -274,8 +274,8 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
                 const SizedBox(height: 16),
                 Expanded(
                       child: _controller.loading && _controller.users.isEmpty
-                          ? const ToothPageLoader(
-                              message: 'Loading laboratories…',
+                          ? ToothPageLoader(
+                              message: loc.labsLoading,
                             )
                           : visible.isEmpty
                               ? IpadRefresh.fill(
@@ -286,8 +286,8 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
                                         ? loc.labsEmpty
                                         : loc.labsEmptyFilter,
                                     subtitle: _controller.users.isEmpty
-                                        ? 'Verified labs will appear here.'
-                                        : 'Try another filter or search.',
+                                        ? loc.labsEmptyVerifiedHint
+                                        : loc.labsEmptyFilterHint,
                                   ),
                                 )
                               : IpadRefresh(
@@ -399,7 +399,7 @@ class _LabCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
     final title = user.name.trim().isEmpty ? user.email : user.name.trim();
-    final role = AppRoles.label(user.role);
+    final role = AppRoles.label(user.role, loc);
     final accent = user.verified ? AppColors.success : AppColors.warning;
     final messageEnabled = canMessage && user.verified && !busy;
 
@@ -441,7 +441,9 @@ class _LabCard extends StatelessWidget {
                           ),
                           const SizedBox(width: 10),
                           _RoleStatusBadge(
-                            roleLabel: role.isEmpty ? 'Laboratory' : role,
+                            roleLabel: role.isEmpty
+                                ? loc.roleLaboratory
+                                : role,
                             statusLabel: user.verified
                                 ? loc.labsVerified
                                 : loc.labsUnverified,
@@ -462,7 +464,7 @@ class _LabCard extends StatelessWidget {
                       AppButtons.primary(
                         onPressed: messageEnabled ? onMessage : null,
                         icon: Icons.chat_bubble_outline_rounded,
-                        label: 'Message',
+                        label: loc.labsMessage,
                         compact: true,
                       ),
                     if (!user.verified)
@@ -531,7 +533,7 @@ class _LabDetailSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
     final title = user.name.trim().isEmpty ? user.email : user.name.trim();
-    final role = AppRoles.label(user.role);
+    final role = AppRoles.label(user.role, loc);
     final accent = user.verified ? AppColors.success : AppColors.warning;
     final bottom = MediaQuery.paddingOf(context).bottom;
     final messageEnabled = canMessage && user.verified;
@@ -595,7 +597,9 @@ class _LabDetailSheet extends StatelessWidget {
                             ),
                             const SizedBox(height: 6),
                             _RoleStatusBadge(
-                              roleLabel: role.isEmpty ? 'Laboratory' : role,
+                              roleLabel: role.isEmpty
+                                  ? loc.roleLaboratory
+                                  : role,
                               statusLabel: user.verified
                                   ? loc.labsVerified
                                   : loc.labsUnverified,
@@ -622,19 +626,19 @@ class _LabDetailSheet extends StatelessWidget {
                         children: [
                           _LabDetailRow(
                             icon: Icons.email_outlined,
-                            label: 'Email',
+                            label: loc.email,
                             value: user.email.isEmpty ? '—' : user.email,
                           ),
                           _LabDetailRow(
                             icon: Icons.phone_outlined,
-                            label: 'Phone',
+                            label: loc.phone,
                             value: (user.phone == null || user.phone!.isEmpty)
                                 ? '—'
                                 : user.phone!,
                           ),
                           _LabDetailRow(
                             icon: Icons.apartment_outlined,
-                            label: 'Clinic / lab',
+                            label: loc.labsClinicLab,
                             value: (user.clinicName == null ||
                                     user.clinicName!.isEmpty)
                                 ? '—'
@@ -642,12 +646,14 @@ class _LabDetailSheet extends StatelessWidget {
                           ),
                           _LabDetailRow(
                             icon: Icons.badge_outlined,
-                            label: 'Role',
-                            value: role.isEmpty ? 'Laboratory' : role,
+                            label: loc.role,
+                            value: role.isEmpty
+                                ? loc.roleLaboratory
+                                : role,
                           ),
                           _LabDetailRow(
                             icon: Icons.verified_outlined,
-                            label: 'Status',
+                            label: loc.labsStatus,
                             value: user.verified
                                 ? loc.labsVerified
                                 : loc.labsUnverified,
@@ -655,7 +661,7 @@ class _LabDetailSheet extends StatelessWidget {
                           if (updated != null)
                             _LabDetailRow(
                               icon: Icons.schedule_outlined,
-                              label: 'Updated',
+                              label: loc.labsUpdated,
                               value: updated,
                             ),
                         ],
@@ -672,7 +678,7 @@ class _LabDetailSheet extends StatelessWidget {
                         AppButtons.primary(
                           onPressed: messageEnabled ? onMessage : null,
                           icon: Icons.chat_bubble_outline_rounded,
-                          label: 'Message',
+                          label: loc.labsMessage,
                           compact: true,
                         ),
                       if (!user.verified)

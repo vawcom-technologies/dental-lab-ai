@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 
 /// Primary dental loader blue (spec `#1E3A8A`), falls back to app navy family.
@@ -145,7 +146,7 @@ class _ToothLoadingIndicatorState extends State<ToothLoadingIndicator>
 class ToothPageLoader extends StatelessWidget {
   const ToothPageLoader({
     super.key,
-    this.message = 'Fetching data…',
+    this.message,
     this.size = 36,
     this.color,
   });
@@ -156,12 +157,13 @@ class ToothPageLoader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final text = message ?? AppLocalizations.of(context).commonFetchingData;
     return Center(
       child: ToothLoadingIndicator(
         size: size,
         color: color,
-        compact: message == null,
-        loadingText: message,
+        compact: false,
+        loadingText: text,
       ),
     );
   }

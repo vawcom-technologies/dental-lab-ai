@@ -150,6 +150,17 @@ class AppLocalizations {
   String get settingsLoadError => _t('settings.loadError');
   String get languageEnglish => _t('settings.english');
   String get languageGerman => _t('settings.german');
+  String get settingsDeleteAccount => _t('settings.deleteAccount');
+  String get settingsDeleteAccountBody => _t('settings.deleteAccountBody');
+  String get settingsDeleteConfirmToken => _t('settings.deleteConfirmToken');
+  String get settingsContinue => _t('settings.continue');
+  String get settingsConfirmWithPassword => _t('settings.confirmWithPassword');
+  String get settingsEnterPasswordToFinish =>
+      _t('settings.enterPasswordToFinish');
+  String get settingsPasswordRequired => _t('settings.passwordRequired');
+  String get settingsDeletingAccount => _t('settings.deletingAccount');
+  String get settingsLoading => _t('settings.loading');
+  String get settingsAccountFallback => _t('settings.accountFallback');
 
   // ── Profile ──────────────────────────────────────────────────────────────
   String get profileTitle => _t('profile.title');
@@ -240,6 +251,22 @@ class AppLocalizations {
   String labsCount(int shown, int total) => _t('labs.count')
       .replaceAll('{shown}', '$shown')
       .replaceAll('{total}', '$total');
+  String get labsLoading => _t('labs.loading');
+  String get labsOpeningChat => _t('labs.openingChat');
+  String get labsVerifyBeforeMessage => _t('labs.verifyBeforeMessage');
+  String get labsEmptyVerifiedHint => _t('labs.emptyVerifiedHint');
+  String get labsEmptyFilterHint => _t('labs.emptyFilterHint');
+  String get labsMessage => _t('labs.message');
+  String get labsClinicLab => _t('labs.clinicLab');
+  String get labsStatus => _t('labs.status');
+  String get labsUpdated => _t('labs.updated');
+  String get commonRequired => _t('common.required');
+  String get commonContinue => _t('common.continue');
+  String get commonCopy => _t('common.copy');
+  String get commonFetchingData => _t('common.fetchingData');
+  String get commonAdd => _t('common.add');
+  String get commonArchive => _t('common.archive');
+  String get patientsNoMatching => _t('patients.noMatching');
 
   // ── Feature pages ────────────────────────────────────────────────────────
   String get cameraTitle => _t('features.camera');
@@ -334,8 +361,18 @@ class AppLocalizations {
 
   String get reportsCasesCol => _t('reports.casesCol');
   String get reportsArtifacts => _t('reports.artifacts');
-
-
+  String get reportsCopy => _t('reports.copy');
+  String reportsPeriodLine(String period) =>
+      _t('reports.periodLine').replaceAll('{period}', period);
+  String get reportsActiveShort => _t('reports.activeShort');
+  String get reportsAvgTimeShort => _t('reports.avgTimeShort');
+  String get reportsInPipeline => _t('reports.inPipeline');
+  String get reportsToComplete => _t('reports.toComplete');
+  String reportsNewCount(int n) =>
+      _t('reports.newCount').replaceAll('{n}', '$n');
+  String get reportsFollowUpHint => _t('reports.followUpHint');
+  String get reportsAllClear => _t('reports.allClear');
+  String get reportsPatientFallback => _t('reports.patientFallback');
 
   // ── Case statuses ────────────────────────────────────────────────────────
   String statusLabel(String key) {
@@ -448,10 +485,533 @@ class AppLocalizations {
   String get shadeReupload => _t('shade.reupload');
 
   // ── Patients extras ──────────────────────────────────────────────────────
+  String get patientsStatus => _t('patients.status');
   String get patientsEditTitle => _t('patients.editTitle');
   String get patientsSaveChanges => _t('patients.saveChanges');
   String get patientsCreatedToast => _t('patients.createdToast');
   String get patientsUpdatedToast => _t('patients.updatedToast');
+  String get patientsDeleteTitle => _t('patients.deleteTitle');
+  String patientsDeleteBody(String name) =>
+      _t('patients.deleteBody').replaceAll('{name}', name);
+  String get patientsArchiveOption => _t('patients.archiveOption');
+  String get patientsArchiveOptionSub => _t('patients.archiveOptionSub');
+  String get patientsHardDeleteOption => _t('patients.hardDeleteOption');
+  String get patientsHardDeleteOptionSub => _t('patients.hardDeleteOptionSub');
+  String get patientsTypeDeleteConfirm => _t('patients.typeDeleteConfirm');
+  String get patientsOpening => _t('patients.opening');
+  String patientsShownTotal(int shown, int total) => _t('patients.shownTotal')
+      .replaceAll('{shown}', '$shown')
+      .replaceAll('{total}', '$total');
+
+
+  // ── Bulk pass (loaders / chrome leftovers) ───────────────────────────────
+  String get commonRequest => _t('common.request');
+  String get commonApprove => _t('common.approve');
+  String get commonReject => _t('common.reject');
+  String get commonDone => _t('common.done');
+  String get commonClose => _t('common.close');
+  String get commonRename => _t('common.rename');
+  String get commonRetry => _t('common.retry');
+  String get commonUndo => _t('common.undo');
+  String get commonRedo => _t('common.redo');
+  String get commonWorking => _t('common.working');
+  String get commonUploading => _t('common.uploading');
+  String get commonTapToSelect => _t('common.tapToSelect');
+  String get commonInvalidDate => _t('common.invalidDate');
+  String commonYearsOld(int n) => _t('common.yearsOld').replaceAll('{n}', '$n');
+  String get commonOneYearOld => _t('common.oneYearOld');
+  String get commonExpandSidebar => _t('common.expandSidebar');
+  String get commonCollapseSidebar => _t('common.collapseSidebar');
+  String get commonShowPassword => _t('common.showPassword');
+  String get commonHidePassword => _t('common.hidePassword');
+  String get commonMinPasswordLength => _t('common.minPasswordLength');
+  String get commonOpenDownload => _t('common.openDownload');
+  String get dashLoadingCases => _t('dash.loadingCases');
+  String get dashLoadingActivity => _t('dash.loadingActivity');
+  String get patientsLoading => _t('patients.loading');
+  String get patientsLoadingAccess => _t('patients.loadingAccess');
+  String get patientsLoadingNotes => _t('patients.loadingNotes');
+  String get patientsLoadingStaff => _t('patients.loadingStaff');
+  String get patientsLoadingAccessRequests => _t('patients.loadingAccessRequests');
+  String get patientsEditNote => _t('patients.editNote');
+  String get patientsDeleteNoteTitle => _t('patients.deleteNoteTitle');
+  String get patientsDeleteNoteBody => _t('patients.deleteNoteBody');
+  String get patientsNoteHint => _t('patients.noteHint');
+  String get patientsPendingAccess => _t('patients.pendingAccess');
+  String get patientsRevoke => _t('patients.revoke');
+  String get patientsRegrant => _t('patients.regrant');
+  String get patientsSavePatient => _t('patients.savePatient');
+  String get patientsRefreshPatients => _t('patients.refreshPatients');
+  String get appointmentsLoading => _t('appointments.loading');
+  String get appointmentsSelectDate => _t('appointments.selectDate');
+  String get appointmentsEditTooltip => _t('appointments.editTooltip');
+  String get appointmentsStarts => _t('appointments.starts');
+  String get profileLoading => _t('profile.loading');
+  String get scansLoading => _t('scans.loading');
+  String get scansUploadingScan => _t('scans.uploadingScan');
+  String get shadeLoading => _t('shade.loading');
+  String get shadeDetecting => _t('shade.detecting');
+  String get shadeUploadDetect => _t('shade.uploadDetect');
+  String get shadeRemoveSave => _t('shade.removeSave');
+  String shadeDeleteFromSession(String shade) => _t('shade.deleteFromSession').replaceAll('{shade}', shade);
+  String get shadeSimilarShades => _t('shade.similarShades');
+  String get shadeBestOverall => _t('shade.bestOverall');
+  String get shadeAcrossAllTeeth => _t('shade.acrossAllTeeth');
+  String get shadeDeleteTooth => _t('shade.deleteTooth');
+  String get shadePhotoTitle => _t('shade.photoTitle');
+  String get shadePhotoMessage => _t('shade.photoMessage');
+  String get shadeUploadAnother => _t('shade.uploadAnother');
+  String get shadeDeletePhoto => _t('shade.deletePhoto');
+  String get shadeOpenSession => _t('shade.openSession');
+  String get shadeCloseSession => _t('shade.closeSession');
+  String get shadeRemoveFromSession => _t('shade.removeFromSession');
+  String get smileLoading => _t('smile.loading');
+  String get smileLoadPhoto => _t('smile.loadPhoto');
+  String get smileChangePhoto => _t('smile.changePhoto');
+  String get smileLoadPatientPhoto => _t('smile.loadPatientPhoto');
+  String get smileGuides => _t('smile.guides');
+  String get smileSize => _t('smile.size');
+  String get smileWidth => _t('smile.width');
+  String get smileHeight => _t('smile.height');
+  String get smileRotate => _t('smile.rotate');
+  String get smileBlend => _t('smile.blend');
+  String get smileScale => _t('smile.scale');
+  String get smileOpacity => _t('smile.opacity');
+  String smileUseShape(int n) => _t('smile.useShape').replaceAll('{n}', '$n');
+  String get smileShapeSoftOval => _t('smile.shapeSoftOval');
+  String get smileShapeClassicOval => _t('smile.shapeClassicOval');
+  String get smileShapeRounded => _t('smile.shapeRounded');
+  String get smileShapeNaturalOval => _t('smile.shapeNaturalOval');
+  String get smileShapeYouthful => _t('smile.shapeYouthful');
+  String get smileShapeSoftSquare => _t('smile.shapeSoftSquare');
+  String get smileShapeBalanced => _t('smile.shapeBalanced');
+  String get smileShapeSoftRect => _t('smile.shapeSoftRect');
+  String get smileShapeHollywood => _t('smile.shapeHollywood');
+  String get smileShapeStrongSquare => _t('smile.shapeStrongSquare');
+  String get smileShapeTapered => _t('smile.shapeTapered');
+  String get smileShapeCanineLift => _t('smile.shapeCanineLift');
+  String get scanBodyLoading => _t('scanBody.loading');
+  String get scanBodySaveToCase => _t('scanBody.saveToCase');
+  String get scanBodyMatchTable => _t('scanBody.matchTable');
+  String get scanBodyDetectFromPhoto => _t('scanBody.detectFromPhoto');
+  String get scanBodyDetected => _t('scanBody.detected');
+  String get scanBodyPixels => _t('scanBody.pixels');
+  String get scanBodyTableMatch => _t('scanBody.tableMatch');
+  String get scanBodyTooth => _t('scanBody.tooth');
+  String get scanBodyManufacturer => _t('scanBody.manufacturer');
+  String get scanBodyPlatform => _t('scanBody.platform');
+  String get scanBodyConfidence => _t('scanBody.confidence');
+  String get scanBodyDiameterHint => _t('scanBody.diameterHint');
+  String get cameraDeletePhotoTitle => _t('camera.deletePhotoTitle');
+  String cameraDeletePhotoBody(String angle, String name) =>
+      _t('camera.deletePhotoBody').replaceAll('{angle}', angle).replaceAll('{name}', name);
+  String get cameraRenamePhoto => _t('camera.renamePhoto');
+  String get cameraChoosePatient => _t('camera.choosePatient');
+  String get cameraChoosePatientBody => _t('camera.choosePatientBody');
+  String get cameraNoPhotosYet => _t('camera.noPhotosYet');
+  String cameraNoAnglePhotos(String angle) => _t('camera.noAnglePhotos').replaceAll('{angle}', angle);
+  String get cameraTakePhoto => _t('camera.takePhoto');
+  String get cameraGallery => _t('camera.gallery');
+  String get cameraPreparing => _t('camera.preparing');
+  String get cameraAddPatient => _t('camera.addPatient');
+  String get cameraPhotoOptions => _t('camera.photoOptions');
+  String get cameraViewFullscreen => _t('camera.viewFullscreen');
+  String get cameraOpenShade => _t('camera.openShade');
+  String get cameraOpenSmile => _t('camera.openSmile');
+  String get cameraCaptureFocus => _t('camera.captureFocus');
+  String get cameraRetryCamera => _t('camera.retryCamera');
+  String get cameraSwitchCamera => _t('camera.switchCamera');
+  String get cameraResetOverlay => _t('camera.resetOverlay');
+  String get messagesLoadingConversations => _t('messages.loadingConversations');
+  String get messagesLoadingChat => _t('messages.loadingChat');
+  String get messagesLoadingContacts => _t('messages.loadingContacts');
+  String get messagesPhotoLibrary => _t('messages.photoLibrary');
+  String get messagesCamera => _t('messages.camera');
+  String get messagesVideoLibrary => _t('messages.videoLibrary');
+  String get messagesRecordVideo => _t('messages.recordVideo');
+  String get messagesDocument => _t('messages.document');
+  String get messagesFilterAll => _t('messages.filterAll');
+  String get messagesFilterDentists => _t('messages.filterDentists');
+  String get messagesFilterLaboratories => _t('messages.filterLaboratories');
+  String get mediaUploadItem => _t('media.uploadItem');
+  String get mediaDeleteItem => _t('media.deleteItem');
+
+  String get mediaUploadBody => _t('media.uploadBody');
+  String get mediaUploadConfirm => _t('media.uploadConfirm');
+  String get mediaDeleteBody => _t('media.deleteBody');
+  String get authPasswordUpdatedRelogin => _t('auth.passwordUpdatedRelogin');
+
+  String get commonUseThisDate => _t('common.useThisDate');
+  String get commonSelectDate => _t('common.selectDate');
+  String get commonPrevMonth => _t('common.prevMonth');
+  String get commonNextMonth => _t('common.nextMonth');
+  String get commonMinUppercase => _t('common.minUppercase');
+  String get commonMinNumber => _t('common.minNumber');
+  String get shadeManualOverride => _t('shade.manualOverride');
+  String get shadeAllVita => _t('shade.allVita');
+  String get shadeTargetShades => _t('shade.targetShades');
+  String get shadeToothSamples => _t('shade.toothSamples');
+
+  // ── Dashboard leftovers ──────────────────────────────────────────────────
+  String dashPatientsOnFile(int n) => n == 1
+      ? _t('dash.patientsOnFileOne')
+      : _t('dash.patientsOnFile').replaceAll('{n}', '$n');
+  String dashNeedsAttention(int n) => n == 1
+      ? _t('dash.needsAttentionOne')
+      : _t('dash.needsAttention').replaceAll('{n}', '$n');
+  String dashUnreadMessages(int n) => n == 1
+      ? _t('dash.unreadMessagesOne')
+      : _t('dash.unreadMessages').replaceAll('{n}', '$n');
+  String dashPatientsAndCasesOnFile(int patients, int cases) =>
+      _t('dash.patientsAndCasesOnFile')
+          .replaceAll('{patients}', '$patients')
+          .replaceAll('{cases}', '$cases');
+  String dashAcrossCompleted(int n) =>
+      _t('dash.acrossCompleted').replaceAll('{n}', '$n');
+  String dashInProgressInReview(int inProgress, int inReview) =>
+      _t('dash.inProgressInReview')
+          .replaceAll('{inProgress}', '$inProgress')
+          .replaceAll('{inReview}', '$inReview');
+  String dashActivityCompleted(String label, String patient) =>
+      _t('dash.activityCompleted')
+          .replaceAll('{label}', label)
+          .replaceAll('{patient}', patient);
+  String dashActivityRejected(String patient) =>
+      _t('dash.activityRejected').replaceAll('{patient}', patient);
+  String dashActivityInReview(String patient) =>
+      _t('dash.activityInReview').replaceAll('{patient}', patient);
+  String dashActivityInProgress(String patient) =>
+      _t('dash.activityInProgress').replaceAll('{patient}', patient);
+  String dashActivityPending(String patient) =>
+      _t('dash.activityPending').replaceAll('{patient}', patient);
+  String dashActivityUpdated(String patient) =>
+      _t('dash.activityUpdated').replaceAll('{patient}', patient);
+  String get commonJustNow => _t('common.justNow');
+  String commonMinAgo(int n) => _t('common.minAgo').replaceAll('{n}', '$n');
+  String commonHourAgo(int n) => n == 1
+      ? _t('common.hourAgo')
+      : _t('common.hoursAgo').replaceAll('{n}', '$n');
+  String commonDaysAgo(int n) =>
+      _t('common.daysAgo').replaceAll('{n}', '$n');
+
+  // ── Patients share / access ──────────────────────────────────────────────
+  String patientsShareTitle(String patient) =>
+      _t('patients.shareTitle').replaceAll('{patient}', patient);
+  String get patientsGrantAccess => _t('patients.grantAccess');
+  String get patientsRequestAccess => _t('patients.requestAccess');
+  String get patientsAsOwnerHint => _t('patients.asOwnerHint');
+  String get patientsRequestAccessHint => _t('patients.requestAccessHint');
+  String get patientsAllStaffHaveAccess => _t('patients.allStaffHaveAccess');
+  String get patientsNoEligibleStaff => _t('patients.noEligibleStaff');
+  String get patientsAccessGranted => _t('patients.accessGranted');
+  String get patientsAccessRequestSubmitted =>
+      _t('patients.accessRequestSubmitted');
+  String get patientsCreatedBy => _t('patients.createdBy');
+  String get patientsAccessLabel => _t('patients.accessLabel');
+  String get patientsCreator => _t('patients.creator');
+  String get patientsShared => _t('patients.shared');
+  String get patientsOwner => _t('patients.owner');
+  String get patientsOnlyOwnerApprove => _t('patients.onlyOwnerApprove');
+  String get patientsOnlyOwnerManage => _t('patients.onlyOwnerManage');
+  String get patientsWaitingOwnerReview => _t('patients.waitingOwnerReview');
+
+  // ── Camera leftovers ─────────────────────────────────────────────────────
+  String get cameraSubtitle => _t('camera.subtitle');
+  String get cameraAngle => _t('camera.angle');
+  String get cameraFrontal => _t('camera.frontal');
+  String get cameraLeft => _t('camera.left');
+  String get cameraRight => _t('camera.right');
+  String get cameraFrontalSmile => _t('camera.frontalSmile');
+  String get cameraLeftProfile => _t('camera.leftProfile');
+  String get cameraRightProfile => _t('camera.rightProfile');
+  String get cameraClinicalPhoto => _t('camera.clinicalPhoto');
+  String get cameraEmptyPhotosHint => _t('camera.emptyPhotosHint');
+  String get cameraNoPatientsCaptureHint => _t('camera.noPatientsCaptureHint');
+  String get cameraAddPatientCaptureHint => _t('camera.addPatientCaptureHint');
+  String cameraSwitchAngleHint(String angle) =>
+      _t('camera.switchAngleHint').replaceAll('{angle}', angle);
+  String cameraAngleLabel(String angle) {
+    switch (angle.trim().toLowerCase()) {
+      case 'frontal':
+        return cameraFrontal;
+      case 'left':
+        return cameraLeft;
+      case 'right':
+        return cameraRight;
+      default:
+        return angle;
+    }
+  }
+
+  String cameraClinicalAngleLabel(String angle) {
+    switch (angle.trim().toLowerCase()) {
+      case 'frontal':
+        return cameraFrontalSmile;
+      case 'left':
+        return cameraLeftProfile;
+      case 'right':
+        return cameraRightProfile;
+      case 'other':
+        return cameraClinicalPhoto;
+      default:
+        return angle.isEmpty ? cameraClinicalPhoto : angle;
+    }
+  }
+
+  // ── Shade leftovers ──────────────────────────────────────────────────────
+  String get shadeSubtitle => _t('shade.subtitle');
+  String get shadeUploadCloseUp => _t('shade.uploadCloseUp');
+  String get shadeUploadToothPhoto => _t('shade.uploadToothPhoto');
+  String get shadeAnalyzing => _t('shade.analyzing');
+  String get shadeSession => _t('shade.session');
+  String get shadeSavedShadesHint => _t('shade.savedShadesHint');
+  String get shadeNoSavesYet => _t('shade.noSavesYet');
+  String get shadeNoDetectionYet => _t('shade.noDetectionYet');
+  String get shadeUploadToAnalyze => _t('shade.uploadToAnalyze');
+  String get shadeAcceptAi => _t('shade.acceptAi');
+  String shadeAcceptShade(String shade) =>
+      _t('shade.acceptShade').replaceAll('{shade}', shade);
+  String get shadeSaveOverride => _t('shade.saveOverride');
+  String shadeSaveOverrideShade(String shade) =>
+      _t('shade.saveOverrideShade').replaceAll('{shade}', shade);
+  String get shadeResult => _t('shade.result');
+  String get shadeOverride => _t('shade.override');
+  String shadeOverrideSelected(String shade) =>
+      _t('shade.overrideSelected').replaceAll('{shade}', shade);
+  String get shadeSelected => _t('shade.selected');
+  String get shadeUploadToothFirst => _t('shade.uploadToothFirst');
+
+  // ── Smile leftovers ──────────────────────────────────────────────────────
+  String get smilePageSubtitle => _t('smile.pageSubtitle');
+  String get smileLoadSmilePhoto => _t('smile.loadSmilePhoto');
+  String get smileLoadSmileHint => _t('smile.loadSmileHint');
+  String get smileLoadSmileHintPortrait => _t('smile.loadSmileHintPortrait');
+  String get smilePlacement => _t('smile.placement');
+  String get smileNudge => _t('smile.nudge');
+  String get smileResetPlacement => _t('smile.resetPlacement');
+  String get smileCenterShape => _t('smile.centerShape');
+  String get smileSelectShapeHint => _t('smile.selectShapeHint');
+  String get smileOriginalPhoto => _t('smile.originalPhoto');
+
+  // ── Notifications leftovers ──────────────────────────────────────────────
+  String get notificationsMarkedAllRead => _t('notifications.markedAllRead');
+  String get notificationsNow => _t('notifications.now');
+  String notificationsMinsShort(int n) =>
+      _t('notifications.minsShort').replaceAll('{n}', '$n');
+  String notificationsHoursShort(int n) =>
+      _t('notifications.hoursShort').replaceAll('{n}', '$n');
+  String notificationsDaysShort(int n) =>
+      _t('notifications.daysShort').replaceAll('{n}', '$n');
+  String notificationsMoreCount(int n) =>
+      _t('notifications.moreCount').replaceAll('{n}', '$n');
+
+  /// Remap known English API notification bodies to the active locale.
+  String localizeNotificationMessage(
+    String message, {
+    String? type,
+    String? patientName,
+  }) {
+    final msg = message.trim();
+    if (msg.isEmpty) return msg;
+
+    String fill(String key, Map<String, String> vars) {
+      var out = _t(key);
+      for (final e in vars.entries) {
+        out = out.replaceAll('{${e.key}}', e.value);
+      }
+      return out;
+    }
+
+    Match? m;
+
+    m = RegExp(r"^Access approved for (.+)\. You can open this patient record\.$")
+        .firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgAccessApproved', {'name': m[1]!});
+    }
+    m = RegExp(r"^You approved (.+)'s access to (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgYouApprovedAccess', {
+        'who': m[1]!,
+        'name': m[2]!,
+      });
+    }
+    m = RegExp(r"^Access to (.+) was declined\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgAccessDeclined', {'name': m[1]!});
+    }
+    m = RegExp(r"^You declined (.+)'s request to access (.+)\.$")
+        .firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgYouDeclinedAccess', {
+        'who': m[1]!,
+        'name': m[2]!,
+      });
+    }
+    m = RegExp(r"^(.+) granted you access to (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgGrantedAccess', {
+        'who': m[1]!,
+        'name': m[2]!,
+      });
+    }
+    m = RegExp(r"^You granted (.+) access to (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgYouGrantedAccess', {
+        'who': m[1]!,
+        'name': m[2]!,
+      });
+    }
+    m = RegExp(r"^(.+) requested access to (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgRequestedAccess', {
+        'who': m[1]!,
+        'name': m[2]!,
+      });
+    }
+    m = RegExp(r"^You requested access to (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgYouRequestedAccess', {'name': m[1]!});
+    }
+    m = RegExp(r"^Your access to (.+) was revoked\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgAccessRevoked', {'name': m[1]!});
+    }
+    m = RegExp(r"^You revoked (.+)'s access to (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgYouRevokedAccess', {
+        'who': m[1]!,
+        'name': m[2]!,
+      });
+    }
+
+    m = RegExp(r"^You booked an appointment for (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgYouBookedAppt', {'name': m[1]!});
+    }
+    m = RegExp(r"^(.+) booked an appointment for (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgBookedAppt', {
+        'who': m[1]!,
+        'name': m[2]!,
+      });
+    }
+    m = RegExp(r"^You cancelled an appointment for (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgYouCancelledAppt', {'name': m[1]!});
+    }
+    m = RegExp(r"^(.+) cancelled an appointment for (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgCancelledAppt', {
+        'who': m[1]!,
+        'name': m[2]!,
+      });
+    }
+    m = RegExp(r"^You updated an appointment for (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgYouUpdatedAppt', {'name': m[1]!});
+    }
+    m = RegExp(r"^(.+) updated an appointment for (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgUpdatedAppt', {
+        'who': m[1]!,
+        'name': m[2]!,
+      });
+    }
+
+    m = RegExp(r"^(.+) uploaded a 3D scan for (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgUploadedScan', {
+        'who': m[1]!,
+        'name': m[2]!,
+      });
+    }
+    m = RegExp(r"^(.+) saved a shade photo for (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgSavedShade', {
+        'who': m[1]!,
+        'name': m[2]!,
+      });
+    }
+    m = RegExp(r"^(.+) saved a smile preview for (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgSavedSmile', {
+        'who': m[1]!,
+        'name': m[2]!,
+      });
+    }
+    m = RegExp(r"^(.+) added a file for (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgAddedFile', {
+        'who': m[1]!,
+        'name': m[2]!,
+      });
+    }
+
+    m = RegExp(r"^Scan quality issue for ([^.]+)\.(.*)$").firstMatch(msg);
+    if (m != null) {
+      final detail = m[2]!.trim();
+      if (detail.isEmpty) {
+        return fill('notifications.msgScanQuality', {'name': m[1]!});
+      }
+      return fill('notifications.msgScanQualityDetail', {
+        'name': m[1]!,
+        'detail': detail,
+      });
+    }
+    m = RegExp(r"^New scan uploaded for (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgNewScan', {'name': m[1]!});
+    }
+    m = RegExp(r"^New patient on file: (.+) \(awaiting scan\)\.$")
+        .firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgNewPatient', {'name': m[1]!});
+    }
+
+    // Non-EN: type + patient fallback when body is still English/unknown.
+    final name = (patientName ?? '').trim();
+    if (code != 'en' &&
+        name.isNotEmpty &&
+        type != null &&
+        type.isNotEmpty) {
+      switch (type) {
+        case 'scan_quality':
+          return fill('notifications.fallbackScanQuality', {'name': name});
+        case 'shade':
+          return fill('notifications.fallbackShade', {'name': name});
+        case 'appointment':
+          return fill('notifications.fallbackAppointment', {'name': name});
+        case 'case_status':
+          return fill('notifications.fallbackCase', {'name': name});
+        case 'scan_body':
+          return fill('notifications.fallbackScanBody', {'name': name});
+        case 'sync':
+          return fill('notifications.fallbackSync', {'name': name});
+        case 'export':
+          return fill('notifications.fallbackExport', {'name': name});
+      }
+    }
+
+    return msg;
+  }
+
+  // ── Patient picker chip ──────────────────────────────────────────────────
+  String get patientReadyForDetect => _t('patient.readyForDetect');
+  String get patientNoneYet => _t('patient.noneYet');
+  String patientAvailableCount(int n) =>
+      _t('patient.availableCount').replaceAll('{n}', '$n');
+  String patientCaseId(Object id) =>
+      _t('patient.caseId').replaceAll('{id}', '$id');
+  String patientFallbackId(Object id) =>
+      _t('patient.fallbackId').replaceAll('{id}', '$id');
+  String get patientEmptyHint => _t('patient.emptyHint');
+
+  // ── Scans quality / preview hints ────────────────────────────────────────
+  String get scansQualityNeedPatient => _t('scans.qualityNeedPatient');
+  String get scansQualityNeedUpload => _t('scans.qualityNeedUpload');
+  String get scansUploadPreviewHint => _t('scans.uploadPreviewHint');
+  String get scansEmptyHintUpload => _t('scans.emptyHintUpload');
 
   static const _en = <String, String>{
     'nav.dashboard': 'Dashboard',
@@ -478,6 +1038,11 @@ class AppLocalizations {
     'common.comingSoonBody':
         'This section is coming soon. Navigate using the sidebar to explore available features.',
     'common.loading': 'Loading…',
+    'common.fetchingData': 'Fetching data…',
+    'common.required': 'Required',
+    'common.continue': 'Continue',
+    'common.copy': 'Copy',
+    'common.add': 'Add',
     'common.online': 'Online',
     'common.offline': 'Offline',
     'common.preferenceSaved': 'Preference saved',
@@ -500,6 +1065,8 @@ class AppLocalizations {
     'errors.downloadFailed': 'Could not download the file. Please try again.',
     'common.searchPatients': 'Search patients…',
     'common.noPatientsYet': 'No patients yet',
+    'common.archive': 'Archive',
+    'patients.noMatching': 'No matching patients',
     'auth.signIn': 'Sign in',
     'auth.signInSubtitle': 'Use your Elite Dent profile credentials',
     'auth.email': 'Email',
@@ -507,9 +1074,7 @@ class AppLocalizations {
     'auth.createProfile': 'Create a profile',
     'auth.useDemo': 'Use demo dentist account',
     'auth.hero':
-        'Chairside scan validation, shade AI, and lab collaboration — designed for iPad.',
-    'auth.registerTitle': 'Create profile',
-    'auth.registerSubtitle':
+        'Chairside scan validation, shade AI, and lab collaboration — designed for iPad.',    'auth.registerSubtitle':
         'Register a dentist or laboratory account for Elite Dent',
     'auth.fullName': 'Full name *',
     'auth.clinic': 'Clinic name *',
@@ -589,6 +1154,19 @@ class AppLocalizations {
     'settings.loadError': 'Could not load settings',
     'settings.english': 'English',
     'settings.german': 'Deutsch',
+    'settings.deleteAccount': 'Delete account',
+    'settings.deleteAccountBody':
+        'This permanently removes your account and associated data. '
+        'Type DELETE to continue.',
+    'settings.deleteConfirmToken': 'DELETE',
+    'settings.continue': 'Continue',
+    'settings.confirmWithPassword': 'Confirm with password',
+    'settings.enterPasswordToFinish':
+        'Enter your account password to finish.',
+    'settings.passwordRequired': 'Password is required.',
+    'settings.deletingAccount': 'Deleting account…',
+    'settings.loading': 'Loading settings…',
+    'settings.accountFallback': 'Account',
     'profile.title': 'Profile',
     'profile.subtitle': 'Your account details — not limited to demo credentials',
     'profile.signOut': 'Sign out',
@@ -668,6 +1246,15 @@ class AppLocalizations {
     'labs.softDelete': 'Keep data (soft)',
     'labs.hardDelete': 'Delete forever',
     'labs.count': '{shown} shown · {total} total',
+    'labs.loading': 'Loading laboratories…',
+    'labs.openingChat': 'Opening conversation…',
+    'labs.verifyBeforeMessage': 'Verify this laboratory before messaging.',
+    'labs.emptyVerifiedHint': 'Verified labs will appear here.',
+    'labs.emptyFilterHint': 'Try another filter or search.',
+    'labs.message': 'Message',
+    'labs.clinicLab': 'Clinic / lab',
+    'labs.status': 'Status',
+    'labs.updated': 'Updated',
     'features.camera': 'Camera Capture',
     'features.scans': 'Scans',
     'features.shade': 'Shade Detection',
@@ -725,6 +1312,16 @@ class AppLocalizations {
     'reports.noData': 'No activity in this period yet.',
     'reports.casesCol': 'Cases',
     'reports.artifacts': 'Artifacts',
+    'reports.copy': 'Copy',
+    'reports.periodLine': 'Period: {period}',
+    'reports.activeShort': 'Active',
+    'reports.avgTimeShort': 'Avg. time',
+    'reports.inPipeline': 'In pipeline',
+    'reports.toComplete': 'To complete',
+    'reports.newCount': '{n} new',
+    'reports.followUpHint': 'Cases that need a follow-up',
+    'reports.allClear': 'All clear',
+    'reports.patientFallback': 'Patient',
     'notifications.subtitle':
         'Action items from your patients — scans needed, lab review, shade confirms',
     'notifications.empty': "You're all caught up — no notifications here",
@@ -814,10 +1411,319 @@ class AppLocalizations {
     'shade.addTooth': 'Add tooth',
     'shade.upload': 'Upload',
     'shade.reupload': 'Re-upload',
+    'patients.status': 'Status',
     'patients.editTitle': 'Edit Patient',
     'patients.saveChanges': 'Save changes',
     'patients.createdToast': 'Patient created successfully',
     'patients.updatedToast': 'Patient updated',
+    'patients.deleteTitle': 'Delete patient?',
+    'patients.deleteBody': 'Choose how to remove {name}.',
+    'patients.archiveOption': 'Archive patient',
+    'patients.archiveOptionSub': 'Soft delete — keeps data for recovery',
+    'patients.hardDeleteOption': 'Delete forever',
+    'patients.hardDeleteOptionSub':
+        'Hard delete — permanent GDPR Art. 17 erasure',
+    'patients.typeDeleteConfirm': 'Type DELETE to confirm',
+    'patients.opening': 'Opening patient…',
+    'patients.shownTotal': '{shown} shown · {total} total',
+    'common.request': 'Request',
+    'common.approve': 'Approve',
+    'common.reject': 'Reject',
+    'common.done': 'Done',
+    'common.close': 'Close',
+    'common.rename': 'Rename',
+    'common.retry': 'Retry',
+    'common.undo': 'Undo',
+    'common.redo': 'Redo',
+    'common.working': 'Working…',
+    'common.uploading': 'Uploading…',
+    'common.tapToSelect': 'Tap to select',
+    'common.invalidDate': 'Invalid date',
+    'common.yearsOld': '{n} years old',
+    'common.oneYearOld': '1 year old',
+    'common.expandSidebar': 'Expand sidebar',
+    'common.collapseSidebar': 'Collapse sidebar',
+    'common.showPassword': 'Show password',
+    'common.hidePassword': 'Hide password',
+    'common.minPasswordLength': 'At least 8 characters',
+    'common.openDownload': 'Open / download',
+    'dash.loadingCases': 'Loading recent cases…',
+    'dash.loadingActivity': 'Loading activity…',
+    'patients.loading': 'Loading patients…',
+    'patients.loadingAccess': 'Loading access…',
+    'patients.loadingNotes': 'Loading notes…',
+    'patients.loadingStaff': 'Loading eligible staff…',
+    'patients.loadingAccessRequests': 'Loading access requests…',
+    'patients.editNote': 'Edit note',
+    'patients.deleteNoteTitle': 'Delete note?',
+    'patients.deleteNoteBody': 'This clinical note will be permanently removed.',
+    'patients.noteHint': 'Add a clinical note…',
+    'patients.pendingAccess': 'Pending access requests',
+    'patients.revoke': 'Revoke',
+    'patients.regrant': 'Re-grant',
+    'patients.savePatient': 'Save patient',
+    'patients.refreshPatients': 'Refresh patients',
+    'appointments.loading': 'Loading appointments…',
+    'appointments.selectDate': 'Select Appointment Date',
+    'appointments.editTooltip': 'Edit appointment',
+    'appointments.starts': 'Starts',
+    'profile.loading': 'Loading profile…',
+    'scans.loading': 'Loading scans…',
+    'scans.uploadingScan': 'Uploading scan…',
+    'shade.loading': 'Loading shade detection…',
+    'shade.detecting': 'Detecting…',
+    'shade.uploadDetect': 'Upload & detect',
+    'shade.removeSave': 'Remove save?',
+    'shade.deleteFromSession': 'Delete {shade} from this session.',
+    'shade.similarShades': 'Similar shades',
+    'shade.bestOverall': 'Best overall',
+    'shade.acrossAllTeeth': 'Across all teeth',
+    'shade.deleteTooth': 'Delete tooth',
+    'shade.photoTitle': 'Shade photo',
+    'shade.photoMessage': 'Choose an action for this photo.',
+    'shade.uploadAnother': 'Upload Another',
+    'shade.deletePhoto': 'Delete Photo',
+    'shade.openSession': 'Open session',
+    'shade.closeSession': 'Close session',
+    'shade.removeFromSession': 'Remove from session',
+    'smile.loading': 'Loading smile preview…',
+    'smile.loadPhoto': 'Load photo',
+    'smile.changePhoto': 'Change photo',
+    'smile.loadPatientPhoto': 'Load patient photo',
+    'smile.guides': 'Guides',
+    'smile.size': 'Size',
+    'smile.width': 'Width',
+    'smile.height': 'Height',
+    'smile.rotate': 'Rotate',
+    'smile.blend': 'Blend',
+    'smile.scale': 'Scale',
+    'smile.opacity': 'Opacity',
+    'smile.useShape': 'Use shape {n}',
+    'smile.shapeSoftOval': 'Soft oval',
+    'smile.shapeClassicOval': 'Classic oval',
+    'smile.shapeRounded': 'Rounded',
+    'smile.shapeNaturalOval': 'Natural oval',
+    'smile.shapeYouthful': 'Youthful',
+    'smile.shapeSoftSquare': 'Soft square',
+    'smile.shapeBalanced': 'Balanced',
+    'smile.shapeSoftRect': 'Soft rect',
+    'smile.shapeHollywood': 'Hollywood',
+    'smile.shapeStrongSquare': 'Strong square',
+    'smile.shapeTapered': 'Tapered',
+    'smile.shapeCanineLift': 'Canine lift',
+    'scanBody.loading': 'Loading scan body…',
+    'scanBody.saveToCase': 'Save to case',
+    'scanBody.matchTable': 'Match table',
+    'scanBody.detectFromPhoto': 'Detect from photo',
+    'scanBody.detected': 'Detected',
+    'scanBody.pixels': 'Pixels',
+    'scanBody.tableMatch': 'Table match',
+    'scanBody.tooth': 'Tooth',
+    'scanBody.manufacturer': 'Manufacturer',
+    'scanBody.platform': 'Platform',
+    'scanBody.confidence': 'Confidence',
+    'scanBody.diameterHint': 'e.g. 4.1',
+    'camera.deletePhotoTitle': 'Delete photo?',
+    'camera.deletePhotoBody': 'Remove this {angle} photo from {name}\'s record.',
+    'camera.renamePhoto': 'Rename photo',
+    'camera.choosePatient': 'Choose a patient',
+    'camera.choosePatientBody': 'Select a patient in the header to capture chairside photos.',
+    'camera.noPhotosYet': 'No photos yet',
+    'camera.noAnglePhotos': 'No {angle} photos',
+    'camera.takePhoto': 'Take photo',
+    'camera.gallery': 'Gallery',
+    'camera.preparing': 'Preparing camera…',
+    'camera.addPatient': 'Add a patient',
+    'camera.photoOptions': 'Photo options',
+    'camera.viewFullscreen': 'View full screen',
+    'camera.openShade': 'Open with Shade Detection',
+    'camera.openSmile': 'Open with Smile Preview',
+    'camera.captureFocus': 'Capture focus',
+    'camera.retryCamera': 'Retry camera',
+    'camera.switchCamera': 'Switch camera',
+    'camera.resetOverlay': 'Reset overlay',
+    'messages.loadingConversations': 'Loading conversations…',
+    'messages.loadingChat': 'Loading chat…',
+    'messages.loadingContacts': 'Loading contacts…',
+    'messages.photoLibrary': 'Photo Library',
+    'messages.camera': 'Camera',
+    'messages.videoLibrary': 'Video Library',
+    'messages.recordVideo': 'Record Video',
+    'messages.document': 'Document',
+    'messages.filterAll': 'All',
+    'messages.filterDentists': 'Dentists',
+    'messages.filterLaboratories': 'Laboratories',
+    'media.uploadItem': 'Upload item?',
+    'media.deleteItem': 'Delete item?',
+    'media.uploadBody': 'Upload and save this item to the patient record?',
+    'media.uploadConfirm': 'Upload',
+    'media.deleteBody': 'Are you sure you want to delete this item? This action cannot be undone.',
+    'common.useThisDate': 'Use this date',
+    'common.selectDate': 'Select Date',
+    'common.prevMonth': 'Previous month',
+    'common.nextMonth': 'Next month',
+    'common.minUppercase': 'At least one uppercase letter',
+    'common.minNumber': 'At least one number',
+    'shade.manualOverride': 'Manual Override — VITA Classical',
+    'shade.allVita': 'All VITA Classical shades',
+    'shade.targetShades': 'Target shades',
+    'shade.toothSamples': 'Tooth samples',
+    'auth.passwordUpdatedRelogin': 'Password updated. Please log in again.',
+    'dash.patientsOnFile': '{n} patients on file',
+    'dash.patientsOnFileOne': '1 patient on file',
+    'dash.needsAttention': '{n} cases need attention',
+    'dash.needsAttentionOne': '1 case needs attention',
+    'dash.unreadMessages': '{n} unread messages',
+    'dash.unreadMessagesOne': '1 unread message',
+    'dash.patientsAndCasesOnFile':
+        '{patients} patients · {cases} cases on file.',
+    'dash.acrossCompleted': 'Across {n} completed',
+    'dash.inProgressInReview': '{inProgress} in progress · {inReview} in review',
+    'dash.activityCompleted': 'Case {label} marked complete — {patient}',
+    'dash.activityRejected':
+        'Scan rejected for {patient} — rescan required',
+    'dash.activityInReview': 'Case for {patient} moved to lab review',
+    'dash.activityInProgress': 'Case for {patient} is in progress',
+    'dash.activityPending': 'Case opened for {patient} — awaiting scan',
+    'dash.activityUpdated': 'Case updated for {patient}',
+    'common.justNow': 'Just now',
+    'common.minAgo': '{n} min ago',
+    'common.hourAgo': '1 hour ago',
+    'common.hoursAgo': '{n} hours ago',
+    'common.daysAgo': '{n} days ago',
+    'patients.shareTitle': 'Share {patient}',
+    'patients.grantAccess': 'Grant access',
+    'patients.requestAccess': 'Request access',
+    'patients.asOwnerHint':
+        'As owner, your invitation will immediately allow access.',
+    'patients.requestAccessHint':
+        'This request will be sent to the patient owner for approval.',
+    'patients.allStaffHaveAccess':
+        'All practice staff members already have access or pending requests for this patient.',
+    'patients.noEligibleStaff': 'No eligible staff available to invite.',
+    'patients.accessGranted': 'Access successfully granted to staff member.',
+    'patients.accessRequestSubmitted':
+        'Access request submitted to patient owner for review.',
+    'patients.createdBy': 'Created by',
+    'patients.accessLabel': 'Access',
+    'patients.creator': 'Creator',
+    'patients.shared': 'Shared',
+    'patients.owner': 'Owner',
+    'patients.onlyOwnerApprove':
+        'Only the patient owner can approve or reject access requests.',
+    'patients.onlyOwnerManage':
+        'Only the patient owner can view and manage full staff access permissions.',
+    'patients.waitingOwnerReview': 'Waiting for owner review',
+    'camera.subtitle':
+        'Frontal, left, and right photos · up to 12 per patient',
+    'camera.angle': 'Angle',
+    'camera.frontal': 'Frontal',
+    'camera.left': 'Left',
+    'camera.right': 'Right',
+    'camera.frontalSmile': 'Frontal smile',
+    'camera.leftProfile': 'Left profile',
+    'camera.rightProfile': 'Right profile',
+    'camera.clinicalPhoto': 'Clinical photo',
+    'camera.emptyPhotosHint':
+        'Take a frontal, left, or right photo — it is saved to this patient record.',
+    'camera.noPatientsCaptureHint':
+        'No patients yet — add one to capture photos.',
+    'camera.addPatientCaptureHint':
+        'Add a patient from the header to start capturing photos.',
+    'camera.switchAngleHint':
+        'Switch angle or take a {angle} photo for this patient.',
+    'shade.subtitle':
+        'Upload a tooth photo → AI detects VITA shade → confirm or override',
+    'shade.uploadCloseUp': 'Upload a close-up tooth/smile photo',
+    'shade.uploadToothPhoto': 'Upload tooth photo',
+    'shade.analyzing': 'Analyzing shade…',
+    'shade.session': 'Session',
+    'shade.savedShadesHint': 'Saved shades · tap to edit',
+    'shade.noSavesYet': 'No saves yet',
+    'shade.noDetectionYet': 'No detection yet',
+    'shade.uploadToAnalyze': 'Upload a photo to analyze',
+    'shade.acceptAi': 'Accept AI',
+    'shade.acceptShade': 'Accept {shade}',
+    'shade.saveOverride': 'Save override',
+    'shade.saveOverrideShade': 'Save override ({shade})',
+    'shade.result': 'Result',
+    'shade.override': 'Override',
+    'shade.overrideSelected': 'Override selected: {shade}',
+    'shade.selected': 'Selected',
+    'shade.uploadToothFirst':
+        'Upload a tooth photo first so AI can detect a shade.',
+    'smile.pageSubtitle':
+        'Pick a tooth shape · place it on the patient photo · save to case',
+    'smile.loadSmilePhoto': 'Load a patient smile photo',
+    'smile.loadSmileHint':
+        'Then tap a shape in the library on the right and place it over the teeth.',
+    'smile.loadSmileHintPortrait':
+        'Then tap a shape in the library below and place it over the teeth.',
+    'smile.placement': 'Placement',
+    'smile.nudge': 'Nudge',
+    'smile.resetPlacement': 'Reset placement',
+    'smile.centerShape': 'Center shape',
+    'smile.selectShapeHint':
+        'Select a library shape → drag / pinch / rotate into place',
+    'smile.originalPhoto': 'Original photo',
+    'notifications.markedAllRead': 'All notifications marked as read',
+    'notifications.now': 'now',
+    'notifications.minsShort': '{n}m',
+    'notifications.hoursShort': '{n}h',
+    'notifications.daysShort': '{n}d',
+    'notifications.moreCount': '+{n} more',
+    'notifications.msgAccessApproved':
+        'Access approved for {name}. You can open this patient record.',
+    'notifications.msgYouApprovedAccess':
+        "You approved {who}'s access to {name}.",
+    'notifications.msgAccessDeclined': 'Access to {name} was declined.',
+    'notifications.msgYouDeclinedAccess':
+        "You declined {who}'s request to access {name}.",
+    'notifications.msgGrantedAccess': '{who} granted you access to {name}.',
+    'notifications.msgYouGrantedAccess': 'You granted {who} access to {name}.',
+    'notifications.msgRequestedAccess': '{who} requested access to {name}.',
+    'notifications.msgYouRequestedAccess': 'You requested access to {name}.',
+    'notifications.msgAccessRevoked': 'Your access to {name} was revoked.',
+    'notifications.msgYouRevokedAccess':
+        "You revoked {who}'s access to {name}.",
+    'notifications.msgYouBookedAppt': 'You booked an appointment for {name}.',
+    'notifications.msgBookedAppt': '{who} booked an appointment for {name}.',
+    'notifications.msgYouCancelledAppt':
+        'You cancelled an appointment for {name}.',
+    'notifications.msgCancelledAppt':
+        '{who} cancelled an appointment for {name}.',
+    'notifications.msgYouUpdatedAppt':
+        'You updated an appointment for {name}.',
+    'notifications.msgUpdatedAppt': '{who} updated an appointment for {name}.',
+    'notifications.msgUploadedScan': '{who} uploaded a 3D scan for {name}.',
+    'notifications.msgSavedShade': '{who} saved a shade photo for {name}.',
+    'notifications.msgSavedSmile': '{who} saved a smile preview for {name}.',
+    'notifications.msgAddedFile': '{who} added a file for {name}.',
+    'notifications.msgScanQuality': 'Scan quality issue for {name}.',
+    'notifications.msgScanQualityDetail':
+        'Scan quality issue for {name}. {detail}',
+    'notifications.msgNewScan': 'New scan uploaded for {name}.',
+    'notifications.msgNewPatient':
+        'New patient on file: {name} (awaiting scan).',
+    'notifications.fallbackScanQuality': 'Scan quality alert for {name}',
+    'notifications.fallbackShade': 'Shade update for {name}',
+    'notifications.fallbackAppointment': 'Appointment update for {name}',
+    'notifications.fallbackCase': 'Case update for {name}',
+    'notifications.fallbackScanBody': 'Scan body update for {name}',
+    'notifications.fallbackSync': 'Sync update for {name}',
+    'notifications.fallbackExport': 'Export update for {name}',
+    'patient.readyForDetect': 'Ready for detect',
+    'patient.noneYet': 'None yet',
+    'patient.availableCount': '{n} available',
+    'patient.caseId': 'Case #{id}',
+    'patient.fallbackId': 'Patient #{id}',
+    'patient.emptyHint': 'No patients yet — add one to continue.',
+    'scans.qualityNeedPatient':
+        'Select a patient, then upload a scan to see quality results.',
+    'scans.qualityNeedUpload':
+        'No scan uploaded yet — upload a PLY, STL, or OBJ to run the quality check.',
+    'scans.uploadPreviewHint': 'Upload a PLY / STL / OBJ to preview',
+    'scans.emptyHintUpload': 'No patients yet — add one to upload scans.',
   };
 
   static const _de = <String, String>{
@@ -845,6 +1751,11 @@ class AppLocalizations {
     'common.comingSoonBody':
         'Dieser Bereich kommt bald. Nutzen Sie die Seitenleiste für verfügbare Funktionen.',
     'common.loading': 'Laden…',
+    'common.fetchingData': 'Daten werden geladen…',
+    'common.required': 'Pflichtfeld',
+    'common.continue': 'Weiter',
+    'common.copy': 'Kopieren',
+    'common.add': 'Hinzufügen',
     'common.online': 'Online',
     'common.offline': 'Offline',
     'common.preferenceSaved': 'Einstellung gespeichert',
@@ -872,6 +1783,8 @@ class AppLocalizations {
         'Die Datei konnte nicht heruntergeladen werden. Bitte erneut versuchen.',
     'common.searchPatients': 'Patienten suchen…',
     'common.noPatientsYet': 'Noch keine Patienten',
+    'common.archive': 'Archivieren',
+    'patients.noMatching': 'Keine passenden Patienten',
     'auth.signIn': 'Anmelden',
     'auth.signInSubtitle': 'Mit Ihren Elite-Dent-Profildaten anmelden',
     'auth.email': 'E-Mail',
@@ -964,6 +1877,19 @@ class AppLocalizations {
     'settings.loadError': 'Einstellungen konnten nicht geladen werden',
     'settings.english': 'English',
     'settings.german': 'Deutsch',
+    'settings.deleteAccount': 'Konto löschen',
+    'settings.deleteAccountBody':
+        'Dadurch werden Ihr Konto und zugehörige Daten dauerhaft entfernt. '
+        'Geben Sie DELETE ein, um fortzufahren.',
+    'settings.deleteConfirmToken': 'DELETE',
+    'settings.continue': 'Weiter',
+    'settings.confirmWithPassword': 'Mit Passwort bestätigen',
+    'settings.enterPasswordToFinish':
+        'Geben Sie Ihr Kontopasswort ein, um abzuschließen.',
+    'settings.passwordRequired': 'Passwort ist erforderlich.',
+    'settings.deletingAccount': 'Konto wird gelöscht…',
+    'settings.loading': 'Einstellungen werden geladen…',
+    'settings.accountFallback': 'Konto',
     'profile.title': 'Profil',
     'profile.subtitle':
         'Ihre Kontodaten — nicht auf Demo-Zugangsdaten beschränkt',
@@ -1046,6 +1972,16 @@ class AppLocalizations {
     'labs.softDelete': 'Daten behalten (soft)',
     'labs.hardDelete': 'Endgültig löschen',
     'labs.count': '{shown} angezeigt · {total} gesamt',
+    'labs.loading': 'Labore werden geladen…',
+    'labs.openingChat': 'Unterhaltung wird geöffnet…',
+    'labs.verifyBeforeMessage':
+        'Prüfen Sie dieses Labor, bevor Sie Nachrichten senden.',
+    'labs.emptyVerifiedHint': 'Geprüfte Labore erscheinen hier.',
+    'labs.emptyFilterHint': 'Anderen Filter oder Suche versuchen.',
+    'labs.message': 'Nachricht',
+    'labs.clinicLab': 'Praxis / Labor',
+    'labs.status': 'Status',
+    'labs.updated': 'Aktualisiert',
     'features.camera': 'Kameraaufnahme',
     'features.scans': 'Scans',
     'features.shade': 'Farbbestimmung',
@@ -1103,6 +2039,16 @@ class AppLocalizations {
     'reports.noData': 'In diesem Zeitraum noch keine Aktivität.',
     'reports.casesCol': 'Fälle',
     'reports.artifacts': 'Artefakte',
+    'reports.copy': 'Kopieren',
+    'reports.periodLine': 'Zeitraum: {period}',
+    'reports.activeShort': 'Aktiv',
+    'reports.avgTimeShort': 'Ø Zeit',
+    'reports.inPipeline': 'In der Pipeline',
+    'reports.toComplete': 'Bis Abschluss',
+    'reports.newCount': '{n} neu',
+    'reports.followUpHint': 'Fälle, die eine Nachverfolgung brauchen',
+    'reports.allClear': 'Alles erledigt',
+    'reports.patientFallback': 'Patient',
     'notifications.subtitle':
         'Aufgaben zu Ihren Patienten — Scans nötig, Laborprüfung, Farbbestätigung',
     'notifications.empty': 'Alles erledigt — keine Benachrichtigungen',
@@ -1193,9 +2139,340 @@ class AppLocalizations {
     'shade.addTooth': 'Zahn hinzufügen',
     'shade.upload': 'Hochladen',
     'shade.reupload': 'Erneut hochladen',
+    'patients.status': 'Status',
     'patients.editTitle': 'Patient bearbeiten',
     'patients.saveChanges': 'Änderungen speichern',
     'patients.createdToast': 'Patient erfolgreich angelegt',
     'patients.updatedToast': 'Patient aktualisiert',
+    'patients.deleteTitle': 'Patient löschen?',
+    'patients.deleteBody': 'Wie möchten Sie {name} entfernen?',
+    'patients.archiveOption': 'Patient archivieren',
+    'patients.archiveOptionSub':
+        'Soft-Delete — Daten bleiben zur Wiederherstellung',
+    'patients.hardDeleteOption': 'Endgültig löschen',
+    'patients.hardDeleteOptionSub':
+        'Hard-Delete — dauerhafte Löschung nach DSGVO Art. 17',
+    'patients.typeDeleteConfirm': 'DELETE eingeben zur Bestätigung',
+    'patients.opening': 'Patient wird geöffnet…',
+    'patients.shownTotal': '{shown} angezeigt · {total} gesamt',
+    'common.request': 'Anfragen',
+    'common.approve': 'Genehmigen',
+    'common.reject': 'Ablehnen',
+    'common.done': 'Fertig',
+    'common.close': 'Schließen',
+    'common.rename': 'Umbenennen',
+    'common.retry': 'Erneut versuchen',
+    'common.undo': 'Rückgängig',
+    'common.redo': 'Wiederholen',
+    'common.working': 'Wird bearbeitet…',
+    'common.uploading': 'Wird hochgeladen…',
+    'common.tapToSelect': 'Tippen zum Auswählen',
+    'common.invalidDate': 'Ungültiges Datum',
+    'common.yearsOld': '{n} Jahre alt',
+    'common.oneYearOld': '1 Jahr alt',
+    'common.expandSidebar': 'Seitenleiste erweitern',
+    'common.collapseSidebar': 'Seitenleiste einklappen',
+    'common.showPassword': 'Passwort anzeigen',
+    'common.hidePassword': 'Passwort verbergen',
+    'common.minPasswordLength': 'Mindestens 8 Zeichen',
+    'common.openDownload': 'Öffnen / herunterladen',
+    'dash.loadingCases': 'Aktuelle Fälle werden geladen…',
+    'dash.loadingActivity': 'Aktivität wird geladen…',
+    'patients.loading': 'Patienten werden geladen…',
+    'patients.loadingAccess': 'Zugriff wird geladen…',
+    'patients.loadingNotes': 'Notizen werden geladen…',
+    'patients.loadingStaff': 'Berechtigte Mitarbeiter werden geladen…',
+    'patients.loadingAccessRequests': 'Zugriffsanfragen werden geladen…',
+    'patients.editNote': 'Notiz bearbeiten',
+    'patients.deleteNoteTitle': 'Notiz löschen?',
+    'patients.deleteNoteBody': 'Diese klinische Notiz wird dauerhaft entfernt.',
+    'patients.noteHint': 'Klinische Notiz hinzufügen…',
+    'patients.pendingAccess': 'Ausstehende Zugriffsanfragen',
+    'patients.revoke': 'Widerrufen',
+    'patients.regrant': 'Erneut gewähren',
+    'patients.savePatient': 'Patient speichern',
+    'patients.refreshPatients': 'Patienten aktualisieren',
+    'appointments.loading': 'Termine werden geladen…',
+    'appointments.selectDate': 'Termindatum auswählen',
+    'appointments.editTooltip': 'Termin bearbeiten',
+    'appointments.starts': 'Beginn',
+    'profile.loading': 'Profil wird geladen…',
+    'scans.loading': 'Scans werden geladen…',
+    'scans.uploadingScan': 'Scan wird hochgeladen…',
+    'shade.loading': 'Farbbestimmung wird geladen…',
+    'shade.detecting': 'Wird erkannt…',
+    'shade.uploadDetect': 'Hochladen & erkennen',
+    'shade.removeSave': 'Speicherung entfernen?',
+    'shade.deleteFromSession': '{shade} aus dieser Sitzung löschen.',
+    'shade.similarShades': 'Ähnliche Farben',
+    'shade.bestOverall': 'Gesamtbestes',
+    'shade.acrossAllTeeth': 'Über alle Zähne',
+    'shade.deleteTooth': 'Zahn löschen',
+    'shade.photoTitle': 'Farbfoto',
+    'shade.photoMessage': 'Aktion für dieses Foto wählen.',
+    'shade.uploadAnother': 'Weiteres hochladen',
+    'shade.deletePhoto': 'Foto löschen',
+    'shade.openSession': 'Sitzung öffnen',
+    'shade.closeSession': 'Sitzung schließen',
+    'shade.removeFromSession': 'Aus Sitzung entfernen',
+    'smile.loading': 'Lächeln-Vorschau wird geladen…',
+    'smile.loadPhoto': 'Foto laden',
+    'smile.changePhoto': 'Foto ändern',
+    'smile.loadPatientPhoto': 'Patientenfoto laden',
+    'smile.guides': 'Hilfslinien',
+    'smile.size': 'Größe',
+    'smile.width': 'Breite',
+    'smile.height': 'Höhe',
+    'smile.rotate': 'Drehen',
+    'smile.blend': 'Überblendung',
+    'smile.scale': 'Skalierung',
+    'smile.opacity': 'Deckkraft',
+    'smile.useShape': 'Form {n} verwenden',
+    'smile.shapeSoftOval': 'Weiches Oval',
+    'smile.shapeClassicOval': 'Klassisches Oval',
+    'smile.shapeRounded': 'Abgerundet',
+    'smile.shapeNaturalOval': 'Natürliches Oval',
+    'smile.shapeYouthful': 'Jugendlich',
+    'smile.shapeSoftSquare': 'Weiches Quadrat',
+    'smile.shapeBalanced': 'Ausgewogen',
+    'smile.shapeSoftRect': 'Weiches Rechteck',
+    'smile.shapeHollywood': 'Hollywood',
+    'smile.shapeStrongSquare': 'Starkes Quadrat',
+    'smile.shapeTapered': 'Verjüngt',
+    'smile.shapeCanineLift': 'Eckzahn-Anhebung',
+    'scanBody.loading': 'Scanbody wird geladen…',
+    'scanBody.saveToCase': 'Zum Fall speichern',
+    'scanBody.matchTable': 'Tabelle abgleichen',
+    'scanBody.detectFromPhoto': 'Aus Foto erkennen',
+    'scanBody.detected': 'Erkannt',
+    'scanBody.pixels': 'Pixel',
+    'scanBody.tableMatch': 'Tabellen-Treffer',
+    'scanBody.tooth': 'Zahn',
+    'scanBody.manufacturer': 'Hersteller',
+    'scanBody.platform': 'Plattform',
+    'scanBody.confidence': 'Konfidenz',
+    'scanBody.diameterHint': 'z. B. 4.1',
+    'camera.deletePhotoTitle': 'Foto löschen?',
+    'camera.deletePhotoBody': 'Dieses {angle}-Foto aus dem Datensatz von {name} entfernen.',
+    'camera.renamePhoto': 'Foto umbenennen',
+    'camera.choosePatient': 'Patient auswählen',
+    'camera.choosePatientBody': 'Wählen Sie oben einen Patienten, um Stuhlseitenfotos aufzunehmen.',
+    'camera.noPhotosYet': 'Noch keine Fotos',
+    'camera.noAnglePhotos': 'Keine {angle}-Fotos',
+    'camera.takePhoto': 'Foto aufnehmen',
+    'camera.gallery': 'Galerie',
+    'camera.preparing': 'Kamera wird vorbereitet…',
+    'camera.addPatient': 'Patient hinzufügen',
+    'camera.photoOptions': 'Foto-Optionen',
+    'camera.viewFullscreen': 'Vollbild anzeigen',
+    'camera.openShade': 'Mit Farbbestimmung öffnen',
+    'camera.openSmile': 'Mit Lächeln-Vorschau öffnen',
+    'camera.captureFocus': 'Aufnahme-Fokus',
+    'camera.retryCamera': 'Kamera erneut versuchen',
+    'camera.switchCamera': 'Kamera wechseln',
+    'camera.resetOverlay': 'Overlay zurücksetzen',
+    'messages.loadingConversations': 'Unterhaltungen werden geladen…',
+    'messages.loadingChat': 'Chat wird geladen…',
+    'messages.loadingContacts': 'Kontakte werden geladen…',
+    'messages.photoLibrary': 'Fotomediathek',
+    'messages.camera': 'Kamera',
+    'messages.videoLibrary': 'Videomediathek',
+    'messages.recordVideo': 'Video aufnehmen',
+    'messages.document': 'Dokument',
+    'messages.filterAll': 'Alle',
+    'messages.filterDentists': 'Zahnärzte',
+    'messages.filterLaboratories': 'Labore',
+    'media.uploadItem': 'Element hochladen?',
+    'media.deleteItem': 'Element löschen?',
+    'media.uploadBody': 'Dieses Element hochladen und im Patientendatensatz speichern?',
+    'media.uploadConfirm': 'Hochladen',
+    'media.deleteBody': 'Möchten Sie dieses Element wirklich löschen? Dies kann nicht rückgängig gemacht werden.',
+    'common.useThisDate': 'Dieses Datum verwenden',
+    'common.selectDate': 'Datum auswählen',
+    'common.prevMonth': 'Vorheriger Monat',
+    'common.nextMonth': 'Nächster Monat',
+    'common.minUppercase': 'Mindestens ein Großbuchstabe',
+    'common.minNumber': 'Mindestens eine Zahl',
+    'shade.manualOverride': 'Manuelle Korrektur — VITA Classical',
+    'shade.allVita': 'Alle VITA Classical-Farben',
+    'shade.targetShades': 'Zielfarben',
+    'shade.toothSamples': 'Zahnproben',
+    'auth.passwordUpdatedRelogin': 'Passwort aktualisiert. Bitte erneut anmelden.',
+    'dash.patientsOnFile': '{n} Patienten in der Akte',
+    'dash.patientsOnFileOne': '1 Patient in der Akte',
+    'dash.needsAttention': '{n} Fälle benötigen Aufmerksamkeit',
+    'dash.needsAttentionOne': '1 Fall benötigt Aufmerksamkeit',
+    'dash.unreadMessages': '{n} ungelesene Nachrichten',
+    'dash.unreadMessagesOne': '1 ungelesene Nachricht',
+    'dash.patientsAndCasesOnFile':
+        '{patients} Patienten · {cases} Fälle in der Akte.',
+    'dash.acrossCompleted': 'Über {n} abgeschlossene',
+    'dash.inProgressInReview':
+        '{inProgress} in Bearbeitung · {inReview} in Prüfung',
+    'dash.activityCompleted':
+        'Fall {label} als abgeschlossen markiert — {patient}',
+    'dash.activityRejected':
+        'Scan für {patient} abgelehnt — erneuter Scan erforderlich',
+    'dash.activityInReview':
+        'Fall für {patient} zur Laborprüfung weitergeleitet',
+    'dash.activityInProgress': 'Fall für {patient} ist in Bearbeitung',
+    'dash.activityPending':
+        'Fall für {patient} eröffnet — warte auf Scan',
+    'dash.activityUpdated': 'Fall für {patient} aktualisiert',
+    'common.justNow': 'Gerade eben',
+    'common.minAgo': 'vor {n} Min.',
+    'common.hourAgo': 'vor 1 Stunde',
+    'common.hoursAgo': 'vor {n} Stunden',
+    'common.daysAgo': 'vor {n} Tagen',
+    'patients.shareTitle': '{patient} teilen',
+    'patients.grantAccess': 'Zugriff gewähren',
+    'patients.requestAccess': 'Zugriff anfordern',
+    'patients.asOwnerHint':
+        'Als Eigentümer erlaubt Ihre Einladung sofortigen Zugriff.',
+    'patients.requestAccessHint':
+        'Diese Anfrage wird an den Patienteneigentümer zur Freigabe gesendet.',
+    'patients.allStaffHaveAccess':
+        'Alle Praxismitarbeiter haben bereits Zugriff oder ausstehende Anfragen für diesen Patienten.',
+    'patients.noEligibleStaff':
+        'Keine berechtigten Mitarbeiter zum Einladen verfügbar.',
+    'patients.accessGranted': 'Zugriff erfolgreich an Mitarbeiter gewährt.',
+    'patients.accessRequestSubmitted':
+        'Zugriffsanfrage an Patienteneigentümer zur Prüfung gesendet.',
+    'patients.createdBy': 'Erstellt von',
+    'patients.accessLabel': 'Zugriff',
+    'patients.creator': 'Ersteller',
+    'patients.shared': 'Geteilt',
+    'patients.owner': 'Eigentümer',
+    'patients.onlyOwnerApprove':
+        'Nur der Patienteneigentümer kann Zugriffsanfragen genehmigen oder ablehnen.',
+    'patients.onlyOwnerManage':
+        'Nur der Patienteneigentümer kann vollständige Mitarbeiterzugriffe einsehen und verwalten.',
+    'patients.waitingOwnerReview': 'Warte auf Prüfung durch Eigentümer',
+    'camera.subtitle':
+        'Frontal-, Links- und Rechtsfotos · bis zu 12 pro Patient',
+    'camera.angle': 'Winkel',
+    'camera.frontal': 'Frontal',
+    'camera.left': 'Links',
+    'camera.right': 'Rechts',
+    'camera.frontalSmile': 'Frontales Lächeln',
+    'camera.leftProfile': 'Linkes Profil',
+    'camera.rightProfile': 'Rechtes Profil',
+    'camera.clinicalPhoto': 'Klinisches Foto',
+    'camera.emptyPhotosHint':
+        'Machen Sie ein Frontal-, Links- oder Rechtsfoto — es wird im Patientendatensatz gespeichert.',
+    'camera.noPatientsCaptureHint':
+        'Noch keine Patienten — legen Sie einen an, um Fotos aufzunehmen.',
+    'camera.addPatientCaptureHint':
+        'Fügen Sie oben einen Patienten hinzu, um mit der Aufnahme zu beginnen.',
+    'camera.switchAngleHint':
+        'Winkel wechseln oder ein {angle}-Foto für diesen Patienten aufnehmen.',
+    'shade.subtitle':
+        'Zahnfoto hochladen → KI erkennt VITA-Farbe → bestätigen oder korrigieren',
+    'shade.uploadCloseUp': 'Nahaufnahme von Zahn/Lächeln hochladen',
+    'shade.uploadToothPhoto': 'Zahnfoto hochladen',
+    'shade.analyzing': 'Farbe wird analysiert…',
+    'shade.session': 'Sitzung',
+    'shade.savedShadesHint': 'Gespeicherte Farben · tippen zum Bearbeiten',
+    'shade.noSavesYet': 'Noch keine Speicherung',
+    'shade.noDetectionYet': 'Noch keine Erkennung',
+    'shade.uploadToAnalyze': 'Foto zum Analysieren hochladen',
+    'shade.acceptAi': 'KI übernehmen',
+    'shade.acceptShade': '{shade} übernehmen',
+    'shade.saveOverride': 'Korrektur speichern',
+    'shade.saveOverrideShade': 'Korrektur speichern ({shade})',
+    'shade.result': 'Ergebnis',
+    'shade.override': 'Korrigieren',
+    'shade.overrideSelected': 'Korrektur gewählt: {shade}',
+    'shade.selected': 'Ausgewählt',
+    'shade.uploadToothFirst':
+        'Laden Sie zuerst ein Zahnfoto hoch, damit die KI eine Farbe erkennen kann.',
+    'smile.pageSubtitle':
+        'Zahnform wählen · auf dem Patientenfoto platzieren · im Fall speichern',
+    'smile.loadSmilePhoto': 'Patienten-Lächelnfoto laden',
+    'smile.loadSmileHint':
+        'Tippen Sie dann rechts in der Bibliothek auf eine Form und platzieren Sie sie über den Zähnen.',
+    'smile.loadSmileHintPortrait':
+        'Tippen Sie dann unten in der Bibliothek auf eine Form und platzieren Sie sie über den Zähnen.',
+    'smile.placement': 'Platzierung',
+    'smile.nudge': 'Verschieben',
+    'smile.resetPlacement': 'Platzierung zurücksetzen',
+    'smile.centerShape': 'Form zentrieren',
+    'smile.selectShapeHint':
+        'Form aus der Bibliothek wählen → ziehen / zoomen / drehen',
+    'smile.originalPhoto': 'Originalfoto',
+    'notifications.markedAllRead': 'Alle Benachrichtigungen als gelesen markiert',
+    'notifications.now': 'jetzt',
+    'notifications.minsShort': '{n}m',
+    'notifications.hoursShort': '{n}h',
+    'notifications.daysShort': '{n}d',
+    'notifications.moreCount': '+{n} weitere',
+    'notifications.msgAccessApproved':
+        'Zugriff für {name} genehmigt. Sie können diesen Patienten öffnen.',
+    'notifications.msgYouApprovedAccess':
+        'Sie haben den Zugriff von {who} auf {name} genehmigt.',
+    'notifications.msgAccessDeclined':
+        'Zugriff auf {name} wurde abgelehnt.',
+    'notifications.msgYouDeclinedAccess':
+        'Sie haben die Zugriffsanfrage von {who} für {name} abgelehnt.',
+    'notifications.msgGrantedAccess':
+        '{who} hat Ihnen Zugriff auf {name} gewährt.',
+    'notifications.msgYouGrantedAccess':
+        'Sie haben {who} Zugriff auf {name} gewährt.',
+    'notifications.msgRequestedAccess':
+        '{who} hat Zugriff auf {name} angefordert.',
+    'notifications.msgYouRequestedAccess':
+        'Sie haben Zugriff auf {name} angefordert.',
+    'notifications.msgAccessRevoked':
+        'Ihr Zugriff auf {name} wurde entzogen.',
+    'notifications.msgYouRevokedAccess':
+        'Sie haben den Zugriff von {who} auf {name} entzogen.',
+    'notifications.msgYouBookedAppt':
+        'Sie haben einen Termin für {name} gebucht.',
+    'notifications.msgBookedAppt':
+        '{who} hat einen Termin für {name} gebucht.',
+    'notifications.msgYouCancelledAppt':
+        'Sie haben einen Termin für {name} storniert.',
+    'notifications.msgCancelledAppt':
+        '{who} hat einen Termin für {name} storniert.',
+    'notifications.msgYouUpdatedAppt':
+        'Sie haben einen Termin für {name} aktualisiert.',
+    'notifications.msgUpdatedAppt':
+        '{who} hat einen Termin für {name} aktualisiert.',
+    'notifications.msgUploadedScan':
+        '{who} hat einen 3D-Scan für {name} hochgeladen.',
+    'notifications.msgSavedShade':
+        '{who} hat ein Farbfoto für {name} gespeichert.',
+    'notifications.msgSavedSmile':
+        '{who} hat eine Lächeln-Vorschau für {name} gespeichert.',
+    'notifications.msgAddedFile':
+        '{who} hat eine Datei für {name} hinzugefügt.',
+    'notifications.msgScanQuality': 'Scan-Qualitätsproblem bei {name}.',
+    'notifications.msgScanQualityDetail':
+        'Scan-Qualitätsproblem bei {name}. {detail}',
+    'notifications.msgNewScan': 'Neuer Scan für {name} hochgeladen.',
+    'notifications.msgNewPatient':
+        'Neuer Patient erfasst: {name} (Scan ausstehend).',
+    'notifications.fallbackScanQuality': 'Scan-Qualitätswarnung für {name}',
+    'notifications.fallbackShade': 'Farb-Update für {name}',
+    'notifications.fallbackAppointment': 'Termin-Update für {name}',
+    'notifications.fallbackCase': 'Fall-Update für {name}',
+    'notifications.fallbackScanBody': 'Scanbody-Update für {name}',
+    'notifications.fallbackSync': 'Sync-Update für {name}',
+    'notifications.fallbackExport': 'Export-Update für {name}',
+    'patient.readyForDetect': 'Bereit zur Erkennung',
+    'patient.noneYet': 'Noch keine',
+    'patient.availableCount': '{n} verfügbar',
+    'patient.caseId': 'Fall #{id}',
+    'patient.fallbackId': 'Patient #{id}',
+    'patient.emptyHint':
+        'Noch keine Patienten — fügen Sie einen hinzu, um fortzufahren.',
+    'scans.qualityNeedPatient':
+        'Patient auswählen, dann Scan hochladen, um Qualitätsergebnisse zu sehen.',
+    'scans.qualityNeedUpload':
+        'Noch kein Scan hochgeladen — laden Sie eine PLY, STL oder OBJ hoch, um die Qualitätsprüfung zu starten.',
+    'scans.uploadPreviewHint':
+        'PLY / STL / OBJ hochladen für die Vorschau',
+    'scans.emptyHintUpload':
+        'Noch keine Patienten — fügen Sie einen hinzu, um Scans hochzuladen.',
   };
 }

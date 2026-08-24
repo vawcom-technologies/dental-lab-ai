@@ -97,7 +97,7 @@ class InboxScreen extends StatelessWidget {
                 ),
                 Expanded(
                   child: controller.loadingInbox && rows.isEmpty
-                      ? const ToothPageLoader(message: 'Loading conversations…')
+                      ? ToothPageLoader(message: AppLocalizations.of(context).messagesLoadingConversations)
                       : rows.isEmpty
                           ? IpadRefresh.fill(
                               onRefresh: () =>

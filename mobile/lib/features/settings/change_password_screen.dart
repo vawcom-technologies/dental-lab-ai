@@ -75,7 +75,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       if (!mounted) return;
       SessionCoordinator.signOut(
         widget.api,
-        message: 'Password updated. Please log in again.',
+        message: AppLocalizations.of(context).authPasswordUpdatedRelogin,
       );
     } catch (e) {
       if (!mounted) return;

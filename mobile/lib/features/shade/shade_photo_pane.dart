@@ -9,6 +9,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'shade_shared.dart';
 import 'tooth_overlay.dart';
+import '../../core/l10n/app_localizations.dart';
 
 /// Claims drag on a vertex handle or mid-edge curve grip.
 class OutlineEditDragRecognizer extends PanGestureRecognizer {
@@ -82,15 +83,15 @@ class ShadePhotoPane extends StatelessWidget {
     await showCupertinoModalPopup<void>(
       context: context,
       builder: (ctx) => CupertinoActionSheet(
-        title: const Text('Shade photo'),
-        message: const Text('Choose an action for this photo.'),
+        title: Text(AppLocalizations.of(context).shadePhotoTitle),
+        message: Text(AppLocalizations.of(context).shadePhotoMessage),
         actions: [
           CupertinoActionSheetAction(
             onPressed: () {
               Navigator.pop(ctx);
               onUpload();
             },
-            child: const Text('Upload Another'),
+            child: Text(AppLocalizations.of(context).shadeUploadAnother),
           ),
           CupertinoActionSheetAction(
             isDestructiveAction: true,
@@ -98,13 +99,13 @@ class ShadePhotoPane extends StatelessWidget {
               Navigator.pop(ctx);
               onClearPhoto();
             },
-            child: const Text('Delete Photo'),
+            child: Text(AppLocalizations.of(context).shadeDeletePhoto),
           ),
         ],
         cancelButton: CupertinoActionSheetAction(
           isDefaultAction: true,
           onPressed: () => Navigator.pop(ctx),
-          child: const Text('Cancel'),
+          child: Text(AppLocalizations.of(context).cancel),
         ),
       ),
     );
@@ -319,19 +320,19 @@ class ShadePhotoPane extends StatelessWidget {
                   ),
                 )
               else
-                const Center(
+                Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.add_photo_alternate_outlined,
                         color: Colors.white54,
                         size: 44,
                       ),
-                      SizedBox(height: 10),
+                      const SizedBox(height: 10),
                       Text(
-                        'Upload a close-up tooth/smile photo',
-                        style: TextStyle(color: Colors.white70),
+                        AppLocalizations.of(context).shadeUploadCloseUp,
+                        style: const TextStyle(color: Colors.white70),
                       ),
                     ],
                   ),
@@ -339,11 +340,11 @@ class ShadePhotoPane extends StatelessWidget {
               if (busy)
                 Container(
                   color: Colors.black45,
-                  child: const Center(
+                  child: Center(
                     child: ToothLoadingIndicator(
                       size: 48,
                       color: Colors.white,
-                      loadingText: 'Analyzing shade…',
+                      loadingText: AppLocalizations.of(context).shadeAnalyzing,
                     ),
                   ),
                 ),
@@ -377,8 +378,8 @@ class ShadePhotoPane extends StatelessWidget {
                     icon: const Icon(Icons.upload_file, size: 18),
                     label: Text(
                       previewBytes == null
-                          ? 'Upload tooth photo'
-                          : 'Upload another',
+                          ? AppLocalizations.of(context).shadeUploadToothPhoto
+                          : AppLocalizations.of(context).shadeUploadAnother,
                     ),
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.dentalBlue,
@@ -398,7 +399,7 @@ class ShadePhotoPane extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         IconButton(
-                          tooltip: 'Undo',
+                          tooltip: AppLocalizations.of(context).commonUndo,
                           onPressed: canUndo ? onUndo : null,
                           icon: const Icon(Icons.undo_rounded),
                           color: Colors.white,
@@ -406,7 +407,7 @@ class ShadePhotoPane extends StatelessWidget {
                         ),
                         if (editOutlineMode)
                           IconButton(
-                            tooltip: 'Redo',
+                            tooltip: AppLocalizations.of(context).commonRedo,
                             onPressed: canRedo ? onRedo : null,
                             icon: const Icon(Icons.redo_rounded),
                             color: Colors.white,

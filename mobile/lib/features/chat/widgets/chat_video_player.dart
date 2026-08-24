@@ -8,6 +8,7 @@ import 'package:video_player/video_player.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/tooth_loader.dart';
+import '../../../core/l10n/app_localizations.dart';
 
 String _formatTime(Duration duration) {
   final total = duration.inSeconds.clamp(0, 36000);
@@ -282,13 +283,13 @@ class _ChatVideoPlayerPageState extends State<ChatVideoPlayerPage>
         child: Row(
           children: [
             IconButton(
-              tooltip: 'Close',
+              tooltip: AppLocalizations.of(context).commonClose,
               onPressed: () => Navigator.of(context).pop(),
               icon: const Icon(CupertinoIcons.xmark, color: Colors.white),
             ),
             const Spacer(),
             IconButton(
-              tooltip: 'Open / download',
+              tooltip: AppLocalizations.of(context).commonOpenDownload,
               onPressed: _openExternal,
               icon: const Icon(Icons.download_rounded, color: Colors.white),
             ),
@@ -463,7 +464,7 @@ class _FailedBody extends StatelessWidget {
         ),
         TextButton(
           onPressed: onOpen,
-          child: const Text('Open / download'),
+          child: Text(AppLocalizations.of(context).commonOpenDownload),
         ),
         const Spacer(),
       ],

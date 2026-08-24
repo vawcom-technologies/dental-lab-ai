@@ -25,6 +25,7 @@ import '../features/settings/settings_page.dart';
 import '../features/shade/shade_page.dart';
 import '../features/shapes/shape_overlay_page.dart';
 import 'app_sidebar.dart';
+import '../core/l10n/app_localizations.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({
@@ -140,10 +141,17 @@ class _AppShellState extends State<AppShell> {
     }).toList();
     if (allowed.isEmpty) return;
     final first = allowed.first;
-    var text = '${first['message'] ?? ''}'.trim();
+    final loc = AppLocalizations.of(context);
+    var text = loc
+        .localizeNotificationMessage(
+          '${first['message'] ?? ''}',
+          type: '${first['type'] ?? ''}',
+          patientName: '${first['patient_name'] ?? ''}',
+        )
+        .trim();
     if (text.isEmpty) return;
     if (allowed.length > 1) {
-      text = '$text  (+${allowed.length - 1} more)';
+      text = '$text  ${loc.notificationsMoreCount(allowed.length - 1)}';
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -200,7 +208,7 @@ class _AppShellState extends State<AppShell> {
           backgroundColor: Colors.transparent,
           body: BusyBarrier(
             busy: _patients.openingPatientDetail,
-            message: 'Opening patient…',
+            message: AppLocalizations.of(context).patientsOpening,
             child: DecoratedBox(
               decoration: const BoxDecoration(
                 gradient: LinearGradient(

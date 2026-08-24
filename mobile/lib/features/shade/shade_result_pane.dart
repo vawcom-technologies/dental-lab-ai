@@ -8,6 +8,7 @@ import '../../core/widgets/ui_kit.dart';
 import 'shade_override_pane.dart' show SimilarShadeChip;
 import 'shade_shared.dart';
 import 'tooth_overlay.dart';
+import '../../core/l10n/app_localizations.dart';
 
 class ShadeResultPane extends StatelessWidget {
   const ShadeResultPane({
@@ -94,9 +95,9 @@ class ShadeResultPane extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        const Text(
-                          'Result',
-                          style: TextStyle(
+                        Text(
+                          AppLocalizations.of(context).shadeResult,
+                          style: const TextStyle(
                             fontWeight: FontWeight.w700,
                             fontSize: 15,
                           ),
@@ -159,7 +160,7 @@ class ShadeResultPane extends StatelessWidget {
                                             const Spacer(),
                                             if (active) ...[
                                               IconButton(
-                                                tooltip: 'Delete tooth',
+                                                tooltip: AppLocalizations.of(context).shadeDeleteTooth,
                                                 onPressed: onDeleteTooth,
                                                 icon: const Icon(
                                                   Icons.delete_outline,
@@ -175,9 +176,10 @@ class ShadeResultPane extends StatelessWidget {
                                                   minHeight: 36,
                                                 ),
                                               ),
-                                              const Text(
-                                                'Selected',
-                                                style: TextStyle(
+                                              Text(
+                                                AppLocalizations.of(context)
+                                                    .shadeSelected,
+                                                style: const TextStyle(
                                                   fontSize: 11,
                                                   fontWeight: FontWeight.w700,
                                                   color: AppColors.dentalBlue,
@@ -287,7 +289,8 @@ class ShadeResultPane extends StatelessWidget {
                                   children: [
                                     Text(
                                       detected == '—'
-                                          ? 'No detection yet'
+                                          ? AppLocalizations.of(context)
+                                              .shadeNoDetectionYet
                                           : detected,
                                       style: TextStyle(
                                         fontSize: detected == '—' ? 18 : 28,
@@ -300,7 +303,8 @@ class ShadeResultPane extends StatelessWidget {
                                     Text(
                                       confidence > 0
                                           ? '${(confidence * 100).round()}% match · $focusZone'
-                                          : 'Upload a photo to analyze',
+                                          : AppLocalizations.of(context)
+                                              .shadeUploadToAnalyze,
                                       style: const TextStyle(
                                         fontSize: 12,
                                         color: AppColors.muted,
@@ -338,7 +342,8 @@ class ShadeResultPane extends StatelessWidget {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              'Override selected: $selected',
+                              AppLocalizations.of(context)
+                                  .shadeOverrideSelected(selected),
                               style: const TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
@@ -360,18 +365,18 @@ class ShadeResultPane extends StatelessWidget {
                         ],
                         if (overallTopMatches.isNotEmpty) ...[
                           const SizedBox(height: 12),
-                          const Text(
-                            'Top matches',
-                            style: TextStyle(
+                          Text(
+                            AppLocalizations.of(context).shadeSimilarShades,
+                            style: const TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                               color: AppColors.muted,
                             ),
                           ),
                           const SizedBox(height: 2),
-                          const Text(
-                            'Across all teeth',
-                            style: TextStyle(
+                          Text(
+                            AppLocalizations.of(context).shadeAcrossAllTeeth,
+                            style: const TextStyle(
                               fontSize: 11,
                               color: AppColors.muted,
                             ),
@@ -409,23 +414,25 @@ class ShadeResultPane extends StatelessWidget {
                             minimumSize: const Size.fromHeight(40),
                           ),
                           child: saving
-                              ? const Row(
+                              ? Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    ToothLoadingIndicator(
+                                    const ToothLoadingIndicator(
                                       size: 18,
                                       compact: true,
                                       color: Colors.white,
                                     ),
-                                    SizedBox(width: 10),
-                                    Text('Saving…'),
+                                    const SizedBox(width: 10),
+                                    Text(AppLocalizations.of(context).saving),
                                   ],
                                 )
                               : Text(
                                   detected == '—'
-                                      ? 'Accept AI'
-                                      : 'Accept $detected',
+                                      ? AppLocalizations.of(context)
+                                          .shadeAcceptAi
+                                      : AppLocalizations.of(context)
+                                          .shadeAcceptShade(detected),
                                 ),
                         ),
                         const SizedBox(height: 8),
@@ -436,8 +443,9 @@ class ShadeResultPane extends StatelessWidget {
                           ),
                           child: Text(
                             selected == '—' || selected == detected
-                                ? 'Save override'
-                                : 'Save override ($selected)',
+                                ? AppLocalizations.of(context).shadeSaveOverride
+                                : AppLocalizations.of(context)
+                                    .shadeSaveOverrideShade(selected),
                           ),
                         ),
                       ],
@@ -760,16 +768,16 @@ class MiniZoneChip extends StatelessWidget {
                         child: InkWell(
                           onTap: onOverride,
                           borderRadius: BorderRadius.circular(7),
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
                               horizontal: 8,
                               vertical: 5,
                             ),
                             child: Text(
-                              'Override',
+                              AppLocalizations.of(context).shadeOverride,
                               textAlign: TextAlign.center,
                               maxLines: 1,
-                              style: TextStyle(
+                              style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 11,
                                 fontWeight: FontWeight.w800,

@@ -18,7 +18,7 @@ class PatientPickerButton extends StatefulWidget {
     this.caseId,
     this.enabled = true,
     this.onRefresh,
-    this.emptyHint = 'No patients yet — add one to continue.',
+    this.emptyHint,
     this.width = 220,
   });
 
@@ -30,7 +30,7 @@ class PatientPickerButton extends StatefulWidget {
   final ValueChanged<Map<String, dynamic>> onSelect;
   final VoidCallback onAdd;
   final Future<void> Function()? onRefresh;
-  final String emptyHint;
+  final String? emptyHint;
   final double width;
 
   @override
@@ -48,17 +48,21 @@ class _PatientPickerButtonState extends State<PatientPickerButton> {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
     final selected = widget.selected;
     final label = selected == null
-        ? 'Select patient'
+        ? loc.selectPatient
         : _name(selected).isEmpty
-            ? 'Patient'
+            ? loc.reportsPatientFallback
             : _name(selected);
     final subtitle = selected == null
         ? (widget.patients.isEmpty
-            ? 'None yet'
-            : '${widget.patients.length} available')
-        : (widget.caseId == null ? 'Ready for detect' : 'Case #${widget.caseId}');
+            ? loc.patientNoneYet
+            : loc.patientAvailableCount(widget.patients.length))
+        : (widget.caseId == null
+            ? loc.patientReadyForDetect
+            : loc.patientCaseId(widget.caseId!));
+    final emptyHint = widget.emptyHint ?? loc.patientEmptyHint;
 
     return MenuAnchor(
       controller: _menu,
@@ -107,7 +111,7 @@ class _PatientPickerButtonState extends State<PatientPickerButton> {
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 4, 14, 12),
             child: Text(
-              widget.emptyHint,
+              emptyHint,
               style: const TextStyle(color: AppColors.muted, fontSize: 12),
             ),
           )
@@ -136,7 +140,7 @@ class _PatientPickerButtonState extends State<PatientPickerButton> {
               child: SizedBox(
                 width: 180,
                 child: Text(
-                  name.isEmpty ? 'Patient #${_pid(p)}' : name,
+                  name.isEmpty ? loc.patientFallbackId(_pid(p)) : name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(

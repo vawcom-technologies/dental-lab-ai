@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'shade_shared.dart';
+import '../../core/l10n/app_localizations.dart';
 
 class ShadeOverridePane extends StatelessWidget {
   const ShadeOverridePane({
@@ -48,9 +49,9 @@ class ShadeOverridePane extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
-                  'Manual Override — VITA Classical',
-                  style: TextStyle(fontWeight: FontWeight.w700),
+                Text(
+                  AppLocalizations.of(context).shadeManualOverride,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
                 if (toothLabel != null) ...[
                   const SizedBox(height: 4),
@@ -68,6 +69,7 @@ class ShadeOverridePane extends StatelessWidget {
                   wide: wide,
                   chipW: chipW,
                   toothLabel: toothLabel,
+                  context: context,
                 ),
               ],
             ),
@@ -81,11 +83,13 @@ class ShadeOverridePane extends StatelessWidget {
     required bool wide,
     required double chipW,
     required String? toothLabel,
+    required BuildContext context,
   }) {
+    final loc = AppLocalizations.of(context);
     final guideBlocks = [
-      const Text(
-        'All VITA Classical shades',
-        style: TextStyle(
+      Text(
+        loc.shadeAllVita,
+        style: const TextStyle(
           fontSize: 15,
           fontWeight: FontWeight.w700,
           color: AppColors.navy,
@@ -94,9 +98,9 @@ class ShadeOverridePane extends StatelessWidget {
       const SizedBox(height: 4),
       _shadeWrap(kVitaShades, wide: wide, chipW: chipW),
       const SizedBox(height: 14),
-      const Text(
-        'Target shades',
-        style: TextStyle(
+      Text(
+        loc.shadeTargetShades,
+        style: const TextStyle(
           fontSize: 15,
           fontWeight: FontWeight.w700,
           color: AppColors.navy,
@@ -105,9 +109,9 @@ class ShadeOverridePane extends StatelessWidget {
       const SizedBox(height: 4),
       _shadeWrap(kTargetShades, wide: wide, chipW: chipW),
       const SizedBox(height: 14),
-      const Text(
-        'Tooth samples',
-        style: TextStyle(
+      Text(
+        loc.shadeToothSamples,
+        style: const TextStyle(
           fontSize: 15,
           fontWeight: FontWeight.w700,
           color: AppColors.navy,
@@ -129,7 +133,7 @@ class ShadeOverridePane extends StatelessWidget {
           if (similarMatches.isNotEmpty)
             Expanded(
               child: _matchBlock(
-                title: 'Similar shades',
+                title: AppLocalizations.of(context).shadeSimilarShades,
                 subtitle: toothLabel == null
                     ? 'For the focused zone'
                     : 'For $toothLabel',
@@ -142,8 +146,8 @@ class ShadeOverridePane extends StatelessWidget {
           if (overallMatches.isNotEmpty)
             Expanded(
               child: _matchBlock(
-                title: 'Best overall',
-                subtitle: 'Across all teeth',
+                title: AppLocalizations.of(context).shadeBestOverall,
+                subtitle: AppLocalizations.of(context).shadeAcrossAllTeeth,
                 matches: overallMatches,
                 onPick: onOverallShadeChoice,
               ),

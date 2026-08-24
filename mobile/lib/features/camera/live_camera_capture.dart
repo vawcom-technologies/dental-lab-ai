@@ -9,6 +9,7 @@ import '../../core/navigation/app_page_routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/tooth_loader.dart';
 import 'camera_guide.dart';
+import '../../core/l10n/app_localizations.dart';
 
 /// Full-screen live camera with angle guide + jaw focus. Pops JPEG bytes.
 class LiveCameraCapturePage extends StatefulWidget {
@@ -152,7 +153,7 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
     final picked = await showCupertinoModalPopup<JawFocus>(
       context: context,
       builder: (ctx) => CupertinoActionSheet(
-        title: const Text('Capture focus'),
+        title: Text(AppLocalizations.of(context).cameraCaptureFocus),
         message: const Text(
           'Hold the preview to change. Default is both jaws.',
         ),
@@ -168,7 +169,7 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
         cancelButton: CupertinoActionSheetAction(
           isDefaultAction: true,
           onPressed: () => Navigator.pop(ctx),
-          child: const Text('Cancel'),
+          child: Text(AppLocalizations.of(context).cancel),
         ),
       ),
     );
@@ -290,7 +291,7 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
                       const SizedBox(height: 16),
                       FilledButton(
                         onPressed: () => _start(preferredIndex: _cameraIndex),
-                        child: const Text('Retry camera'),
+                        child: Text(AppLocalizations.of(context).cameraRetryCamera),
                       ),
                     ],
                   ),
@@ -300,7 +301,8 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
               top: 8,
               left: 8,
               child: IconButton(
-                onPressed: () => Navigator.of(context).pop(),
+                onPressed:
+                    _capturing ? null : () => Navigator.of(context).pop(),
                 icon: const Icon(Icons.close_rounded, color: Colors.white),
                 style: IconButton.styleFrom(
                   backgroundColor: Colors.black45,
@@ -316,7 +318,7 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
                     if (_cameras.length > 1)
                       IconButton(
                         onPressed: _capturing ? null : _flip,
-                        tooltip: 'Switch camera',
+                        tooltip: AppLocalizations.of(context).cameraSwitchCamera,
                         icon: const Icon(
                           Icons.cameraswitch_outlined,
                           color: Colors.white,
@@ -329,7 +331,7 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
                       if (_cameras.length > 1) const SizedBox(height: 4),
                       IconButton(
                         onPressed: _capturing ? null : _resetOverlay,
-                        tooltip: 'Reset overlay',
+                        tooltip: AppLocalizations.of(context).cameraResetOverlay,
                         icon: const Icon(
                           Icons.filter_center_focus,
                           color: Colors.white,
@@ -455,6 +457,19 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
                 ],
               ),
             ),
+            if (_capturing)
+              const Positioned.fill(
+                child: ColoredBox(
+                  color: Color(0x99000000),
+                  child: Center(
+                    child: ToothLoadingIndicator(
+                      size: 44,
+                      color: Colors.white,
+                      loadingText: 'Processing photo…',
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),

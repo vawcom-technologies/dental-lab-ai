@@ -88,7 +88,7 @@ class AppSidebar extends StatelessWidget {
                                 const BrandLogo(height: 40, scale: 1.2),
                                 AppButtons.icon(
                                   onPressed: onToggle,
-                                  tooltip: 'Expand sidebar',
+                                  tooltip: AppLocalizations.of(context).commonExpandSidebar,
                                   icon: Icons.chevron_right_rounded,
                                   color: AppColors.muted,
                                 ),
@@ -108,7 +108,7 @@ class AppSidebar extends StatelessWidget {
                                     ),
                                     AppButtons.icon(
                                       onPressed: onToggle,
-                                      tooltip: 'Collapse sidebar',
+                                      tooltip: AppLocalizations.of(context).commonCollapseSidebar,
                                       icon: Icons.chevron_left_rounded,
                                       color: AppColors.muted,
                                     ),

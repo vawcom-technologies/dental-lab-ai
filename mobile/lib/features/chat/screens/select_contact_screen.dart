@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/auth/app_roles.dart';
+import '../../../core/l10n/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/ui_kit.dart';
 import '../models/chat_models.dart';
@@ -193,18 +194,18 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
                     groupValue: filterKey,
                     backgroundColor: const Color(0xFFE5E5EA),
                     thumbColor: Colors.white,
-                    children: const {
+                    children: {
                       'all': Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8),
-                        child: Text('All'),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Text(AppLocalizations.of(context).messagesFilterAll),
                       ),
                       AppRoles.dentist: Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8),
-                        child: Text('Dentists'),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Text(AppLocalizations.of(context).messagesFilterDentists),
                       ),
                       AppRoles.laboratory: Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8),
-                        child: Text('Laboratories'),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Text(AppLocalizations.of(context).messagesFilterLaboratories),
                       ),
                     },
                     onValueChanged: (value) {
@@ -262,7 +263,7 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
                                 : '$filterKey-${_users.length}',
                           ),
                           child: _loading
-                          ? const ToothPageLoader(message: 'Loading contacts…')
+                          ? ToothPageLoader(message: AppLocalizations.of(context).messagesLoadingContacts)
                           : _users.isEmpty
                               ? const Center(
                                   child: Padding(
@@ -337,7 +338,7 @@ class _ContactTile extends StatelessWidget {
     ].join(' · ');
     final role = user.role == null || user.role!.isEmpty
         ? null
-        : AppRoles.label(user.role);
+        : AppRoles.label(user.role, AppLocalizations.of(context));
 
     return Material(
       color: Colors.white,

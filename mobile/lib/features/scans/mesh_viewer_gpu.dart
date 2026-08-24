@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:three_js/three_js.dart' as three;
 
+import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'mesh_sample.dart';
@@ -616,10 +617,10 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
                     ),
                   )
                 else if (empty)
-                  const ColoredBox(
-                    color: Color(0xFF15283F),
+                  ColoredBox(
+                    color: const Color(0xFF15283F),
                     child: MeshViewerHint(
-                      'Upload a PLY / STL / OBJ to preview',
+                      AppLocalizations.of(context).scansUploadPreviewHint,
                     ),
                   ),
                 if (!widget.loading && !_meshLoading && !empty) ...[

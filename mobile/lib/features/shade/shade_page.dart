@@ -1575,7 +1575,7 @@ class _ShadePageState extends State<ShadePage> {
       setState(() => _busy = true);
       final uploaded = await runWithToothLoadingDialog(
         context,
-        message: 'Uploading…',
+        message: AppLocalizations.of(context).commonUploading,
         action: () => widget.api.uploadShadeDetection(
           patientId: pid,
           bytes: data,
@@ -1616,7 +1616,7 @@ class _ShadePageState extends State<ShadePage> {
       return;
     }
     if (_detected == '—' && acceptAi && _teeth.isEmpty) {
-      setState(() => _error = 'Upload a tooth photo first so AI can detect a shade.');
+      setState(() => _error = AppLocalizations.of(context).shadeUploadToothFirst);
       return;
     }
     final finalShade = acceptAi ? _detected : _selected;
@@ -1767,8 +1767,8 @@ class _ShadePageState extends State<ShadePage> {
     final shade = entry['shade']?.toString() ?? 'shade';
     final ok = await AppDialogs.confirm(
       context,
-      title: 'Remove save?',
-      message: 'Delete $shade from this session.',
+      title: AppLocalizations.of(context).shadeRemoveSave,
+      message: AppLocalizations.of(context).shadeDeleteFromSession(shade),
       confirmLabel: 'Delete',
       isDestructive: true,
     );
@@ -1954,7 +1954,7 @@ class _ShadePageState extends State<ShadePage> {
   Widget build(BuildContext context) {
     _error = AppSnackBars.drain(context, _error);
     if (_loading) {
-      return const ToothPageLoader(message: 'Loading shade detection…');
+      return ToothPageLoader(message: AppLocalizations.of(context).shadeLoading);
     }
 
     final portrait = AppBreakpoints.isPortrait(context);
@@ -1974,8 +1974,7 @@ class _ShadePageState extends State<ShadePage> {
           PageHeader(
             icon: Icons.palette_outlined,
             title: AppLocalizations.of(context).shadeTitle,
-            subtitle:
-                'Upload a tooth photo → AI detects VITA shade → confirm or override',
+            subtitle: AppLocalizations.of(context).shadeSubtitle,
             actions: [
               PatientPickerButton(
                 patients: _patients,
@@ -2002,7 +2001,7 @@ class _ShadePageState extends State<ShadePage> {
                         color: Colors.white,
                       )
                     : const Icon(Icons.upload_file, size: 18),
-                label: Text(_busy ? 'Detecting…' : 'Upload & detect'),
+                label: Text(_busy ? AppLocalizations.of(context).shadeDetecting : AppLocalizations.of(context).shadeUploadDetect),
               ),
             ],
           ),

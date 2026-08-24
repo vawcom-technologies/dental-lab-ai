@@ -115,35 +115,35 @@ class _ChatComposerState extends State<ChatComposer> {
               Navigator.pop(ctx);
               _pickImage(ImageSource.gallery);
             },
-            child: const Text('Photo Library'),
+            child: Text(AppLocalizations.of(context).messagesPhotoLibrary),
           ),
           CupertinoActionSheetAction(
             onPressed: () {
               Navigator.pop(ctx);
               _pickImage(ImageSource.camera);
             },
-            child: const Text('Camera'),
+            child: Text(AppLocalizations.of(context).messagesCamera),
           ),
           CupertinoActionSheetAction(
             onPressed: () {
               Navigator.pop(ctx);
               _pickVideoFromLibrary();
             },
-            child: const Text('Video Library'),
+            child: Text(AppLocalizations.of(context).messagesVideoLibrary),
           ),
           CupertinoActionSheetAction(
             onPressed: () {
               Navigator.pop(ctx);
               _recordVideo();
             },
-            child: const Text('Record Video'),
+            child: Text(AppLocalizations.of(context).messagesRecordVideo),
           ),
           CupertinoActionSheetAction(
             onPressed: () {
               Navigator.pop(ctx);
               _pickDocument();
             },
-            child: const Text('Document'),
+            child: Text(AppLocalizations.of(context).messagesDocument),
           ),
         ],
         cancelButton: CupertinoActionSheetAction(

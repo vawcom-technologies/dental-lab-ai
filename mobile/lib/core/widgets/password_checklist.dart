@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../l10n/app_localizations.dart';
 
 /// Password complexity rules shared by registration and password update flows.
 class PasswordValidator {
@@ -63,7 +64,7 @@ class _AppPasswordFieldState extends State<AppPasswordField> {
       decoration: InputDecoration(
         labelText: widget.labelText,
         suffixIcon: IconButton(
-          tooltip: _obscured ? 'Show password' : 'Hide password',
+          tooltip: _obscured ? AppLocalizations.of(context).commonShowPassword : AppLocalizations.of(context).commonHidePassword,
           onPressed: widget.enabled
               ? () => setState(() => _obscured = !_obscured)
               : null,
@@ -94,17 +95,17 @@ class PasswordChecklist extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _RuleRow(
-          label: 'At least 8 characters',
+          label: AppLocalizations.of(context).commonMinPasswordLength,
           met: PasswordValidator.hasMinLength(password),
         ),
         const SizedBox(height: 6),
         _RuleRow(
-          label: 'At least one uppercase letter',
+          label: AppLocalizations.of(context).commonMinUppercase,
           met: PasswordValidator.hasUppercase(password),
         ),
         const SizedBox(height: 6),
         _RuleRow(
-          label: 'At least one number',
+          label: AppLocalizations.of(context).commonMinNumber,
           met: PasswordValidator.hasNumber(password),
         ),
       ],

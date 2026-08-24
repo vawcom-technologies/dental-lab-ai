@@ -120,7 +120,7 @@ class _PatientsPageState extends State<PatientsPage> {
       if (e.isForbidden) {
         final lower = e.message.toLowerCase();
         if (lower.contains('approve') || lower.contains('reject')) {
-          return 'Only the patient owner can approve or reject access requests.';
+          return AppLocalizations.of(context).patientsOnlyOwnerApprove;
         }
         if (lower.contains('creator') || lower.contains('created this')) {
           return 'Only the person who created this patient record can edit it.';
@@ -358,7 +358,7 @@ class _PatientsPageState extends State<PatientsPage> {
         final blocked = _controller.mutating || opening;
         return BusyBarrier(
           busy: blocked,
-          message: opening ? 'Opening patient…' : null,
+          message: opening ? loc.patientsOpening : null,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
             child: Column(
@@ -372,7 +372,10 @@ class _PatientsPageState extends State<PatientsPage> {
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: Text(
-                        '${_controller.shownCount} shown · ${_controller.totalCount} total',
+                        loc.patientsShownTotal(
+                          _controller.shownCount,
+                          _controller.totalCount,
+                        ),
                         style: AppFonts.style(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
@@ -392,7 +395,7 @@ class _PatientsPageState extends State<PatientsPage> {
                       clipBehavior: Clip.none,
                       children: [
                         AppButtons.icon(
-                          tooltip: 'Pending access requests',
+                          tooltip: loc.patientsPendingAccess,
                           onPressed: blocked ? null : _openPendingRequests,
                           icon: Icons.mark_email_unread_outlined,
                         ),
@@ -426,7 +429,7 @@ class _PatientsPageState extends State<PatientsPage> {
                     AppButtons.primary(
                       onPressed: blocked ? null : _openCreate,
                       icon: Icons.add_rounded,
-                      label: 'New Patient',
+                      label: loc.newPatientTitle,
                     ),
                   ],
                 ),
@@ -453,7 +456,7 @@ class _PatientsPageState extends State<PatientsPage> {
                             color: AppColors.navy,
                           ),
                           decoration: InputDecoration(
-                            hintText: 'Search patients…',
+                            hintText: loc.searchPatients,
                             hintStyle: AppFonts.style(
                               color: AppColors.muted,
                               fontSize: 15,
@@ -525,7 +528,7 @@ class _PatientsPageState extends State<PatientsPage> {
                         '${_controller.statusFilter}|${_controller.query}|${rows.length}|${_controller.loading}',
                       ),
                       child: _controller.loading && rows.isEmpty
-                          ? const ToothPageLoader(message: 'Loading patients…')
+                          ? ToothPageLoader(message: loc.patientsLoading)
                           : rows.isEmpty
                               ? IpadRefresh.fill(
                                   onRefresh: () => _controller.load(
@@ -554,8 +557,10 @@ class _PatientsPageState extends State<PatientsPage> {
                                         return _PatientCard(
                                           patient: p,
                                           isOwner: owner,
-                                          roleLabel:
-                                              AppRoles.label(widget.api.role),
+                                          roleLabel: AppRoles.label(
+                                            widget.api.role,
+                                            loc,
+                                          ),
                                           enabled: !blocked,
                                           onOpen: () => _openDetails(p),
                                           onEdit:
@@ -592,6 +597,7 @@ class _EmptyPatients extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
     return Center(
       child: GlassSurface(
         borderRadius: BorderRadius.circular(22),
@@ -611,7 +617,7 @@ class _EmptyPatients extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             Text(
-              filtered ? 'No matching patients' : 'No patients yet',
+              filtered ? loc.patientsNoMatching : loc.noPatientsYet,
               textAlign: TextAlign.center,
               style: AppFonts.style(
                 color: AppColors.navy,
@@ -735,7 +741,7 @@ class _PatientCard extends StatelessWidget {
                     AppButtons.ghost(
                       onPressed: enabled ? onShare : null,
                       icon: Icons.share_outlined,
-                      label: isOwner ? loc.commonShare : 'Request',
+                      label: isOwner ? loc.commonShare : loc.commonRequest,
                       compact: true,
                     ),
                     AppButtons.danger(
@@ -836,11 +842,12 @@ class _AccessBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = isOwner ? AppColors.success : AppColors.review;
+    final loc = AppLocalizations.of(context);
     final role = (roleLabel ?? '').trim();
-    final prefix = isOwner ? 'Created by' : 'Access';
+    final prefix = isOwner ? loc.patientsCreatedBy : loc.patientsAccessLabel;
     final pill = isOwner
-        ? (role.isNotEmpty ? role : 'Creator')
-        : 'Shared';
+        ? (role.isNotEmpty ? role : loc.patientsCreator)
+        : loc.patientsShared;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -989,7 +996,8 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
         fields.dateOfBirth.isEmpty ||
         fields.address.isEmpty ||
         fields.healthInsurance.isEmpty) {
-      AppSnackBars.error(context, 'All fields are required.');
+      AppSnackBars.error(
+          context, AppLocalizations.of(context).errAllFieldsRequired);
       return;
     }
     setState(() {
@@ -1041,29 +1049,31 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
                   const SizedBox(height: 16),
                   _DialogField(
                     controller: _first,
-                    label: 'First name',
+                    label: AppLocalizations.of(context).firstName,
                     requiredField: true,
-                    validator: (v) =>
-                        (v == null || v.trim().isEmpty) ? 'Required' : null,
+                    validator: (v) => (v == null || v.trim().isEmpty)
+                        ? AppLocalizations.of(context).commonRequired
+                        : null,
                   ),
                   const SizedBox(height: 12),
                   _DialogField(
                     controller: _last,
-                    label: 'Last name',
+                    label: AppLocalizations.of(context).lastName,
                     requiredField: true,
-                    validator: (v) =>
-                        (v == null || v.trim().isEmpty) ? 'Required' : null,
+                    validator: (v) => (v == null || v.trim().isEmpty)
+                        ? AppLocalizations.of(context).commonRequired
+                        : null,
                   ),
                   const SizedBox(height: 12),
                   DobPickerField(
                     controller: _dob,
-                    labelText: 'Date of birth',
+                    labelText: AppLocalizations.of(context).dateOfBirth,
                     onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: 12),
                   _DialogField(
                     controller: _email,
-                    label: 'Email',
+                    label: AppLocalizations.of(context).email,
                     requiredField: true,
                     keyboardType: TextInputType.emailAddress,
                     autofillHints: const [AutofillHints.email],
@@ -1072,15 +1082,16 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
                   const SizedBox(height: 12),
                   PhoneField(
                     controller: _phone,
-                    labelText: 'Phone',
+                    labelText: AppLocalizations.of(context).phone,
                   ),
                   const SizedBox(height: 12),
                   _DialogField(
                     controller: _insurance,
-                    label: 'Health insurance',
+                    label: AppLocalizations.of(context).healthInsurance,
                     requiredField: true,
-                    validator: (v) =>
-                        (v == null || v.trim().isEmpty) ? 'Required' : null,
+                    validator: (v) => (v == null || v.trim().isEmpty)
+                        ? AppLocalizations.of(context).commonRequired
+                        : null,
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
@@ -1088,7 +1099,7 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
                     isExpanded: true,
                     borderRadius: BorderRadius.circular(14),
                     decoration: InputDecoration(
-                      labelText: AppLocalizations.of(context).colStatus,
+                      labelText: AppLocalizations.of(context).patientsStatus,
                     ),
                     items: [
                       for (final key in CaseStatuses.all)
@@ -1109,12 +1120,13 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
                   const SizedBox(height: 12),
                   _DialogField(
                     controller: _address,
-                    label: 'Address',
+                    label: AppLocalizations.of(context).address,
                     requiredField: true,
                     minLines: 2,
                     maxLines: 3,
-                    validator: (v) =>
-                        (v == null || v.trim().isEmpty) ? 'Required' : null,
+                    validator: (v) => (v == null || v.trim().isEmpty)
+                        ? AppLocalizations.of(context).commonRequired
+                        : null,
                   ),
                   const SizedBox(height: 18),
                   Row(
@@ -1203,6 +1215,7 @@ class _DeletePatientDialogState extends State<_DeletePatientDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
     final canHard = _confirm.text.trim().toUpperCase() == 'DELETE';
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -1220,7 +1233,7 @@ class _DeletePatientDialogState extends State<_DeletePatientDialog> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Delete patient?',
+                loc.patientsDeleteTitle,
                 style: AppFonts.style(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
@@ -1230,7 +1243,7 @@ class _DeletePatientDialogState extends State<_DeletePatientDialog> {
               ),
               const SizedBox(height: 6),
               Text(
-                'Choose how to remove ${widget.patientName}.',
+                loc.patientsDeleteBody(widget.patientName),
                 style: AppFonts.style(
                   fontSize: 14,
                   color: AppColors.muted,
@@ -1243,16 +1256,16 @@ class _DeletePatientDialogState extends State<_DeletePatientDialog> {
                 children: [
                   _DeleteOptionRow(
                     selected: !_hard,
-                    title: 'Archive patient',
-                    subtitle: 'Soft delete — keeps data for recovery',
+                    title: loc.patientsArchiveOption,
+                    subtitle: loc.patientsArchiveOptionSub,
                     accent: AppColors.dentalBlue,
                     onTap: () => setState(() => _hard = false),
                   ),
                   const _InsetDivider(),
                   _DeleteOptionRow(
                     selected: _hard,
-                    title: 'Delete forever',
-                    subtitle: 'Hard delete — permanent GDPR Art. 17 erasure',
+                    title: loc.patientsHardDeleteOption,
+                    subtitle: loc.patientsHardDeleteOptionSub,
                     accent: AppColors.danger,
                     onTap: () => setState(() => _hard = true),
                   ),
@@ -1271,7 +1284,7 @@ class _DeletePatientDialogState extends State<_DeletePatientDialog> {
                       color: AppColors.navy,
                     ),
                     decoration: InputDecoration(
-                      labelText: 'Type DELETE to confirm',
+                      labelText: loc.patientsTypeDeleteConfirm,
                       labelStyle: AppFonts.style(
                         color: AppColors.muted,
                         fontSize: 13,
@@ -1293,7 +1306,7 @@ class _DeletePatientDialogState extends State<_DeletePatientDialog> {
                 children: [
                   AppButtons.ghost(
                     onPressed: () => Navigator.pop(context),
-                    label: 'Cancel',
+                    label: loc.cancel,
                     compact: true,
                   ),
                   const SizedBox(width: 8),
@@ -1301,7 +1314,9 @@ class _DeletePatientDialogState extends State<_DeletePatientDialog> {
                     onPressed: (!_hard || canHard)
                         ? () => Navigator.pop(context, _hard)
                         : null,
-                    label: _hard ? 'Delete forever' : 'Archive',
+                    label: _hard
+                        ? loc.patientsHardDeleteOption
+                        : loc.commonArchive,
                     soft: true,
                     compact: true,
                   ),
@@ -1433,6 +1448,7 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
 
   Future<void> _share(String userId) async {
     if (_busyId != null || _users.isEmpty) return;
+    final loc = AppLocalizations.of(context);
     setState(() => _busyId = userId);
     try {
       final result = await widget.controller.shareAccess(
@@ -1440,11 +1456,9 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
         targetUserId: userId,
       );
       if (result.immediate) {
-        widget.onToast('Access successfully granted to staff member.');
+        widget.onToast(loc.patientsAccessGranted);
       } else {
-        widget.onToast(
-          'Access request submitted to patient owner for review.',
-        );
+        widget.onToast(loc.patientsAccessRequestSubmitted);
       }
       // Refresh eligible list so granted/requested users disappear.
       final users =
@@ -1461,12 +1475,14 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
   Widget build(BuildContext context) {
     final height = MediaQuery.sizeOf(context).height * 0.72;
     final bottomInset = MediaQuery.paddingOf(context).bottom;
-    final actionLabel = _isOwner ? 'Grant access' : 'Request access';
+    final loc = AppLocalizations.of(context);
+    final actionLabel =
+        _isOwner ? loc.patientsGrantAccess : loc.patientsRequestAccess;
     final subtext = _users.isEmpty && !_loading
-        ? 'All practice staff members already have access or pending requests for this patient.'
+        ? loc.patientsAllStaffHaveAccess
         : (_isOwner
-            ? 'As owner, your invitation will immediately allow access.'
-            : 'This request will be sent to the patient owner for approval.');
+            ? loc.patientsAsOwnerHint
+            : loc.patientsRequestAccessHint);
 
     return Padding(
       padding: EdgeInsets.fromLTRB(16, 0, 16, 12 + bottomInset),
@@ -1506,7 +1522,7 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Share ${widget.patient.fullName}',
+                            loc.patientsShareTitle(widget.patient.fullName),
                             style: AppFonts.style(
                               fontWeight: FontWeight.w700,
                               fontSize: 20,
@@ -1533,15 +1549,16 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
               const SizedBox(height: 16),
               Expanded(
                 child: _loading
-                    ? const ToothPageLoader(
-                        message: 'Loading eligible staff…',
+                    ? ToothPageLoader(
+                        message: AppLocalizations.of(context).patientsLoadingStaff,
                       )
                     : _users.isEmpty
                         ? Center(
                             child: Padding(
                               padding: const EdgeInsets.all(28),
                               child: Text(
-                                'No eligible staff available to invite.',
+                                AppLocalizations.of(context)
+                                    .patientsNoEligibleStaff,
                                 textAlign: TextAlign.center,
                                 style: AppFonts.style(
                                   color: AppColors.muted,
@@ -1740,9 +1757,9 @@ class _PendingAccessDrawer extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  const Text(
-                    'Pending access requests',
-                    style: TextStyle(
+                  Text(
+                    AppLocalizations.of(context).patientsPendingAccess,
+                    style: const TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: 18,
                       color: AppColors.navy,
@@ -1758,8 +1775,8 @@ class _PendingAccessDrawer extends StatelessWidget {
                   const SizedBox(height: 12),
                   Expanded(
                     child: controller.loadingPending && rows.isEmpty
-                        ? const ToothPageLoader(
-                            message: 'Loading access requests…',
+                        ? ToothPageLoader(
+                            message: AppLocalizations.of(context).patientsLoadingAccessRequests,
                           )
                         : rows.isEmpty
                             ? const Center(
@@ -1832,7 +1849,7 @@ class _PendingAccessDrawer extends StatelessWidget {
                                                     ? null
                                                     : () =>
                                                         _approve(context, r),
-                                                child: const Text('Approve'),
+                                                child: Text(AppLocalizations.of(context).commonApprove),
                                               ),
                                             ),
                                             const SizedBox(width: 8),
@@ -1848,7 +1865,7 @@ class _PendingAccessDrawer extends StatelessWidget {
                                                 onPressed: blocked
                                                     ? null
                                                     : () => _reject(context, r),
-                                                child: const Text('Reject'),
+                                                child: Text(AppLocalizations.of(context).commonReject),
                                               ),
                                             ),
                                           ],
@@ -1874,7 +1891,7 @@ class _AccessStatusBadge extends StatelessWidget {
 
   const _AccessStatusBadge.owner()
       : status = null,
-        label = 'Owner',
+        label = null,
         owner = true;
 
   final PatientAccessStatus? status;
@@ -1889,7 +1906,7 @@ class _AccessStatusBadge extends StatelessWidget {
     if (owner) {
       bg = const Color(0xFFE3F0FF);
       fg = AppColors.dentalBlue;
-      text = label ?? 'Owner';
+      text = label ?? AppLocalizations.of(context).patientsOwner;
     } else {
       switch (status!) {
         case PatientAccessStatus.approved:
@@ -2000,6 +2017,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
   }
 
   Future<void> _editNote(PatientNote note) async {
+    final loc = AppLocalizations.of(context);
     if (widget.controller.mutating) return;
     final me = widget.controller.currentUserId;
     if (me == null || note.authorId != me) {
@@ -2011,10 +2029,10 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     }
     final next = await AppDialogs.prompt(
       context,
-      title: 'Edit note',
+      title: loc.patientsEditNote,
       initial: note.noteContent,
       placeholder: 'Clinical note',
-      confirmLabel: 'Save',
+      confirmLabel: loc.save,
       maxLines: 4,
     );
     if (next == null || next.trim().isEmpty) return;
@@ -2062,6 +2080,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
 
   Future<void> _regrantAccess(PatientAccessEntry entry) async {
     if (widget.controller.mutating) return;
+    final loc = AppLocalizations.of(context);
     try {
       final result = await widget.controller.shareAccess(
         patientId: widget.patient.id,
@@ -2069,8 +2088,8 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
       );
       widget.onToast(
         result.immediate
-            ? 'Access successfully re-granted.'
-            : 'Access request submitted to patient owner for review.',
+            ? loc.patientsAccessGranted
+            : loc.patientsAccessRequestSubmitted,
       );
     } catch (e) {
       widget.onToast(widget.friendlyError(e), error: true);
@@ -2078,6 +2097,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
   }
 
   Future<void> _deleteNote(PatientNote note) async {
+    final loc = AppLocalizations.of(context);
     if (widget.controller.mutating) return;
     final me = widget.controller.currentUserId;
     if (me == null || note.authorId != me) {
@@ -2089,9 +2109,9 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     }
     final ok = await AppDialogs.confirm(
       context,
-      title: 'Delete note?',
-      message: 'This clinical note will be permanently removed.',
-      confirmLabel: 'Delete',
+      title: loc.patientsDeleteNoteTitle,
+      message: loc.patientsDeleteNoteBody,
+      confirmLabel: loc.commonDelete,
       isDestructive: true,
     );
     if (!ok) return;
@@ -2200,6 +2220,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                             isOwner: owner,
                             roleLabel: AppRoles.label(
                               widget.controller.api.role,
+                              AppLocalizations.of(context),
                             ),
                           ),
                         ],
@@ -2226,7 +2247,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                           AppButtons.ghost(
                             onPressed: blocked ? null : widget.onShare,
                             icon: Icons.share_outlined,
-                            label: owner ? loc.commonShare : 'Request',
+                            label: owner ? loc.commonShare : loc.commonRequest,
                             compact: true,
                           ),
                           if (owner)
@@ -2363,6 +2384,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     required List<PatientNote> notes,
     required bool blocked,
   }) {
+    final loc = AppLocalizations.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
       child: Column(
@@ -2384,7 +2406,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                       fontWeight: FontWeight.w500,
                     ),
                     decoration: InputDecoration(
-                      hintText: 'Add a clinical note…',
+                      hintText: loc.patientsNoteHint,
                       hintStyle: AppFonts.style(
                         color: AppColors.muted,
                         fontSize: 15,
@@ -2404,7 +2426,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                 const SizedBox(width: 8),
                 AppButtons.primary(
                   onPressed: blocked || _adding ? null : _addNote,
-                  label: 'Add',
+                  label: loc.commonAdd,
                   compact: true,
                   busy: _adding,
                 ),
@@ -2414,8 +2436,8 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
           const SizedBox(height: 12),
           Expanded(
             child: widget.controller.loadingNotes && notes.isEmpty
-                ? const ToothPageLoader(
-                    message: 'Loading notes…',
+                ? ToothPageLoader(
+                    message: loc.patientsLoadingNotes,
                     size: 40,
                   )
                 : notes.isEmpty
@@ -2488,12 +2510,12 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       AppButtons.icon(
-                                        tooltip: 'Edit note',
+                                        tooltip: loc.patientsEditNote,
                                         onPressed: () => _editNote(n),
                                         icon: Icons.edit_outlined,
                                       ),
                                       AppButtons.icon(
-                                        tooltip: 'Delete note',
+                                        tooltip: loc.patientsDeleteNoteTitle,
                                         onPressed: () => _deleteNote(n),
                                         icon: Icons.delete_outline_rounded,
                                       ),
@@ -2517,7 +2539,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     required bool blocked,
   }) {
     if (widget.controller.loadingAccess && accessOwner == null) {
-      return const ToothPageLoader(message: 'Loading access…');
+      return ToothPageLoader(message: AppLocalizations.of(context).patientsLoadingAccess);
     }
     if (accessOwner == null) {
       return Center(
@@ -2536,7 +2558,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
             child: Text(
-              'Only the patient owner can view and manage full staff access permissions.',
+              AppLocalizations.of(context).patientsOnlyOwnerManage,
               style: AppFonts.style(
                 color: AppColors.muted,
                 fontSize: 13,
@@ -2603,7 +2625,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
         if (isOwner) {
           actions = AppButtons.danger(
             onPressed: blocked ? null : () => _revokeAccess(entry),
-            label: 'Revoke',
+            label: AppLocalizations.of(context).patientsRevoke,
             soft: true,
             compact: true,
           );
@@ -2620,13 +2642,13 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
             children: [
               AppButtons.primary(
                 onPressed: blocked ? null : () => _approveAccess(entry),
-                label: 'Approve',
+                label: AppLocalizations.of(context).commonApprove,
                 compact: true,
               ),
               const SizedBox(width: 8),
               AppButtons.danger(
                 onPressed: blocked ? null : () => _rejectAccess(entry),
-                label: 'Reject',
+                label: AppLocalizations.of(context).commonReject,
                 soft: true,
                 compact: true,
               ),
@@ -2635,14 +2657,14 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
         } else {
           subtext = [
             ?requestedBy,
-            'Waiting for owner review',
+            AppLocalizations.of(context).patientsWaitingOwnerReview,
           ].join('\n');
         }
       case PatientAccessStatus.rejected:
         if (isOwner) {
           actions = AppButtons.ghost(
             onPressed: blocked ? null : () => _regrantAccess(entry),
-            label: 'Re-grant',
+            label: AppLocalizations.of(context).patientsRegrant,
             compact: true,
           );
         }

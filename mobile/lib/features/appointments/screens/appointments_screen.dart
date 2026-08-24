@@ -292,7 +292,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                         : '$_statusFilter|${_patientFilterId ?? 'all'}|${_items.length}',
                   ),
                   child: _loading
-                      ? const ToothPageLoader(message: 'Loading appointments…')
+                      ? ToothPageLoader(message: AppLocalizations.of(context).appointmentsLoading)
                       : _buildBody(),
                 ),
               ),
@@ -615,14 +615,14 @@ class _PatientFilterButton extends StatelessWidget {
             WidgetsBinding.instance.addPostFrameCallback((_) => onAdd());
           },
           leadingIcon: const Icon(Icons.person_add_alt_1, size: 18),
-          child: const Text('Add patient'),
+          child: Text(AppLocalizations.of(context).addPatient),
         ),
         MenuItemButton(
           onPressed: () {
             WidgetsBinding.instance.addPostFrameCallback((_) => onRefresh());
           },
           leadingIcon: const Icon(Icons.refresh_rounded, size: 18),
-          child: const Text('Refresh patients'),
+          child: Text(AppLocalizations.of(context).patientsRefreshPatients),
         ),
       ],
       builder: (context, controller, child) {
@@ -984,7 +984,7 @@ class _AppointmentRow extends StatelessWidget {
               ),
             ),
             AppButtons.icon(
-              tooltip: 'Edit appointment',
+              tooltip: AppLocalizations.of(context).appointmentsEditTooltip,
               onPressed: onEdit,
               icon: Icons.edit_outlined,
               color: AppColors.muted,
@@ -1087,7 +1087,7 @@ class _AppointmentDetailPane extends StatelessWidget {
           if (appointment.patientEmail.isNotEmpty)
             _DetailRow(
               icon: Icons.mail_outline_rounded,
-              label: 'Email',
+              label: AppLocalizations.of(context).email,
               value: appointment.patientEmail,
             ),
           _DetailRow(
@@ -1287,7 +1287,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
     final picked = await DentalDatePickerDialog.showForAppointment(
       context: context,
       initialDate: _start,
-      title: 'Select Appointment Date',
+      title: AppLocalizations.of(context).appointmentsSelectDate,
     );
     if (picked == null || !mounted) return;
     setState(() {
@@ -1348,7 +1348,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                         const Spacer(),
                         AppButtons.primary(
                           onPressed: () => Navigator.pop(ctx, pending),
-                          label: 'Done',
+                          label: AppLocalizations.of(context).commonDone,
                           compact: true,
                         ),
                       ],
@@ -1549,7 +1549,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                               if (!_isEdit)
                                 _sheetTile(
                                   icon: Icons.person_outline,
-                                  label: 'Patient',
+                                  label: AppLocalizations.of(context).reportsPatientFallback,
                                   value: _loadingPatients && _patients.isEmpty
                                       ? loc.loading
                                       : patientLabel,
@@ -1567,7 +1567,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                               else
                                 _sheetTile(
                                   icon: Icons.person_outline,
-                                  label: 'Patient',
+                                  label: AppLocalizations.of(context).reportsPatientFallback,
                                   value: patientLabel,
                                 ),
                               const SizedBox(height: 12),
@@ -1585,7 +1585,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                                   Expanded(
                                     child: _sheetTile(
                                       icon: Icons.schedule_outlined,
-                                      label: 'Starts',
+                                      label: AppLocalizations.of(context).appointmentsStarts,
                                       value: timeLabel,
                                       onTap: _saving ? null : _pickTime,
                                     ),

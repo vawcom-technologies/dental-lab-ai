@@ -79,18 +79,7 @@ class _CameraPageState extends State<CameraPage> {
   }
 
   String _clinicalAngleLabel(String angle) {
-    switch (angle.trim().toLowerCase()) {
-      case 'frontal':
-        return 'Frontal smile';
-      case 'left':
-        return 'Left profile';
-      case 'right':
-        return 'Right profile';
-      case 'other':
-        return 'Clinical photo';
-      default:
-        return angle.isEmpty ? 'Clinical photo' : _titleCase(angle);
-    }
+    return AppLocalizations.of(context).cameraClinicalAngleLabel(angle);
   }
 
   String _clinicalPhotoName({required String angle, String extension = '.jpg'}) {
@@ -343,6 +332,7 @@ class _CameraPageState extends State<CameraPage> {
 
     Uint8List? bytes;
     var filename = _clinicalPhotoName(angle: _angle);
+    XFile? galleryFile;
 
     if (fromCamera) {
       bytes = await captureWithLiveCamera(
@@ -353,19 +343,24 @@ class _CameraPageState extends State<CameraPage> {
       if (bytes == null) return;
     } else {
       AppHaptics.medium();
-      final xfile = await _picker.pickImage(
+      galleryFile = await _picker.pickImage(
         source: ImageSource.gallery,
         imageQuality: 100,
       );
-      if (xfile == null) return;
-      bytes = bakeExifOrientation(Uint8List.fromList(await xfile.readAsBytes()));
-      final ext = xfile.name.contains('.')
-          ? '.${xfile.name.split('.').last}'
-          : '.jpg';
-      filename = _clinicalPhotoName(angle: _angle, extension: ext);
+      if (galleryFile == null) return;
     }
 
     await _runBusy('Saving photo…', () async {
+      final picked = galleryFile;
+      if (picked != null) {
+        bytes = bakeExifOrientation(
+          Uint8List.fromList(await picked.readAsBytes()),
+        );
+        final ext = picked.name.contains('.')
+            ? '.${picked.name.split('.').last}'
+            : '.jpg';
+        filename = _clinicalPhotoName(angle: _angle, extension: ext);
+      }
       await widget.api.uploadPatientPhoto(
         patientId: pid,
         angle: _angle,
@@ -387,8 +382,8 @@ class _CameraPageState extends State<CameraPage> {
     final angle = _clinicalAngleLabel('${photo['angle'] ?? ''}');
     final confirmed = await AppDialogs.confirm(
       context,
-      title: 'Delete photo?',
-      message: 'Remove this $angle photo from $_patientLabel\'s record.',
+      title: AppLocalizations.of(context).cameraDeletePhotoTitle,
+      message: AppLocalizations.of(context).cameraDeletePhotoBody(angle, _patientLabel),
       confirmLabel: 'Delete',
       isDestructive: true,
     );
@@ -409,7 +404,7 @@ class _CameraPageState extends State<CameraPage> {
 
     final name = await AppDialogs.prompt(
       context,
-      title: 'Rename photo',
+      title: AppLocalizations.of(context).cameraRenamePhoto,
       initial: _photoName(photo),
       placeholder: 'e.g. Upper smile',
       confirmLabel: 'Save',
@@ -530,7 +525,7 @@ class _CameraPageState extends State<CameraPage> {
                         ),
                       ),
                       AppButtons.glassIcon(
-                        tooltip: 'Rename',
+                        tooltip: AppLocalizations.of(context).commonRename,
                         onPressed: _busy
                             ? null
                             : () => _afterViewer(ctx, () => _renamePhoto(photo)),
@@ -538,7 +533,7 @@ class _CameraPageState extends State<CameraPage> {
                       ),
                       const SizedBox(width: 8),
                       AppButtons.glassIcon(
-                        tooltip: 'Delete',
+                        tooltip: AppLocalizations.of(context).commonDelete,
                         onPressed: _busy
                             ? null
                             : () => _afterViewer(ctx, () => _deletePhoto(photo)),
@@ -547,7 +542,7 @@ class _CameraPageState extends State<CameraPage> {
                       ),
                       const SizedBox(width: 8),
                       AppButtons.glassIcon(
-                        tooltip: 'Close',
+                        tooltip: AppLocalizations.of(context).commonClose,
                         onPressed: () => Navigator.pop(ctx),
                         icon: Icons.close,
                       ),
@@ -578,7 +573,7 @@ class _CameraPageState extends State<CameraPage> {
                                   ctx,
                                   () => _openPhotoWithShade(photo),
                                 ),
-                        label: 'Open with Shade Detection',
+                        label: AppLocalizations.of(context).cameraOpenShade,
                         icon: Icons.palette_outlined,
                       ),
                       AppButtons.glass(
@@ -588,7 +583,7 @@ class _CameraPageState extends State<CameraPage> {
                                   ctx,
                                   () => _openPhotoWithSmile(photo),
                                 ),
-                        label: 'Open with Smile Preview',
+                        label: AppLocalizations.of(context).cameraOpenSmile,
                         icon: Icons.sentiment_satisfied_alt_outlined,
                       ),
                     ],
@@ -604,6 +599,7 @@ class _CameraPageState extends State<CameraPage> {
 
   Widget _angleBar() {
     final compact = AppBreakpoints.isPortrait(context);
+    final loc = AppLocalizations.of(context);
     final segments = CupertinoSlidingSegmentedControl<String>(
       groupValue: _angle,
       backgroundColor: AppColors.inset,
@@ -617,8 +613,8 @@ class _CameraPageState extends State<CameraPage> {
             ),
             child: Text(
               compact
-                  ? '${_titleCase(a)} ${_countForAngle(a)}'
-                  : '${_titleCase(a)} (${_countForAngle(a)})',
+                  ? '${loc.cameraAngleLabel(a)} ${_countForAngle(a)}'
+                  : '${loc.cameraAngleLabel(a)} (${_countForAngle(a)})',
               textAlign: TextAlign.center,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -647,7 +643,7 @@ class _CameraPageState extends State<CameraPage> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Text(
-                'Angle',
+                loc.cameraAngle,
                 style: AppFonts.style(
                   fontWeight: FontWeight.w700,
                   fontSize: 14,
@@ -656,25 +652,6 @@ class _CameraPageState extends State<CameraPage> {
               ),
             ),
           Expanded(child: segments),
-          if (_busy) ...[
-            const SizedBox(width: 10),
-            const ToothLoadingIndicator(size: 22, compact: true),
-            if (!compact) ...[
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  _busyLabel,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppFonts.style(
-                    fontSize: 13,
-                    color: AppColors.muted,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ],
         ],
       ),
     );
@@ -684,19 +661,18 @@ class _CameraPageState extends State<CameraPage> {
     if (_patient == null) {
       return _CameraEmpty(
         icon: Icons.person_add_alt_1_outlined,
-        title: 'Choose a patient',
-        message: 'Select a patient in the header to capture chairside photos.',
+        title: AppLocalizations.of(context).cameraChoosePatient,
+        message: AppLocalizations.of(context).cameraChoosePatientBody,
       );
     }
     if (_photos.isEmpty) {
       return _CameraEmpty(
         icon: Icons.photo_camera_outlined,
-        title: 'No photos yet',
-        message:
-            'Take a frontal, left, or right photo — it is saved to this patient record.',
+        title: AppLocalizations.of(context).cameraNoPhotosYet,
+        message: AppLocalizations.of(context).cameraEmptyPhotosHint,
         action: AppButtons.primary(
           onPressed: _busy ? null : () => _capture(fromCamera: true),
-          label: 'Take photo',
+          label: AppLocalizations.of(context).cameraTakePhoto,
           icon: Icons.photo_camera_outlined,
         ),
       );
@@ -747,13 +723,14 @@ class _CameraPageState extends State<CameraPage> {
             child: visible.isEmpty
                 ? _CameraEmpty(
                     icon: Icons.photo_outlined,
-                    title: 'No $angleLabel photos',
-                    message:
-                        'Switch angle or take a ${_titleCase(_angle).toLowerCase()} photo for this patient.',
+                    title: AppLocalizations.of(context).cameraNoAnglePhotos(angleLabel),
+                    message: AppLocalizations.of(context).cameraSwitchAngleHint(
+                      AppLocalizations.of(context).cameraAngleLabel(_angle).toLowerCase(),
+                    ),
                     action: AppButtons.primary(
                       onPressed:
                           _busy ? null : () => _capture(fromCamera: true),
-                      label: 'Take photo',
+                      label: AppLocalizations.of(context).cameraTakePhoto,
                       icon: Icons.photo_camera_outlined,
                     ),
                   )
@@ -989,7 +966,7 @@ class _CameraPageState extends State<CameraPage> {
                       ),
                     ),
                     AppButtons.icon(
-                      tooltip: 'View full screen',
+                      tooltip: AppLocalizations.of(context).cameraViewFullscreen,
                       onPressed: url.isEmpty ? null : () => _viewPhoto(photo),
                       icon: Icons.open_in_full_rounded,
                     ),
@@ -1003,26 +980,26 @@ class _CameraPageState extends State<CameraPage> {
                     AppButtons.primary(
                       onPressed:
                           _busy ? null : () => _openPhotoWithSmile(photo),
-                      label: 'Smile Preview',
+                      label: AppLocalizations.of(context).navSmilePreview,
                       icon: Icons.sentiment_satisfied_alt_outlined,
                       compact: true,
                     ),
                     AppButtons.secondary(
                       onPressed:
                           _busy ? null : () => _openPhotoWithShade(photo),
-                      label: 'Shade Detection',
+                      label: AppLocalizations.of(context).navShade,
                       icon: Icons.palette_outlined,
                       compact: true,
                     ),
                     AppButtons.ghost(
                       onPressed: _busy ? null : () => _renamePhoto(photo),
-                      label: 'Rename',
+                      label: AppLocalizations.of(context).commonRename,
                       icon: Icons.edit_outlined,
                       compact: true,
                     ),
                     AppButtons.danger(
                       onPressed: _busy ? null : () => _deletePhoto(photo),
-                      label: 'Delete',
+                      label: AppLocalizations.of(context).commonDelete,
                       icon: Icons.delete_outline,
                       compact: true,
                       soft: true,
@@ -1077,7 +1054,7 @@ class _CameraPageState extends State<CameraPage> {
                 ),
               ),
               AppButtons.icon(
-                tooltip: 'View full screen',
+                tooltip: AppLocalizations.of(context).cameraViewFullscreen,
                 onPressed: url.isEmpty ? null : () => _viewPhoto(photo),
                 icon: Icons.open_in_full_rounded,
               ),
@@ -1110,14 +1087,14 @@ class _CameraPageState extends State<CameraPage> {
           const SizedBox(height: 12),
           AppButtons.primary(
             onPressed: _busy ? null : () => _openPhotoWithSmile(photo),
-            label: 'Smile Preview',
+            label: AppLocalizations.of(context).navSmilePreview,
             icon: Icons.sentiment_satisfied_alt_outlined,
             compact: true,
           ),
           const SizedBox(height: 8),
           AppButtons.secondary(
             onPressed: _busy ? null : () => _openPhotoWithShade(photo),
-            label: 'Shade Detection',
+            label: AppLocalizations.of(context).navShade,
             icon: Icons.palette_outlined,
             compact: true,
           ),
@@ -1126,14 +1103,14 @@ class _CameraPageState extends State<CameraPage> {
             children: [
               AppButtons.ghost(
                 onPressed: _busy ? null : () => _renamePhoto(photo),
-                label: 'Rename',
+                label: AppLocalizations.of(context).commonRename,
                 icon: Icons.edit_outlined,
                 compact: true,
               ),
               const Spacer(),
               AppButtons.danger(
                 onPressed: _busy ? null : () => _deletePhoto(photo),
-                label: 'Delete',
+                label: AppLocalizations.of(context).commonDelete,
                 icon: Icons.delete_outline,
                 compact: true,
                 soft: true,
@@ -1152,78 +1129,87 @@ class _CameraPageState extends State<CameraPage> {
     final canCapture = !_busy && _patient != null && _photos.length < maxPhotos;
     final portrait = AppBreakpoints.isPortrait(context);
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        portrait ? 16 : 28,
-        portrait ? 16 : 24,
-        portrait ? 16 : 28,
-        portrait ? 16 : 24,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          PageHeader(
-            icon: Icons.photo_camera_outlined,
-            title: AppLocalizations.of(context).cameraTitle,
-            subtitle:
-                'Frontal, left, and right photos · up to 12 per patient',
-            actions: [
-              PatientPickerButton(
-                patients: _patients,
-                selected: _patient,
-                enabled: !_busy,
-                onSelect: _selectPatient,
-                onAdd: _openNewPatientPage,
-                onRefresh: () async {
-                  setState(() => _busy = true);
-                  try {
-                    await _reloadPatients();
-                  } finally {
-                    if (mounted) setState(() => _busy = false);
-                  }
-                },
-                emptyHint: 'No patients yet — add one to capture photos.',
-              ),
-              AppButtons.primary(
-                onPressed: canCapture ? () => _capture(fromCamera: true) : null,
-                label: 'Take photo',
-                icon: Icons.photo_camera_outlined,
-              ),
-              AppButtons.secondary(
-                onPressed:
-                    canCapture ? () => _capture(fromCamera: false) : null,
-                label: 'Gallery',
-                icon: Icons.photo_library_outlined,
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          if (_loading)
-            const Expanded(
-              child: ToothPageLoader(message: 'Preparing camera…'),
-            )
-          else if (_patients.isEmpty)
-            const Expanded(
-              child: _CameraEmpty(
-                icon: Icons.person_add_alt_1_outlined,
-                title: 'Add a patient',
-                message:
-                    'Add a patient from the header to start capturing photos.',
-              ),
-            )
-          else ...[
-            _angleBar(),
+    // BusyBarrier covers take/upload (and other _runBusy work). Skip it while
+    // the initial page loader is showing so we don't stack two tooth loaders.
+    return BusyBarrier(
+      busy: _busy && !_loading,
+      message: _busyLabel,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          portrait ? 16 : 28,
+          portrait ? 16 : 24,
+          portrait ? 16 : 28,
+          portrait ? 16 : 24,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            PageHeader(
+              icon: Icons.photo_camera_outlined,
+              title: AppLocalizations.of(context).cameraTitle,
+              subtitle: AppLocalizations.of(context).cameraSubtitle,
+              actions: [
+                PatientPickerButton(
+                  patients: _patients,
+                  selected: _patient,
+                  enabled: !_busy,
+                  onSelect: _selectPatient,
+                  onAdd: _openNewPatientPage,
+                  onRefresh: () async {
+                    setState(() {
+                      _busy = true;
+                      _busyLabel = 'Refreshing…';
+                    });
+                    try {
+                      await _reloadPatients();
+                    } finally {
+                      if (mounted) setState(() => _busy = false);
+                    }
+                  },
+                  emptyHint: AppLocalizations.of(context).cameraNoPatientsCaptureHint,
+                ),
+                AppButtons.primary(
+                  onPressed:
+                      canCapture ? () => _capture(fromCamera: true) : null,
+                  label: AppLocalizations.of(context).cameraTakePhoto,
+                  icon: Icons.photo_camera_outlined,
+                ),
+                AppButtons.secondary(
+                  onPressed:
+                      canCapture ? () => _capture(fromCamera: false) : null,
+                  label: AppLocalizations.of(context).cameraGallery,
+                  icon: Icons.photo_library_outlined,
+                ),
+              ],
+            ),
             const SizedBox(height: 14),
-            Expanded(
-              child: AppSwitcher(
-                child: KeyedSubtree(
-                  key: ValueKey(_angle),
-                  child: _photosWorkspace(),
+            if (_loading)
+              Expanded(
+                child: ToothPageLoader(message: AppLocalizations.of(context).cameraPreparing),
+              )
+            else if (_patients.isEmpty)
+              Expanded(
+                child: _CameraEmpty(
+                  icon: Icons.person_add_alt_1_outlined,
+                  title: AppLocalizations.of(context).cameraAddPatient,
+                  message:
+                      AppLocalizations.of(context).cameraAddPatientCaptureHint,
+                ),
+              )
+            else ...[
+              _angleBar(),
+              const SizedBox(height: 14),
+              Expanded(
+                child: AppSwitcher(
+                  child: KeyedSubtree(
+                    key: ValueKey(_angle),
+                    child: _photosWorkspace(),
+                  ),
                 ),
               ),
-            ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -1452,7 +1438,7 @@ class _PhotoGridTile extends StatelessWidget {
                             ),
                           ),
                           PopupMenuButton<_PhotoMenuAction>(
-                            tooltip: 'Photo options',
+                            tooltip: AppLocalizations.of(context).cameraPhotoOptions,
                             enabled: enabled,
                             padding: EdgeInsets.zero,
                             icon: const Icon(
@@ -1461,18 +1447,18 @@ class _PhotoGridTile extends StatelessWidget {
                               size: 20,
                             ),
                             onSelected: onMenu,
-                            itemBuilder: (context) => const [
+                            itemBuilder: (context) => [
                               PopupMenuItem(
                                 value: _PhotoMenuAction.rename,
-                                child: Text('Rename'),
+                                child: Text(AppLocalizations.of(context).commonRename),
                               ),
                               PopupMenuItem(
                                 value: _PhotoMenuAction.openWithShade,
-                                child: Text('Open with Shade Detection'),
+                                child: Text(AppLocalizations.of(context).cameraOpenShade),
                               ),
                               PopupMenuItem(
                                 value: _PhotoMenuAction.openWithSmile,
-                                child: Text('Open with Smile Preview'),
+                                child: Text(AppLocalizations.of(context).cameraOpenSmile),
                               ),
                               PopupMenuDivider(),
                               PopupMenuItem(

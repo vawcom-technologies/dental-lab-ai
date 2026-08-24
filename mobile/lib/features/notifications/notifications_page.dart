@@ -118,7 +118,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     try {
       await _inbox.markAllRead();
       if (mounted) {
-        AppSnackBars.success(context, 'All notifications marked as read');
+        AppSnackBars.success(context, AppLocalizations.of(context).notificationsMarkedAllRead);
       }
     } catch (e) {
       if (!mounted) return;
@@ -323,7 +323,7 @@ class _NotificationTile extends StatelessWidget {
     final meta = <String>[
       loc.notificationTypeLabel(type),
       if (patient.isNotEmpty) patient,
-      _relative(item['created_at']?.toString()),
+      _relative(item['created_at']?.toString(), loc),
     ].where((e) => e.isNotEmpty).join(' · ');
 
     return Touchable(
@@ -347,7 +347,11 @@ class _NotificationTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${item['message'] ?? ''}',
+                    loc.localizeNotificationMessage(
+                      '${item['message'] ?? ''}',
+                      type: type,
+                      patientName: patient,
+                    ),
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -416,16 +420,16 @@ class _NotificationTile extends StatelessWidget {
     );
   }
 
-  static String _relative(String? raw) {
+  static String _relative(String? raw, AppLocalizations loc) {
     if (raw == null || raw.isEmpty) return '';
     final dt = DateTime.tryParse(raw);
     if (dt == null) return '';
     final local = dt.isUtc ? dt.toLocal() : dt;
     final diff = DateTime.now().difference(local);
-    if (diff.inMinutes < 1) return 'now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m';
-    if (diff.inHours < 24) return '${diff.inHours}h';
-    if (diff.inDays < 7) return '${diff.inDays}d';
+    if (diff.inMinutes < 1) return loc.notificationsNow;
+    if (diff.inMinutes < 60) return loc.notificationsMinsShort(diff.inMinutes);
+    if (diff.inHours < 24) return loc.notificationsHoursShort(diff.inHours);
+    if (diff.inDays < 7) return loc.notificationsDaysShort(diff.inDays);
     return '${local.day}.${local.month.toString().padLeft(2, '0')}';
   }
 }

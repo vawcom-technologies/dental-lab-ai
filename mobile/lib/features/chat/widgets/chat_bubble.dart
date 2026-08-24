@@ -15,6 +15,7 @@ import '../../../core/widgets/tooth_loader.dart';
 import '../models/chat_models.dart';
 import '../utils/patient_mentions.dart';
 import 'chat_video_player.dart';
+import '../../../core/l10n/app_localizations.dart';
 
 /// Formats voice duration as `m:ss`.
 String formatVoiceDuration(double? seconds) {
@@ -970,7 +971,7 @@ class _ImageLightbox extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   IconButton(
-                    tooltip: 'Download / open',
+                    tooltip: AppLocalizations.of(context).commonOpenDownload,
                     onPressed: () => _openMediaUrl(url),
                     icon: const Icon(Icons.download_rounded, color: Colors.white),
                   ),

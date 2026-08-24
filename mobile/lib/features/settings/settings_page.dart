@@ -87,29 +87,27 @@ class _SettingsPageState extends State<SettingsPage> {
     // Require typing DELETE before any further steps.
     final typed = await AppDialogs.prompt(
       context,
-      title: 'Delete account',
-      message:
-          'This permanently removes your account and associated data. '
-          'Type DELETE to continue.',
-      placeholder: 'DELETE',
+      title: loc.settingsDeleteAccount,
+      message: loc.settingsDeleteAccountBody,
+      placeholder: loc.settingsDeleteConfirmToken,
       cancelLabel: loc.cancel,
-      confirmLabel: 'Continue',
-      confirmEquals: 'DELETE',
+      confirmLabel: loc.settingsContinue,
+      confirmEquals: loc.settingsDeleteConfirmToken,
     );
     if (typed == null || !mounted) return;
 
     final password = await AppDialogs.prompt(
       context,
-      title: 'Confirm with password',
-      message: 'Enter your account password to finish.',
-      placeholder: 'Password',
+      title: loc.settingsConfirmWithPassword,
+      message: loc.settingsEnterPasswordToFinish,
+      placeholder: loc.password,
       obscureText: true,
       cancelLabel: loc.cancel,
-      confirmLabel: 'Delete account',
+      confirmLabel: loc.settingsDeleteAccount,
     );
     if (password == null || !mounted) return;
     if (password.trim().isEmpty) {
-      AppSnackBars.error(context, 'Password is required.');
+      AppSnackBars.error(context, loc.settingsPasswordRequired);
       return;
     }
 
@@ -117,7 +115,7 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       final message = await AppDialogs.runWithLoading(
         context,
-        message: 'Deleting account…',
+        message: loc.settingsDeletingAccount,
         action: () => widget.api.deleteAccount(password: password),
       );
       if (!mounted) return;
@@ -134,9 +132,10 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
     if (_loading) {
-      return const Center(
-        child: ToothPageLoader(message: 'Loading settings…'),
+      return Center(
+        child: ToothPageLoader(message: loc.settingsLoading),
       );
     }
     final s = _settings;
@@ -146,7 +145,7 @@ class _SettingsPageState extends State<SettingsPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              AppLocalizations.of(context).settingsLoadError,
+              loc.settingsLoadError,
               style: AppFonts.style(
                 color: AppColors.muted,
                 fontWeight: FontWeight.w500,
@@ -155,25 +154,24 @@ class _SettingsPageState extends State<SettingsPage> {
             const SizedBox(height: 12),
             TextButton(
               onPressed: _bootstrap,
-              child: Text(AppLocalizations.of(context).refresh),
+              child: Text(loc.refresh),
             ),
           ],
         ),
       );
     }
 
-    final loc = AppLocalizations.of(context);
     final api = widget.api;
     final name = (api.userName ?? '').trim().isEmpty
-        ? 'Account'
+        ? loc.settingsAccountFallback
         : api.userName!.trim();
     final email = (api.email ?? '').trim();
     final clinic = (api.clinicName ?? '').trim();
-    final role = AppRoles.label(api.role);
+    final role = AppRoles.label(api.role, loc);
 
     return BusyBarrier(
       busy: _deleting,
-      message: 'Deleting account…',
+      message: loc.settingsDeletingAccount,
       child: CustomScrollView(
         physics: const BouncingScrollPhysics(
           parent: AlwaysScrollableScrollPhysics(),
@@ -241,7 +239,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     _GlassNavRow(
                       icon: CupertinoIcons.person_crop_circle_badge_minus,
                       iconBg: const Color(0xFFAEAEB2),
-                      title: 'Delete account',
+                      title: loc.settingsDeleteAccount,
                       titleColor: AppColors.muted,
                       showChevron: false,
                       onTap: _deleting ? null : _deleteAccount,

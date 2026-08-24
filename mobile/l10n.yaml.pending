@@ -1,0 +1,13 @@
+# Flutter gen-l10n config (scaffolding).
+# Runtime still uses AppLocalizations maps in lib/core/l10n/app_localizations.dart.
+# ARB files are the long-term EN-source / DE-fill pipeline.
+#
+# Enable fully later via:
+#   flutter: generate: true
+# and migrating call sites from AppLocalizations getters to generated AppLocalizations.
+
+arb-dir: lib/l10n
+template-arb-file: app_en.arb
+output-localization-file: app_localizations_gen.dart
+output-class: AppLocalizationsGen
+nullable-getter: false

@@ -70,11 +70,13 @@ class _ProfilePageState extends State<ProfilePage> {
     });
     try {
       final me = await widget.api.fetchMe();
+      if (!mounted) return;
+      final loc = AppLocalizations.of(context);
       _name.text = me['name']?.toString() ?? '';
       _email.text = me['email']?.toString() ?? '';
       _clinic.text = me['clinic_name']?.toString() ?? '';
       _phone.text = PhoneNumbers.localDigits(me['phone']?.toString());
-      _role = AppRoles.label(me['role']?.toString());
+      _role = AppRoles.label(me['role']?.toString(), loc);
       if (_role.isEmpty) _role = '—';
       _createdAt = _fmt(me['created_at']);
       _lastLogin = _fmt(me['last_login']);
@@ -176,7 +178,9 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
-    if (_loading) return const ToothPageLoader(message: 'Loading profile…');
+    if (_loading) {
+      return ToothPageLoader(message: loc.profileLoading);
+    }
 
     final displayName = _name.text.trim().isEmpty ? 'User' : _name.text.trim();
 

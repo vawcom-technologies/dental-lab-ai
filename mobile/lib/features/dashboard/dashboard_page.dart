@@ -138,7 +138,7 @@ class _DashboardPageState extends State<DashboardPage> {
     return '${days.toStringAsFixed(1)}d';
   }
 
-  List<_CaseRowData> get _recentRows {
+  List<_CaseRowData> _recentRows(AppLocalizations loc) {
     final sorted = [..._cases]..sort((a, b) {
           final ta = DateTime.tryParse('${a['updated_at'] ?? ''}') ?? DateTime(1970);
           final tb = DateTime.tryParse('${b['updated_at'] ?? ''}') ?? DateTime(1970);
@@ -153,7 +153,7 @@ class _DashboardPageState extends State<DashboardPage> {
         patientName: _patientName(c),
         dentist: widget.dentistName,
         status: '${c['status']}',
-        updated: _relativeTime(DateTime.tryParse('${c['updated_at'] ?? ''}')),
+        updated: _relativeTime(DateTime.tryParse('${c['updated_at'] ?? ''}'), loc),
         canEditStatus: me.isNotEmpty && createdBy == me,
       );
     }).toList();
@@ -189,7 +189,7 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
-  List<_ActivityItem> get _activity {
+  List<_ActivityItem> _activity(AppLocalizations loc) {
     final items = <_ActivityItem>[];
 
     for (final c in _cases) {
@@ -199,12 +199,12 @@ class _DashboardPageState extends State<DashboardPage> {
       final status = '${c['status'] ?? ''}';
       final label = '${c['case_label']}';
       final text = switch (status) {
-        'completed' => 'Case $label marked complete — $name',
-        'rejected' => 'Scan rejected for $name — rescan required',
-        'in_review' => 'Case for $name moved to lab review',
-        'in_progress' => 'Case for $name is in progress',
-        'pending' => 'Case opened for $name — awaiting scan',
-        _ => 'Case updated for $name',
+        'completed' => loc.dashActivityCompleted(label, name),
+        'rejected' => loc.dashActivityRejected(name),
+        'in_review' => loc.dashActivityInReview(name),
+        'in_progress' => loc.dashActivityInProgress(name),
+        'pending' => loc.dashActivityPending(name),
+        _ => loc.dashActivityUpdated(name),
       };
       items.add(_ActivityItem(at: updated, text: text));
     }
@@ -219,32 +219,26 @@ class _DashboardPageState extends State<DashboardPage> {
     }
     final parts = <String>[];
     if (_attention > 0) {
-      parts.add(
-        '$_attention case${_attention == 1 ? '' : 's'} need${_attention == 1 ? 's' : ''} attention',
-      );
+      parts.add(loc.dashNeedsAttention(_attention));
     }
     if (_unreadMessages > 0) {
-      parts.add(
-        '$_unreadMessages unread message${_unreadMessages == 1 ? '' : 's'}',
-      );
+      parts.add(loc.dashUnreadMessages(_unreadMessages));
     }
     if (parts.isEmpty) {
-      return '${_patients.length} patients · ${_cases.length} cases on file.';
+      return loc.dashPatientsAndCasesOnFile(_patients.length, _cases.length);
     }
     return '${parts.join(' · ')}.';
   }
 
-  static String _relativeTime(DateTime? dt) {
+  static String _relativeTime(DateTime? dt, AppLocalizations loc) {
     if (dt == null) return '—';
     final local = dt.isUtc ? dt.toLocal() : dt;
     final diff = DateTime.now().difference(local);
-    if (diff.inMinutes < 1) return 'Just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
-    if (diff.inHours < 24) {
-      return '${diff.inHours} hour${diff.inHours == 1 ? '' : 's'} ago';
-    }
-    if (diff.inDays == 1) return 'Yesterday';
-    if (diff.inDays < 7) return '${diff.inDays} days ago';
+    if (diff.inMinutes < 1) return loc.commonJustNow;
+    if (diff.inMinutes < 60) return loc.commonMinAgo(diff.inMinutes);
+    if (diff.inHours < 24) return loc.commonHourAgo(diff.inHours);
+    if (diff.inDays == 1) return loc.commonYesterday;
+    if (diff.inDays < 7) return loc.commonDaysAgo(diff.inDays);
     return '${local.day}.${local.month.toString().padLeft(2, '0')}.${local.year}';
   }
 
@@ -270,7 +264,7 @@ class _DashboardPageState extends State<DashboardPage> {
             subtitle: _loading ? loc.dashLoading : _subtitleText(loc),
             chromeActions: [
               AppButtons.icon(
-                tooltip: 'Refresh',
+                tooltip: loc.refresh,
                 onPressed: _loading ? null : _load,
                 icon: Icons.refresh_rounded,
               ),
@@ -306,7 +300,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   value: _loading ? '…' : '$_completed',
                   hint: _patients.isEmpty
                       ? loc.dashNoPatientsHint
-                      : '${_patients.length} patients on file',
+                      : loc.dashPatientsOnFile(_patients.length),
                   hintColor: AppColors.success,
                 ),
                 _KpiCard(
@@ -314,7 +308,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   value: _loading ? '…' : _avgProcessingLabel,
                   hint: _completed == 0
                       ? loc.dashBasedOnCompleted
-                      : 'Across $_completed completed',
+                      : loc.dashAcrossCompleted(_completed),
                   hintColor: AppColors.muted,
                 ),
                 _KpiCard(
@@ -322,7 +316,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   value: _loading ? '…' : '$_pending',
                   hint: _inProgress == 0 && _inReview == 0
                       ? loc.dashNoneInProgress
-                      : '$_inProgress in progress · $_inReview in review',
+                      : loc.dashInProgressInReview(_inProgress, _inReview),
                   hintColor: _pending > 0 || _inProgress > 0 || _inReview > 0
                       ? AppColors.warning
                       : AppColors.success,
@@ -369,6 +363,8 @@ class _DashboardPageState extends State<DashboardPage> {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final stacked = constraints.maxWidth < AppBreakpoints.stack;
+                final recentRows = _recentRows(loc);
+                final activity = _activity(loc);
                 final recentCases = SectionCard(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                     child: Column(
@@ -387,10 +383,10 @@ class _DashboardPageState extends State<DashboardPage> {
                         const Divider(height: 1),
                         Expanded(
                           child: _loading
-                              ? const ToothPageLoader(
-                                  message: 'Loading recent cases…',
+                              ? ToothPageLoader(
+                                  message: loc.dashLoadingCases,
                                 )
-                              : _recentRows.isEmpty
+                              : recentRows.isEmpty
                                   ? IpadRefresh.fill(
                                       onRefresh: () => _load(silent: true),
                                       child: Center(
@@ -406,9 +402,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                       onRefresh: () => _load(silent: true),
                                       slivers: [
                                         SliverList.builder(
-                                          itemCount: _recentRows.length,
+                                          itemCount: recentRows.length,
                                           itemBuilder: (context, i) {
-                                            final row = _recentRows[i];
+                                            final row = recentRows[i];
                                             return _PatientRow(
                                               id: row.caseLabel,
                                               name: row.patientName,
@@ -446,10 +442,10 @@ class _DashboardPageState extends State<DashboardPage> {
                         const SizedBox(height: 16),
                         Expanded(
                           child: _loading
-                              ? const ToothPageLoader(
-                                  message: 'Loading activity…',
+                              ? ToothPageLoader(
+                                  message: loc.dashLoadingActivity,
                                 )
-                              : _activity.isEmpty
+                              : activity.isEmpty
                                   ? IpadRefresh.fill(
                                       onRefresh: () => _load(silent: true),
                                       child: Center(
@@ -466,9 +462,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                       onRefresh: () => _load(silent: true),
                                       slivers: [
                                         SliverList.builder(
-                                          itemCount: _activity.length,
+                                          itemCount: activity.length,
                                           itemBuilder: (context, i) {
-                                            final a = _activity[i];
+                                            final a = activity[i];
                                             return _Activity(
                                               time: _clock(a.at),
                                               text: a.text,

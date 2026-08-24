@@ -454,12 +454,12 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
   Widget build(BuildContext context) {
     _error = AppSnackBars.drain(context, _error);
     if (_loading) {
-      return const ToothPageLoader(message: 'Loading scan body…');
+      return ToothPageLoader(message: AppLocalizations.of(context).scanBodyLoading);
     }
 
     return BusyBarrier(
       busy: _busy || _saving,
-      message: _saving ? 'Saving…' : 'Working…',
+      message: _saving ? AppLocalizations.of(context).saving : AppLocalizations.of(context).commonWorking,
       child: Padding(
       padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
       child: Column(
@@ -496,7 +496,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                         color: Colors.white,
                       )
                     : const Icon(Icons.save_outlined, size: 18),
-                label: Text(_saving ? 'Saving…' : 'Save to case'),
+                label: Text(_saving ? AppLocalizations.of(context).saving : AppLocalizations.of(context).scanBodySaveToCase),
               ),
             ],
           ),
@@ -541,9 +541,9 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                           const SizedBox(height: 12),
                           TextField(
                             controller: _diameterCtrl,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               labelText: 'Platform diameter (mm)',
-                              hintText: 'e.g. 4.1',
+                              hintText: AppLocalizations.of(context).scanBodyDiameterHint,
                               helperText:
                                   'Outer scan-body platform width in millimetres',
                               suffixText: 'mm',
@@ -585,7 +585,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                                           color: Colors.white,
                                         )
                                       : const Icon(Icons.search, size: 18),
-                                  label: Text(_busy ? 'Working…' : 'Match table'),
+                                  label: Text(_busy ? AppLocalizations.of(context).commonWorking : AppLocalizations.of(context).scanBodyMatchTable),
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -703,7 +703,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                             ),
                             const SizedBox(height: 10),
                             _ResultTile(
-                              label: 'Detected',
+                              label: AppLocalizations.of(context).scanBodyDetected,
                               value: _match!['detected_diameter'] == null
                                   ? (_match!['pixel_diameter'] != null
                                       ? 'Ø ${_match!['pixel_diameter']} px (enter mm)'
@@ -713,30 +713,30 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                             if (_match!['pixel_diameter'] != null &&
                                 _match!['detected_diameter'] != null)
                               _ResultTile(
-                                label: 'Pixels',
+                                label: AppLocalizations.of(context).scanBodyPixels,
                                 value: 'Ø ${_match!['pixel_diameter']} px',
                               ),
                             _ResultTile(
-                              label: 'Table match',
+                              label: AppLocalizations.of(context).scanBodyTableMatch,
                               value:
                                   '${_match!['table_diameter_mm'] ?? '—'} mm',
                             ),
                             _ResultTile(
-                              label: 'Tooth',
+                              label: AppLocalizations.of(context).scanBodyTooth,
                               value:
                                   '${_match!['matched_tooth_position'] ?? '—'}',
                             ),
                             _ResultTile(
-                              label: 'Manufacturer',
+                              label: AppLocalizations.of(context).scanBodyManufacturer,
                               value:
                                   '${_match!['matched_manufacturer'] ?? '—'}',
                             ),
                             _ResultTile(
-                              label: 'Platform',
+                              label: AppLocalizations.of(context).scanBodyPlatform,
                               value: '${_match!['matched_platform'] ?? '—'}',
                             ),
                             _ResultTile(
-                              label: 'Confidence',
+                              label: AppLocalizations.of(context).scanBodyConfidence,
                               value: _match!['confidence_score'] == null
                                   ? '—'
                                   : '${(((_match!['confidence_score'] as num) * 100).round())}%',
@@ -838,7 +838,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                                             Icons.upload_file,
                                             size: 18,
                                           ),
-                                          label: const Text('Detect from photo'),
+                                          label: Text(AppLocalizations.of(context).scanBodyDetectFromPhoto),
                                         ),
                                       ],
                                     ),

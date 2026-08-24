@@ -524,7 +524,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       setState(() => _saving = true);
       final uploaded = await runWithToothLoadingDialog(
         context,
-        message: 'Uploading…',
+        message: AppLocalizations.of(context).commonUploading,
         action: () => widget.api.uploadSmilePreview(
           patientId: pid,
           bytes: data,
@@ -600,6 +600,50 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     });
   }
 
+  Widget _nudgeControls() {
+    // Four 36px buttons + gaps (~168) plus the label overflow a narrow rail
+    // (~133). Scale the pad down when space is tight; full size when wide.
+    return Padding(
+      padding: const EdgeInsets.only(top: 10, bottom: 12),
+      child: Row(
+        children: [
+          Text(
+            AppLocalizations.of(context).smileNudge,
+            style: const TextStyle(fontSize: 12, color: AppColors.muted),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _NudgeBtn(
+                    icon: Icons.keyboard_arrow_left,
+                    onTap: () => _nudge(-4, 0),
+                  ),
+                  _NudgeBtn(
+                    icon: Icons.keyboard_arrow_up,
+                    onTap: () => _nudge(0, -4),
+                  ),
+                  _NudgeBtn(
+                    icon: Icons.keyboard_arrow_down,
+                    onTap: () => _nudge(0, 4),
+                  ),
+                  _NudgeBtn(
+                    icon: Icons.keyboard_arrow_right,
+                    onTap: () => _nudge(4, 0),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Offset _localDragDelta(Offset screenDelta) {
     final rad = _rotation * math.pi / 180;
     final c = math.cos(rad);
@@ -617,7 +661,8 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       return;
     }
     if (_photoBytes == null) {
-      setState(() => _error = 'Load a patient smile photo first');
+      setState(() =>
+          _error = AppLocalizations.of(context).smileLoadSmilePhoto);
       return;
     }
     setState(() {
@@ -665,7 +710,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
   Widget build(BuildContext context) {
     _error = AppSnackBars.drain(context, _error);
     if (_loading) {
-      return const ToothPageLoader(message: 'Loading smile preview…');
+      return ToothPageLoader(message: AppLocalizations.of(context).smileLoading);
     }
 
     final portrait = AppBreakpoints.isPortrait(context);
@@ -755,8 +800,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     return PageHeader(
       icon: Icons.sentiment_satisfied_alt_outlined,
       title: AppLocalizations.of(context).smileTitle,
-      subtitle:
-          'Pick a tooth shape · place it on the patient photo · save to case',
+      subtitle: AppLocalizations.of(context).smilePageSubtitle,
       actions: [
         PatientPickerButton(
           patients: _patients,
@@ -771,7 +815,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
         OutlinedButton.icon(
           onPressed: _saving || _patient == null ? null : _pickPhoto,
           icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
-          label: Text(_photoBytes == null ? 'Load photo' : 'Change photo'),
+          label: Text(_photoBytes == null ? AppLocalizations.of(context).smileLoadPhoto : AppLocalizations.of(context).smileChangePhoto),
         ),
         FilledButton.icon(
           onPressed: _saving || _photoBytes == null ? null : _save,
@@ -834,10 +878,10 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                     ),
                   ),
                   const SizedBox(height: 18),
-                  const Text(
-                    'Load a patient smile photo',
+                  Text(
+                    AppLocalizations.of(context).smileLoadSmilePhoto,
                     textAlign: TextAlign.center,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: 18,
                       color: Colors.white,
@@ -846,8 +890,8 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                   const SizedBox(height: 8),
                   Text(
                     AppBreakpoints.isPortrait(context)
-                        ? 'Then tap a shape in the library below and place it over the teeth.'
-                        : 'Then tap a shape in the library on the right and place it over the teeth.',
+                        ? AppLocalizations.of(context).smileLoadSmileHintPortrait
+                        : AppLocalizations.of(context).smileLoadSmileHint,
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.65),
@@ -859,7 +903,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                   FilledButton.icon(
                     onPressed: _pickPhoto,
                     icon: const Icon(Icons.upload_file, size: 18),
-                    label: const Text('Load patient photo'),
+                    label: Text(AppLocalizations.of(context).smileLoadPatientPhoto),
                   ),
                 ],
               ),
@@ -1041,13 +1085,13 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                   const SizedBox(width: 6),
                   _StageIconBtn(
                     icon: Icons.center_focus_strong,
-                    tip: 'Center shape',
+                    tip: AppLocalizations.of(context).smileCenterShape,
                     onTap: () => _centerIn(canvas),
                   ),
                   const SizedBox(width: 6),
                   _StageIconBtn(
                     icon: Icons.refresh,
-                    tip: 'Reset placement',
+                    tip: AppLocalizations.of(context).smileResetPlacement,
                     onTap: () => _resetTransform(canvas),
                   ),
                 ],
@@ -1060,8 +1104,8 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
               child: _StageChip(
                 child: Text(
                   _comparing
-                      ? 'Original photo'
-                      : 'Select a library shape → drag / pinch / rotate into place',
+                      ? AppLocalizations.of(context).smileOriginalPhoto
+                      : AppLocalizations.of(context).smileSelectShapeHint,
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.white, fontSize: 12),
                 ),
@@ -1209,19 +1253,19 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
               ),
             ),
           ),
-          const SizedBox(height: 14),
-          const Divider(height: 1),
           const SizedBox(height: 8),
-          const Text(
-            'Placement',
-            style: TextStyle(
+          const Divider(height: 1),
+          const SizedBox(height: 4),
+          Text(
+            AppLocalizations.of(context).smilePlacement,
+            style: const TextStyle(
               fontWeight: FontWeight.w700,
               fontSize: 13,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           _SliderRow(
-            label: 'Size',
+            label: AppLocalizations.of(context).smileSize,
             value: _scale,
             min: 0.15,
             max: 8.0,
@@ -1232,7 +1276,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
             }),
           ),
           _SliderRow(
-            label: 'Width',
+            label: AppLocalizations.of(context).smileWidth,
             value: _width,
             min: 0.4,
             max: 2.4,
@@ -1243,7 +1287,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
             }),
           ),
           _SliderRow(
-            label: 'Height',
+            label: AppLocalizations.of(context).smileHeight,
             value: _height,
             min: 0.4,
             max: 2.4,
@@ -1254,7 +1298,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
             }),
           ),
           _SliderRow(
-            label: 'Rotate',
+            label: AppLocalizations.of(context).smileRotate,
             value: _rotation,
             min: -35,
             max: 35,
@@ -1265,7 +1309,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
             }),
           ),
           _SliderRow(
-            label: 'Blend',
+            label: AppLocalizations.of(context).smileBlend,
             value: _opacity,
             min: 0.25,
             max: 1.0,
@@ -1275,37 +1319,12 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
               _dirty = true;
             }),
           ),
-          Row(
-            children: [
-              const Text(
-                'Nudge',
-                style: TextStyle(fontSize: 12, color: AppColors.muted),
-              ),
-              const Spacer(),
-              _NudgeBtn(
-                icon: Icons.keyboard_arrow_left,
-                onTap: () => _nudge(-4, 0),
-              ),
-              _NudgeBtn(
-                icon: Icons.keyboard_arrow_up,
-                onTap: () => _nudge(0, -4),
-              ),
-              _NudgeBtn(
-                icon: Icons.keyboard_arrow_down,
-                onTap: () => _nudge(0, 4),
-              ),
-              _NudgeBtn(
-                icon: Icons.keyboard_arrow_right,
-                onTap: () => _nudge(4, 0),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
+          _nudgeControls(),
           Row(
             children: [
               Expanded(
                 child: FilterChip(
-                  label: const Text('Guides', style: TextStyle(fontSize: 12)),
+                  label: Text(AppLocalizations.of(context).smileGuides, style: const TextStyle(fontSize: 12)),
                   selected: _showGuides,
                   onSelected: (v) => setState(() => _showGuides = v),
                   visualDensity: VisualDensity.compact,
@@ -1317,7 +1336,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                   onPressed: _lastCanvas == null
                       ? null
                       : () => _resetTransform(_lastCanvas!),
-                  child: const Text('Reset', style: TextStyle(fontSize: 12)),
+                  child: Text(AppLocalizations.of(context).shadeReset, style: const TextStyle(fontSize: 12)),
                 ),
               ),
             ],
@@ -1391,7 +1410,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
               ),
               const SizedBox(height: 12),
               Expanded(
-                flex: _placementOpen ? 3 : 5,
+                flex: _placementOpen ? 2 : 5,
                 child: NotificationListener<ScrollNotification>(
                   onNotification: (n) {
                     if (_placementOpen &&
@@ -1489,19 +1508,19 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                   ),
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               const Divider(height: 1),
               InkWell(
                 onTap: () => setState(() => _placementOpen = !_placementOpen),
                 borderRadius: BorderRadius.circular(6),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  padding: const EdgeInsets.symmetric(vertical: 4),
                   child: Row(
                     children: [
-                      const Expanded(
+                      Expanded(
                         child: Text(
-                          'Placement',
-                          style: TextStyle(
+                          AppLocalizations.of(context).smilePlacement,
+                          style: const TextStyle(
                             fontWeight: FontWeight.w700,
                             fontSize: 13,
                           ),
@@ -1521,7 +1540,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
               // Placement sliders scroll inside remaining space — no bottom overflow.
               if (_placementOpen)
                 Flexible(
-                  flex: 2,
+                  flex: 3,
                   child: SingleChildScrollView(
                     physics: const BouncingScrollPhysics(),
                     child: Column(
@@ -1529,7 +1548,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         _SliderRow(
-                          label: 'Size',
+                          label: AppLocalizations.of(context).smileSize,
                           value: _scale,
                           min: 0.15,
                           max: 8.0,
@@ -1540,7 +1559,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                           }),
                         ),
                         _SliderRow(
-                          label: 'Width',
+                          label: AppLocalizations.of(context).smileWidth,
                           value: _width,
                           min: 0.4,
                           max: 2.4,
@@ -1551,7 +1570,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                           }),
                         ),
                         _SliderRow(
-                          label: 'Height',
+                          label: AppLocalizations.of(context).smileHeight,
                           value: _height,
                           min: 0.4,
                           max: 2.4,
@@ -1562,7 +1581,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                           }),
                         ),
                         _SliderRow(
-                          label: 'Rotate',
+                          label: AppLocalizations.of(context).smileRotate,
                           value: _rotation,
                           min: -35,
                           max: 35,
@@ -1573,7 +1592,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                           }),
                         ),
                         _SliderRow(
-                          label: 'Blend',
+                          label: AppLocalizations.of(context).smileBlend,
                           value: _opacity,
                           min: 0.25,
                           max: 1.0,
@@ -1583,41 +1602,14 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                             _dirty = true;
                           }),
                         ),
-                        Row(
-                          children: [
-                            const Text(
-                              'Nudge',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: AppColors.muted,
-                              ),
-                            ),
-                            const Spacer(),
-                            _NudgeBtn(
-                              icon: Icons.keyboard_arrow_left,
-                              onTap: () => _nudge(-4, 0),
-                            ),
-                            _NudgeBtn(
-                              icon: Icons.keyboard_arrow_up,
-                              onTap: () => _nudge(0, -4),
-                            ),
-                            _NudgeBtn(
-                              icon: Icons.keyboard_arrow_down,
-                              onTap: () => _nudge(0, 4),
-                            ),
-                            _NudgeBtn(
-                              icon: Icons.keyboard_arrow_right,
-                              onTap: () => _nudge(4, 0),
-                            ),
-                          ],
-                        ),
+                        _nudgeControls(),
                         Row(
                           children: [
                             Expanded(
                               child: FilterChip(
-                                label: const Text(
-                                  'Guides',
-                                  style: TextStyle(fontSize: 12),
+                                label: Text(
+                                  AppLocalizations.of(context).smileGuides,
+                                  style: const TextStyle(fontSize: 12),
                                 ),
                                 selected: _showGuides,
                                 onSelected: (v) =>
@@ -1631,15 +1623,15 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                                 onPressed: _lastCanvas == null
                                     ? null
                                     : () => _resetTransform(_lastCanvas!),
-                                child: const Text(
-                                  'Reset',
-                                  style: TextStyle(fontSize: 12),
+                                child: Text(
+                                  AppLocalizations.of(context).shadeReset,
+                                  style: const TextStyle(fontSize: 12),
                                 ),
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 8),
                         Text(
                           _patientName,
                           style: const TextStyle(
@@ -1647,6 +1639,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                             color: AppColors.muted,
                           ),
                         ),
+                        const SizedBox(height: 8),
                       ],
                     ),
                   ),
@@ -1842,12 +1835,21 @@ class _NudgeBtn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      onPressed: onTap,
-      icon: Icon(icon, size: 18),
-      visualDensity: VisualDensity.compact,
-      padding: EdgeInsets.zero,
-      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+    return Padding(
+      padding: const EdgeInsets.only(left: 6),
+      child: Material(
+        color: AppColors.inset,
+        borderRadius: AppRadii.borderSm,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: AppRadii.borderSm,
+          child: SizedBox(
+            width: 36,
+            height: 36,
+            child: Icon(icon, size: 22, color: AppColors.navy),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1885,7 +1887,8 @@ class _SliderRow extends StatelessWidget {
             data: SliderTheme.of(context).copyWith(
               trackHeight: 3,
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             ),
             child: Slider(
               value: value.clamp(min, max),

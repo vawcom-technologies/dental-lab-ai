@@ -82,7 +82,7 @@ class _MessagesPageState extends State<MessagesPage> {
             },
           ),
         ),
-        title: 'New Message',
+        title: AppLocalizations.of(context).messagesNewTitle,
       ),
     );
     if (!mounted) return;

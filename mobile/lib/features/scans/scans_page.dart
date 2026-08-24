@@ -364,7 +364,7 @@ class _ScansPageState extends State<ScansPage>
       setState(() => _busy = true);
       final uploaded = await runWithToothLoadingDialog(
         context,
-        message: 'Uploading scan…',
+        message: AppLocalizations.of(context).scansUploadingScan,
         action: () => widget.api.uploadPatientScan(
           patientId: pid,
           bytes: data,
@@ -484,11 +484,96 @@ class _ScansPageState extends State<ScansPage>
     );
   }
 
+  Widget _scanListTile({
+    required Map<String, dynamic> scan,
+    required int index,
+    required AppLocalizations loc,
+  }) {
+    final selected = index == _selected;
+    final file = '${scan['filename'] ?? 'Scan #${scan['id']}'}';
+    final short = file.length > 28 ? '${file.substring(0, 26)}…' : file;
+    final subtitle =
+        '${scan['patient_name'] ?? _patientLabel}'
+        ' · ${scan['validation_result'] ?? 'pending'}'
+        ' · #${scan['id']}';
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final showDelete = w >= 88;
+        final showSubtitle = w >= 72;
+        return Material(
+          color: selected ? AppColors.sidebarActive : Colors.transparent,
+          child: InkWell(
+            onTap: () {
+              setState(() => _selected = index);
+              _loadPreviewFor(scan);
+            },
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(showDelete ? 12 : 6, 8, 4, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          short,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (showSubtitle) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              color: AppColors.muted,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (showDelete)
+                    IconButton(
+                      tooltip: loc.scansDelete,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                      style: IconButton.styleFrom(
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      onPressed: _busy ? null : () => _deleteScan(scan),
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        size: 18,
+                        color: AppColors.danger,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     _previewError = AppSnackBars.drain(context, _previewError);
     if (_loading) {
-      return const ToothPageLoader(message: 'Loading scans…');
+      return ToothPageLoader(message: AppLocalizations.of(context).scansLoading);
     }
 
     final scan = _scans.isEmpty ? null : _scans[_selected.clamp(0, _scans.length - 1)];
@@ -556,8 +641,7 @@ class _ScansPageState extends State<ScansPage>
                                     }
                                   }
                                 },
-                                emptyHint:
-                                    'No patients yet — add one to upload scans.',
+                                emptyHint: loc.scansEmptyHintUpload,
                               ),
                               FilledButton.icon(
                                 onPressed: canUpload ? _upload : null,
@@ -596,125 +680,94 @@ class _ScansPageState extends State<ScansPage>
                       ignoring: t > 0.2,
                       child: Opacity(
                         opacity: chrome,
-                        child: Column(
-                          children: [
-                            InkWell(
-                              onTap: canUpload ? _upload : null,
-                              borderRadius: AppRadii.border,
-                              child: SectionCard(
-                                child: Column(
-                                  children: [
-                                    const Icon(
-                                      Icons.cloud_upload_outlined,
-                                      color: AppColors.dentalBlue,
-                                      size: 28,
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      _busy
-                                          ? loc.scansUploading
-                                          : loc.scansUpload,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      loc.scansSubtitle,
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(
-                                        color: AppColors.muted,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Expanded(
-                              child: SectionCard(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 8),
-                                child: _mediaLoading
-                                    ? const Center(
-                                        child: ToothLoadingIndicator(
-                                          size: 40,
-                                          loadingText: 'Loading scans…',
-                                        ),
-                                      )
-                                    : _scans.isEmpty
-                                        ? Center(
-                                            child: Text(
-                                              _patient == null
-                                                  ? loc.scansSelectPatient
-                                                  : loc.scansEmptyFor(
-                                                      _patientLabel,
-                                                    ),
+                        child: LayoutBuilder(
+                          builder: (context, panelBox) {
+                            final showUpload = panelBox.maxHeight >= 220;
+                            return ClipRect(
+                              child: Column(
+                                children: [
+                                  if (showUpload) ...[
+                                    InkWell(
+                                      onTap: canUpload ? _upload : null,
+                                      borderRadius: AppRadii.border,
+                                      child: SectionCard(
+                                        child: Column(
+                                          children: [
+                                            const Icon(
+                                              Icons.cloud_upload_outlined,
+                                              color: AppColors.dentalBlue,
+                                              size: 28,
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              _busy
+                                                  ? loc.scansUploading
+                                                  : loc.scansUpload,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              loc.scansSubtitle,
+                                              textAlign: TextAlign.center,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
                                               style: const TextStyle(
                                                 color: AppColors.muted,
+                                                fontSize: 12,
                                               ),
-                                              textAlign: TextAlign.center,
                                             ),
-                                          )
-                                        : ListView.builder(
-                                            itemCount: _scans.length,
-                                            itemBuilder: (context, i) {
-                                              final s = _scans[i];
-                                              final selected = i == _selected;
-                                              final file =
-                                                  '${s['filename'] ?? 'Scan #${s['id']}'}';
-                                              final short = file.length > 28
-                                                  ? '${file.substring(0, 26)}…'
-                                                  : file;
-                                              return ListTile(
-                                                selected: selected,
-                                                selectedTileColor:
-                                                    AppColors.sidebarActive,
-                                                onTap: () {
-                                                  setState(
-                                                    () => _selected = i,
-                                                  );
-                                                  _loadPreviewFor(s);
-                                                },
-                                                title: Text(
-                                                  short,
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: const TextStyle(
-                                                    fontSize: 13,
-                                                    fontWeight: FontWeight.w600,
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                  ],
+                                  Expanded(
+                                    child: SectionCard(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 8,
+                                      ),
+                                      child: _mediaLoading
+                                          ? const Center(
+                                              child: ToothLoadingIndicator(
+                                                size: 40,
+                                                loadingText: 'Loading scans…',
+                                              ),
+                                            )
+                                          : _scans.isEmpty
+                                              ? Center(
+                                                  child: Text(
+                                                    _patient == null
+                                                        ? loc.scansSelectPatient
+                                                        : loc.scansEmptyFor(
+                                                            _patientLabel,
+                                                          ),
+                                                    style: const TextStyle(
+                                                      color: AppColors.muted,
+                                                    ),
+                                                    textAlign: TextAlign.center,
                                                   ),
+                                                )
+                                              : ListView.builder(
+                                                  itemCount: _scans.length,
+                                                  itemBuilder: (context, i) {
+                                                    return _scanListTile(
+                                                      scan: _scans[i],
+                                                      index: i,
+                                                      loc: loc,
+                                                    );
+                                                  },
                                                 ),
-                                                subtitle: Text(
-                                                  '${s['patient_name'] ?? _patientLabel}'
-                                                  ' · ${s['validation_result'] ?? 'pending'}'
-                                                  ' · #${s['id']}',
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: const TextStyle(
-                                                    fontSize: 11.5,
-                                                  ),
-                                                ),
-                                                trailing: IconButton(
-                                                  tooltip: loc.scansDelete,
-                                                  onPressed: _busy
-                                                      ? null
-                                                      : () => _deleteScan(s),
-                                                  icon: const Icon(
-                                                    Icons.delete_outline,
-                                                    size: 18,
-                                                    color: AppColors.danger,
-                                                  ),
-                                                ),
-                                              );
-                                            },
-                                          ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                          ],
+                            );
+                          },
                         ),
                       ),
                     ),
@@ -808,8 +861,8 @@ class _ScansPageState extends State<ScansPage>
                                         ),
                                         child: Text(
                                           _patient == null
-                                              ? 'Select a patient, then upload a scan to see quality results.'
-                                              : 'No scan uploaded yet — upload a PLY, STL, or OBJ to run the quality check.',
+                                              ? loc.scansQualityNeedPatient
+                                              : loc.scansQualityNeedUpload,
                                           style: const TextStyle(
                                             color: AppColors.muted,
                                             fontWeight: FontWeight.w600,

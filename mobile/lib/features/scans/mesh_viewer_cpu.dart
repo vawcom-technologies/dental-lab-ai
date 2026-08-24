@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'mesh_sample.dart';
@@ -133,7 +134,9 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
                 ),
               )
             else if (empty)
-              const MeshViewerHint('Upload a PLY / STL / OBJ to preview')
+              MeshViewerHint(
+                AppLocalizations.of(context).scansUploadPreviewHint,
+              )
             else
               GestureDetector(
                 onScaleStart: (_) => _baseZoom = _zoom,

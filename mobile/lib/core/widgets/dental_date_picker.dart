@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../theme/app_theme.dart';
 import 'app_buttons.dart';
+import '../l10n/app_localizations.dart';
 
 /// Form field that stores ISO `yyyy-MM-dd` while showing a friendly DOB label.
 class DobPickerField extends StatelessWidget {
@@ -18,10 +19,13 @@ class DobPickerField extends StatelessWidget {
   final String labelText;
   final ValueChanged<String>? onChanged;
 
-  static String formatDisplay(DateTime dob) {
+  static String formatDisplay(DateTime dob, [BuildContext? context]) {
     final age = DentalDatePickerDialog.ageInYears(dob);
     final date = DateFormat('MMM d, yyyy').format(dob);
-    final ageLabel = age == 1 ? '1 year old' : '$age years old';
+    final loc = context != null ? AppLocalizations.of(context) : null;
+    final ageLabel = age == 1
+        ? (loc?.commonOneYearOld ?? '1 year old')
+        : (loc?.commonYearsOld(age) ?? '$age years old');
     return '$date · $ageLabel';
   }
 
@@ -43,8 +47,8 @@ class DobPickerField extends StatelessWidget {
       initialValue: controller.text,
       validator: (_) {
         final value = controller.text.trim();
-        if (value.isEmpty) return 'Required';
-        if (DateTime.tryParse(value) == null) return 'Invalid date';
+        if (value.isEmpty) return AppLocalizations.of(context).commonRequired;
+        if (DateTime.tryParse(value) == null) return AppLocalizations.of(context).commonInvalidDate;
         return null;
       },
       builder: (state) {
@@ -60,13 +64,13 @@ class DobPickerField extends StatelessWidget {
             isEmpty: !hasValue,
             decoration: InputDecoration(
               labelText: labelText,
-              hintText: 'Tap to select',
+              hintText: AppLocalizations.of(context).commonTapToSelect,
               errorText: state.errorText,
               suffixIcon: const Icon(Icons.calendar_today_outlined, size: 18),
             ),
             // Empty child when unset so label/hint don't collide.
             child: Text(
-              hasValue ? formatDisplay(parsed) : '',
+              hasValue ? formatDisplay(parsed, context) : '',
               style: AppFonts.style(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
@@ -186,7 +190,7 @@ class _DobWheelDialogState extends State<_DobWheelDialog> {
                   const SizedBox(width: 8),
                   AppButtons.primary(
                     onPressed: () => Navigator.of(context).pop(_selected),
-                    label: 'Use this date',
+                    label: AppLocalizations.of(context).commonUseThisDate,
                   ),
                 ],
               ),
@@ -713,7 +717,7 @@ class _DentalDatePickerDialogState extends State<DentalDatePickerDialog> {
                 const SizedBox(width: 8),
                 AppButtons.primary(
                   onPressed: () => Navigator.of(context).pop(_selectedDate),
-                  label: isDob ? 'Use this date' : 'Select Date',
+                  label: isDob ? AppLocalizations.of(context).commonUseThisDate : AppLocalizations.of(context).commonSelectDate,
                 ),
               ],
             ),
@@ -883,7 +887,7 @@ class _MonthYearBar extends StatelessWidget {
       children: [
         IconButton(
           onPressed: onPrev,
-          tooltip: 'Previous month',
+          tooltip: AppLocalizations.of(context).commonPrevMonth,
           icon: const Icon(Icons.chevron_left_rounded),
           color: DentalDatePickerColors.primary,
         ),
@@ -919,7 +923,7 @@ class _MonthYearBar extends StatelessWidget {
         ),
         IconButton(
           onPressed: onNext,
-          tooltip: 'Next month',
+          tooltip: AppLocalizations.of(context).commonNextMonth,
           icon: const Icon(Icons.chevron_right_rounded),
           color: DentalDatePickerColors.primary,
         ),

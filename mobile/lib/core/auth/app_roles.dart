@@ -1,3 +1,5 @@
+import '../l10n/app_localizations.dart';
+
 /// App roles: only [dentist] and [laboratory].
 class AppRoles {
   AppRoles._();
@@ -6,16 +8,16 @@ class AppRoles {
   static const laboratory = 'laboratory';
 
   /// Human-readable label for UI chips/badges.
-  static String label(String? role) {
+  static String label(String? role, [AppLocalizations? loc]) {
     final r = role?.trim().toLowerCase() ?? '';
     switch (r) {
       case dentist:
       case 'admin': // legacy
-        return 'Dentist';
+        return loc?.roleDentist ?? 'Dentist';
       case laboratory:
       case 'clinic': // legacy
       case 'lab': // legacy
-        return 'Laboratory';
+        return loc?.roleLaboratory ?? 'Laboratory';
       default:
         return role?.trim() ?? '';
     }

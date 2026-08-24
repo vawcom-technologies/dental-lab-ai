@@ -5,6 +5,7 @@ import '../../core/navigation/app_page_routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'patient_form_screen.dart';
+import '../../core/l10n/app_localizations.dart';
 
 class PatientsScreen extends StatefulWidget {
   const PatientsScreen({
@@ -46,7 +47,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Patients · ${widget.dentistName}'),
+        title: Text('${AppLocalizations.of(context).patientsTitle} · ${widget.dentistName}'),
         actions: [
           IconButton(
             tooltip: 'Refresh',
@@ -60,13 +61,13 @@ class _PatientsScreenState extends State<PatientsScreen> {
         backgroundColor: AppColors.accent,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.person_add_alt_1),
-        label: const Text('Add patient'),
+        label: Text(AppLocalizations.of(context).addPatient),
       ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: _future,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
-            return const ToothPageLoader(message: 'Loading patients…');
+            return ToothPageLoader(message: AppLocalizations.of(context).patientsLoading);
           }
           if (snap.hasError) {
             if (!identical(_toastedError, snap.error)) {
@@ -78,7 +79,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
             return Center(
               child: TextButton(
                 onPressed: _reload,
-                child: const Text('Refresh'),
+                child: Text(AppLocalizations.of(context).refresh),
               ),
             );
           }

@@ -6,6 +6,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/touchable.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'shade_shared.dart';
+import '../../core/l10n/app_localizations.dart';
 
 class ShadeSessionPane extends StatelessWidget {
   const ShadeSessionPane({
@@ -61,7 +62,7 @@ class ShadeSessionPane extends StatelessWidget {
                   ? Center(
                       child: AppButtons.icon(
                         onPressed: () => onCollapseChanged(false),
-                        tooltip: 'Open session',
+                        tooltip: AppLocalizations.of(context).shadeOpenSession,
                         icon: Icons.chevron_left_rounded,
                       ),
                     )
@@ -75,7 +76,7 @@ class ShadeSessionPane extends StatelessWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Session',
+                                    AppLocalizations.of(context).shadeSession,
                                     style: AppFonts.style(
                                       fontWeight: FontWeight.w700,
                                       fontSize: 18,
@@ -85,7 +86,8 @@ class ShadeSessionPane extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 2),
                                   Text(
-                                    'Saved shades · tap to edit',
+                                    AppLocalizations.of(context)
+                                        .shadeSavedShadesHint,
                                     style: AppFonts.style(
                                       color: AppColors.muted,
                                       fontSize: 13,
@@ -96,7 +98,7 @@ class ShadeSessionPane extends StatelessWidget {
                             ),
                             AppButtons.icon(
                               onPressed: () => onCollapseChanged(true),
-                              tooltip: 'Close session',
+                              tooltip: AppLocalizations.of(context).shadeCloseSession,
                               icon: Icons.chevron_right_rounded,
                               color: AppColors.muted,
                             ),
@@ -107,7 +109,7 @@ class ShadeSessionPane extends StatelessWidget {
                           child: history.isEmpty
                               ? Center(
                                   child: Text(
-                                    'No saves yet',
+                                    AppLocalizations.of(context).shadeNoSavesYet,
                                     textAlign: TextAlign.center,
                                     style: AppFonts.style(
                                       color: AppColors.muted,
@@ -301,7 +303,7 @@ class _SessionRecentState extends State<SessionRecent> {
                   ),
                   AppButtons.icon(
                     onPressed: widget.onDelete,
-                    tooltip: 'Remove from session',
+                    tooltip: AppLocalizations.of(context).shadeRemoveFromSession,
                     icon: Icons.close_rounded,
                     color: AppColors.muted,
                   ),

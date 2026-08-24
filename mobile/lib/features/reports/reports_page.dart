@@ -135,7 +135,7 @@ class _ReportsPageState extends State<ReportsPage> {
               await Clipboard.setData(ClipboardData(text: text));
               if (ctx.mounted) Navigator.pop(ctx);
             },
-            child: const Text('Copy'),
+            child: Text(loc.reportsCopy),
           ),
           CupertinoDialogAction(
             isDefaultAction: true,
@@ -152,7 +152,7 @@ class _ReportsPageState extends State<ReportsPage> {
     final dentist = '${_summary?['dentist_name'] ?? ''}';
     final buf = StringBuffer()
       ..writeln('$clinic — $dentist')
-      ..writeln('Period: ${_periodLabel(loc)}')
+      ..writeln(loc.reportsPeriodLine(_periodLabel(loc)))
       ..writeln()
       ..writeln(
         '${loc.reportsPatients}: ${_n(_patientsBlock['total'])} '
@@ -223,7 +223,7 @@ class _ReportsPageState extends State<ReportsPage> {
               child: KeyedSubtree(
                 key: ValueKey('$_days|$_loading|${_summary != null}'),
                 child: _loading && _summary == null
-                    ? const ToothPageLoader(message: 'Loading reports…')
+                    ? ToothPageLoader(message: loc.reportsLoading)
                     : LayoutBuilder(
                     builder: (context, constraints) {
                       final landscape = constraints.maxWidth >= 780;
@@ -231,8 +231,9 @@ class _ReportsPageState extends State<ReportsPage> {
                         loading: _loading,
                         forceHorizontal: landscape,
                         patients: _n(_patientsBlock['total']),
-                        patientsHint:
-                            '${_n(_patientsBlock['new_in_period'])} new',
+                        patientsHint: loc.reportsNewCount(
+                          _n(_patientsBlock['new_in_period']),
+                        ),
                         active: _n(_cases['active']),
                         completed: _n(_cases['completed_in_period']),
                         completedHint: loc.reportsCompletedInPeriod,
@@ -371,11 +372,16 @@ class _HeroMetrics extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
     final items = [
-      (label: 'Patients', value: '$patients', hint: patientsHint),
-      (label: 'Active', value: '$active', hint: 'In pipeline'),
-      (label: 'Completed', value: '$completed', hint: completedHint),
-      (label: 'Avg. time', value: avgTime, hint: 'To complete'),
+      (label: loc.reportsPatients, value: '$patients', hint: patientsHint),
+      (label: loc.reportsActiveShort, value: '$active', hint: loc.reportsInPipeline),
+      (label: loc.reportsCompleted, value: '$completed', hint: completedHint),
+      (
+        label: loc.reportsAvgTimeShort,
+        value: avgTime,
+        hint: loc.reportsToComplete,
+      ),
     ];
 
     return SectionCard(
@@ -656,7 +662,7 @@ class _AttentionSection extends StatelessWidget {
         Text(
           rows.isEmpty
               ? loc.reportsAttentionEmpty
-              : 'Cases that need a follow-up',
+              : loc.reportsFollowUpHint,
           style: AppFonts.style(color: AppColors.muted, fontSize: 14),
         ),
       ],
@@ -673,7 +679,7 @@ class _AttentionSection extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            'All clear',
+            loc.reportsAllClear,
             style: AppFonts.style(
               fontWeight: FontWeight.w600,
               fontSize: 17,
@@ -699,7 +705,7 @@ class _AttentionSection extends StatelessWidget {
               child: Row(
                 children: [
                   InitialsAvatar(
-                    name: '${r['patient_name'] ?? 'Patient'}',
+                    name: '${r['patient_name'] ?? loc.reportsPatientFallback}',
                     size: 38,
                   ),
                   const SizedBox(width: 12),
@@ -708,7 +714,7 @@ class _AttentionSection extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '${r['patient_name'] ?? 'Patient'}',
+                          '${r['patient_name'] ?? loc.reportsPatientFallback}',
                           style: AppFonts.style(
                             fontWeight: FontWeight.w600,
                             fontSize: 15,

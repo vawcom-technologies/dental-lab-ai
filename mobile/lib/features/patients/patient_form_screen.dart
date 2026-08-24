@@ -4,6 +4,7 @@ import '../../core/api/api_client.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'patient_models.dart';
+import '../../core/l10n/app_localizations.dart';
 
 class PatientFormScreen extends StatefulWidget {
   const PatientFormScreen({super.key, required this.api});
@@ -70,7 +71,7 @@ class _PatientFormScreenState extends State<PatientFormScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(title: const Text('New patient')),
+      appBar: AppBar(title: Text(AppLocalizations.of(context).newPatientTitle)),
       body: Form(
         key: _formKey,
         child: ListView(
@@ -141,7 +142,7 @@ class _PatientFormScreenState extends State<PatientFormScreen> {
                                 color: Colors.white,
                               ),
                             )
-                          : const Text('Save patient'),
+                          : Text(AppLocalizations.of(context).patientsSavePatient),
                     ),
                   ),
                 ],

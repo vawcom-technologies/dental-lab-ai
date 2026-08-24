@@ -58,10 +58,11 @@ void main() {
   }
 
   // Launch images: wordmark on the clinical canvas color.
+  // Point size ≈ canvas; keep ~340pt so splash mark reads large on iPad.
   const launch = <(String, int)>[
-    ('LaunchImage.png', 260),
-    ('LaunchImage@2x.png', 520),
-    ('LaunchImage@3x.png', 780),
+    ('LaunchImage.png', 340),
+    ('LaunchImage@2x.png', 680),
+    ('LaunchImage@3x.png', 1020),
   ];
   final launchDir = Directory('ios/Runner/Assets.xcassets/LaunchImage.imageset');
   for (final (name, size) in launch) {
@@ -69,7 +70,7 @@ void main() {
     img.fill(canvas, color: img.ColorRgba8(0xE4, 0xEB, 0xF4, 0xFF));
     final scaled = img.copyResize(
       logo,
-      width: (size * 0.94).round(),
+      width: (size * 0.96).round(),
       interpolation: img.Interpolation.cubic,
     );
     img.compositeImage(

@@ -3,6 +3,7 @@ import 'package:flutter/scheduler.dart';
 
 import '../theme/app_theme.dart';
 import 'app_dialogs.dart';
+import '../l10n/app_localizations.dart';
 
 /// Let the current pointer / mouse-tracker update finish before mutating the
 /// overlay (show/pop dialog). Required on Flutter Web after file pickers and
@@ -43,9 +44,9 @@ Future<bool> _showConfirmDialog(
 Future<bool> confirmPatientMediaUpload(BuildContext context) {
   return _showConfirmDialog(
     context,
-    title: 'Upload item?',
-    body: 'Upload and save this item to the patient record?',
-    confirmLabel: 'Upload',
+    title: AppLocalizations.of(context).mediaUploadItem,
+    body: AppLocalizations.of(context).mediaUploadBody,
+    confirmLabel: AppLocalizations.of(context).mediaUploadConfirm,
   );
 }
 
@@ -53,10 +54,9 @@ Future<bool> confirmPatientMediaUpload(BuildContext context) {
 Future<bool> confirmPatientMediaDelete(BuildContext context) {
   return _showConfirmDialog(
     context,
-    title: 'Delete item?',
-    body:
-        'Are you sure you want to delete this item? This action cannot be undone.',
-    confirmLabel: 'Delete',
+    title: AppLocalizations.of(context).mediaDeleteItem,
+    body: AppLocalizations.of(context).mediaDeleteBody,
+    confirmLabel: AppLocalizations.of(context).commonDelete,
     confirmColor: AppColors.danger,
   );
 }
