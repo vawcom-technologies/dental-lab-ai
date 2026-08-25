@@ -31,7 +31,7 @@ Search the HTML for `PLACEHOLDER` (visually dashed). Replace every one with real
 
 | Placeholder | Where | Replace with |
 | --- | --- | --- |
-| `support@elitedent.example` | Support, Privacy, Impressum | Real support inbox (mailto must work) |
+| `support@elite-d.de` | Support, Privacy, Impressum | Real support inbox (mailto must work) |
 | `[LEGAL NAME — PLACEHOLDER]` | Privacy, Impressum | Registered company name (e.g. GmbH) |
 | `[STREET ADDRESS — PLACEHOLDER]` | Privacy, Impressum | Street + house number |
 | `[POSTCODE CITY — PLACEHOLDER]` | Privacy, Impressum | Postcode and city in Germany |

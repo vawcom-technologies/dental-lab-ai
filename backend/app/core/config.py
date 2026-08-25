@@ -12,8 +12,10 @@ class Settings(BaseSettings):
     password_reset_redirect_url: str = ""
 
     resend_api_key: str = ""
-    resend_from_email: str = "onboarding@resend.dev"
-    resend_welcome_to_email: str = "hamza.naxeed@gmail.com"
+    # Verified production domain. Override with RESEND_FROM_EMAIL.
+    resend_from_email: str = "Elite Dental Support <support@elite-d.de>"
+    # Admin inbox for new-signup alerts. Falls back to the From address if empty.
+    resend_welcome_to_email: str = ""
 
     # Cloudflare R2 (S3-compatible) for chat media
     r2_account_id: str = ""

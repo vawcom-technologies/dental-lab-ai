@@ -206,7 +206,7 @@ These files still exist and import `get_db` / old `User` models. They are **not*
 | File | Purpose | Packages |
 |------|---------|----------|
 | `profiles.py` | `fetch_profile(user_id)` from `public.profiles` via service role | `supabase` |
-| `email.py` | Resend HTML email on successful signup (admin notification) | `resend` |
+| `email.py` | Resend HTML email: signup (user + admin), verification, deletion, appointments | `resend` |
 | `notify.py` | Legacy in-app notification helpers (SQLAlchemy) | — |
 | `datev_export.py` | Legacy DATEV-like XML builder | — |
 
@@ -285,8 +285,8 @@ SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 PASSWORD_RESET_REDIRECT_URL=
 RESEND_API_KEY=
-RESEND_FROM_EMAIL=onboarding@resend.dev
-RESEND_WELCOME_TO_EMAIL=
+RESEND_FROM_EMAIL=Elite Dental Support <support@elite-d.de>
+RESEND_WELCOME_TO_EMAIL=support@elite-d.de
 ```
 
 | Variable | Used for |
@@ -295,9 +295,9 @@ RESEND_WELCOME_TO_EMAIL=
 | `SUPABASE_ANON_KEY` | User-facing Auth (signup/signin/reset/`get_user`) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Admin Auth + `profiles` reads/writes (bypasses RLS) |
 | `PASSWORD_RESET_REDIRECT_URL` | Optional redirect after reset email link |
-| `RESEND_API_KEY` | Send signup notification emails |
-| `RESEND_FROM_EMAIL` | From address (Resend sandbox: `onboarding@resend.dev`) |
-| `RESEND_WELCOME_TO_EMAIL` | Admin inbox for “new signup” alerts |
+| `RESEND_API_KEY` | Send transactional email (signup, verification, appointments) |
+| `RESEND_FROM_EMAIL` | From address on the verified domain (`support@elite-d.de`) |
+| `RESEND_WELCOME_TO_EMAIL` | Admin inbox for “new signup” alerts (defaults to the From address) |
 
 Mapped in code by `app/core/config.py` (`supabase_url`, `resend_api_key`, …).
 

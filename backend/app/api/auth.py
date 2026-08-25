@@ -19,7 +19,7 @@ from app.schemas import (
     UserOut,
 )
 from app.services.account_deletion import purge_user_account
-from app.services.email import send_welcome_email
+from app.services.email import send_account_deleted_email, send_welcome_email
 from app.services.profiles import fetch_profile, persist_signup_profile
 
 router = APIRouter()
@@ -447,6 +447,7 @@ def change_password(
 @router.delete("/me", response_model=AuthMessageOut)
 def delete_my_account(
     payload: DeleteAccountRequest,
+    background_tasks: BackgroundTasks,
     user: AuthUser = Depends(get_current_user),
 ):
     """
@@ -477,6 +478,11 @@ def delete_my_account(
         )
 
     purge_user_account(user.id)
+    background_tasks.add_task(
+        send_account_deleted_email,
+        user.name or "",
+        user.email or "",
+    )
     logger.info("delete_account ok user_id=%s", user.id)
     return AuthMessageOut(
         message="Your account and all associated data have been permanently deleted."

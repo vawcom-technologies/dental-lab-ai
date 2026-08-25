@@ -6,12 +6,13 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 
 from app.core.security import AuthUser, require_admin
 from app.core.supabase_client import get_supabase_admin
 from app.schemas import ProfileActionOut, ProfileListOut, ProfileOut
 from app.services.account_deletion import purge_user_account
+from app.services.email import send_account_verified_email
 
 router = APIRouter()
 logger = logging.getLogger("app.api.admin")
@@ -97,7 +98,11 @@ def list_active_users(
     return ProfileListOut(items=items, skip=skip, limit=limit, count=len(items))
 
 @router.patch("/users/{user_id}/verify", response_model=ProfileActionOut)
-def verify_user(user_id: str, _: AuthUser = Depends(require_admin)):
+def verify_user(
+    user_id: str,
+    background_tasks: BackgroundTasks,
+    _: AuthUser = Depends(require_admin),
+):
     """Set `verified=true` for an active (non-deleted) profile."""
     logger.debug("verify_user start user_id=%s", user_id)
     existing = _fetch_profile(user_id)
@@ -107,6 +112,8 @@ def verify_user(user_id: str, _: AuthUser = Depends(require_admin)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
         )
+
+    already_verified = bool(existing.get("verified") is True)
 
     try:
         result = (
@@ -130,6 +137,12 @@ def verify_user(user_id: str, _: AuthUser = Depends(require_admin)):
         )
 
     profile = _row_to_profile(rows[0])
+    if not already_verified:
+        background_tasks.add_task(
+            send_account_verified_email,
+            profile.name or "",
+            profile.email or "",
+        )
     logger.debug("verify_user ok user_id=%s", user_id)
     return ProfileActionOut(message="User marked as verified", user=profile)
 

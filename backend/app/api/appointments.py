@@ -17,7 +17,11 @@ from app.schemas_appointments import (
     AppointmentUpdate,
 )
 from app.services import patient_access as pa
-from app.services.email import send_appointment_confirmation, send_appointment_update
+from app.services.email import (
+    send_appointment_cancelled,
+    send_appointment_confirmation,
+    send_appointment_update,
+)
 from app.services.notify import actor_label, notify_pair
 
 router = APIRouter()
@@ -413,6 +417,7 @@ def update_appointment(
 )
 def delete_appointment(
     appointment_id: str,
+    background_tasks: BackgroundTasks,
     user: AuthUser = Depends(get_current_user),
 ):
     existing = _fetch_appointment(appointment_id)
@@ -428,6 +433,17 @@ def delete_appointment(
         ).execute()
     except Exception as exc:
         raise pa.db_error(exc) from exc
+
+    patient_email = str(patient.get("email") or "").strip()
+    if patient_email:
+        background_tasks.add_task(
+            send_appointment_cancelled,
+            patient_email,
+            _patient_display_name(patient),
+            existing.get("start_time") or "",
+            existing.get("end_time") or "",
+            existing.get("description") or "",
+        )
 
     who = actor_label(user.id)
     name = _patient_display_name(patient)
