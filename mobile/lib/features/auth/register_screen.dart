@@ -140,7 +140,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  loc.registerTitle,
+                  'Create account',
+                  
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: 24,

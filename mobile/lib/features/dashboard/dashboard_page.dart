@@ -282,11 +282,11 @@ class _DashboardPageState extends State<DashboardPage> {
                     ? '${loc.navMessages} ($_unreadMessages)'
                     : loc.navMessages,
               ),
-              if (widget.api.isDentist)
+              if (widget.api.isAdmin)
                 AppButtons.secondary(
                   onPressed: () =>
                       widget.onNavigate(AppNavItem.laboratories),
-                  icon: Icons.biotech_outlined,
+                  icon: Icons.manage_accounts_outlined,
                   label: loc.navLaboratories,
                 ),
             ],

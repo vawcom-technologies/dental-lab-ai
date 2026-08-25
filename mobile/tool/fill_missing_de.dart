@@ -45,6 +45,8 @@ const glossary = <String, String>{
   'Patients': 'Patienten',
   'Laboratory': 'Labor',
   'Laboratories': 'Labore',
+  'System Users': 'Systembenutzer',
+  'Manage System User Profiles': 'Systembenutzerprofile verwalten',
   'Dentist': 'Zahnarzt',
   'Shade Detection': 'Farbbestimmung',
   'Smile Preview': 'Lächeln-Vorschau',

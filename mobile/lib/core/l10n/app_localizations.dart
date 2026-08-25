@@ -79,6 +79,7 @@ class AppLocalizations {
   String get phone => _t('auth.phone');
   String get confirmPassword => _t('auth.confirmPassword');
   String get roleDentist => _t('auth.roleDentist');
+  String get roleAdmin => _t('auth.roleAdmin');
   String get roleLaboratory => _t('auth.roleLaboratory');
   @Deprecated('Use roleLaboratory')
   String get roleLab => roleLaboratory;
@@ -1024,7 +1025,7 @@ class AppLocalizations {
     'nav.smilePreview': 'Smile Preview',
     'nav.scanBody': 'Scan Body',
     'nav.messages': 'Messages',
-    'nav.laboratories': 'Laboratories',
+    'nav.laboratories': 'System Users',
     'nav.notifications': 'Notifications',
     'nav.reports': 'Reports',
     'nav.settings': 'Settings',
@@ -1081,6 +1082,7 @@ class AppLocalizations {
     'auth.phone': 'Phone *',
     'auth.confirmPassword': 'Confirm password',
     'auth.roleDentist': 'Dentist',
+    'auth.roleAdmin': 'Admin',
     'auth.roleLaboratory': 'Laboratory',
     'auth.roleLab': 'Laboratory',
     'auth.alreadyHaveAccount': 'Already have an account? Sign in',
@@ -1229,8 +1231,8 @@ class AppLocalizations {
     'patients.insurance': 'Health insurance',
     'patients.create': 'Create patient',
     'patients.filterAll': 'All',
-    'labs.title': 'Laboratories',
-    'labs.subtitle': 'Manage laboratory profiles — verify or remove users',
+    'labs.title': 'System Users',
+    'labs.subtitle': 'Manage System User Profiles',
     'labs.searchHint': 'Search by name, email, clinic…',
     'labs.filterUnverified': 'Unverified',
     'labs.filterVerified': 'Verified',
@@ -1737,7 +1739,7 @@ class AppLocalizations {
     'nav.smilePreview': 'Lächeln-Vorschau',
     'nav.scanBody': 'Scanbody',
     'nav.messages': 'Nachrichten',
-    'nav.laboratories': 'Labore',
+    'nav.laboratories': 'Systembenutzer',
     'nav.notifications': 'Benachrichtigungen',
     'nav.reports': 'Berichte',
     'nav.settings': 'Einstellungen',
@@ -1801,6 +1803,7 @@ class AppLocalizations {
     'auth.phone': 'Telefon *',
     'auth.confirmPassword': 'Passwort bestätigen',
     'auth.roleDentist': 'Zahnarzt',
+    'auth.roleAdmin': 'Admin',
     'auth.roleLaboratory': 'Labor',
     'auth.roleLab': 'Labor',
     'auth.alreadyHaveAccount': 'Bereits ein Konto? Anmelden',
@@ -1955,8 +1958,8 @@ class AppLocalizations {
     'patients.insurance': 'Krankenversicherung',
     'patients.create': 'Patient anlegen',
     'patients.filterAll': 'Alle',
-    'labs.title': 'Labore',
-    'labs.subtitle': 'Laborprofile verwalten — prüfen oder entfernen',
+    'labs.title': 'Systembenutzer',
+    'labs.subtitle': 'Systembenutzerprofile verwalten',
     'labs.searchHint': 'Suche nach Name, E-Mail, Praxis…',
     'labs.filterUnverified': 'Ungeprüft',
     'labs.filterVerified': 'Geprüft',

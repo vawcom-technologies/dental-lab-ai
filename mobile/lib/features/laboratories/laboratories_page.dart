@@ -39,7 +39,9 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
         if (mounted) AppSnackBars.error(context, msg);
       });
     };
-    _controller.load();
+    if (widget.api.isAdmin) {
+      _controller.load();
+    }
   }
 
   @override
@@ -157,6 +159,18 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
+    if (!widget.api.isAdmin) {
+      return Center(
+        child: Text(
+          loc.errNoPermission,
+          style: AppFonts.style(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: AppColors.navy,
+          ),
+        ),
+      );
+    }
     return ListenableBuilder(
       listenable: _controller,
       builder: (context, _) {
@@ -179,7 +193,7 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 PageHeader(
-                  icon: Icons.biotech_outlined,
+                  icon: Icons.manage_accounts_outlined,
                   title: loc.labsTitle,
                   subtitle: loc.labsSubtitle,
                   chromeActions: [
@@ -344,7 +358,7 @@ class _EmptyState extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             NeoIconBadge(
-              icon: Icons.biotech_outlined,
+              icon: Icons.manage_accounts_outlined,
               size: 56,
               iconSize: 26,
               color: AppColors.muted,
@@ -791,7 +805,7 @@ class _LabAvatar extends StatelessWidget {
         border: Border.all(color: Colors.white.withValues(alpha: 0.75)),
       ),
       child: initials == '·'
-          ? Icon(Icons.biotech_outlined, color: fg, size: 26)
+          ? Icon(Icons.person_outline, color: fg, size: 26)
           : Text(
               initials,
               style: AppFonts.style(

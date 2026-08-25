@@ -59,6 +59,7 @@ class ApiClient {
   String? get refreshToken => _refreshToken;
   String? get userId => _userId;
   String? get role => _role;
+  bool get isAdmin => AppRoles.isAdmin(_role);
   bool get isDentist => AppRoles.isDentist(_role);
   bool get isLaboratory => AppRoles.isLaboratory(_role);
   String? get userName => _name;

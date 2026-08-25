@@ -186,7 +186,7 @@ class AppSidebar extends StatelessWidget {
                           if (showLaboratories)
                             _item(
                               AppNavItem.laboratories,
-                              Icons.biotech_outlined,
+                              Icons.manage_accounts_outlined,
                               s.navLaboratories,
                             ),
                           _item(

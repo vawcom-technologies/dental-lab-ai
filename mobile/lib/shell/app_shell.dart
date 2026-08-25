@@ -171,6 +171,13 @@ class _AppShellState extends State<AppShell> {
   void _go(AppNavItem item) {
     // Scan body parked — restore when needed.
     if (item == AppNavItem.scanBody) return;
+    if (item == AppNavItem.laboratories && !widget.api.isAdmin) {
+      AppSnackBars.error(
+        context,
+        AppLocalizations.of(context).errNoPermission,
+      );
+      item = AppNavItem.dashboard;
+    }
     if (item == _active) return;
     setState(() {
       _active = item;
@@ -253,7 +260,7 @@ class _AppShellState extends State<AppShell> {
                         },
                         messageBadge: _messageBadge,
                         notificationBadge: _notificationBadge,
-                        showLaboratories: widget.api.isDentist,
+                        showLaboratories: widget.api.isAdmin,
                       ),
                       Expanded(
                         child: SafeArea(
@@ -373,6 +380,11 @@ class _AppShellState extends State<AppShell> {
           patientSession: _patients,
         );
       case AppNavItem.laboratories:
+        if (!widget.api.isAdmin) {
+          return _ForbiddenRedirect(
+            onLeave: () => _go(AppNavItem.dashboard),
+          );
+        }
         return LaboratoriesPage(
           api: widget.api,
           onMessageLab: (lab) async {
@@ -395,5 +407,45 @@ class _AppShellState extends State<AppShell> {
       case AppNavItem.settings:
         return SettingsPage(api: widget.api);
     }
+  }
+}
+
+/// Shown when a non-admin reaches System Users, then redirected away (403).
+class _ForbiddenRedirect extends StatefulWidget {
+  const _ForbiddenRedirect({required this.onLeave});
+
+  final VoidCallback onLeave;
+
+  @override
+  State<_ForbiddenRedirect> createState() => _ForbiddenRedirectState();
+}
+
+class _ForbiddenRedirectState extends State<_ForbiddenRedirect> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      AppSnackBars.error(
+        context,
+        AppLocalizations.of(context).errNoPermission,
+      );
+      widget.onLeave();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+    return Center(
+      child: Text(
+        loc.errNoPermission,
+        style: AppFonts.style(
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+          color: AppColors.navy,
+        ),
+      ),
+    );
   }
 }
