@@ -25,3 +25,10 @@ mobile/ios/Pods/
 # Secrets
 **/.env
 **/*.pem
+
+# ML model weights (download separately — see backend/weights/*/README.md)
+backend/weights/**/*.pt
+backend/weights/**/*.pth
+
+# Vendored upstream ML repos (clone via scripts/run_kaist_pilot.py --setup)
+backend/vendor/individual_tooth_segmentation/

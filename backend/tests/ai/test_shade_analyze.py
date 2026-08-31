@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import numpy as np
 
-from app.ai.shade import VITA_SHADES, _rgb_to_lab, match_lab_nearest
+from app.ai.shade import (
+    GINGIVA_SHADES,
+    VITA_SHADES,
+    _rgb_to_lab,
+    match_lab_nearest,
+)
 from app.ai.shade_analyze import analyze_shade_from_rgb
 from app.ai.shade_zones import split_tooth_zones, sample_zone_lab
 
@@ -24,6 +29,22 @@ class TestMatchLabNearest:
         deltas = [m["delta_e_2000"] for m in result["top_matches"]]
         assert deltas == sorted(deltas)
         assert result["top_matches"][0]["shade"] == result["shade"]
+
+    def test_default_palette_never_returns_gingiva_shade(self):
+        lab = _rgb_to_lab(np.asarray(GINGIVA_SHADES["G3"], dtype=np.float64))
+        result = match_lab_nearest(lab)
+        assert result["shade"] in VITA_SHADES
+        assert result["shade"] not in GINGIVA_SHADES
+
+    def test_gingiva_palette_matches_g_shades_only(self):
+        assert set(GINGIVA_SHADES) == {"G1", "G2", "G3", "G4", "G5"}
+        assert GINGIVA_SHADES["G5"][0] < GINGIVA_SHADES["G4"][0]
+        for shade, rgb in GINGIVA_SHADES.items():
+            lab = _rgb_to_lab(np.asarray(rgb, dtype=np.float64))
+            result = match_lab_nearest(lab, palette=GINGIVA_SHADES)
+            assert result["shade"] == shade
+            assert result["delta_e_2000"] < 0.05
+            assert all(m["shade"] in GINGIVA_SHADES for m in result["top_matches"])
 
 
 class TestAnalyzeShadeFromRgb:
@@ -49,6 +70,7 @@ class TestAnalyzeShadeFromRgb:
             assert z["override_shade"] is None
             assert z["effective_shade"] == z["detected_shade"]
             assert z["delta_e_2000"] is not None
+        assert result.get("gum") is None
 
     def test_detection_output_never_sets_override(self):
         h, w = 360, 480
@@ -59,6 +81,32 @@ class TestAnalyzeShadeFromRgb:
         for tooth in out["teeth"]:
             for zone in tooth["zones"].values():
                 assert zone["override_shade"] is None
+        assert out.get("gum") is None
+
+    def test_smile_with_gum_shelf_returns_gingiva_match(self):
+        h, w = 400, 600
+        img = np.zeros((h, w, 3), dtype=np.uint8)
+        img[:] = (40, 28, 26)
+        gum = np.array([180, 110, 120], dtype=np.uint8)
+        img[int(h * 0.30) : int(h * 0.42), int(w * 0.12) : int(w * 0.88)] = gum
+        enamel = np.array(VITA_SHADES["A2"], dtype=np.uint8)
+        for x0 in (180, 250, 320, 390):
+            img[int(h * 0.42) : int(h * 0.62), x0 : x0 + 50] = enamel
+
+        result = analyze_shade_from_rgb(img)
+        gum_out = result.get("gum")
+        assert gum_out is not None
+        assert gum_out["detected_shade"] in GINGIVA_SHADES
+        assert gum_out["sampled_rgb"] is not None
+        assert len(gum_out["sampled_rgb"]) == 3
+        assert gum_out["sampled_rgb"][0] > gum_out["sampled_rgb"][1]
+        assert gum_out["delta_e_2000"] is not None
+        assert 0.05 <= gum_out["confidence"] <= 0.97
+        for tooth in result["teeth"]:
+            for zone in tooth["zones"].values():
+                shade = zone["detected_shade"]
+                if shade is not None:
+                    assert shade in VITA_SHADES
 
 
 class TestZoneSampleThenMatch:

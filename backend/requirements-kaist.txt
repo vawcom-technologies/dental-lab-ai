@@ -1,0 +1,17 @@
+# Optional deps for KAIST individual tooth segmentation.
+# Install: pip install -r requirements-kaist.txt
+# See weights/kaist/README.md
+#
+# Upstream pins torch==2.0.1 (no wheels for Python 3.12+). Newer torch
+# loads their checkpoint fine — use >=2.2 for py3.12.
+
+torch>=2.2.0,<3
+torchvision>=0.17.0,<1
+numpy<2
+opencv-python
+matplotlib
+pyyaml
+scikit-fmm>=2025.1.29
+scikit-image>=0.24.0
+scipy
+Pillow>=10.0.0

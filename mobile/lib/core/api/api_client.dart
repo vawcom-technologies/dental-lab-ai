@@ -906,7 +906,7 @@ class ApiClient {
     return _decodeMap(res.body);
   }
 
-  Future<Map<String, dynamic>> saveShadeDetectionAnalysis({
+    Future<Map<String, dynamic>> saveShadeDetectionAnalysis({
     required String shadeId,
     required List<Map<String, dynamic>> teeth,
     int selectedToothIndex = 0,
@@ -916,6 +916,7 @@ class ApiClient {
     double? confidence,
     bool overridden = false,
     String? finalShade,
+    Map<String, dynamic>? gum,
   }) async {
     final res = await _http.patch(
       Uri.parse('$baseUrl/api/shade-detections/$shadeId'),
@@ -929,6 +930,7 @@ class ApiClient {
         'confidence': confidence,
         'overridden': overridden,
         'final_shade': finalShade,
+        'gum': gum,
       }),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));

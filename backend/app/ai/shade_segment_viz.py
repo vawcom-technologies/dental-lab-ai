@@ -11,7 +11,7 @@ from typing import Sequence
 
 import numpy as np
 
-from app.ai.shade_segment import SegmentConfig, ToothMask, detect_teeth
+from app.ai.shade_segment import SegmentConfig, ToothMask, detect_teeth, tooth_display_label
 
 # Distinct instance colors (RGB) — cycle if > len
 _PALETTE = [
@@ -70,7 +70,7 @@ def render_instance_overlay(
         if draw_labels and np.any(mask):
             ys, xs = np.nonzero(mask)
             cx, cy = int(xs.mean()), int(max(0, ys.min() - 8))
-            label = f"T{t.tooth_index + 1}"
+            label = tooth_display_label(t)
             if t.rejected:
                 label += f"✗{t.reject_reason or '?'}"
             cv2.putText(

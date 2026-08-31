@@ -265,6 +265,14 @@ class ShadeAnalyzeOut(BaseModel):
     note: str
     image_width: int | None = None
     image_height: int | None = None
+    # Which segmenter produced the outlines (for debugging “looks like classical”).
+    segment_backend: str | None = None
+    segment_backend_requested: str | None = None
+    segment_fallback: bool | None = None
+    segment_model_id: str | None = None
+    segment_tooth_count: int | None = None
+    segment_accepted_count: int | None = None
+    gum: dict | None = None
 
 
 class ScanValidateOut(BaseModel):

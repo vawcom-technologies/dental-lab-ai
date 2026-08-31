@@ -652,6 +652,9 @@ class AppLocalizations {
   String get shadeAllVita => _t('shade.allVita');
   String get shadeTargetShades => _t('shade.targetShades');
   String get shadeToothSamples => _t('shade.toothSamples');
+  String get shadeGumShades => _t('shade.gumShades');
+  String get shadeOverrideTeeth => _t('shade.overrideTeeth');
+  String get shadeOverrideGum => _t('shade.overrideGum');
 
   // ── Dashboard leftovers ──────────────────────────────────────────────────
   String dashPatientsOnFile(int n) => n == 1
@@ -776,11 +779,15 @@ class AppLocalizations {
   String shadeSaveOverrideShade(String shade) =>
       _t('shade.saveOverrideShade').replaceAll('{shade}', shade);
   String get shadeResult => _t('shade.result');
+  String get shadeToothSelection => _t('shade.toothSelection');
   String get shadeOverride => _t('shade.override');
   String shadeOverrideSelected(String shade) =>
       _t('shade.overrideSelected').replaceAll('{shade}', shade);
   String get shadeSelected => _t('shade.selected');
   String get shadeUploadToothFirst => _t('shade.uploadToothFirst');
+  String get shadeGumShade => _t('shade.gumShade');
+  String get shadeGumNotVita => _t('shade.gumNotVita');
+  String get shadeNoGumDetected => _t('shade.noGumDetected');
 
   // ── Smile leftovers ──────────────────────────────────────────────────────
   String get smilePageSubtitle => _t('smile.pageSubtitle');
@@ -1570,6 +1577,9 @@ class AppLocalizations {
     'shade.allVita': 'All VITA Classical shades',
     'shade.targetShades': 'Target shades',
     'shade.toothSamples': 'Tooth samples',
+    'shade.gumShades': 'Gum shades',
+    'shade.overrideTeeth': 'Teeth',
+    'shade.overrideGum': 'Gum',
     'auth.passwordUpdatedRelogin': 'Password updated. Please log in again.',
     'dash.patientsOnFile': '{n} patients on file',
     'dash.patientsOnFileOne': '1 patient on file',
@@ -1649,11 +1659,15 @@ class AppLocalizations {
     'shade.saveOverride': 'Save override',
     'shade.saveOverrideShade': 'Save override ({shade})',
     'shade.result': 'Result',
+    'shade.toothSelection': 'Tooth Selection',
     'shade.override': 'Override',
     'shade.overrideSelected': 'Override selected: {shade}',
     'shade.selected': 'Selected',
     'shade.uploadToothFirst':
         'Upload a tooth photo first so AI can detect a shade.',
+    'shade.gumShade': 'Gum shade',
+    'shade.gumNotVita': 'Not a VITA tooth shade',
+    'shade.noGumDetected': 'No gum detected',
     'smile.pageSubtitle':
         'Pick a tooth shape · place it on the patient photo · save to case',
     'smile.loadSmilePhoto': 'Load a patient smile photo',
@@ -2300,6 +2314,9 @@ class AppLocalizations {
     'shade.allVita': 'Alle VITA Classical-Farben',
     'shade.targetShades': 'Zielfarben',
     'shade.toothSamples': 'Zahnproben',
+    'shade.gumShades': 'Zahnfleischfarben',
+    'shade.overrideTeeth': 'Zähne',
+    'shade.overrideGum': 'Zahnfleisch',
     'auth.passwordUpdatedRelogin': 'Passwort aktualisiert. Bitte erneut anmelden.',
     'dash.patientsOnFile': '{n} Patienten in der Akte',
     'dash.patientsOnFileOne': '1 Patient in der Akte',
@@ -2384,11 +2401,15 @@ class AppLocalizations {
     'shade.saveOverride': 'Korrektur speichern',
     'shade.saveOverrideShade': 'Korrektur speichern ({shade})',
     'shade.result': 'Ergebnis',
+    'shade.toothSelection': 'Zahnauswahl',
     'shade.override': 'Korrigieren',
     'shade.overrideSelected': 'Korrektur gewählt: {shade}',
     'shade.selected': 'Ausgewählt',
     'shade.uploadToothFirst':
         'Laden Sie zuerst ein Zahnfoto hoch, damit die KI eine Farbe erkennen kann.',
+    'shade.gumShade': 'Zahnfleischfarbe',
+    'shade.gumNotVita': 'Keine VITA-Zahnfarbe',
+    'shade.noGumDetected': 'Kein Zahnfleisch erkannt',
     'smile.pageSubtitle':
         'Zahnform wählen · auf dem Patientenfoto platzieren · im Fall speichern',
     'smile.loadSmilePhoto': 'Patienten-Lächelnfoto laden',

@@ -65,6 +65,8 @@ class _ShadePageState extends State<ShadePage> {
   /// All saved shade-detection images for the selected patient (full history).
   List<Map<String, dynamic>> _allShadeItems = [];
   String? _shadeDetectionId;
+  /// Case-level gingiva match from the last analyze pass (not a VITA tooth shade).
+  Map<String, dynamic>? _gum;
 
   // Per-tooth / per-zone analysis (added onto existing UI)
   List<Map<String, dynamic>> _teeth = [];
@@ -84,6 +86,10 @@ class _ShadePageState extends State<ShadePage> {
   Size _analysisImageSize = Size.zero;
   /// Shade picked in Manual Override but not yet committed via zone Override.
   String? _pendingShade;
+  /// Gum shade picked in Manual Override but not yet committed via gum Override.
+  String? _pendingGumShade;
+  /// 0 = tooth shades, 1 = gum shades on the Manual Override card.
+  int _overrideTab = 0;
   /// Result-card overall Top match pick — Save override without zone Override.
   bool _overallShadePick = false;
 
@@ -223,7 +229,9 @@ class _ShadePageState extends State<ShadePage> {
       'overall_top_matches': cloneShadeMaps(_overallTopMatches),
       'final_shade': _finalShade,
       'pending_shade': _pendingShade,
+      'pending_gum_shade': _pendingGumShade,
       'overall_shade_pick': _overallShadePick,
+      'gum': _gum == null ? null : Map<String, dynamic>.from(_gum!),
     };
   }
 
@@ -272,6 +280,7 @@ class _ShadePageState extends State<ShadePage> {
       'is_analysis': _teeth.isNotEmpty,
       'tooth_count': _teeth.length,
       'teeth': teethSnapshots,
+      'gum': _gum == null ? null : Map<String, dynamic>.from(_gum!),
       'patient': _patient == null ? null : Map<String, dynamic>.from(_patient!),
       'case': _case == null ? null : Map<String, dynamic>.from(_case!),
       'workspace': _workspaceSnapshot(),
@@ -322,7 +331,9 @@ class _ShadePageState extends State<ShadePage> {
         : <Map<String, dynamic>>[];
     _finalShade = ws['final_shade'] as String?;
     _pendingShade = ws['pending_shade'] as String?;
+    _pendingGumShade = ws['pending_gum_shade'] as String?;
     _overallShadePick = ws['overall_shade_pick'] == true;
+    _gum = _parseGum(ws['gum']);
     _exitOutlineEdit(clearStatus: false);
     _photoTransformController.value = Matrix4.identity();
   }
@@ -387,7 +398,9 @@ class _ShadePageState extends State<ShadePage> {
         _overallTopMatches = [];
         _finalShade = entry['shade'] as String?;
         _pendingShade = null;
+        _pendingGumShade = null;
         _overallShadePick = false;
+        _gum = _parseGum(entry['gum'] ?? entry['analysis']);
         _exitOutlineEdit(clearStatus: false);
         _photoTransformController.value = Matrix4.identity();
       }
@@ -447,6 +460,22 @@ class _ShadePageState extends State<ShadePage> {
       }
       return m;
     }).toList();
+  }
+
+  Map<String, dynamic>? _parseGum(dynamic raw) {
+    if (raw is! Map) return null;
+    final m = Map<String, dynamic>.from(raw);
+    // Saved analysis JSONB may wrap gum one level down.
+    if (m['detected_shade'] == null &&
+        m['sampled_rgb'] == null &&
+        m['override_shade'] == null) {
+      final nested = m['gum'];
+      if (nested is Map) {
+        return _parseGum(nested);
+      }
+      return null;
+    }
+    return m;
   }
 
   /// Result hero shade: override wins over AI detected.
@@ -597,6 +626,7 @@ class _ShadePageState extends State<ShadePage> {
         _isolatedToothIndex = index;
       }
       _focusZone = nextZone;
+      _overrideTab = 0;
       if (!same) {
         _pendingShade = null;
         _overallShadePick = false;
@@ -722,8 +752,58 @@ class _ShadePageState extends State<ShadePage> {
     _persist(acceptAi: false);
   }
 
+  void _applyGumShadeChoice(String shade) {
+    if (shade.isEmpty || !kGingivaShades.contains(shade)) return;
+    setState(() {
+      _pendingGumShade = shade;
+      _overrideTab = 1;
+      _saveStatus = null;
+      _error = null;
+    });
+    _toast(
+      '$shade selected — tap Override on Gum shade to apply',
+      bg: AppColors.navy,
+    );
+  }
+
+  void _commitPendingGumOverride() {
+    final shade = _pendingGumShade;
+    if (shade == null || !kGingivaShades.contains(shade)) {
+      _toast('Choose a gum shade first, then tap Override');
+      return;
+    }
+    setState(() {
+      _gum = Map<String, dynamic>.from(_gum ?? {});
+      final detected = gumDetectedShade(_gum);
+      _gum!['override_shade'] = (detected == shade) ? null : shade;
+      _pendingGumShade = null;
+      _saveStatus = null;
+    });
+    _toast('Gum shade → $shade', bg: AppColors.success);
+    _persist(acceptAi: false, gumOnly: true);
+  }
+
+  void _focusGumOverrideTab() {
+    if (_editOutlineMode || _busy) return;
+    if (_overrideTab != 1) setState(() => _overrideTab = 1);
+  }
+
+  void _beginGumOverride() {
+    if (_editOutlineMode || _busy) return;
+    if (_overrideTab != 1) setState(() => _overrideTab = 1);
+    if (_pendingGumShade != null) {
+      _commitPendingGumOverride();
+      return;
+    }
+    _toast(
+      'Choose a gum shade (G1–G5), then tap Override',
+      bg: AppColors.navy,
+    );
+  }
+
   void _beginZoneOverride(int index, String zone) {
     if (_editOutlineMode || _busy) return;
+    if (_overrideTab != 0) setState(() => _overrideTab = 0);
     if (_pendingShade != null) {
       _commitPendingOverride(index: index, zone: zone);
       return;
@@ -1086,7 +1166,10 @@ class _ShadePageState extends State<ShadePage> {
       _overallTopMatches = [];
       _finalShade = null;
       _pendingShade = null;
+      _pendingGumShade = null;
+      _overrideTab = 0;
       _overallShadePick = false;
+      _gum = null;
       _exitOutlineEdit(clearStatus: false);
       _photoTransformController.value = Matrix4.identity();
       _error = null;
@@ -1476,9 +1559,16 @@ class _ShadePageState extends State<ShadePage> {
         _confidence = 0;
         _topMatches = [];
         _overallTopMatches = [];
+        _gum = null;
+        _pendingGumShade = null;
       });
       if (runAi) {
         await _applySuggestFromBytes(baked.bytes, name);
+      } else if (mounted) {
+        final gum = _parseGum(item['analysis']);
+        if (gum != null) {
+          setState(() => _gum = gum);
+        }
       }
     } catch (e) {
       if (!mounted) return;
@@ -1532,6 +1622,9 @@ class _ShadePageState extends State<ShadePage> {
       final ih = (result['image_height'] as num?)?.toDouble() ?? 0;
       _analysisImageSize = (iw > 0 && ih > 0) ? Size(iw, ih) : Size.zero;
       _finalShade = null;
+      _gum = _parseGum(result['gum']);
+      _pendingGumShade = null;
+      _overrideTab = 0;
       _syncUiFromSelection();
       _saveStatus = teeth.isEmpty
           ? 'No teeth detected — try another photo'
@@ -1606,7 +1699,11 @@ class _ShadePageState extends State<ShadePage> {
     }
   }
 
-  Future<void> _persist({required bool acceptAi}) async {
+  Future<void> _persist({
+    required bool acceptAi,
+    bool skipPendingToothCheck = false,
+    bool gumOnly = false,
+  }) async {
     if (_patient == null) {
       setState(
         () => _error = _patients.isEmpty
@@ -1620,11 +1717,14 @@ class _ShadePageState extends State<ShadePage> {
       return;
     }
     final finalShade = acceptAi ? _detected : _selected;
-    if (finalShade == '—' || !kAllowedShades.contains(finalShade)) {
+    if (!gumOnly &&
+        (finalShade == '—' || !kAllowedShades.contains(finalShade))) {
       setState(() => _error = 'Pick a shade before saving.');
       return;
     }
-    if (!acceptAi &&
+    if (!gumOnly &&
+        !skipPendingToothCheck &&
+        !acceptAi &&
         _pendingShade != null &&
         _pendingShade != '—' &&
         _selectedTooth != null) {
@@ -1641,7 +1741,8 @@ class _ShadePageState extends State<ShadePage> {
 
     // Stamp Accept AI / override onto the target zone before save.
     // Overall Top-match picks apply to the body (middle) zone of the focused tooth.
-    final tooth = _selectedTooth;
+    // Gum-only persist must not restamp tooth zones.
+    final tooth = gumOnly ? null : _selectedTooth;
     if (tooth != null) {
       final zoneName =
           (!acceptAi && _overallShadePick) ? 'middle' : _focusZone;
@@ -1665,6 +1766,13 @@ class _ShadePageState extends State<ShadePage> {
       _selected = finalShade;
     }
 
+    if (_gum != null) {
+      if (acceptAi) {
+        _gum!['override_shade'] = null;
+      }
+    }
+    if (acceptAi) _pendingGumShade = null;
+
     final overridden = !acceptAi && finalShade != _detected;
     setState(() {
       _saving = true;
@@ -1673,7 +1781,7 @@ class _ShadePageState extends State<ShadePage> {
     });
     try {
       Map<String, dynamic> saved;
-      final caseId = _currentCaseId();
+      final caseId = gumOnly ? null : _currentCaseId();
       final shadeId = _shadeDetectionId?.trim() ?? '';
       if (caseId != null) {
         if (_teeth.isNotEmpty) {
@@ -1707,42 +1815,52 @@ class _ShadePageState extends State<ShadePage> {
               ? 'session-${DateTime.now().millisecondsSinceEpoch}'
               : shadeId,
           'summary_shade': finalShade,
-          'has_override': overridden,
+          'has_override': overridden || gumIsOverridden(_gum),
         };
         if (shadeId.isNotEmpty) {
           try {
+            final summary =
+                kAllowedShades.contains(finalShade) ? finalShade : null;
             saved = await widget.api.saveShadeDetectionAnalysis(
               shadeId: shadeId,
               teeth: _teethPayloadForSave(),
               selectedToothIndex: _selectedToothIndex ?? 0,
-              summaryShade: finalShade,
-              hasOverride: overridden,
+              summaryShade: summary,
+              hasOverride: overridden || gumIsOverridden(_gum),
               detectedShade: _detected == '—' ? null : _detected,
               confidence: _confidence > 0 ? _confidence : null,
               overridden: overridden,
-              finalShade: finalShade,
+              finalShade: summary,
+              gum: _gum,
             );
           } catch (_) {
             // Session save still proceeds if the detection row has no analysis column yet.
           }
         }
-        _selected = finalShade;
+        if (!gumOnly) _selected = finalShade;
       }
       if (!mounted) return;
       setState(() {
-        _finalShade = finalShade;
-        _selected = finalShade;
-        _pendingShade = null;
-        _overallShadePick = false;
+        if (!gumOnly) {
+          _finalShade = finalShade;
+          _selected = finalShade;
+          _pendingShade = null;
+          _overallShadePick = false;
+        }
+        _pendingGumShade = acceptAi ? null : _pendingGumShade;
         _upsertSessionEntry(
           savedId: saved['id'] ?? shadeId,
-          summaryShade: saved['summary_shade']?.toString() ?? finalShade,
-          hasOverride: overridden || saved['has_override'] == true,
+          summaryShade: gumOnly
+              ? null
+              : (saved['summary_shade']?.toString() ?? finalShade),
+          hasOverride: overridden ||
+              gumIsOverridden(_gum) ||
+              saved['has_override'] == true,
         );
         _saveStatus = null;
         _error = null;
       });
-      if (mounted) {
+      if (mounted && !gumOnly) {
         final who =
             '${_patient?['first_name'] ?? ''} ${_patient?['last_name'] ?? ''}'
                 .trim();
@@ -2089,6 +2207,8 @@ class _ShadePageState extends State<ShadePage> {
                                   selected: _selected,
                                   finalShade: _finalShade,
                                   overallTopMatches: _overallTopMatches,
+                                  gum: _gum,
+                                  pendingGumShade: _pendingGumShade,
                                   saving: _saving,
                                   swatch: shadeSwatch,
                                   zoneEffective: _zoneEffective,
@@ -2103,6 +2223,8 @@ class _ShadePageState extends State<ShadePage> {
                                   },
                                   onDeleteTooth: _deleteSelectedTooth,
                                   onBeginZoneOverride: _beginZoneOverride,
+                                  onSelectGum: _focusGumOverrideTab,
+                                  onBeginGumOverride: _beginGumOverride,
                                   onOverallShade: (s) =>
                                       _applyShadeChoice(s, overall: true),
                                   onAcceptAi: () => _persist(acceptAi: true),
@@ -2195,6 +2317,12 @@ class _ShadePageState extends State<ShadePage> {
                                     onShadeChoice: _applyShadeChoice,
                                     onOverallShadeChoice: (s) =>
                                         _applyShadeChoice(s, overall: true),
+                                    selectedGum: _pendingGumShade ??
+                                        gumEffectiveShade(_gum),
+                                    onGumShadeChoice: _applyGumShadeChoice,
+                                    tab: _overrideTab,
+                                    onTabChanged: (t) =>
+                                        setState(() => _overrideTab = t),
                                   ),
                                 ),
                               ),

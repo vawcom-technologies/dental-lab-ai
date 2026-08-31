@@ -30,6 +30,9 @@ const kTargetShades = ['M1', 'M2', 'M3'];
 
 const kAllowedShades = [...kVitaShades, ...kTargetShades];
 
+/// VITA Gingiva-style G1–G5 — not mixed into enamel matching / tooth chips.
+const kGingivaShades = ['G1', 'G2', 'G3', 'G4', 'G5'];
+
 /// Mid-body mean RGB — same source as backend `VITA_SHADES` / swatches.
 const kShadeRgb = <String, List<int>>{
   'A1': [210, 199, 169],
@@ -53,6 +56,14 @@ const kShadeRgb = <String, List<int>>{
   'M3': [229, 220, 204],
 };
 
+const kGingivaRgb = <String, List<int>>{
+  'G1': [232, 186, 184],
+  'G2': [210, 148, 150],
+  'G3': [182, 112, 122],
+  'G4': [150, 82, 90],
+  'G5': [122, 58, 68],
+};
+
 String vitaToothAsset(String shade) =>
     'assets/clinical/vita_teeth/${shade.toLowerCase()}.png';
 
@@ -60,6 +71,41 @@ Color shadeSwatch(String shade) {
   final rgb = kShadeRgb[shade];
   if (rgb == null) return AppColors.border;
   return Color.fromARGB(255, rgb[0], rgb[1], rgb[2]);
+}
+
+Color gingivaSwatch(String shade) {
+  final rgb = kGingivaRgb[shade];
+  if (rgb == null) return AppColors.border;
+  return Color.fromARGB(255, rgb[0], rgb[1], rgb[2]);
+}
+
+String? gumDetectedShade(Map<String, dynamic>? gum) {
+  final s = gum?['detected_shade']?.toString();
+  return (s == null || s.isEmpty) ? null : s;
+}
+
+String? gumEffectiveShade(Map<String, dynamic>? gum) {
+  final o = gum?['override_shade']?.toString();
+  if (o != null && o.isNotEmpty) return o;
+  return gumDetectedShade(gum);
+}
+
+bool gumIsOverridden(Map<String, dynamic>? gum) {
+  final o = gum?['override_shade']?.toString();
+  return o != null && o.isNotEmpty;
+}
+
+Color gumSampledColor(Map<String, dynamic> gum) {
+  final override = gum['override_shade']?.toString();
+  if (override != null && override.isNotEmpty) return gingivaSwatch(override);
+  final rgb = gum['sampled_rgb'];
+  if (rgb is List && rgb.length >= 3) {
+    int ch(dynamic v) => (v as num).round().clamp(0, 255);
+    return Color.fromARGB(255, ch(rgb[0]), ch(rgb[1]), ch(rgb[2]));
+  }
+  final shade = gumDetectedShade(gum);
+  if (shade != null) return gingivaSwatch(shade);
+  return AppColors.border;
 }
 
 List<double> rgbToLab(List<num> rgb) {

@@ -16,6 +16,10 @@ class ShadeOverridePane extends StatelessWidget {
     required this.swatch,
     required this.onShadeChoice,
     required this.onOverallShadeChoice,
+    this.selectedGum,
+    this.onGumShadeChoice,
+    this.tab = 0,
+    this.onTabChanged,
   });
 
   final String focusZone;
@@ -26,13 +30,20 @@ class ShadeOverridePane extends StatelessWidget {
   final Color Function(String) swatch;
   final ValueChanged<String> onShadeChoice;
   final ValueChanged<String> onOverallShadeChoice;
+  final String? selectedGum;
+  final ValueChanged<String>? onGumShadeChoice;
+  /// 0 = tooth shades, 1 = gum shades (parent-owned so Results can switch it).
+  final int tab;
+  final ValueChanged<int>? onTabChanged;
 
   @override
   Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
     final zoneLabel = capitalizeZone(focusZone);
     final toothLabel = selectedToothIndex == null
         ? null
         : 'T${selectedToothIndex! + 1} · $zoneLabel';
+    final gumTab = tab == 1;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -43,39 +54,103 @@ class ShadeOverridePane extends StatelessWidget {
           depth: 0,
           color: Colors.white,
           boxShadow: kShadeCardGlow,
-          padding: EdgeInsets.zero,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                loc.shadeManualOverride,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              if (!gumTab && toothLabel != null) ...[
+                const SizedBox(height: 4),
                 Text(
-                  AppLocalizations.of(context).shadeManualOverride,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                if (toothLabel != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'Editing $toothLabel',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.dentalBlue,
-                    ),
+                  'Editing $toothLabel',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.dentalBlue,
                   ),
-                ],
-                const SizedBox(height: 10),
-                ..._shadeBody(
-                  wide: wide,
-                  chipW: chipW,
-                  toothLabel: toothLabel,
-                  context: context,
                 ),
               ],
-            ),
+              if (gumTab) ...[
+                const SizedBox(height: 4),
+                Text(
+                  loc.shadeGumShade,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.dentalBlue,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 8),
+              SegmentedButton<int>(
+                segments: [
+                  ButtonSegment(
+                    value: 0,
+                    label: Text(loc.shadeOverrideTeeth),
+                    icon: const Icon(Icons.palette_outlined, size: 16),
+                  ),
+                  ButtonSegment(
+                    value: 1,
+                    label: Text(loc.shadeOverrideGum),
+                    icon: const Icon(Icons.water_drop_outlined, size: 16),
+                  ),
+                ],
+                selected: {gumTab ? 1 : 0},
+                onSelectionChanged: (s) => onTabChanged?.call(s.first),
+                style: ButtonStyle(
+                  visualDensity: VisualDensity.compact,
+                  textStyle: WidgetStatePropertyAll(
+                    Theme.of(context).textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: gumTab
+                      ? _gumBody(wide: wide, chipW: chipW, loc: loc)
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: _shadeBody(
+                            wide: wide,
+                            chipW: chipW,
+                            toothLabel: toothLabel,
+                            context: context,
+                          ),
+                        ),
+                ),
+              ),
+            ],
           ),
         );
       },
+    );
+  }
+
+  Widget _gumBody({
+    required bool wide,
+    required double chipW,
+    required AppLocalizations loc,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          loc.shadeGumShades,
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: AppColors.navy,
+          ),
+        ),
+        const SizedBox(height: 4),
+        _gumWrap(wide: wide, chipW: chipW),
+      ],
     );
   }
 
@@ -239,6 +314,51 @@ class ShadeOverridePane extends StatelessWidget {
                     height: wide ? 22 : 18,
                     width: double.infinity,
                     child: shadeEnamelFill(s),
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  s,
+                  style: TextStyle(
+                    fontSize: wide ? 10 : 9,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _gumWrap({required bool wide, required double chipW}) {
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: kGingivaShades.map((s) {
+        final isSelected = selectedGum == s;
+        return InkWell(
+          onTap: () => onGumShadeChoice?.call(s),
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            width: chipW,
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: isSelected ? AppColors.navy : AppColors.border,
+                width: isSelected ? 2 : 1,
+              ),
+            ),
+            child: Column(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(5),
+                  child: SizedBox(
+                    height: wide ? 22 : 18,
+                    width: double.infinity,
+                    child: ColoredBox(color: gingivaSwatch(s)),
                   ),
                 ),
                 const SizedBox(height: 3),

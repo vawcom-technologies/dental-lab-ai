@@ -28,6 +28,7 @@ class ShadeAnalysisIn(BaseModel):
     confidence: float | None = None
     overridden: bool = False
     final_shade: str | None = None
+    gum: dict | None = None
 
 
 def _serialize(row: dict) -> ShadeDetectionOut:

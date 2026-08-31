@@ -34,6 +34,16 @@ VITA_SHADES: dict[str, tuple[float, float, float]] = {
 TARGET_SHADES = frozenset({"M1", "M2", "M3"})
 ALLOWED_SHADES = frozenset(VITA_SHADES) | TARGET_SHADES
 
+# VITA Gingiva-style G1–G5 (light → darker / more chromatic). Approximate RGB
+# for v1 — not calibrated tab photos. Never mixed into VITA_SHADES matching.
+GINGIVA_SHADES: dict[str, tuple[float, float, float]] = {
+    "G1": (232, 186, 184),
+    "G2": (210, 148, 150),
+    "G3": (182, 112, 122),
+    "G4": (150, 82, 90),
+    "G5": (122, 58, 68),
+}
+
 
 def _rgb_to_lab(rgb: np.ndarray) -> np.ndarray:
     arr = np.asarray(rgb, dtype=np.float64)
@@ -58,6 +68,9 @@ def _rgb_to_lab(rgb: np.ndarray) -> np.ndarray:
 
 
 _VITA_LAB = {k: _rgb_to_lab(np.asarray(v, dtype=np.float64)) for k, v in VITA_SHADES.items()}
+_GINGIVA_LAB = {
+    k: _rgb_to_lab(np.asarray(v, dtype=np.float64)) for k, v in GINGIVA_SHADES.items()
+}
 
 
 def _delta_e_cie2000(lab1: np.ndarray, lab2: np.ndarray) -> float:
@@ -138,19 +151,35 @@ def _delta_e_cie2000(lab1: np.ndarray, lab2: np.ndarray) -> float:
     )
 
 
+def confidence_from_delta_e(delta_e: float) -> float:
+    """ΔE 0→97%, 2→89%, 5→76%, 10→62% — same curve as the mobile client."""
+    return float(max(0.05, min(0.97, 1.0 / (1.0 + float(delta_e) / 16.0))))
+
+
 def match_lab_nearest(
     sample_lab: np.ndarray,
     *,
     top_n: int = 3,
+    palette: dict[str, tuple[float, float, float]] | None = None,
 ) -> dict[str, Any]:
-    """Nearest VITA Classical shade by raw CIEDE2000 (no chroma/family reweighting).
+    """Nearest shade by raw CIEDE2000 (no chroma/family reweighting).
 
-    Used for per-zone matching where the goal is color fidelity to the photo.
+    Default palette is VITA Classical (enamel). Pass GINGIVA_SHADES for gum.
     """
     lab = np.asarray(sample_lab, dtype=np.float64).reshape(3)
+    if palette is None:
+        lab_map = _VITA_LAB
+    elif palette is GINGIVA_SHADES:
+        lab_map = _GINGIVA_LAB
+    else:
+        lab_map = {
+            k: _rgb_to_lab(np.asarray(v, dtype=np.float64)) for k, v in palette.items()
+        }
+    if not lab_map:
+        raise ValueError("palette must contain at least one shade")
     scored = [
-        (shade, _delta_e_cie2000(lab, _VITA_LAB[shade]))
-        for shade in VITA_SHADES
+        (shade, _delta_e_cie2000(lab, lab_map[shade]))
+        for shade in lab_map
     ]
     scored.sort(key=lambda x: x[1])
     best_shade, best_de = scored[0]

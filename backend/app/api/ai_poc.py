@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 
 from app.ai.scan_quality import validate_ply_bytes
 from app.ai.shade_analyze import analyze_shade_from_bytes, analyze_tooth_from_outline_bytes
+from app.ai.shade_segment_ab import compare_segmentation, summarize_ab
+from app.core.config import settings
 from app.core.security import AuthUser, get_current_user
 from app.schemas import ScanValidateOut, ShadeAnalyzeOut
 from app.services import patient_media as pm
@@ -37,6 +39,13 @@ def _shade_out(result: dict) -> ShadeAnalyzeOut:
         note=result["note"],
         image_width=result.get("image_width"),
         image_height=result.get("image_height"),
+        segment_backend=result.get("segment_backend"),
+        segment_backend_requested=result.get("segment_backend_requested"),
+        segment_fallback=result.get("segment_fallback"),
+        segment_model_id=result.get("segment_model_id"),
+        segment_tooth_count=result.get("segment_tooth_count"),
+        segment_accepted_count=result.get("segment_accepted_count"),
+        gum=result.get("gum"),
     )
 
 
@@ -44,10 +53,13 @@ async def _analyze_bytes(data: bytes) -> dict:
     started = time.perf_counter()
     result = await asyncio.to_thread(analyze_shade_from_bytes, data)
     logger.info(
-        "shade analyze done bytes=%s ms=%.0f teeth=%s",
+        "shade analyze done bytes=%s ms=%.0f teeth=%s backend=%s fallback=%s model=%s",
         len(data),
         (time.perf_counter() - started) * 1000,
         result.get("tooth_count"),
+        result.get("segment_backend"),
+        result.get("segment_fallback"),
+        result.get("segment_model_id"),
     )
     return result
 
@@ -122,6 +134,32 @@ async def shade_resample_outline_from_detection(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/shade/segment-ab")
+async def shade_segment_ab(
+    file: UploadFile = File(...),
+    view: str = Form("front"),
+    user: AuthUser = Depends(get_current_user),
+):
+    """Debug A/B: classical CV vs RF-DETR / PLAK segmentation summary."""
+    _ = user
+    data = await file.read()
+    from PIL import Image, ImageOps
+    import io
+    import numpy as np
+
+    image = Image.open(io.BytesIO(data))
+    try:
+        image = ImageOps.exif_transpose(image)
+    except Exception:
+        pass
+    rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
+
+    result = await asyncio.to_thread(compare_segmentation, rgb)
+    summary = summarize_ab(result)
+    summary["backend_setting"] = settings.shade_segment_backend
+    return summary
 
 
 @router.post("/scan/validate", response_model=ScanValidateOut)

@@ -85,6 +85,7 @@ flutter:
     - assets/brand/logo.png
     - assets/camera/both_teeth_overlay.png
     - assets/clinical/vita_teeth/
+    - assets/clinical/fdi_chart.png
     # Archived original 5×4 client grid (kept for restore) — see ShapeLibrary.legacyGridAsset
     - assets/clinical/archive/tooth-preview-grid.legacy.png
     - assets/clinical/shapes/

@@ -1,0 +1,18 @@
+# ML deps for PLAK tooth segmentation (Roboflow Inference SDK).
+# Install: pip install -r requirements-ml.txt
+#
+# Setup: see weights/rfdetr/README.md
+
+inference-sdk>=0.45.0
+supervision>=0.22.0
+pycocotools>=2.0.7
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# Optional: self-hosted Inference Server (in-process, no HTTP)
+# inference>=0.45.0
+# inference-cli>=0.45.0
+
+# Optional: fine-tune RF-DETR on clinic images in Roboflow
+# rfdetr>=1.4.0
+# torch>=2.2.0

@@ -62,14 +62,14 @@ class TestWatershedInstanceSplit:
 
     def test_touching_teeth_not_merged_with_watershed(self):
         img = _touching_anterior(n=4)
-        teeth = [t for t in detect_teeth(img) if not t.rejected]
+        teeth = [t for t in detect_teeth(img, backend="classical") if not t.rejected]
         # Primary fix: should recover ~4 instances, not 1 merged arch
         assert 3 <= len(teeth) <= 5
 
     def test_watershed_off_merges_or_undercounts_touching(self):
         img = _touching_anterior(n=4)
         cfg = with_config(watershed_split=False, valley_split=False)
-        teeth = [t for t in detect_teeth(img, config=cfg) if not t.rejected]
+        teeth = [t for t in detect_teeth(img, backend="classical", config=cfg) if not t.rejected]
         # Without any split step, touching enamel → one (or very few) CC(s)
         assert len(teeth) <= 2
 
@@ -93,11 +93,11 @@ class TestArchAndDtMarkers:
 
     def test_default_pipeline_still_finds_gapped_teeth(self):
         img = _gapped_smile()
-        teeth = [t for t in detect_teeth(img) if not t.rejected]
+        teeth = [t for t in detect_teeth(img, backend="classical") if not t.rejected]
         assert 3 <= len(teeth) <= 7
     def test_masks_avoid_heavy_gum_overlap(self):
         img = _gapped_smile()
-        teeth = detect_teeth(img)
+        teeth = detect_teeth(img, backend="classical")
         assert len(teeth) >= 1
         gum_y0, gum_y1 = int(400 * 0.30), int(400 * 0.40)
         for t in teeth:
@@ -110,16 +110,16 @@ class TestArchAndDtMarkers:
 
     def test_sanity_flags_when_enabled(self):
         img = _gapped_smile()
-        on = detect_teeth(img, config=with_config(sanity_reject=True))
-        off = detect_teeth(img, config=with_config(sanity_reject=False))
+        on = detect_teeth(img, backend="classical", config=with_config(sanity_reject=True))
+        off = detect_teeth(img, backend="classical", config=with_config(sanity_reject=False))
         assert len(on) == len(off)
 
     def test_grabcut_toggle_still_returns_teeth(self):
         img = _gapped_smile()
-        on = [t for t in detect_teeth(img, config=with_config(grabcut_refine=True)) if not t.rejected]
+        on = [t for t in detect_teeth(img, backend="classical", config=with_config(grabcut_refine=True)) if not t.rejected]
         off = [
             t
-            for t in detect_teeth(img, config=with_config(grabcut_refine=False))
+            for t in detect_teeth(img, backend="classical", config=with_config(grabcut_refine=False))
             if not t.rejected
         ]
         assert len(on) >= 3
@@ -177,6 +177,27 @@ def _open_mouth_dual_arch(h: int = 480, w: int = 640) -> np.ndarray:
     return img
 
 
+def _open_mouth_dual_arch_yellow(h: int = 480, w: int = 640) -> np.ndarray:
+    """Dual arch with dim natural/yellow enamel (VITA A3.5 scaled down)."""
+    img = np.zeros((h, w, 3), dtype=np.uint8)
+    img[:] = (25, 18, 16)
+    gum = np.array([180, 110, 120], dtype=np.uint8)
+    enamel = (np.array(VITA_SHADES["A3.5"], dtype=np.float64) * 0.72).astype(np.uint8)
+
+    img[int(h * 0.18) : int(h * 0.28), int(w * 0.15) : int(w * 0.85)] = gum
+    upper_y0, upper_y1 = int(h * 0.28), int(h * 0.42)
+    for x0 in (170, 240, 310, 380):
+        img[upper_y0:upper_y1, x0 : x0 + 55] = enamel
+
+    lower_y0, lower_y1 = int(h * 0.58), int(h * 0.72)
+    img[int(h * 0.72) : int(h * 0.82), int(w * 0.15) : int(w * 0.85)] = gum
+    for x0 in (175, 245, 315, 385):
+        img[lower_y0:lower_y1, x0 : x0 + 55] = enamel
+
+    img[upper_y1:lower_y0, 318:328] = enamel
+    return img
+
+
 class TestDualArchSplit:
     def test_dual_arch_cut_severs_horizontal_gap(self):
         from app.ai.shade_segment import (
@@ -207,7 +228,7 @@ class TestDualArchSplit:
 
     def test_open_mouth_does_not_merge_upper_lower_into_tall_tooth(self):
         img = _open_mouth_dual_arch()
-        teeth = [t for t in detect_teeth(img) if not t.rejected]
+        teeth = [t for t in detect_teeth(img, backend="classical") if not t.rejected]
         # Expect teeth from both arches (not a single tall stack).
         assert len(teeth) >= 6
         cys = []
@@ -228,7 +249,7 @@ class TestDualArchSplit:
 
     def test_single_arch_still_works(self):
         img = _gapped_smile()
-        teeth = [t for t in detect_teeth(img) if not t.rejected]
+        teeth = [t for t in detect_teeth(img, backend="classical") if not t.rejected]
         assert 3 <= len(teeth) <= 7
 
     def test_clinic_like_bridged_arches_cut_inside_enamel_band(self):
@@ -258,7 +279,7 @@ class TestDualArchSplit:
         mid = 0.5 * (y_a + y_b) + y0
         assert 0.42 * img.shape[0] <= mid <= 0.58 * img.shape[0]
 
-        teeth = [t for t in detect_teeth(img) if not t.rejected]
+        teeth = [t for t in detect_teeth(img, backend="classical") if not t.rejected]
         assert len(teeth) >= 6
         for t in teeth:
             ys, xs = np.nonzero(t.mask)
@@ -269,6 +290,34 @@ class TestDualArchSplit:
             upper = 0.28 * img.shape[0] <= cy <= 0.45 * img.shape[0]
             lower = 0.55 * img.shape[0] <= cy <= 0.75 * img.shape[0]
             assert upper or lower
+
+    def test_open_mouth_labels_upper_and_lower(self):
+        img = _open_mouth_dual_arch()
+        teeth = [t for t in detect_teeth(img, backend="classical") if not t.rejected]
+        assert len(teeth) >= 6
+        uppers = [t for t in teeth if t.arch == "upper"]
+        lowers = [t for t in teeth if t.arch == "lower"]
+        assert len(uppers) >= 3
+        assert len(lowers) >= 3
+        # Upper row sits above lower in image space.
+        assert max(float(np.nonzero(t.mask)[0].mean()) for t in uppers) < min(
+            float(np.nonzero(t.mask)[0].mean()) for t in lowers
+        )
+        # Left→right within each arch.
+        for row in (uppers, lowers):
+            cxs = [float(np.nonzero(t.mask)[1].mean()) for t in row]
+            assert cxs == sorted(cxs)
+
+    def test_dim_yellow_dual_arch_still_splits(self):
+        img = _open_mouth_dual_arch_yellow()
+        teeth = [t for t in detect_teeth(img, backend="classical") if not t.rejected]
+        assert len(teeth) >= 6
+        assert any(t.arch == "upper" for t in teeth)
+        assert any(t.arch == "lower" for t in teeth)
+        for t in teeth:
+            ys = np.nonzero(t.mask)[0]
+            ht = int(ys.max() - ys.min() + 1)
+            assert ht < 0.40 * img.shape[0]
 
 
 class TestLipAboveSmile:
@@ -389,7 +438,7 @@ class TestAnteriorWindow:
 
     def test_four_tooth_smile_keeps_both_sides(self):
         img = _gapped_smile()
-        teeth = [t for t in detect_teeth(img) if not t.rejected]
+        teeth = [t for t in detect_teeth(img, backend="classical") if not t.rejected]
         assert 3 <= len(teeth) <= 6
         cxs = [float(np.nonzero(t.mask)[1].mean()) for t in teeth]
         assert min(cxs) < 230
@@ -405,7 +454,7 @@ class TestAnteriorWindow:
         y0, y1 = int(h * 0.34), int(h * 0.56)
         img[y0:y1, 230:298] = enamel
         img[y0:y1, 306:374] = enamel
-        teeth = [t for t in detect_teeth(img) if not t.rejected]
+        teeth = [t for t in detect_teeth(img, backend="classical") if not t.rejected]
         assert len(teeth) >= 2
         void_y0 = y1 + 6
         for t in teeth:
@@ -418,7 +467,7 @@ class TestAnteriorWindow:
 class TestDebugOverlay:
     def test_overlay_has_distinct_colors_per_instance(self):
         img = _gapped_smile()
-        teeth = [t for t in detect_teeth(img) if not t.rejected]
+        teeth = [t for t in detect_teeth(img, backend="classical") if not t.rejected]
         assert len(teeth) >= 2
         overlay = render_instance_overlay(img, teeth, alpha=0.9, draw_labels=False)
         # Sample a pixel from each tooth — colors should differ

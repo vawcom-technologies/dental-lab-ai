@@ -19,9 +19,16 @@ Additive classical extensions (toggleable; do not replace the above):
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from typing import Literal
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
+
+SegmentBackend = Literal["classical", "kaist", "rfdetr", "auto"]
 
 _MAX_TEETH = 12
 _ANTERIOR_MAX_PER_ROW = 6  # 2 centrals + up to 2 per side
@@ -63,13 +70,194 @@ class ToothMask:
     confidence: float
     rejected: bool
     reject_reason: str | None = None
+    arch: str | None = None  # "upper" | "lower" when dual-arch smile detected
+    arch_index: int = 0  # left→right within that arch
 
 
 def detect_teeth(
     image_rgb: np.ndarray,
     config: SegmentConfig | None = None,
+    *,
+    backend: SegmentBackend | None = None,
+    meta_out: dict | None = None,
 ) -> list[ToothMask]:
-    """Detect tooth instances — ROI and thresholds derived from the image."""
+    """Detect tooth instances — ROI and thresholds derived from the image.
+
+    backend:
+      kaist     — KAIST individual tooth seg (default; demo-quality mouth crops)
+      auto      — same as kaist (alias): classical only if KAIST cannot run
+      classical — Lab + watershed + GrabCut heuristics (emergency fallback)
+      rfdetr    — Roboflow PLAK semantic (legacy opt-in)
+
+    Classical is used only when KAIST is unavailable (missing vendor/weights/deps)
+    or raises. A successful KAIST run that finds 0 teeth does *not* fall back —
+    that would replace empty high-quality output with inaccurate classical masks.
+    """
+    resolved = _resolve_segment_backend(backend)
+    used: SegmentBackend = "classical"
+    fallback = False
+    model_id: str | None = None
+
+    if resolved in ("kaist", "auto"):
+        teeth_or_none = _try_detect_teeth_kaist(image_rgb)
+        if teeth_or_none is not None:
+            used = "kaist"
+            model_id = "kaist/individual_tooth_segmentation"
+            out = _assign_arch_metadata(teeth_or_none)
+            _fill_segment_meta(
+                meta_out,
+                requested=resolved,
+                used=used,
+                fallback=False,
+                teeth=out,
+                model_id=model_id,
+            )
+            logger.info(
+                "shade_segment used=kaist teeth=%s accepted=%s",
+                len(out),
+                sum(1 for t in out if not t.rejected),
+            )
+            return out
+        fallback = True
+        logger.warning(
+            "shade_segment KAIST unavailable or crashed — "
+            "emergency classical fallback (requested=%s)",
+            resolved,
+        )
+
+    if resolved == "rfdetr":
+        teeth = _try_detect_teeth_rfdetr(image_rgb)
+        if teeth:
+            used = "rfdetr"
+            try:
+                from app.ai.shade_segment_rfdetr import _model_id
+
+                model_id = _model_id()
+            except Exception:
+                model_id = None
+            out = _assign_arch_metadata(teeth)
+            _fill_segment_meta(
+                meta_out,
+                requested=resolved,
+                used=used,
+                fallback=False,
+                teeth=out,
+                model_id=model_id,
+            )
+            logger.info(
+                "shade_segment used=rfdetr teeth=%s accepted=%s model=%s",
+                len(out),
+                sum(1 for t in out if not t.rejected),
+                model_id,
+            )
+            return out
+        fallback = True
+        logger.warning(
+            "shade_segment backend=rfdetr unavailable or empty; "
+            "falling back to classical"
+        )
+
+    out = _assign_arch_metadata(_detect_teeth_classical(image_rgb, config))
+    _fill_segment_meta(
+        meta_out,
+        requested=resolved,
+        used="classical",
+        fallback=fallback,
+        teeth=out,
+        model_id=None,
+    )
+    logger.info(
+        "shade_segment used=classical teeth=%s accepted=%s fallback=%s requested=%s",
+        len(out),
+        sum(1 for t in out if not t.rejected),
+        fallback,
+        resolved,
+    )
+    return out
+
+
+def _fill_segment_meta(
+    meta_out: dict | None,
+    *,
+    requested: str,
+    used: str,
+    fallback: bool,
+    teeth: list[ToothMask],
+    model_id: str | None,
+) -> None:
+    if meta_out is None:
+        return
+    meta_out.clear()
+    meta_out.update(
+        {
+            "segment_backend": used,
+            "segment_backend_requested": requested,
+            "segment_fallback": bool(fallback),
+            "segment_model_id": model_id,
+            "segment_tooth_count": len(teeth),
+            "segment_accepted_count": sum(1 for t in teeth if not t.rejected),
+        }
+    )
+
+
+def _try_detect_teeth_kaist(image_rgb: np.ndarray) -> list[ToothMask] | None:
+    """Run KAIST. None = emergency (unavailable/crash); list (maybe empty) = ran."""
+    from app.ai.shade_segment_kaist import detect_teeth_kaist, kaist_available
+
+    if not kaist_available():
+        logger.warning("shade_segment kaist unavailable (vendor/weights/deps)")
+        return None
+    try:
+        teeth = detect_teeth_kaist(image_rgb)
+        if not teeth:
+            logger.warning(
+                "shade_segment kaist returned 0 teeth — not falling back to classical"
+            )
+        return teeth
+    except Exception:
+        logger.exception("shade_segment kaist crashed — emergency classical fallback")
+        return None
+
+
+def _try_detect_teeth_rfdetr(image_rgb: np.ndarray) -> list[ToothMask]:
+    from app.ai.shade_segment_rfdetr import detect_teeth_rfdetr, rfdetr_available
+
+    if not rfdetr_available():
+        logger.warning("shade_segment rfdetr unavailable (API key or inference-sdk)")
+        return []
+    try:
+        teeth = detect_teeth_rfdetr(image_rgb)
+        if not teeth:
+            logger.warning("shade_segment rfdetr returned 0 teeth — falling back")
+        return teeth
+    except Exception:
+        logger.exception("shade_segment rfdetr failed — falling back to classical")
+        return []
+
+
+def _resolve_segment_backend(backend: SegmentBackend | None) -> SegmentBackend:
+    if backend is not None:
+        return backend
+    from app.core.config import settings
+
+    raw = (settings.shade_segment_backend or "kaist").strip().lower()
+    if raw in ("classical", "kaist", "rfdetr", "auto"):
+        return raw  # type: ignore[return-value]
+    # Legacy env values
+    if raw in ("production", "ml"):
+        logger.warning(
+            "SHADE_SEGMENT_BACKEND=%r is deprecated; using kaist", raw
+        )
+        return "kaist"
+    logger.warning("Unknown SHADE_SEGMENT_BACKEND=%r — using kaist", raw)
+    return "kaist"
+
+
+def _detect_teeth_classical(
+    image_rgb: np.ndarray,
+    config: SegmentConfig | None = None,
+) -> list[ToothMask]:
+    """Classic-CV per-tooth enamel instance masks."""
     import cv2
 
     cfg = config or DEFAULT_CONFIG
@@ -232,6 +420,101 @@ def with_config(**kwargs: bool) -> SegmentConfig:
     return replace(DEFAULT_CONFIG, **kwargs)
 
 
+def tooth_display_label(tooth: ToothMask) -> str:
+    """Human label for UI — Upper/Lower when dual arch is detected."""
+    if tooth.arch == "upper":
+        return f"Upper {tooth.arch_index + 1}"
+    if tooth.arch == "lower":
+        return f"Lower {tooth.arch_index + 1}"
+    return f"Tooth {tooth.tooth_index + 1}"
+
+
+def _infer_arch_split_y(geoms: list[dict]) -> float | None:
+    """Y coordinate (image space) separating upper and lower arch centroids."""
+    if len(geoms) < 4:
+        return None
+    cys = sorted(float(g["cy"]) for g in geoms)
+    med_h = float(np.median([g["h"] for g in geoms]))
+    best_gap = 0.0
+    split: float | None = None
+    for i in range(len(cys) - 1):
+        gap = cys[i + 1] - cys[i]
+        if gap > best_gap:
+            best_gap = gap
+            split = 0.5 * (cys[i] + cys[i + 1])
+    # Imperfect / yellow crowns vary in height — slightly looser than old 0.45*med_h.
+    if split is not None and best_gap >= max(10.0, 0.38 * med_h):
+        return split
+    return None
+
+
+def _assign_arch_metadata(teeth: list[ToothMask]) -> list[ToothMask]:
+    """Tag each tooth upper/lower; order upper→lower, left→right within arch."""
+    if not teeth:
+        return teeth
+
+    geoms: list[dict] = []
+    for t in teeth:
+        if not np.any(t.mask):
+            continue
+        g = _mask_geom(t.mask)
+        g["tooth"] = t
+        geoms.append(g)
+    if not geoms:
+        return teeth
+
+    split_y = _infer_arch_split_y(geoms)
+    upper: list[dict] = []
+    lower: list[dict] = []
+    single: list[dict] = []
+
+    if split_y is None:
+        single = sorted(geoms, key=lambda g: g["cx"])
+    else:
+        for g in geoms:
+            (upper if g["cy"] < split_y else lower).append(g)
+        upper.sort(key=lambda g: g["cx"])
+        lower.sort(key=lambda g: g["cx"])
+
+    ordered: list[tuple[ToothMask, str | None, int]] = []
+    for i, g in enumerate(upper):
+        ordered.append((g["tooth"], "upper", i))
+    for i, g in enumerate(lower):
+        ordered.append((g["tooth"], "lower", i))
+    for i, g in enumerate(single):
+        ordered.append((g["tooth"], None, i))
+
+    out: list[ToothMask] = []
+    for global_idx, (t, arch, arch_idx) in enumerate(ordered):
+        out.append(
+            ToothMask(
+                tooth_index=global_idx,
+                mask=t.mask,
+                confidence=t.confidence,
+                rejected=t.rejected,
+                reject_reason=t.reject_reason,
+                arch=arch,
+                arch_index=arch_idx,
+            )
+        )
+    # Preserve rejected teeth that had empty masks (rare)
+    seen = {id(t.mask) for t in out}
+    for t in teeth:
+        if id(t.mask) not in seen:
+            out.append(
+                ToothMask(
+                    tooth_index=len(out),
+                    mask=t.mask,
+                    confidence=t.confidence,
+                    rejected=t.rejected,
+                    reject_reason=t.reject_reason,
+                    arch=t.arch,
+                    arch_index=t.arch_index,
+                )
+            )
+    return out
+
+
 # ---------------------------------------------------------------------------
 # 1) Preprocess / shared mask helpers
 # ---------------------------------------------------------------------------
@@ -284,12 +567,8 @@ def _clahe_gray(image_rgb: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
-def _adaptive_enamel_mask(image: np.ndarray) -> np.ndarray:
-    """Semantic enamel mask in CIE Lab — rejects pink skin/lips/gingiva.
-
-    Real smile failure mode: RGB luminance + CLAHE treated bright cheek as
-    enamel. Lab a* separates them cleanly (enamel a*≈0–8, skin/gum a*≳20).
-    """
+def _lab_channels(image: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """OpenCV RGB→Lab with a*, b* centered on zero."""
     import cv2
 
     u8 = np.clip(image, 0, 255).astype(np.uint8)
@@ -297,6 +576,49 @@ def _adaptive_enamel_mask(image: np.ndarray) -> np.ndarray:
     L = lab[:, :, 0]
     a = lab[:, :, 1] - 128.0
     b = lab[:, :, 2] - 128.0
+    return L, a, b
+
+
+def _is_pink_gum(a: np.ndarray, L: np.ndarray, *, seed_thr: float) -> np.ndarray:
+    """Pink gingiva / lip — high a* even when bright."""
+    return (a >= 12.0) | ((a >= 8.0) & (L < seed_thr))
+
+
+def _enamel_hue_gate(
+    a: np.ndarray,
+    b: np.ndarray,
+    *,
+    low_L: bool = False,
+) -> np.ndarray:
+    """Near-neutral a* + enamel yellow b* (VITA A–D range).
+
+    low_L: stricter gate for dim/natural crowns so oral cavity does not flood in.
+    """
+    if low_L:
+        return (
+            (a < 8.0)
+            & (a > -16.0)
+            & (b >= 4.0)
+            & (b < 56.0)
+        )
+    return (
+        (a < 11.0)
+        & (a > -18.0)
+        & (b > -6.0)
+        & (b < 56.0)
+    )
+
+
+def _adaptive_enamel_mask(image: np.ndarray) -> np.ndarray:
+    """Semantic enamel mask in CIE Lab — rejects pink skin/lips/gingiva.
+
+    Real smile failure modes:
+      • Bright cheek/lip highlights (handled via a* — never CLAHE on this stage)
+      • Natural / yellow / A3–C4 crowns under dim chairside light (lower L*)
+    """
+    import cv2
+
+    L, a, b = _lab_channels(image)
 
     useful = L > 40
     if int(useful.sum()) < 200:
@@ -304,36 +626,132 @@ def _adaptive_enamel_mask(image: np.ndarray) -> np.ndarray:
     p40 = float(np.percentile(L[useful], 40))
     p60 = float(np.percentile(L[useful], 60))
     p80 = float(np.percentile(L[useful], 80))
-    # Bright relative to *this* photo; floor keeps dark rooms from flooding.
-    thr = float(np.clip(0.55 * p40 + 0.45 * p60, 95.0, 175.0))
+    # Relative to *this* photo. Floor 72 keeps A4/C4-class yellow crowns in dim rooms.
+    thr = float(np.clip(0.55 * p40 + 0.45 * p60, 72.0, 175.0))
+    natural_thr = max(62.0, thr - 38.0)
     seed_thr = float(np.clip(max(thr + 8.0, p80 * 0.92), thr + 5.0, 220.0))
 
-    # Enamel: bright, near-neutral a* (not red), mild yellow b* OK.
-    # Camera close-ups: lip highlights are bright with mild a* — keep a* tighter.
-    body = (
-        (L >= thr)
-        & (L <= 254)
-        & (a < 10.0)
-        & (a > -18.0)
-        & (b > -8.0)
-        & (b < 48.0)
-    )
-    # Hard ban on pink/red tissue even if bright
-    body &= ~((a >= 12.0) | ((a >= 8.0) & (L < seed_thr)))
+    hue_bright = _enamel_hue_gate(a, b, low_L=False)
+    hue_natural = _enamel_hue_gate(a, b, low_L=True)
 
-    seeds = body & (L >= seed_thr)
+    bright_body = (L >= thr) & (L <= 254) & hue_bright
+    # Yellow/natural enamel: lower L but clear yellow b* and low a* (not gum).
+    natural_body = (
+        (L >= natural_thr)
+        & (L < thr + 4.0)
+        & (L <= 254)
+        & hue_natural
+    )
+    body = bright_body | natural_body
+    body &= ~_is_pink_gum(a, L, seed_thr=seed_thr)
+
+    seeds = (body & (L >= seed_thr)) | (
+        body & (L >= natural_thr + 6.0) & (b >= 8.0) & (a < 7.0)
+    )
     if int(seeds.sum()) < 30:
         return body
 
     dilate_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     grown = seeds.astype(np.uint8) * 255
     body_u8 = body.astype(np.uint8) * 255
-    for _ in range(14):
+    for _ in range(16):
         nxt = cv2.bitwise_and(cv2.dilate(grown, dilate_k), body_u8)
         if np.array_equal(nxt, grown):
             break
         grown = nxt
     return grown > 0
+
+
+_MIN_GUM_PIXELS = 40
+
+
+def _odd_kernel(n: int, *, floor: int = 3) -> int:
+    n = max(floor, int(n))
+    return n if n % 2 == 1 else n + 1
+
+
+def detect_gum_mask(
+    image_rgb: np.ndarray,
+    tooth_masks: Sequence[np.ndarray | ToothMask],
+    *,
+    min_pixels: int = _MIN_GUM_PIXELS,
+) -> np.ndarray | None:
+    """Pink gingiva adjacent to tooth masks (cervical band). None if too few pixels.
+
+    Inverts `_is_pink_gum` (used to *exclude* gingiva from enamel) and keeps only
+    pixels near detected teeth so lips/cheeks are dropped.
+    """
+    import cv2
+
+    arr = np.asarray(image_rgb)
+    if arr.ndim != 3 or arr.shape[2] != 3:
+        raise ValueError("image_rgb must be HxWx3")
+    h, w = arr.shape[:2]
+    union = np.zeros((h, w), dtype=bool)
+    for item in tooth_masks:
+        mask = item.mask if isinstance(item, ToothMask) else item
+        if mask is None:
+            continue
+        mask_arr = np.asarray(mask)
+        if mask_arr.shape != (h, w):
+            continue
+        union |= mask_arr.astype(bool)
+    if not np.any(union):
+        return None
+
+    L, a, b = _lab_channels(arr)
+    useful = L > 40
+    if int(useful.sum()) < 200:
+        useful = np.ones_like(L, dtype=bool)
+    p40 = float(np.percentile(L[useful], 40))
+    p60 = float(np.percentile(L[useful], 60))
+    p80 = float(np.percentile(L[useful], 80))
+    thr = float(np.clip(0.55 * p40 + 0.45 * p60, 72.0, 175.0))
+    seed_thr = float(np.clip(max(thr + 8.0, p80 * 0.92), thr + 5.0, 220.0))
+    # Looser than enamel exclusion: pale attached gingiva is often a* ~6–14.
+    tissue = (a >= 6.0) | _is_pink_gum(a, L, seed_thr=seed_thr)
+    enamelish = (a < 5.0) & (b >= 4.0)
+
+    ys, xs = np.nonzero(union)
+    y0, y1 = int(ys.min()), int(ys.max())
+    x0, x1 = int(xs.min()), int(xs.max())
+    pad_x = max(24, int(0.12 * w), int(0.16 * (x1 - x0 + 1)))
+    pad_y = max(16, int(0.12 * h))
+    xa0, xa1 = max(0, x0 - pad_x), min(w, x1 + pad_x + 1)
+    band = np.zeros_like(union)
+    # Upper gingiva: strip above the tooth bbox.
+    ya0, ya1 = max(0, y0 - pad_y), min(h, y0 + max(8, pad_y // 4))
+    band[ya0:ya1, xa0:xa1] = True
+    # Lower gingiva: strip below the tooth bbox (dual-arch / mandibular).
+    yb0, yb1 = max(0, y1 - max(8, pad_y // 4)), min(h, y1 + pad_y + 1)
+    band[yb0:yb1, xa0:xa1] = True
+
+    kw = _odd_kernel(round(0.08 * w), floor=15)
+    kh = _odd_kernel(round(0.14 * h), floor=21)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kw, kh))
+    near = cv2.dilate(union.astype(np.uint8) * 255, kernel) > 0
+    near |= band
+
+    shift = max(8, int(0.10 * h))
+    cervical = np.zeros_like(union)
+    cervical[:-shift, :] |= union[shift:, :]
+    cervical[shift:, :] |= union[:-shift, :]
+    near |= cervical
+
+    gum = tissue & near & ~union & ~enamelish
+    if int(gum.sum()) < min_pixels:
+        return None
+
+    u8 = gum.astype(np.uint8) * 255
+    n_cc, labels, stats, _ = cv2.connectedComponentsWithStats(u8, connectivity=8)
+    kept = np.zeros_like(gum)
+    min_cc = max(20, min_pixels // 4)
+    for i in range(1, n_cc):
+        if int(stats[i, cv2.CC_STAT_AREA]) >= min_cc:
+            kept |= labels == i
+    if int(kept.sum()) < min_pixels:
+        return None
+    return kept
 
 
 # ---------------------------------------------------------------------------
@@ -823,7 +1241,7 @@ def _find_occlusal_gap(
     if peak_h < 10:
         return None
 
-    thr = 0.22 * peak_h
+    thr = 0.18 * peak_h
     min_h = max(6, int(0.04 * bh))
     runs = _enamel_row_runs(row_sum, thr, min_h=min_h)
 
@@ -836,7 +1254,7 @@ def _find_occlusal_gap(
         )
         top, bot = sorted(ranked[:2], key=lambda r: r[0])
         sep = bot[0] - top[1]
-        if sep >= max(6, int(0.06 * bh)):
+        if sep >= max(5, int(0.05 * bh)):
             y_a = top[1] + 1
             y_b = bot[0] - 1
             if y_b >= y_a:
@@ -1087,15 +1505,18 @@ def _refine_tooth_component(band: np.ndarray, comp: np.ndarray) -> np.ndarray:
         return comp
 
     u8 = np.clip(band, 0, 255).astype(np.uint8)
-    lab = cv2.cvtColor(u8, cv2.COLOR_RGB2LAB).astype(np.float64)
-    L = lab[:, :, 0]
-    a = lab[:, :, 1] - 128.0
+    L, a, b = _lab_channels(u8)
 
     ys, xs = np.nonzero(comp)
     L_px = L[ys, xs]
     a_px = a[ys, xs]
-    floor = max(90.0, float(np.percentile(L_px, 10)))
-    keep = (L_px >= floor) & (a_px < 12.0)
+    b_px = b[ys, xs]
+    med_b = float(np.median(b_px))
+    # Yellow / natural crowns run darker — do not peel at a fixed L≥90 floor.
+    floor = max(58.0, float(np.percentile(L_px, 6)))
+    if med_b >= 6.0:
+        floor = max(52.0, float(np.percentile(L_px, 4)))
+    keep = (L_px >= floor) & (a_px < (13.0 if med_b >= 6.0 else 12.0))
     refined = np.zeros_like(comp, dtype=bool)
     if keep.size == ys.size and int(keep.sum()) >= 30:
         refined[ys[keep], xs[keep]] = True
@@ -1144,17 +1565,21 @@ def _snap_boundary_to_edges(band: np.ndarray, mask: np.ndarray) -> np.ndarray:
         return mask
 
     u8 = np.clip(band, 0, 255).astype(np.uint8)
-    lab = cv2.cvtColor(u8, cv2.COLOR_RGB2LAB).astype(np.float64)
-    L = lab[:, :, 0]
-    a = lab[:, :, 1] - 128.0
+    L, a, b = _lab_channels(u8)
 
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     m_u8 = (mask.astype(np.uint8)) * 255
     eroded = cv2.erode(m_u8, k, iterations=1) > 0
     ring_in = mask & ~eroded
 
+    med_L = float(np.median(L[mask]))
+    med_b = float(np.median(b[mask]))
+    # Relative dark cut — yellow cervical enamel stays (high b*, low a*).
+    L_cut = max(52.0, 0.46 * med_L)
+    yellow_enamel = (b >= max(3.0, med_b - 10.0)) & (a < 9.0)
+
     out = mask.copy()
-    drop = ring_in & ((a >= 11.0) | (L < 100))
+    drop = ring_in & ((a >= 11.0) | ((L < L_cut) & ~yellow_enamel))
     out[drop] = False
     return out
 
@@ -1224,9 +1649,12 @@ def _grabcut_one_tooth(
     # Sure BG: siblings + clearly non-enamel / pink fringe
     lab = cv2.cvtColor(crop, cv2.COLOR_RGB2LAB).astype(np.float64)
     a = lab[:, :, 1] - 128.0
+    b = lab[:, :, 2] - 128.0
     L = lab[:, :, 0]
     seed_L = float(np.median(L[seed_c])) if np.any(seed_c) else 140.0
-    dark = L < max(62.0, 0.55 * seed_L)
+    seed_b = float(np.median(b[seed_c])) if np.any(seed_c) else 0.0
+    dark_factor = 0.40 if seed_b >= 7.0 else 0.55
+    dark = L < max(54.0, dark_factor * seed_L)
     sure_bg = sib_c | (~enamel_c & (a >= 10.0)) | (a >= 16.0) | dark
     gc[sure_bg] = cv2.GC_BGD
 
@@ -1628,7 +2056,7 @@ def _filter_to_arch_row(
         lower = [d for d in rows if d["cy"] >= mid]
         if len(upper) >= 2 and len(lower) >= 2:
             sep = min(d["cy"] for d in lower) - max(d["cy"] for d in upper)
-            if sep >= 0.45 * med_h:
+            if sep >= 0.38 * med_h:
                 kept: list[dict] = []
                 for group in (upper, lower):
                     g_cy = float(np.median([d["cy"] for d in group]))
@@ -1671,7 +2099,7 @@ def _filter_by_arch_curve(components: list[np.ndarray]) -> list[np.ndarray]:
         lower = [d for d in items if d["cy"] >= mid]
         if len(upper) >= 2 and len(lower) >= 2:
             sep = min(d["cy"] for d in lower) - max(d["cy"] for d in upper)
-            if sep >= 0.45 * med_h:
+            if sep >= 0.38 * med_h:
                 kept: list[np.ndarray] = []
                 for group in (upper, lower):
                     masks = [d["mask"] for d in group]

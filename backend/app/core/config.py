@@ -47,5 +47,33 @@ class Settings(BaseSettings):
     # INFO in production — DEBUG logs request metadata only (no bodies).
     log_level: str = "INFO"
 
+    # Shade segmentation: kaist (default) | auto | classical | rfdetr
+    # kaist/auto = KAIST first; classical only if vendor/weights missing or crash.
+    # classical / rfdetr = explicit opt-in (rfdetr then classical).
+    shade_segment_backend: str = "kaist"
+    # KAIST individual tooth segmentation (mireiffe/individual_tooth_segmentation)
+    shade_segment_kaist_weights: str = "weights/kaist/CP_teeth_seg.pth"
+    shade_segment_kaist_vendor: str = "vendor/individual_tooth_segmentation"
+    # cpu | mps | cuda:0 | auto (mps on Apple Silicon if available)
+    shade_segment_kaist_device: str = "auto"
+    shade_segment_kaist_resize: bool = False
+    # Snake canvas band: downscale if longer, upscale if shorter, else keep.
+    # Level-sets are CPU and ~O(pixels); 0 max → 320. Min avoids tiny CNN inputs
+    # without forcing every small crop up to the max (that made 165px → 30s).
+    shade_segment_kaist_max_side: int = 320
+    shade_segment_kaist_min_side: int = 256
+    shade_segment_kaist_snake_iters: int = 10
+    shade_segment_kaist_bring_back_iters: int = 60
+    shade_segment_kaist_evolve_iters: int = 30
+    # Roboflow PLAK (Inference SDK). Prefer ROBOFLOW_API_KEY in .env
+    roboflow_api_key: str = ""
+    shade_segment_roboflow_api_key: str = ""
+    shade_segment_roboflow_model_id: str = (
+        "mahvish-hasan/plak---projectdens-7p9sm-atp73-1-yolo26s-sem-t1"
+    )
+    shade_segment_inference_api_url: str = "https://serverless.roboflow.com"
+    shade_segment_conf: float = 0.25
+    shade_segment_imgsz: int = 1280  # max side for shade analyze downscale
+
 
 settings = Settings()

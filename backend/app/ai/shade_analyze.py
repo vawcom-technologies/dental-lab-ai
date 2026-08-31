@@ -12,7 +12,11 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageOps
 
-from app.ai.shade import match_lab_nearest
+from app.ai.shade import (
+    GINGIVA_SHADES,
+    confidence_from_delta_e,
+    match_lab_nearest,
+)
 from app.ai.shade_geometry import (
     EDIT_HANDLES_MAX,
     EDIT_HANDLES_MIN,
@@ -20,11 +24,18 @@ from app.ai.shade_geometry import (
     simplify_normalized_outline,
     tooth_display_geometry,
 )
-from app.ai.shade_segment import ToothMask, detect_teeth, mask_confidence
+from app.ai.shade_segment import (
+    ToothMask,
+    detect_gum_mask,
+    detect_teeth,
+    mask_confidence,
+    tooth_display_label,
+)
 from app.ai.shade_zones import ZONES, sample_zone_lab, split_tooth_zones
 
-# ASSUMPTION: Match legacy matcher resize — keeps chairside latency acceptable.
-_MAX_SIDE = 800
+# ASSUMPTION: Segment at higher resolution; Lab sampling uses mask pixels at this scale.
+_MAX_SIDE_SEGMENT = 1280
+_MAX_SIDE = 800  # legacy cap for outline JSON when downscaling uploads
 # ASSUMPTION: Prefer partial zone matches over rejecting the whole tooth.
 _MIN_ZONE_PIXELS_FOR_SPLIT = 12
 
@@ -37,8 +48,9 @@ def _load_rgb_from_bytes(data: bytes) -> np.ndarray:
         pass
     image = image.convert("RGB")
     w0, h0 = image.size
-    if max(w0, h0) > _MAX_SIDE:
-        scale = _MAX_SIDE / max(w0, h0)
+    max_side = _segment_max_side()
+    if max(w0, h0) > max_side:
+        scale = max_side / max(w0, h0)
         image = image.resize(
             (max(1, int(w0 * scale)), max(1, int(h0 * scale))),
             Image.Resampling.BILINEAR,
@@ -46,11 +58,22 @@ def _load_rgb_from_bytes(data: bytes) -> np.ndarray:
     return np.asarray(image, dtype=np.uint8)
 
 
+def _segment_max_side() -> int:
+    try:
+        from app.core.config import settings
+
+        imgsz = int(settings.shade_segment_imgsz or _MAX_SIDE_SEGMENT)
+        return max(_MAX_SIDE_SEGMENT, imgsz)
+    except Exception:
+        return _MAX_SIDE_SEGMENT
+
+
 def _maybe_downscale_rgb(arr: np.ndarray) -> np.ndarray:
     h, w, _ = arr.shape
-    if max(h, w) <= _MAX_SIDE:
+    max_side = _segment_max_side()
+    if max(h, w) <= max_side:
         return arr
-    scale = _MAX_SIDE / max(h, w)
+    scale = max_side / max(h, w)
     import cv2
 
     return cv2.resize(
@@ -71,29 +94,60 @@ def analyze_shade_from_rgb(image_rgb: np.ndarray) -> dict[str, Any]:
         raise ValueError("image_rgb must be HxWx3")
 
     arr = _maybe_downscale_rgb(arr)
-    teeth = detect_teeth(arr)
+    segment_meta: dict[str, Any] = {}
+    teeth = detect_teeth(arr, meta_out=segment_meta)
     # Only surface usable masks — fragments must not appear as T1..Tn in the UI.
     teeth = [t for t in teeth if not t.rejected]
     tooth_results = [_analyze_tooth(arr, tooth) for tooth in teeth]
-    # Re-index after filtering
-    for i, row in enumerate(tooth_results):
+    # Re-index after filtering (preserve arch labels from segmenter).
+    for i, (row, tooth) in enumerate(zip(tooth_results, teeth)):
         row["tooth_index"] = i
-        row["label"] = f"Tooth {i + 1}"
+        row["label"] = tooth_display_label(
+            ToothMask(
+                tooth_index=i,
+                mask=tooth.mask,
+                confidence=tooth.confidence,
+                rejected=tooth.rejected,
+                reject_reason=tooth.reject_reason,
+                arch=tooth.arch,
+                arch_index=tooth.arch_index,
+            )
+        )
+        row["arch"] = tooth.arch
+        row["arch_index"] = tooth.arch_index
     accepted = sum(1 for t in tooth_results if not t["rejected"])
     h, w = arr.shape[:2]
+    dual = any(t.arch for t in teeth)
+    note = (
+        (
+            f"Detected {accepted} tooth mask(s) (upper then lower, left → right). "
+            "Tap a tooth on the photo or in the list; "
+            "lines show cervical / middle / incisal zones."
+        )
+        if dual and accepted
+        else (
+            f"Detected {accepted} tooth mask(s) (left → right). "
+            "Tap a tooth on the photo or in the list; "
+            "lines show cervical / middle / incisal zones."
+        )
+        if accepted
+        else "No reliable tooth masks found — retake with teeth filling the frame, even lighting, lips retracted."
+    )
+    backend = segment_meta.get("segment_backend") or "classical"
+    requested = segment_meta.get("segment_backend_requested") or backend
+    if segment_meta.get("segment_fallback"):
+        note = f"[segment={backend}, fallback from {requested}] " + note
+    else:
+        note = f"[segment={backend}] " + note
     return {
         "teeth": tooth_results,
         "tooth_count": len(tooth_results),
         "accepted_count": accepted,
         "image_width": w,
         "image_height": h,
-        "note": (
-            f"Detected {accepted} tooth mask(s) (left → right). "
-            "Tap a tooth on the photo or in the list; "
-            "lines show cervical / middle / incisal zones."
-            if accepted
-            else "No reliable tooth masks found — retake with teeth filling the frame, even lighting, lips retracted."
-        ),
+        "note": note,
+        "gum": _analyze_gum(arr, teeth),
+        **segment_meta,
     }
 
 
@@ -162,7 +216,9 @@ def analyze_tooth_from_outline_rgb(
 def _analyze_tooth(image_rgb: np.ndarray, tooth: ToothMask) -> dict[str, Any]:
     base: dict[str, Any] = {
         "tooth_index": tooth.tooth_index,
-        "label": f"Tooth {tooth.tooth_index + 1}",
+        "label": tooth_display_label(tooth),
+        "arch": tooth.arch,
+        "arch_index": tooth.arch_index,
         "confidence": tooth.confidence,
         "rejected": tooth.rejected,
         "reject_reason": tooth.reject_reason,
@@ -230,4 +286,38 @@ def _empty_zone() -> dict[str, Any]:
         "effective_shade": None,
         "sampled_lab": None,
         "top_matches": [],
+    }
+
+
+def _median_rgb(image_rgb: np.ndarray, mask: np.ndarray) -> list[int]:
+    ys, xs = np.nonzero(mask)
+    med = np.median(np.asarray(image_rgb, dtype=np.float64)[ys, xs], axis=0)
+    return [int(np.clip(round(float(v)), 0, 255)) for v in med]
+
+
+def _analyze_gum(
+    image_rgb: np.ndarray,
+    teeth: list[ToothMask],
+) -> dict[str, Any] | None:
+    """Case-level gingiva shade from tooth-adjacent pink pixels. None if no gum."""
+    if not teeth:
+        return None
+    gum_mask = detect_gum_mask(image_rgb, teeth)
+    if gum_mask is None:
+        return None
+    pixel_count = int(gum_mask.sum())
+    # Thin gingival bands vanish if we erode like tooth zones.
+    lab = sample_zone_lab(image_rgb, gum_mask, erode_px=0, min_pixels=8)
+    if lab is None:
+        return None
+    matched = match_lab_nearest(lab, top_n=5, palette=GINGIVA_SHADES)
+    de = float(matched["delta_e_2000"])
+    return {
+        "detected_shade": matched["shade"],
+        "delta_e_2000": round(de, 2),
+        "sampled_lab": [round(float(x), 2) for x in lab.tolist()],
+        "sampled_rgb": _median_rgb(image_rgb, gum_mask),
+        "confidence": round(confidence_from_delta_e(de), 3),
+        "pixel_count": pixel_count,
+        "top_matches": matched["top_matches"],
     }
