@@ -25,10 +25,12 @@ sys.path.insert(0, str(BACKEND_ROOT))
 
 VENDOR = BACKEND_ROOT / "vendor" / "individual_tooth_segmentation"
 WEIGHTS = BACKEND_ROOT / "weights" / "kaist" / "CP_teeth_seg.pth"
-# HTTPS redirects here; their cert chain is broken — download with verify=False.
-WEIGHTS_URL = (
-    "https://parter.kaist.ac.kr/colee/work/segmentation22/CP_teeth_seg.pth"
+# Official README uses HTTP; HTTPS has a broken/self-signed cert.
+WEIGHTS_URLS = (
+    "http://parter.kaist.ac.kr/colee/work/segmentation22/CP_teeth_seg.pth",
+    "https://parter.kaist.ac.kr/colee/work/segmentation22/CP_teeth_seg.pth",
 )
+WEIGHTS_URL = WEIGHTS_URLS[0]
 REPO_URL = "https://github.com/mireiffe/individual_tooth_segmentation.git"
 
 
@@ -64,61 +66,60 @@ def cmd_download_weights() -> int:
     if WEIGHTS.is_file() and WEIGHTS.stat().st_size > 1_000_000_000:
         print(f"Weights already present: {WEIGHTS} ({WEIGHTS.stat().st_size} bytes)")
         return 0
-    # Remove partial failed downloads
-    if WEIGHTS.is_file():
-        WEIGHTS.unlink()
 
-    print(f"Downloading {WEIGHTS_URL}")
     print(f"→ {WEIGHTS}")
-    print("(~1.5 GB; KAIST cert is self-signed — TLS verify disabled for this host)")
+    print("(~1.5 GB; prefer HTTP — KAIST HTTPS cert is broken)")
 
-    # Prefer curl -k (resumable, progress). Fallback: urllib + unverified SSL.
     curl = subprocess.run(["which", "curl"], capture_output=True, text=True)
+    last_err = "download failed"
     if curl.returncode == 0:
-        rc = subprocess.call(
-            [
+        for url in WEIGHTS_URLS:
+            print(f"Downloading {url}")
+            cmd = [
                 "curl",
                 "-L",
                 "-k",
                 "--fail",
+                "--connect-timeout",
+                "30",
+                "-C",
+                "-",
                 "--progress-bar",
                 "-o",
                 str(WEIGHTS),
-                WEIGHTS_URL,
+                url,
             ]
-        )
-        if rc != 0:
-            if WEIGHTS.is_file():
-                WEIGHTS.unlink()
-            print("curl download failed.", file=sys.stderr)
-            return 1
+            rc = subprocess.call(cmd)
+            if rc == 0 and WEIGHTS.is_file() and WEIGHTS.stat().st_size > 1_000_000_000:
+                print(f"Saved {WEIGHTS.stat().st_size} bytes")
+                return 0
+            last_err = f"curl failed for {url} (rc={rc})"
     else:
-        try:
-            ctx = ssl._create_unverified_context()
-            with urllib.request.urlopen(WEIGHTS_URL, context=ctx) as resp:
-                with open(WEIGHTS, "wb") as f:
-                    while True:
-                        chunk = resp.read(1024 * 1024)
-                        if not chunk:
-                            break
-                        f.write(chunk)
-        except Exception as exc:
-            if WEIGHTS.is_file():
-                WEIGHTS.unlink()
-            print(f"Download failed: {exc}", file=sys.stderr)
-            print(
-                "Manual fallback:\n"
-                f'  curl -L -k -o "{WEIGHTS}" "{WEIGHTS_URL}"',
-                file=sys.stderr,
-            )
-            return 1
+        ctx = ssl._create_unverified_context()
+        for url in WEIGHTS_URLS:
+            print(f"Downloading {url}")
+            try:
+                with urllib.request.urlopen(url, context=ctx, timeout=30) as resp:
+                    with open(WEIGHTS, "wb") as f:
+                        while True:
+                            chunk = resp.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                if WEIGHTS.is_file() and WEIGHTS.stat().st_size > 1_000_000_000:
+                    print(f"Saved {WEIGHTS.stat().st_size} bytes")
+                    return 0
+            except Exception as exc:
+                last_err = str(exc)
 
-    size = WEIGHTS.stat().st_size
-    if size < 1_000_000_000:
-        print(f"Download looks incomplete ({size} bytes)", file=sys.stderr)
-        return 1
-    print(f"Saved {size} bytes")
-    return 0
+    size = WEIGHTS.stat().st_size if WEIGHTS.is_file() else 0
+    print(f"Download looks incomplete ({size} bytes): {last_err}", file=sys.stderr)
+    print(
+        "Manual fallback:\n"
+        f'  curl -L -C - --connect-timeout 30 -o "{WEIGHTS}" "{WEIGHTS_URL}"',
+        file=sys.stderr,
+    )
+    return 1
 
 
 def _load_rgb(path: Path):

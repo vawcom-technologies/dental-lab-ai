@@ -21,6 +21,21 @@ cd backend
 pip install -r requirements-kaist.txt
 ```
 
+## Railway
+
+The image build (Python 3.12) clones the vendor repo and installs **CPU**
+Torch. The checkpoint is still **not** in git.
+
+1. Attach a volume at `/app/weights` (or the whole `/app` will wipe it).
+2. After deploy, in a Railway shell:
+
+```bash
+python scripts/run_kaist_pilot.py --download-weights
+```
+
+A finished file is about 1.4–1.5 GB (`ls -lh /app/weights/kaist/CP_teeth_seg.pth`).
+Do not Redeploy until that file sits on the volume.
+
 ## Pilot on clinic photos
 
 Mouth-crop first (full-face shots will not match their demos):

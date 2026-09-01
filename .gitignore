@@ -32,3 +32,6 @@ backend/weights/**/*.pth
 
 # Vendored upstream ML repos (clone via scripts/run_kaist_pilot.py --setup)
 backend/vendor/individual_tooth_segmentation/
+
+# Local experiments (not shipped)
+third_party/

@@ -1,17 +1,17 @@
 # Optional deps for KAIST individual tooth segmentation.
-# Install: pip install -r requirements-kaist.txt
+# Local:  pip install -r requirements-kaist.txt
+# Railway: installed at build via scripts/railway_kaist_setup.py (CPU Torch).
 # See weights/kaist/README.md
 #
-# Upstream pins torch==2.0.1 (no wheels for Python 3.12+). Newer torch
-# loads their checkpoint fine — use >=2.2 for py3.12.
+# Do not pin numpy<2 — 1.26 has no wheels for Python 3.13, and the API
+# already uses NumPy 2.x. Do not install opencv-python; the API uses
+# opencv-python-headless from requirements.txt.
 
 torch>=2.2.0,<3
 torchvision>=0.17.0,<1
-numpy<2
-opencv-python
-matplotlib
 pyyaml
 scikit-fmm>=2025.1.29
 scikit-image>=0.24.0
 scipy
+matplotlib
 Pillow>=10.0.0
