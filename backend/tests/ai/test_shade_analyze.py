@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from app.ai.shade import (
     GINGIVA_SHADES,
@@ -10,7 +11,7 @@ from app.ai.shade import (
     _rgb_to_lab,
     match_lab_nearest,
 )
-from app.ai.shade_analyze import analyze_shade_from_rgb
+from app.ai.shade_analyze import analyze_shade_from_bytes, analyze_shade_from_rgb
 from app.ai.shade_zones import split_tooth_zones, sample_zone_lab
 
 
@@ -107,6 +108,30 @@ class TestAnalyzeShadeFromRgb:
                 shade = zone["detected_shade"]
                 if shade is not None:
                     assert shade in VITA_SHADES
+
+
+    def test_unreadable_bytes_raise_value_error(self):
+        with pytest.raises(ValueError, match="Could not read this photo"):
+            analyze_shade_from_bytes(b"not-an-image")
+
+    def test_heic_bytes_decode_like_app_store_ipad(self):
+        """Existing IPA FilePicker sends HEIC; Pillow alone cannot open it."""
+        import io
+
+        from PIL import Image
+
+        from app.ai.shade_analyze import _load_rgb_from_bytes, _register_heif_opener
+
+        _register_heif_opener()
+        src = Image.new("RGB", (48, 36), (200, 180, 160))
+        buf = io.BytesIO()
+        try:
+            src.save(buf, format="HEIF")
+        except Exception as exc:
+            pytest.skip(f"HEIF encode unavailable: {exc}")
+        rgb = _load_rgb_from_bytes(buf.getvalue())
+        assert rgb.shape == (36, 48, 3)
+        assert rgb.dtype == np.uint8
 
 
 class TestZoneSampleThenMatch:

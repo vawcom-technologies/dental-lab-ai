@@ -89,9 +89,9 @@ def detect_teeth(
       classical — Lab + watershed + GrabCut heuristics (emergency fallback)
       rfdetr    — Roboflow PLAK semantic (legacy opt-in)
 
-    Classical is used only when KAIST is unavailable (missing vendor/weights/deps)
-    or raises. A successful KAIST run that finds 0 teeth does *not* fall back —
-    that would replace empty high-quality output with inaccurate classical masks.
+    Classical is used when KAIST is unavailable (missing vendor/weights/deps),
+    raises, or returns 0 teeth. Empty KAIST output is common on wide iPad
+    chairside photos; falling back keeps shade mapping usable.
     """
     resolved = _resolve_segment_backend(backend)
     used: SegmentBackend = "classical"
@@ -120,7 +120,7 @@ def detect_teeth(
             return out
         fallback = True
         logger.warning(
-            "shade_segment KAIST unavailable or crashed — "
+            "shade_segment KAIST unavailable, crashed, or found 0 teeth — "
             "emergency classical fallback (requested=%s)",
             resolved,
         )
@@ -201,7 +201,7 @@ def _fill_segment_meta(
 
 
 def _try_detect_teeth_kaist(image_rgb: np.ndarray) -> list[ToothMask] | None:
-    """Run KAIST. None = emergency (unavailable/crash); list (maybe empty) = ran."""
+    """Run KAIST. None = use classical (unavailable / crash / empty)."""
     from app.ai.shade_segment_kaist import detect_teeth_kaist, kaist_available
 
     if not kaist_available():
@@ -211,8 +211,9 @@ def _try_detect_teeth_kaist(image_rgb: np.ndarray) -> list[ToothMask] | None:
         teeth = detect_teeth_kaist(image_rgb)
         if not teeth:
             logger.warning(
-                "shade_segment kaist returned 0 teeth — not falling back to classical"
+                "shade_segment kaist returned 0 teeth — falling back to classical"
             )
+            return None
         return teeth
     except Exception:
         logger.exception("shade_segment kaist crashed — emergency classical fallback")

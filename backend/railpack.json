@@ -3,7 +3,7 @@
   "packages": {
     "python": "3.12"
   },
-  "buildAptPackages": ["git", "g++", "build-essential"],
+    "buildAptPackages": ["git", "g++", "build-essential", "libheif-dev"],
   "steps": {
     "build": {
       "commands": [
@@ -16,6 +16,6 @@
     }
   },
   "deploy": {
-    "aptPackages": ["libgomp1"]
+    "aptPackages": ["libgomp1", "libheif1"]
   }
 }

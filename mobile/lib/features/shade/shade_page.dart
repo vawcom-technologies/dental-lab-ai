@@ -1,8 +1,8 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/haptics/app_haptics.dart';
@@ -1540,7 +1540,7 @@ class _ShadePageState extends State<ShadePage> {
     try {
       final bytes = await widget.api.downloadMediaBytes(url);
       if (!mounted) return;
-      final baked = bakeExifOrientationSized(bytes);
+      final baked = await prepareShadeJpeg(bytes);
       _photoTransformController.value = Matrix4.identity();
       setState(() {
         _setPreviewJpeg(
@@ -1584,8 +1584,8 @@ class _ShadePageState extends State<ShadePage> {
 
   /// Same mapping pipeline as gallery Upload & detect (`POST /api/ai/shade/suggest`).
   Future<void> _applySuggestFromBytes(Uint8List data, String name) async {
-    // Bake EXIF so preview pixels match backend transpose (camera-roll photos).
-    final baked = bakeExifOrientationSized(data);
+    // Native HEIC→JPEG + EXIF bake so preview pixels match backend transpose.
+    final baked = await prepareShadeJpeg(data);
     if (mounted && !identical(baked.bytes, _previewBytes)) {
       setState(() {
         _setPreviewJpeg(
@@ -1595,7 +1595,10 @@ class _ShadePageState extends State<ShadePage> {
         );
       });
     }
-    final result = await widget.api.suggestShade(baked.bytes, name);
+    final result = await widget.api.suggestShade(
+      baked.bytes,
+      shadeJpegFilename(name),
+    );
     if (!mounted) return;
     _applySuggestResult(result);
   }
@@ -1627,7 +1630,12 @@ class _ShadePageState extends State<ShadePage> {
       _overrideTab = 0;
       _syncUiFromSelection();
       _saveStatus = teeth.isEmpty
-          ? 'No teeth detected — try another photo'
+          ? () {
+              final note = '${result['note'] ?? ''}'.trim();
+              return note.isNotEmpty
+                  ? note
+                  : 'No teeth detected — try another photo';
+            }()
           : 'Mapped ${teeth.length} tooth${teeth.length == 1 ? '' : 'teeth'} — Accept or Save override to session';
     });
   }
@@ -1642,16 +1650,19 @@ class _ShadePageState extends State<ShadePage> {
       _saveStatus = null;
     });
     try {
-      final picked = await FilePicker.pickFiles(
-        type: FileType.image,
-        withData: true,
-        allowMultiple: false,
+      // ImagePicker (not FilePicker): iPad Photos defaults to HEIC, and
+      // FilePicker hands those bytes through. ImagePicker re-encodes JPEG
+      // when quality/max size are set; prepareShadeJpeg is the safety net.
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 90,
+        maxWidth: 2048,
+        maxHeight: 2048,
       );
-      if (picked == null || picked.files.isEmpty) return;
+      if (picked == null) return;
 
-      final file = picked.files.first;
-      final bytes = file.bytes;
-      if (bytes == null || bytes.isEmpty) {
+      final bytes = await picked.readAsBytes();
+      if (bytes.isEmpty) {
         setState(() => _error = 'Could not read image bytes. Try another photo.');
         return;
       }
@@ -1660,33 +1671,41 @@ class _ShadePageState extends State<ShadePage> {
       final confirmed = await confirmPatientMediaUpload(context);
       if (!confirmed || !mounted) return;
 
-      final name = file.name.isNotEmpty ? file.name : 'tooth.jpg';
-      final baked = bakeExifOrientationSized(Uint8List.fromList(bytes));
+      final name = shadeJpegFilename(
+        picked.name.isNotEmpty ? picked.name : 'tooth.jpg',
+      );
+      final baked = await prepareShadeJpeg(Uint8List.fromList(bytes));
+      if (!mounted) return;
       final data = baked.bytes;
       final pid = _pid(_patient!);
+      final detecting = AppLocalizations.of(context).shadeDetecting;
 
       setState(() => _busy = true);
       final uploaded = await runWithToothLoadingDialog(
         context,
-        message: AppLocalizations.of(context).commonUploading,
-        action: () => widget.api.uploadShadeDetection(
-          patientId: pid,
-          bytes: data,
-          filename: name,
-        ),
+        message: detecting,
+        action: () async {
+          final row = await widget.api.uploadShadeDetection(
+            patientId: pid,
+            bytes: data,
+            filename: name,
+          );
+          final result = await widget.api.suggestShade(data, name);
+          return (row: row, result: result);
+        },
       );
       if (!mounted) return;
 
       setState(() {
-        _allShadeItems = [uploaded, ..._allShadeItems];
-        _shadeDetectionId = '${uploaded['id'] ?? ''}'.trim();
+        _allShadeItems = [uploaded.row, ..._allShadeItems];
+        _shadeDetectionId = '${uploaded.row['id'] ?? ''}'.trim();
         _setPreviewJpeg(data, width: baked.width, height: baked.height);
         _previewFilename = name;
         _photoTransformController.value = Matrix4.identity();
         _exitOutlineEdit(clearStatus: false);
       });
 
-      await _applySuggestFromBytes(data, name);
+      _applySuggestResult(uploaded.result);
       if (mounted) setState(() => _busy = false);
     } catch (e) {
       if (!mounted) return;

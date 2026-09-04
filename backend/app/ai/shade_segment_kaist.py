@@ -36,6 +36,7 @@ _MIN_MASK_PIXELS = 40
 _DEFAULT_MAX_SIDE = 320
 _DEFAULT_MIN_SIDE = 256
 _DEFAULT_WEIGHTS = "weights/kaist/CP_teeth_seg.pth"
+_MIN_WEIGHTS_BYTES = 1_000_000_000  # finished CP_teeth_seg.pth is ~1.5 GB
 _KAIST_LOCK = threading.Lock()
 _VENDOR_REL = Path("vendor/individual_tooth_segmentation")
 _WEIGHTS_URL = (
@@ -170,15 +171,28 @@ def _resize_enabled() -> bool:
         return False
 
 
-def _optional_import_error(vendor: Path | None = None) -> str | None:
+def _weights_file_error(path: Path) -> str | None:
+    if not path.is_file():
+        return f"weights missing: {path} (download: {_WEIGHTS_URL})"
+    size = int(path.stat().st_size)
+    if size < _MIN_WEIGHTS_BYTES:
+        return (
+            f"weights incomplete: {path} ({size} bytes, need ~1.5 GB). "
+            "Run: python scripts/run_kaist_pilot.py --download-weights"
+        )
+    return None
+
+
+def _optional_import_error(
+    vendor: Path | None = None,
+    weights: Path | None = None,
+) -> str | None:
     root = vendor or resolve_vendor_root()
     if not (root / "src" / "makeup.py").is_file():
         return f"vendor missing: {root} (run: python scripts/run_kaist_pilot.py --setup)"
-    if not resolve_weights().is_file():
-        return (
-            f"weights missing: {resolve_weights()} "
-            f"(download: {_WEIGHTS_URL})"
-        )
+    weights_err = _weights_file_error(weights or resolve_weights())
+    if weights_err:
+        return weights_err
     try:
         import torch  # noqa: F401
         import cv2  # noqa: F401
@@ -195,9 +209,7 @@ def kaist_segment_status(
 ) -> KaistSegmentStatus:
     v = resolve_vendor_root(vendor)
     w = resolve_weights(weights)
-    err = _optional_import_error(v)
-    if err is None and not w.is_file():
-        err = f"weights missing: {w}"
+    err = _optional_import_error(v, w)
     return KaistSegmentStatus(
         available=err is None,
         vendor_root=str(v),
@@ -219,6 +231,116 @@ def kaist_available(
     weights: str | Path | None = None,
 ) -> bool:
     return kaist_segment_status(vendor=vendor, weights=weights).available
+
+
+def _tooth_band_mask(image_rgb: np.ndarray) -> np.ndarray:
+    """Crown pixels for KAIST framing — drop flash (L>232) and pink gingiva.
+
+    `_adaptive_enamel_mask` on intraoral flash shots latches onto specular
+    L≈238 highlights, so the CNN never sees a smile-like crop.
+    """
+    import cv2
+
+    from app.ai.shade_segment import _lab_channels
+
+    L, a, b = _lab_channels(image_rgb)
+    body = (
+        (L >= 68.0)
+        & (L <= 232.0)
+        & (a < 9.0)
+        & (a > -16.0)
+        & (b > -6.0)
+        & (b < 52.0)
+    )
+    u8 = body.astype(np.uint8) * 255
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    u8 = cv2.morphologyEx(u8, cv2.MORPH_OPEN, k, iterations=1)
+    u8 = cv2.morphologyEx(u8, cv2.MORPH_CLOSE, k, iterations=1)
+    return u8 > 0
+
+
+def _pad_box(
+    y0: int,
+    y1: int,
+    x0: int,
+    x1: int,
+    h: int,
+    w: int,
+    *,
+    pad_frac: float,
+) -> tuple[int, int, int, int]:
+    ph = max(8, int(pad_frac * max(1, y1 - y0)))
+    pw = max(8, int(0.7 * pad_frac * max(1, x1 - x0)))
+    return (
+        max(0, y0 - ph),
+        min(h, y1 + ph),
+        max(0, x0 - pw),
+        min(w, x1 + pw),
+    )
+
+
+def _box_large_enough(box: tuple[int, int, int, int]) -> bool:
+    y0, y1, x0, x1 = box
+    return (y1 - y0) >= 64 and (x1 - x0) >= 64
+
+
+def kaist_focus_boxes(
+    image_rgb: np.ndarray,
+    *,
+    pad_frac: float = 0.24,
+) -> list[tuple[int, int, int, int]]:
+    """1–2 padded boxes around tooth row(s). Dual-arch intraoral → two crops.
+
+    KAIST was trained on extra-oral single-smile photos. Open-mouth both-arch
+    shots return empty unless each row is framed like a smile.
+    """
+    from app.ai.shade_segment import _dental_roi_from_enamel, _find_occlusal_gap
+
+    h, w = image_rgb.shape[:2]
+    full = (0, h, 0, w)
+    band = _tooth_band_mask(image_rgb)
+    if int(band.sum()) < 80:
+        return [full]
+    roi = _dental_roi_from_enamel(band)
+    if roi is None:
+        return [full]
+    y0, y1, x0, x1 = roi
+    u8 = (band.astype(np.uint8)) * 255
+    gap = _find_occlusal_gap(u8[y0:y1, x0:x1])
+    if gap is not None:
+        ga, gb = gap
+        top = _pad_box(y0, y0 + ga, x0, x1, h, w, pad_frac=pad_frac)
+        bot = _pad_box(y0 + gb, y1, x0, x1, h, w, pad_frac=pad_frac)
+        if (
+            _box_large_enough(top)
+            and _box_large_enough(bot)
+            and int(band[top[0] : top[1], top[2] : top[3]].sum()) >= 80
+            and int(band[bot[0] : bot[1], bot[2] : bot[3]].sum()) >= 80
+        ):
+            return [top, bot]
+    one = _pad_box(y0, y1, x0, x1, h, w, pad_frac=pad_frac)
+    return [one] if _box_large_enough(one) else [full]
+
+
+def prepare_kaist_work_rgb(image_rgb: np.ndarray) -> np.ndarray:
+    """Tone-map flash and calm inflamed a* for the CNN only (masks stay on original)."""
+    import cv2
+
+    u8 = np.clip(image_rgb, 0, 255).astype(np.uint8)
+    lab = cv2.cvtColor(u8, cv2.COLOR_RGB2LAB).astype(np.float32)
+    L = lab[:, :, 0]
+    a = lab[:, :, 1]
+    p90 = float(np.percentile(L, 90))
+    p99 = float(np.percentile(L, 99))
+    if p99 > p90 + 4.0:
+        hi = L > p90
+        L = np.where(hi, p90 + (L - p90) * 0.35, L)
+    # OpenCV a* is 128-centered. Inflamed gingiva sits ~148+.
+    hot = a > 146.0
+    a = np.where(hot, 146.0 + (a - 146.0) * 0.40, a)
+    lab[:, :, 0] = np.clip(L, 0, 255)
+    lab[:, :, 1] = np.clip(a, 0, 255)
+    return cv2.cvtColor(lab.astype(np.uint8), cv2.COLOR_LAB2RGB)
 
 
 def mouth_crop_rgb(
@@ -448,63 +570,85 @@ def detect_teeth_kaist(
 
     h, w = arr.shape[:2]
     if crop:
-        crop_rgb, box = mouth_crop_rgb(arr)
+        boxes = kaist_focus_boxes(arr)
     else:
-        crop_rgb, box = arr, (0, h, 0, w)
+        boxes = [(0, h, 0, w)]
 
-    work_rgb, scale = _resize_for_work(
-        crop_rgb, status.max_side, status.min_side
-    )
-
-    logger.info(
-        "kaist segment crop=%s work=%s scale=%.3f snake=%s bring=%s evolve=%s device=%s",
-        crop_rgb.shape[:2],
-        work_rgb.shape[:2],
-        scale,
-        status.snake_iters,
-        status.bring_back_iters,
-        status.evolve_iters,
-        status.device,
-    )
-
-    # One snake at a time — concurrent MPS jobs stalled the first iPad photo
-    # past the 90s client timeout while a second upload ran.
-    with _KAIST_LOCK:
-        try:
-            labels = _run_upstream_pipeline(
-                work_rgb,
-                vendor=Path(status.vendor_root),
-                weights=Path(status.weights),
-                device=status.device,
-                resize=status.resize,
-                snake_iters=status.snake_iters,
-                bring_back_iters=status.bring_back_iters,
-                evolve_iters=status.evolve_iters,
-            )
-        except Exception:
-            logger.exception("kaist pipeline failed")
-            return []
-
-    labels = np.asarray(labels)
-    if labels.shape[:2] != work_rgb.shape[:2]:
-        logger.warning(
-            "kaist label size %s != work %s — resizing to work then crop",
-            labels.shape[:2],
-            work_rgb.shape[:2],
+    gathered: list[ToothMask] = []
+    for box in boxes:
+        y0, y1, x0, x1 = box
+        crop_rgb = arr[y0:y1, x0:x1].copy()
+        work_src = prepare_kaist_work_rgb(crop_rgb)
+        work_rgb, scale = _resize_for_work(
+            work_src, status.max_side, status.min_side
         )
-        labels = _upscale_labels(labels, work_rgb.shape[:2])
-    if labels.shape[:2] != crop_rgb.shape[:2]:
         logger.info(
-            "kaist mapping labels %s → crop %s",
-            labels.shape[:2],
+            "kaist segment box=%s crop=%s work=%s scale=%.3f snake=%s bring=%s evolve=%s device=%s",
+            box,
             crop_rgb.shape[:2],
+            work_rgb.shape[:2],
+            scale,
+            status.snake_iters,
+            status.bring_back_iters,
+            status.evolve_iters,
+            status.device,
         )
-        labels = _upscale_labels(labels, crop_rgb.shape[:2])
+        # One snake at a time — concurrent MPS jobs stalled iPad photos.
+        with _KAIST_LOCK:
+            try:
+                labels = _run_upstream_pipeline(
+                    work_rgb,
+                    vendor=Path(status.vendor_root),
+                    weights=Path(status.weights),
+                    device=status.device,
+                    resize=status.resize,
+                    snake_iters=status.snake_iters,
+                    bring_back_iters=status.bring_back_iters,
+                    evolve_iters=status.evolve_iters,
+                )
+            except Exception:
+                logger.exception("kaist pipeline failed box=%s", box)
+                continue
 
-    teeth = _labels_to_tooth_masks(labels, full_h=h, full_w=w, box=box)
+        labels = np.asarray(labels)
+        if labels.shape[:2] != work_rgb.shape[:2]:
+            logger.warning(
+                "kaist label size %s != work %s — resizing to work then crop",
+                labels.shape[:2],
+                work_rgb.shape[:2],
+            )
+            labels = _upscale_labels(labels, work_rgb.shape[:2])
+        if labels.shape[:2] != crop_rgb.shape[:2]:
+            logger.info(
+                "kaist mapping labels %s → crop %s",
+                labels.shape[:2],
+                crop_rgb.shape[:2],
+            )
+            labels = _upscale_labels(labels, crop_rgb.shape[:2])
+
+        gathered.extend(
+            _labels_to_tooth_masks(labels, full_h=h, full_w=w, box=box)
+        )
+
+    if not gathered and crop and boxes != [(0, h, 0, w)]:
+        logger.info("kaist focus crops empty — retrying full frame")
+        return detect_teeth_kaist(arr, crop=False, vendor=vendor, weights=weights)
+
+    # Re-index after merging upper/lower runs
+    for i, t in enumerate(gathered):
+        gathered[i] = ToothMask(
+            tooth_index=i,
+            mask=t.mask,
+            confidence=t.confidence,
+            rejected=t.rejected,
+            reject_reason=t.reject_reason,
+            arch=t.arch,
+            arch_index=t.arch_index,
+        )
     logger.info(
-        "kaist done teeth=%s accepted=%s",
-        len(teeth),
-        sum(1 for t in teeth if not t.rejected),
+        "kaist done teeth=%s accepted=%s boxes=%s",
+        len(gathered),
+        sum(1 for t in gathered if not t.rejected),
+        len(boxes),
     )
-    return teeth
+    return gathered

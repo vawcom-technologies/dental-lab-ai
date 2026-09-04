@@ -7,10 +7,28 @@ Does not persist; does not set override_shade (always null from detection).
 from __future__ import annotations
 
 import io
+import logging
 from typing import Any
 
 import numpy as np
 from PIL import Image, ImageOps
+
+logger = logging.getLogger(__name__)
+_HEIF_REGISTERED = False
+
+
+def _register_heif_opener() -> None:
+    """App Store iPad still uploads HEIC from Photos (FilePicker, no JPEG bake)."""
+    global _HEIF_REGISTERED
+    if _HEIF_REGISTERED:
+        return
+    try:
+        from pillow_heif import register_heif_opener
+
+        register_heif_opener()
+        _HEIF_REGISTERED = True
+    except Exception as exc:
+        logger.warning("HEIC opener unavailable — iPad HEIC uploads will fail: %s", exc)
 
 from app.ai.shade import (
     GINGIVA_SHADES,
@@ -41,7 +59,14 @@ _MIN_ZONE_PIXELS_FOR_SPLIT = 12
 
 
 def _load_rgb_from_bytes(data: bytes) -> np.ndarray:
-    image = Image.open(io.BytesIO(data))
+    _register_heif_opener()
+    try:
+        image = Image.open(io.BytesIO(data))
+        image.load()
+    except Exception as exc:
+        raise ValueError(
+            "Could not read this photo. Export it as JPEG and try again."
+        ) from exc
     try:
         image = ImageOps.exif_transpose(image)
     except Exception:

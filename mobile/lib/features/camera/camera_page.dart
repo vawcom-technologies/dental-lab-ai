@@ -345,7 +345,9 @@ class _CameraPageState extends State<CameraPage> {
       AppHaptics.medium();
       galleryFile = await _picker.pickImage(
         source: ImageSource.gallery,
-        imageQuality: 100,
+        imageQuality: 90,
+        maxWidth: 2048,
+        maxHeight: 2048,
       );
       if (galleryFile == null) return;
     }
@@ -356,10 +358,7 @@ class _CameraPageState extends State<CameraPage> {
         bytes = bakeExifOrientation(
           Uint8List.fromList(await picked.readAsBytes()),
         );
-        final ext = picked.name.contains('.')
-            ? '.${picked.name.split('.').last}'
-            : '.jpg';
-        filename = _clinicalPhotoName(angle: _angle, extension: ext);
+        filename = _clinicalPhotoName(angle: _angle, extension: '.jpg');
       }
       await widget.api.uploadPatientPhoto(
         patientId: pid,

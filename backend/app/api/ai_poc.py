@@ -72,10 +72,34 @@ def _load_detection_for_user(shade_detection_id: str, user: AuthUser) -> dict:
     return row
 
 
+@router.get("/shade/segment-status")
+async def shade_segment_status():
+    """Ops check: is KAIST actually loadable (vendor + complete weights)?"""
+    from app.ai.shade_segment_kaist import kaist_segment_status
+
+    st = kaist_segment_status()
+    return {
+        "available": st.available,
+        "error": st.import_error,
+        "device": st.device,
+        "weights": st.weights,
+        "vendor_root": st.vendor_root,
+        "resize": st.resize,
+        "max_side": st.max_side,
+        "min_side": st.min_side,
+        "backend_setting": settings.shade_segment_backend,
+    }
+
+
 @router.post("/shade/suggest", response_model=ShadeAnalyzeOut)
 async def shade_suggest(file: UploadFile = File(...)):
     data = await file.read()
-    result = await _analyze_bytes(data)
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    try:
+        result = await _analyze_bytes(data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _shade_out(result)
 
 
@@ -87,7 +111,10 @@ async def shade_suggest_from_detection(
     """Analyze a photo already stored on the server — no client re-upload."""
     row = _load_detection_for_user(payload.shade_detection_id, user)
     data = await asyncio.to_thread(load_shade_detection_bytes, row)
-    result = await _analyze_bytes(data)
+    try:
+        result = await _analyze_bytes(data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _shade_out(result)
 
 
