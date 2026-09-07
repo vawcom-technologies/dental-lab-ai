@@ -108,6 +108,26 @@ class TestKaistHelpers:
         assert len(boxes) == 2
         assert boxes[0][1] <= boxes[1][0] + 8
 
+    def test_focus_boxes_thin_gap_does_not_swallow_other_arch(self):
+        """Clinic open-mouth: ~4–8 px dark strip. Symmetric pad used to
+        include the lower smile in the 'upper' crop."""
+        from app.ai.shade_segment_kaist import kaist_focus_boxes
+
+        img = np.zeros((300, 400, 3), dtype=np.uint8)
+        img[:] = (40, 28, 26)
+        img[70:188, 20:380] = (205, 188, 150)
+        img[188:208, 20:380] = (28, 18, 20)
+        img[208:255, 20:380] = (205, 188, 150)
+        boxes = kaist_focus_boxes(img)
+        assert len(boxes) == 2
+        top, bot = boxes
+        assert top[1] <= 210
+        assert bot[0] >= 190
+        assert top[1] <= bot[0] + 10
+        # Upper crop must cover the maxillary row, not only a sliver.
+        assert top[0] <= 80
+        assert top[1] >= 180
+
     def test_prepare_work_compresses_flash(self):
         from app.ai.shade_segment_kaist import prepare_kaist_work_rgb
 

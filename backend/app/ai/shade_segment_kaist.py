@@ -279,9 +279,73 @@ def _pad_box(
     )
 
 
+def _pad_arch_box(
+    y0: int,
+    y1: int,
+    x0: int,
+    x1: int,
+    h: int,
+    w: int,
+    *,
+    pad_frac: float,
+    toward: str,
+) -> tuple[int, int, int, int]:
+    """Pad an arch crop toward gingiva, not across the occlusal gap.
+
+    Symmetric pad on a 4–8 px intraoral gap swallows the other row, and KAIST
+    (trained on one smile) then segments only the brighter lower arch.
+    """
+    ph = max(8, int(pad_frac * max(1, y1 - y0)))
+    pw = max(8, int(0.7 * pad_frac * max(1, x1 - x0)))
+    into_gap = min(6, max(2, int(0.04 * max(1, y1 - y0))))
+    if toward == "up":
+        y0 = max(0, y0 - ph)
+        y1 = min(h, y1 + into_gap)
+    else:
+        y0 = max(0, y0 - into_gap)
+        y1 = min(h, y1 + ph)
+    return y0, y1, max(0, x0 - pw), min(w, x1 + pw)
+
+
 def _box_large_enough(box: tuple[int, int, int, int]) -> bool:
     y0, y1, x0, x1 = box
     return (y1 - y0) >= 64 and (x1 - x0) >= 64
+
+
+def _luma_valley_gap(
+    image_rgb: np.ndarray,
+    y0: int,
+    y1: int,
+    x0: int,
+    x1: int,
+) -> tuple[int, int] | None:
+    """Fallback split when enamel morphology bridges a thin dark occlusal strip."""
+    from app.ai.shade_segment import _lab_channels
+
+    L, _a, _b = _lab_channels(image_rgb)
+    sl = L[y0:y1, x0:x1]
+    bh = sl.shape[0]
+    if bh < 64:
+        return None
+    row = np.median(sl, axis=1)
+    k = max(3, (bh // 18) | 1)
+    sm = np.convolve(row, np.ones(k) / k, mode="same")
+    margin = max(10, int(0.22 * bh))
+    if bh - 2 * margin < 8:
+        return None
+    yi = margin + int(np.argmin(sm[margin : bh - margin]))
+    above = float(sm[max(0, yi - max(12, bh // 8)) : yi].max()) if yi else 0.0
+    below = float(sm[yi + 1 : min(bh, yi + max(12, bh // 8))].max())
+    valley = float(sm[yi])
+    if above - valley < 14.0 or below - valley < 14.0:
+        return None
+    lo = yi
+    hi = yi
+    while lo > margin and sm[lo - 1] <= valley + 6.0:
+        lo -= 1
+    while hi + 1 < bh - margin and sm[hi + 1] <= valley + 6.0:
+        hi += 1
+    return int(lo), int(hi)
 
 
 def kaist_focus_boxes(
@@ -307,10 +371,16 @@ def kaist_focus_boxes(
     y0, y1, x0, x1 = roi
     u8 = (band.astype(np.uint8)) * 255
     gap = _find_occlusal_gap(u8[y0:y1, x0:x1])
+    if gap is None:
+        gap = _luma_valley_gap(image_rgb, y0, y1, x0, x1)
     if gap is not None:
         ga, gb = gap
-        top = _pad_box(y0, y0 + ga, x0, x1, h, w, pad_frac=pad_frac)
-        bot = _pad_box(y0 + gb, y1, x0, x1, h, w, pad_frac=pad_frac)
+        top = _pad_arch_box(
+            y0, y0 + ga, x0, x1, h, w, pad_frac=pad_frac, toward="up"
+        )
+        bot = _pad_arch_box(
+            y0 + gb, y1, x0, x1, h, w, pad_frac=pad_frac, toward="down"
+        )
         if (
             _box_large_enough(top)
             and _box_large_enough(bot)
