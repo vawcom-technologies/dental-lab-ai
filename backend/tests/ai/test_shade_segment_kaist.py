@@ -14,6 +14,17 @@ from app.ai.shade_segment_kaist import (
 )
 
 
+class TestKaistNumpyShims:
+    def test_function_base_iterable_importable_on_numpy2(self):
+        from app.ai.kaist_compat import ensure_kaist_numpy_shims
+
+        ensure_kaist_numpy_shims()
+        from numpy.lib.function_base import iterable
+
+        assert iterable([1, 2, 3]) is True
+        assert iterable(3) is False
+
+
 class TestKaistHelpers:
     def test_labels_to_masks_pastes_into_full_image(self):
         labels = np.zeros((40, 60), dtype=np.int32)

@@ -18,6 +18,29 @@ logger = logging.getLogger(__name__)
 _model_cache: dict[tuple[str, str], Any] = {}
 
 
+def ensure_kaist_numpy_shims() -> None:
+    """Vendor myTools.py imports numpy.lib.function_base (removed in NumPy 2.3+)."""
+    import sys
+    import types
+
+    import numpy as np
+
+    if "numpy.lib.function_base" in sys.modules:
+        return
+    try:
+        import numpy.lib.function_base  # noqa: F401
+        return
+    except ModuleNotFoundError:
+        pass
+
+    mod = types.ModuleType("numpy.lib.function_base")
+    mod.iterable = getattr(np, "iterable", lambda x: True)
+    sys.modules["numpy.lib.function_base"] = mod
+    lib = sys.modules.get("numpy.lib")
+    if lib is not None and not hasattr(lib, "function_base"):
+        lib.function_base = mod  # type: ignore[attr-defined]
+
+
 def clear_kaist_model_cache() -> None:
     _model_cache.clear()
 
@@ -54,6 +77,7 @@ def patch_kaist_vendor(
     bring_back_iters: int | None = None,
     evolve_iters: int | None = None,
 ) -> None:
+    ensure_kaist_numpy_shims()
     import skfmm
     from src.reinitial import Reinitial
     from src.teethSeg import InitContour, PseudoER, Snake
