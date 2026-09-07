@@ -351,7 +351,7 @@ def _luma_valley_gap(
 def kaist_focus_boxes(
     image_rgb: np.ndarray,
     *,
-    pad_frac: float = 0.24,
+    pad_frac: float = 0.40,
 ) -> list[tuple[int, int, int, int]]:
     """1–2 padded boxes around tooth row(s). Dual-arch intraoral → two crops.
 
@@ -511,26 +511,40 @@ def _resize_for_work(
     max_side: int,
     min_side: int = _DEFAULT_MIN_SIDE,
 ) -> tuple[np.ndarray, float]:
-    """Clamp long side into [min_side, max_side]; return (work, scale).
+    """Clamp work size; return (work, scale) with scale mapping work→crop.
 
-    scale maps work→crop. Upscale only to min_side — forcing tiny crops to
-    max_side made Level-set Step2/3 ~2× slower for little outline gain.
+    Wide arch strips (upper/lower intraoral) must not be scaled by width
+    alone — that crushed a 124×480 maxillary crop to 83×320 and KAIST
+    returned no upper teeth.
     """
     hi = max(32, int(max_side))
     lo = max(32, min(int(min_side), hi))
     ch, cw = crop_rgb.shape[:2]
+    if ch <= 0 or cw <= 0:
+        return crop_rgb, 1.0
+
+    aspect = cw / float(ch)
+    if aspect >= 1.75 and ch < lo:
+        max_w = max(int(hi * 2), 640)
+        scale = lo / float(ch)
+        if cw * scale > max_w:
+            scale = max_w / float(cw)
+        return _scale_rgb(crop_rgb, scale)
+
     long = max(ch, cw)
-    if long <= 0:
-        return crop_rgb, 1.0
     if long > hi:
-        target = hi
-    elif long < lo:
-        target = lo
-    else:
+        return _scale_rgb(crop_rgb, hi / float(long))
+    if long < lo:
+        return _scale_rgb(crop_rgb, lo / float(long))
+    return crop_rgb, 1.0
+
+
+def _scale_rgb(crop_rgb: np.ndarray, scale: float) -> tuple[np.ndarray, float]:
+    if abs(scale - 1.0) < 0.02:
         return crop_rgb, 1.0
-    scale = target / long
     import cv2
 
+    ch, cw = crop_rgb.shape[:2]
     interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
     work = cv2.resize(
         crop_rgb,
@@ -645,19 +659,25 @@ def detect_teeth_kaist(
         boxes = [(0, h, 0, w)]
 
     gathered: list[ToothMask] = []
-    for box in boxes:
+    for box_i, box in enumerate(boxes):
         y0, y1, x0, x1 = box
         crop_rgb = arr[y0:y1, x0:x1].copy()
         work_src = prepare_kaist_work_rgb(crop_rgb)
         work_rgb, scale = _resize_for_work(
             work_src, status.max_side, status.min_side
         )
+        # Intraoral upper row hangs from gingiva at the TOP. KAIST was trained
+        # on extra-oral smiles (gingiva/lips below). Flip so it looks like one.
+        flip_ud = len(boxes) == 2 and box_i == 0
+        if flip_ud:
+            work_rgb = np.ascontiguousarray(work_rgb[::-1])
         logger.info(
-            "kaist segment box=%s crop=%s work=%s scale=%.3f snake=%s bring=%s evolve=%s device=%s",
+            "kaist segment box=%s crop=%s work=%s scale=%.3f flip=%s snake=%s bring=%s evolve=%s device=%s",
             box,
             crop_rgb.shape[:2],
             work_rgb.shape[:2],
             scale,
+            flip_ud,
             status.snake_iters,
             status.bring_back_iters,
             status.evolve_iters,
@@ -681,6 +701,8 @@ def detect_teeth_kaist(
                 continue
 
         labels = np.asarray(labels)
+        if flip_ud:
+            labels = np.ascontiguousarray(labels[::-1])
         if labels.shape[:2] != work_rgb.shape[:2]:
             logger.warning(
                 "kaist label size %s != work %s — resizing to work then crop",
@@ -696,8 +718,14 @@ def detect_teeth_kaist(
             )
             labels = _upscale_labels(labels, crop_rgb.shape[:2])
 
+        before = len(gathered)
         gathered.extend(
             _labels_to_tooth_masks(labels, full_h=h, full_w=w, box=box)
+        )
+        logger.info(
+            "kaist box teeth=%s flip=%s",
+            len(gathered) - before,
+            flip_ud,
         )
 
     if not gathered and crop and boxes != [(0, h, 0, w)]:

@@ -79,6 +79,15 @@ class TestKaistHelpers:
         assert work.shape[:2] == (200, 280)
         assert scale == 1.0
 
+    def test_resize_wide_arch_keeps_crown_height(self):
+        """Production log: 124×480 maxillary strip → 83×320 (no upper teeth)."""
+        from app.ai.shade_segment_kaist import _resize_for_work
+
+        img = np.zeros((124, 480, 3), dtype=np.uint8)
+        work, _scale = _resize_for_work(img, max_side=320, min_side=256)
+        assert work.shape[0] >= 150
+        assert work.shape[0] > 83
+
     def test_max_side_zero_clamps_to_default(self, monkeypatch):
         from app.ai import shade_segment_kaist as mod
         from app.core.config import settings
