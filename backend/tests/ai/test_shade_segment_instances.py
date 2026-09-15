@@ -303,10 +303,12 @@ class TestDualArchSplit:
         assert max(float(np.nonzero(t.mask)[0].mean()) for t in uppers) < min(
             float(np.nonzero(t.mask)[0].mean()) for t in lowers
         )
-        # Left→right within each arch.
-        for row in (uppers, lowers):
-            cxs = [float(np.nonzero(t.mask)[1].mean()) for t in row]
-            assert cxs == sorted(cxs)
+        # FDI front→back per quadrant (not image left→right).
+        from app.ai.shade_segment import _fdi_sort_key
+
+        assert uppers == sorted(uppers, key=_fdi_sort_key)
+        assert lowers == sorted(lowers, key=_fdi_sort_key)
+        assert all(t.fdi is not None for t in uppers + lowers)
 
     def test_dim_yellow_dual_arch_still_splits(self):
         img = _open_mouth_dual_arch_yellow()

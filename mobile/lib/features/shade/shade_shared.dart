@@ -218,6 +218,38 @@ Widget shadeEnamelFill(String shade) {
 String capitalizeZone(String zone) =>
     zone.isEmpty ? zone : zone[0].toUpperCase() + zone.substring(1);
 
+/// ISO 3950 / FDI number stored on a detected tooth, if the backend assigned one.
+int? toothFdi(Map tooth) {
+  final v = tooth['fdi'];
+  if (v is num) {
+    final n = v.toInt();
+    if (n >= 11 && n <= 48) return n;
+  }
+  final parsed = int.tryParse(tooth['label']?.toString() ?? '');
+  if (parsed != null && parsed >= 11 && parsed <= 48) return parsed;
+  return null;
+}
+
+/// Chart / overlay / list label — FDI when mapped, never a left→right T-index.
+String toothDisplayLabel(Map tooth) {
+  final fdi = toothFdi(tooth);
+  if (fdi != null) return '$fdi';
+  final label = tooth['label']?.toString();
+  if (label != null && label.isNotEmpty) return label;
+  final idx = (tooth['tooth_index'] as num?)?.toInt() ?? 0;
+  return 'Tooth ${idx + 1}';
+}
+
+/// Quadrant 1 → 2 → 4 → 3, front (x1) → back (x8) inside each quadrant.
+int fdiSortKey(Map tooth) {
+  final fdi = toothFdi(tooth);
+  if (fdi == null) {
+    return 900 + ((tooth['tooth_index'] as num?)?.toInt() ?? 0);
+  }
+  const qOrder = {1: 0, 2: 1, 4: 2, 3: 3};
+  return (qOrder[fdi ~/ 10] ?? 8) * 10 + (fdi % 10);
+}
+
 dynamic _deepCopy(dynamic v) {
   if (v is Map) {
     return <String, dynamic>{

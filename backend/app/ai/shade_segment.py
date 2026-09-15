@@ -14,7 +14,9 @@ Additive classical extensions (toggleable; do not replace the above):
   • Optional active-contour snap after GrabCut (off by default)
 
 # ASSUMPTION: No ML model — color + morphology only.
-# ASSUMPTION: Tooth IDs are left→right in the image (not FDI).
+# ASSUMPTION: Photo is extra-oral / retracted smile (patient facing camera).
+# Image-left = patient's right. FDI is front→back in each quadrant
+# (11→18, 21→28, 31→38, 41→48) from the midline, matching ISO 3950.
 """
 
 from __future__ import annotations
@@ -71,7 +73,8 @@ class ToothMask:
     rejected: bool
     reject_reason: str | None = None
     arch: str | None = None  # "upper" | "lower" when dual-arch smile detected
-    arch_index: int = 0  # left→right within that arch
+    arch_index: int = 0  # left→right within that arch (image space)
+    fdi: int | None = None  # ISO 3950, front→back in the quadrant
 
 
 def detect_teeth(
@@ -103,6 +106,12 @@ def detect_teeth(
         if teeth_or_none is not None:
             used = "kaist"
             model_id = "kaist/individual_tooth_segmentation"
+            teeth_or_none = _complete_missing_kaist_arch(
+                image_rgb, teeth_or_none, config
+            )
+            teeth_or_none = _add_uncovered_classical_teeth(
+                image_rgb, teeth_or_none, config
+            )
             out = _assign_arch_metadata(teeth_or_none)
             _fill_segment_meta(
                 meta_out,
@@ -198,6 +207,146 @@ def _fill_segment_meta(
             "segment_accepted_count": sum(1 for t in teeth if not t.rejected),
         }
     )
+
+
+def _mask_centroid_y(tooth: ToothMask) -> float | None:
+    if tooth.mask.size == 0 or not np.any(tooth.mask):
+        return None
+    return float(np.nonzero(tooth.mask)[0].mean())
+
+
+def _complete_missing_kaist_arch(
+    image_rgb: np.ndarray,
+    teeth: list[ToothMask],
+    config: SegmentConfig | None,
+) -> list[ToothMask]:
+    """If KAIST framed two arches but only segmented one, fill the other.
+
+    Clinic open-mouth shots often yield a good mandibular KAIST row and an
+    empty maxillary crop. Accepting that as success numbered 41s as 11s and
+    left the shade-matching uppers unlabeled.
+    """
+    try:
+        from app.ai.shade_segment_kaist import kaist_focus_boxes
+
+        boxes = kaist_focus_boxes(image_rgb)
+    except Exception:
+        logger.exception("kaist missing-arch check failed")
+        return teeth
+    if len(boxes) != 2:
+        return teeth
+
+    covered = [False, False]
+    for t in teeth:
+        if t.rejected:
+            continue
+        cy = _mask_centroid_y(t)
+        if cy is None:
+            continue
+        for i, (y0, y1, _x0, _x1) in enumerate(boxes):
+            if y0 <= cy < y1:
+                covered[i] = True
+    if all(covered) or not any(covered):
+        return teeth
+
+    miss_i = 0 if not covered[0] else 1
+    y0, y1, _x0, _x1 = boxes[miss_i]
+    arch = "upper" if miss_i == 0 else "lower"
+    logger.warning(
+        "shade_segment KAIST missed %s arch — filling from classical", arch
+    )
+    extra: list[ToothMask] = []
+    for t in _detect_teeth_classical(image_rgb, config):
+        if t.rejected:
+            continue
+        cy = _mask_centroid_y(t)
+        if cy is None or not (y0 <= cy < y1):
+            continue
+        extra.append(replace(t, arch=arch))
+    if extra:
+        logger.info(
+            "shade_segment filled %s classical teeth into missing %s arch",
+            len(extra),
+            arch,
+        )
+    return list(teeth) + extra
+
+
+def _mask_smaller_coverage(a: np.ndarray, b: np.ndarray) -> float:
+    inter = int(np.count_nonzero(a & b))
+    if inter <= 0:
+        return 0.0
+    smaller = min(int(a.sum()), int(b.sum()))
+    return inter / float(max(1, smaller))
+
+
+def _add_uncovered_classical_teeth(
+    image_rgb: np.ndarray,
+    teeth: list[ToothMask],
+    config: SegmentConfig | None,
+) -> list[ToothMask]:
+    """Insert classical crowns that sit in KAIST gaps on the same arch row.
+
+    Dual-arch fill only runs when a whole row is empty. Clinic shots often have
+    21/22 but miss the flash-lit contralateral central — that tooth then steals
+    the 11 label from the neighboring lateral.
+    """
+    accepted = [t for t in teeth if not t.rejected and np.any(t.mask)]
+    if len(accepted) < 2:
+        return teeth
+
+    extras: list[ToothMask] = []
+    known = list(accepted)
+    for c in _detect_teeth_classical(image_rgb, config):
+        if c.rejected or not np.any(c.mask):
+            continue
+        if any(_mask_smaller_coverage(c.mask, t.mask) >= 0.35 for t in known):
+            continue
+        if not _plausible_gap_tooth(c, accepted):
+            continue
+        tagged = replace(c, arch=_nearest_arch(c, accepted))
+        extras.append(tagged)
+        known.append(tagged)
+    if extras:
+        logger.info(
+            "shade_segment filled %s uncovered KAIST gap teeth from classical",
+            len(extras),
+        )
+    return list(teeth) + extras
+
+
+def _nearest_arch(tooth: ToothMask, accepted: list[ToothMask]) -> str | None:
+    cy = _mask_centroid_y(tooth)
+    if cy is None:
+        return None
+    best: str | None = None
+    best_d = float("inf")
+    for t in accepted:
+        tcy = _mask_centroid_y(t)
+        if tcy is None:
+            continue
+        d = abs(cy - tcy)
+        if d < best_d:
+            best_d = d
+            best = t.arch
+    return best
+
+
+def _plausible_gap_tooth(cand: ToothMask, accepted: list[ToothMask]) -> bool:
+    cg = _mask_geom(cand.mask)
+    rows = [_mask_geom(t.mask) for t in accepted]
+    med_h = float(np.median([g["h"] for g in rows]))
+    med_a = float(np.median([g["area"] for g in rows]))
+    if med_h < 1.0 or med_a < 1.0:
+        return False
+    nearest = min(abs(cg["cy"] - g["cy"]) for g in rows)
+    if nearest > 0.55 * med_h:
+        return False
+    if cg["area"] < 0.40 * med_a or cg["area"] > 3.2 * med_a:
+        return False
+    if cg["h"] < 0.45 * med_h or cg["h"] > 1.85 * med_h:
+        return False
+    return True
 
 
 def _try_detect_teeth_kaist(image_rgb: np.ndarray) -> list[ToothMask] | None:
@@ -421,13 +570,28 @@ def with_config(**kwargs: bool) -> SegmentConfig:
     return replace(DEFAULT_CONFIG, **kwargs)
 
 
+_FDI_Q1 = (11, 12, 13, 14, 15, 16, 17, 18)  # upper right, front → back
+_FDI_Q2 = (21, 22, 23, 24, 25, 26, 27, 28)  # upper left
+_FDI_Q3 = (31, 32, 33, 34, 35, 36, 37, 38)  # lower left
+_FDI_Q4 = (41, 42, 43, 44, 45, 46, 47, 48)  # lower right
+_FDI_Q_ORDER = {1: 0, 2: 1, 4: 2, 3: 3}  # chart: upper then lower
+
+
 def tooth_display_label(tooth: ToothMask) -> str:
-    """Human label for UI — Upper/Lower when dual arch is detected."""
+    """ISO 3950 number when known; otherwise a fallback list label."""
+    if tooth.fdi is not None:
+        return str(tooth.fdi)
     if tooth.arch == "upper":
         return f"Upper {tooth.arch_index + 1}"
     if tooth.arch == "lower":
         return f"Lower {tooth.arch_index + 1}"
     return f"Tooth {tooth.tooth_index + 1}"
+
+
+def _fdi_sort_key(tooth: ToothMask) -> tuple[int, int]:
+    if tooth.fdi is None:
+        return (9, tooth.tooth_index)
+    return (_FDI_Q_ORDER.get(tooth.fdi // 10, 8), tooth.fdi % 10)
 
 
 def _infer_arch_split_y(geoms: list[dict]) -> float | None:
@@ -450,7 +614,7 @@ def _infer_arch_split_y(geoms: list[dict]) -> float | None:
 
 
 def _assign_arch_metadata(teeth: list[ToothMask]) -> list[ToothMask]:
-    """Tag each tooth upper/lower; order upper→lower, left→right within arch."""
+    """Tag upper/lower, assign ISO 3950 numbers, order front→back per quadrant."""
     if not teeth:
         return teeth
 
@@ -470,7 +634,22 @@ def _assign_arch_metadata(teeth: list[ToothMask]) -> list[ToothMask]:
     single: list[dict] = []
 
     if split_y is None:
-        single = sorted(geoms, key=lambda g: g["cx"])
+        preset_upper = [g for g in geoms if g["tooth"].arch == "upper"]
+        preset_lower = [g for g in geoms if g["tooth"].arch == "lower"]
+        if preset_upper or preset_lower:
+            # Dual-arch crops tag rows even when the other arch was empty.
+            upper = sorted(preset_upper, key=lambda g: g["cx"])
+            lower = sorted(preset_lower, key=lambda g: g["cx"])
+            single = sorted(
+                [
+                    g
+                    for g in geoms
+                    if g["tooth"].arch not in ("upper", "lower")
+                ],
+                key=lambda g: g["cx"],
+            )
+        else:
+            single = sorted(geoms, key=lambda g: g["cx"])
     else:
         for g in geoms:
             (upper if g["cy"] < split_y else lower).append(g)
@@ -496,6 +675,7 @@ def _assign_arch_metadata(teeth: list[ToothMask]) -> list[ToothMask]:
                 reject_reason=t.reject_reason,
                 arch=arch,
                 arch_index=arch_idx,
+                fdi=t.fdi,
             )
         )
     # Preserve rejected teeth that had empty masks (rare)
@@ -511,9 +691,89 @@ def _assign_arch_metadata(teeth: list[ToothMask]) -> list[ToothMask]:
                     reject_reason=t.reject_reason,
                     arch=t.arch,
                     arch_index=t.arch_index,
+                    fdi=t.fdi,
                 )
             )
+    return _assign_fdi_and_reorder(out)
+
+
+def _assign_fdi_and_reorder(teeth: list[ToothMask]) -> list[ToothMask]:
+    """ISO 3950 numbers from the midline out; list order is front→back / quadrant."""
+    if not teeth:
+        return teeth
+    image_w = float(teeth[0].mask.shape[1]) if teeth[0].mask.size else 1.0
+    upper = [t for t in teeth if t.arch == "upper"]
+    lower = [t for t in teeth if t.arch == "lower"]
+    single = [t for t in teeth if t.arch not in ("upper", "lower")]
+
+    numbered: list[ToothMask] = []
+    numbered.extend(_number_arch_fdi(upper, "upper", image_w))
+    numbered.extend(_number_arch_fdi(single, "upper", image_w))
+    numbered.extend(_number_arch_fdi(lower, "lower", image_w))
+    numbered.sort(key=_fdi_sort_key)
+    return [replace(t, tooth_index=i) for i, t in enumerate(numbered)]
+
+
+def _number_arch_fdi(
+    teeth: list[ToothMask],
+    arch: str,
+    image_w: float,
+) -> list[ToothMask]:
+    if not teeth:
+        return []
+    located: list[tuple[ToothMask, float]] = []
+    missing: list[ToothMask] = []
+    for t in teeth:
+        if t.mask.size == 0 or not np.any(t.mask):
+            missing.append(t)
+            continue
+        located.append((t, float(np.nonzero(t.mask)[1].mean())))
+    located.sort(key=lambda p: p[1])
+    patient_right, patient_left = _split_arch_at_midline(located, image_w)
+    right_seq = _FDI_Q4 if arch == "lower" else _FDI_Q1
+    left_seq = _FDI_Q3 if arch == "lower" else _FDI_Q2
+    out: list[ToothMask] = []
+    for i, (t, _cx) in enumerate(patient_right):
+        out.append(replace(t, fdi=right_seq[min(i, len(right_seq) - 1)]))
+    for i, (t, _cx) in enumerate(patient_left):
+        out.append(replace(t, fdi=left_seq[min(i, len(left_seq) - 1)]))
+    out.extend(missing)
     return out
+
+
+def _split_arch_at_midline(
+    located: list[tuple[ToothMask, float]],
+    image_w: float,
+) -> tuple[list[tuple[ToothMask, float]], list[tuple[ToothMask, float]]]:
+    """Patient-right and patient-left groups, each ordered front→back."""
+    if not located:
+        return [], []
+    if len(located) == 1:
+        _t, cx = located[0]
+        if cx < 0.5 * image_w:
+            return list(located), []
+        return [], list(located)
+
+    xs = [cx for _t, cx in located]
+    first, last = xs[0], xs[-1]
+    img_mid = 0.5 * image_w
+    margin = 0.08 * image_w
+    if last < img_mid - margin:
+        return list(reversed(located)), []
+    if first > img_mid + margin:
+        return [], list(located)
+
+    target = img_mid if first < img_mid < last else 0.5 * (first + last)
+    best_i = 0
+    best = float("inf")
+    for i in range(len(located) - 1):
+        gap = xs[i + 1] - xs[i]
+        gap_mid = 0.5 * (xs[i] + xs[i + 1])
+        score = abs(gap_mid - target) - 0.25 * gap
+        if score < best:
+            best = score
+            best_i = i
+    return list(reversed(located[: best_i + 1])), located[best_i + 1 :]
 
 
 # ---------------------------------------------------------------------------
@@ -2481,6 +2741,9 @@ def _sanity_check_instances(teeth: list[ToothMask]) -> list[ToothMask]:
                     confidence=min(t.confidence, 0.25),
                     rejected=True,
                     reject_reason=reason,
+                    arch=t.arch,
+                    arch_index=t.arch_index,
+                    fdi=t.fdi,
                 )
             )
         else:

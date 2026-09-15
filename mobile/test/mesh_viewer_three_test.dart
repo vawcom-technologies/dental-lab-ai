@@ -64,7 +64,7 @@ void main() {
       three.MaterialProperty.color: 0xffffff,
       three.MaterialProperty.vertexColors: true,
       three.MaterialProperty.side: three.DoubleSide,
-      three.MaterialProperty.shininess: 30,
+        three.MaterialProperty.shininess: 12,
       three.MaterialProperty.flatShading: false,
       three.MaterialProperty.wireframe: false,
       three.MaterialProperty.transparent: false,
@@ -73,7 +73,7 @@ void main() {
     });
     expect(mat.vertexColors, isTrue);
     expect(mat.flatShading, isFalse);
-    expect(mat.shininess, 30);
+    expect(mat.shininess, 12);
     expect(mat.wireframe, isFalse);
     expect(mat.transparent, isFalse);
     expect(mat.opacity, 1.0);

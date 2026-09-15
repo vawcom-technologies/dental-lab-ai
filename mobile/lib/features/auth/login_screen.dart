@@ -114,9 +114,15 @@ class _LoginScreenState extends State<LoginScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Transform.translate(
-                      offset: const Offset(22, 0),
-                      child: const BrandLogo(height: 156, scale: 1.35),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: const Padding(
+                        padding: EdgeInsets.fromLTRB(18, 14, 18, 14),
+                        child: BrandLogo(height: 96),
+                      ),
                     ),
                     const SizedBox(height: 20),
                     Text(
@@ -157,7 +163,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               const Center(
-                                child: BrandLogo(height: 72, scale: 1.2),
+                                child: BrandLogo(height: 64),
                               ),
                               const SizedBox(height: 16),
                               Text(

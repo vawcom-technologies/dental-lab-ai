@@ -1613,6 +1613,67 @@ class ApiClient {
     );
   }
 
+  Future<Map<String, dynamic>> interpreterCatalog() async {
+    final res = await _http.get(
+      Uri.parse('$baseUrl/api/interpreter/languages'),
+      headers: _getHeaders(),
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    final decoded = jsonDecode(res.body);
+    if (decoded is Map<String, dynamic>) return decoded;
+    if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    throw Exception('Invalid interpreter catalog');
+  }
+
+  Future<Map<String, dynamic>> interpreterTurn({
+    required String text,
+    required String sourceLang,
+    required String targetLang,
+  }) async {
+    final res = await _http
+        .post(
+          Uri.parse('$baseUrl/api/interpreter/turn'),
+          headers: _jsonHeaders,
+          body: jsonEncode({
+            'text': text,
+            'source_lang': sourceLang,
+            'target_lang': targetLang,
+          }),
+        )
+        .timeout(const Duration(seconds: 45));
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return _mapBody(res, fallback: 'Translation failed');
+  }
+
+  Future<Map<String, dynamic>> interpreterTurnAudio({
+    required List<int> bytes,
+    required String filename,
+    required String sourceLang,
+    required String targetLang,
+  }) async {
+    final req = http.MultipartRequest(
+      'POST',
+      Uri.parse('$baseUrl/api/interpreter/turn-audio'),
+    );
+    req.headers.addAll(_authHeaders);
+    req.fields['source_lang'] = sourceLang;
+    req.fields['target_lang'] = targetLang;
+    req.files.add(
+      http.MultipartFile.fromBytes('file', bytes, filename: filename),
+    );
+    final streamed = await _http.send(req);
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return _mapBody(res, fallback: 'Voice translation failed');
+  }
+
+  Map<String, dynamic> _mapBody(http.Response res, {required String fallback}) {
+    final decoded = jsonDecode(res.body);
+    if (decoded is Map<String, dynamic>) return decoded;
+    if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    throw Exception(fallback);
+  }
+
   String _errorMessage(http.Response res) {
     String? detail;
     String? code;

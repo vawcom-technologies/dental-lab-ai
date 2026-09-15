@@ -10,6 +10,7 @@ class ShadeOverridePane extends StatelessWidget {
     super.key,
     required this.focusZone,
     required this.selectedToothIndex,
+    this.selectedToothLabel,
     required this.selected,
     required this.topMatches,
     required this.overallTopMatches,
@@ -24,6 +25,7 @@ class ShadeOverridePane extends StatelessWidget {
 
   final String focusZone;
   final int? selectedToothIndex;
+  final String? selectedToothLabel;
   final String selected;
   final List<Map<String, dynamic>> topMatches;
   final List<Map<String, dynamic>> overallTopMatches;
@@ -42,21 +44,35 @@ class ShadeOverridePane extends StatelessWidget {
     final zoneLabel = capitalizeZone(focusZone);
     final toothLabel = selectedToothIndex == null
         ? null
-        : 'T${selectedToothIndex! + 1} · $zoneLabel';
+        : '${selectedToothLabel ?? 'T${selectedToothIndex! + 1}'} · $zoneLabel';
     final gumTab = tab == 1;
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 520;
-        final chipW = wide ? 48.0 : 42.0;
+        final chipW = wide ? 52.0 : 44.0;
+        final body = gumTab
+            ? _gumBody(wide: wide, chipW: chipW, loc: loc)
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: _shadeBody(
+                  wide: wide,
+                  chipW: chipW,
+                  toothLabel: toothLabel,
+                  context: context,
+                ),
+              );
 
         return SectionCard(
           depth: 0,
           color: Colors.white,
           boxShadow: kShadeCardGlow,
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: constraints.hasBoundedHeight
+                ? MainAxisSize.max
+                : MainAxisSize.min,
             children: [
               Text(
                 loc.shadeManualOverride,
@@ -110,21 +126,21 @@ class ShadeOverridePane extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 10),
-              Expanded(
-                child: SingleChildScrollView(
-                  child: gumTab
-                      ? _gumBody(wide: wide, chipW: chipW, loc: loc)
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: _shadeBody(
-                            wide: wide,
-                            chipW: chipW,
-                            toothLabel: toothLabel,
-                            context: context,
-                          ),
-                        ),
+              if (constraints.hasBoundedHeight)
+                Expanded(
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(
+                      parent: AlwaysScrollableScrollPhysics(),
+                    ),
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: body,
+                  ),
+                )
+              else
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: body,
                 ),
-              ),
             ],
           ),
         );
@@ -378,8 +394,8 @@ class ShadeOverridePane extends StatelessWidget {
   }
 
   Widget _vitaToothRow({required bool wide}) {
-    final h = wide ? 52.0 : 44.0;
-    final w = wide ? 34.0 : 28.0;
+    final h = wide ? 64.0 : 52.0;
+    final w = wide ? 40.0 : 32.0;
 
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,

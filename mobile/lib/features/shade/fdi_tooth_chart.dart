@@ -81,6 +81,18 @@ Map<int, int> mapFdiToToothIndex(List<Map<String, dynamic>> teeth) {
   ];
   if (usable.isEmpty) return const {};
 
+  final fromBackend = <int, int>{};
+  for (final t in usable) {
+    final fdi = t['fdi'];
+    if (fdi is num) {
+      final n = fdi.toInt();
+      if (n >= 11 && n <= 48) {
+        fromBackend[n] = (t['tooth_index'] as num).toInt();
+      }
+    }
+  }
+  if (fromBackend.isNotEmpty) return fromBackend;
+
   final upper = [
     for (final t in usable)
       if (t['arch']?.toString() == 'upper') t,

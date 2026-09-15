@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import 'shade_shared.dart';
 
 /// Maps normalized [0,1] tooth geometry onto a BoxFit.contain image rect.
 Rect containRect(Size box, Size image) {
@@ -104,9 +105,9 @@ Offset closestPointOnSegment(Offset p, Offset a, Offset b) {
 double _distToSegment(Offset p, Offset a, Offset b) =>
     (p - closestPointOnSegment(p, a, b)).distance;
 
-/// Soft-corner / edge-bent closed path. [bulges[i]] bends edge i→i+1
-/// (fraction of image shortest side; + = left of directed edge).
-/// Zero bulge → straight segment (no auto-puff).
+/// Soft-corner closed path. User [bulges] still bend individual edges.
+/// Dense display rings (no bulges) use a Catmull–Rom spline so the stroke
+/// follows the crown instead of showing polygon corners.
 Path curvedPathFromNorm(
   List outline,
   Rect dest, {
@@ -121,6 +122,19 @@ Path curvedPathFromNorm(
   final path = Path();
   if (n < 3) return path;
 
+  var hasBulge = false;
+  if (bulges != null) {
+    for (final b in bulges) {
+      if (b.abs() > 1e-9) {
+        hasBulge = true;
+        break;
+      }
+    }
+  }
+  if (!hasBulge && n >= 16) {
+    return _catmullRomClosed(pts);
+  }
+
   final scale = dest.shortestSide.clamp(1.0, 10000.0);
   path.moveTo(pts[0].dx, pts[0].dy);
   for (var i = 0; i < n; i++) {
@@ -132,6 +146,28 @@ Path curvedPathFromNorm(
     } else {
       path.quadraticBezierTo(ctrl.dx, ctrl.dy, b.dx, b.dy);
     }
+  }
+  path.close();
+  return path;
+}
+
+Path _catmullRomClosed(List<Offset> pts) {
+  final n = pts.length;
+  final path = Path()..moveTo(pts[0].dx, pts[0].dy);
+  for (var i = 0; i < n; i++) {
+    final p0 = pts[(i - 1) % n];
+    final p1 = pts[i];
+    final p2 = pts[(i + 1) % n];
+    final p3 = pts[(i + 2) % n];
+    final c1 = Offset(
+      p1.dx + (p2.dx - p0.dx) / 6,
+      p1.dy + (p2.dy - p0.dy) / 6,
+    );
+    final c2 = Offset(
+      p2.dx - (p3.dx - p1.dx) / 6,
+      p2.dy - (p3.dy - p1.dy) / 6,
+    );
+    path.cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, p2.dx, p2.dy);
   }
   path.close();
   return path;
@@ -594,11 +630,12 @@ class ToothOverlayPainter extends CustomPainter {
   /// Loupe: skip other teeth while a handle/edge is active (cheaper frames).
   final bool paintSelectedOnlyWhileDragging;
 
-  static const _zoneColors = {
-    'cervical': Color(0xFFE09B2D),
-    'middle': Color(0xFFE05252),
-    'incisal': Color(0xFF1F9D63),
-  };
+  /// Clinical overlay — matches aesthetic analysis plates (box / axis / ticks).
+  static const _boxColor = Color(0xFFA48CC8);
+  static const _axisColor = Color(0xFFE6C34A);
+  static const _tickColor = Color(0xFF6DB56A);
+  static const _contourColor = Color(0xFFE8F4F8);
+  static const _midlineColor = Color(0xFFF0F0F0);
 
   /// Cached paths for teeth that don't move during a drag.
   Size? _staticCacheSize;
@@ -621,11 +658,7 @@ class ToothOverlayPainter extends CustomPainter {
       _ensureStaticCache(size, dest, isolateIdx);
       for (final c in _staticCache!) {
         if (c.selected) continue;
-        canvas.drawPath(c.path, c.fill);
-        canvas.drawPath(c.path, c.stroke);
-        if (c.label != null) {
-          _paintLabel(canvas, c.label!);
-        }
+        _paintCachedTooth(canvas, c);
       }
       _paintSelectedEdit(canvas, dest);
       return;
@@ -659,65 +692,34 @@ class ToothOverlayPainter extends CustomPainter {
       }
       if (verts.length >= 3) {
         final path = curvedPathFromNorm(verts, dest, bulges: bulges);
+        final editing = editMode && selected;
         final fill = Paint()
           ..style = PaintingStyle.fill
-          ..color = selected
-              ? AppColors.dentalBlue.withValues(alpha: editMode ? 0.28 : 0.22)
+          ..color = editing
+              ? AppColors.dentalBlue.withValues(alpha: 0.28)
               : (rejected
-                  ? AppColors.danger.withValues(alpha: 0.10)
-                  : Colors.white.withValues(alpha: 0.06));
+                  ? AppColors.danger.withValues(alpha: 0.08)
+                  : (selected
+                      ? AppColors.dentalBlue.withValues(alpha: 0.06)
+                      : Colors.white.withValues(alpha: 0.02)));
         canvas.drawPath(path, fill);
         final stroke = Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = selected ? 2.6 : 1.6
-          ..color = selected
-              ? AppColors.dentalBlue
-              : (rejected ? AppColors.danger : Colors.white70);
+          ..strokeWidth = selected ? 1.7 : 1.15
+          ..color = rejected
+              ? AppColors.danger
+              : (editing ? AppColors.dentalBlue : _contourColor);
         canvas.drawPath(path, stroke);
       }
 
       if (!(editMode && selected)) {
-        final zoneOutlines = geo['zone_outlines'];
-        if (zoneOutlines is Map && selected) {
-          for (final entry in zoneOutlines.entries) {
-            final name = entry.key.toString();
-            final pts = entry.value;
-            if (pts is! List || pts.length < 3) continue;
-            final zVerts = [
-              for (final p in pts)
-                if (p is List && p.length >= 2)
-                  [(p[0] as num).toDouble(), (p[1] as num).toDouble()],
-            ];
-            final path = curvedPathFromNorm(zVerts, dest);
-            final c = _zoneColors[name] ?? Colors.white;
-            canvas.drawPath(
-              path,
-              Paint()
-                ..style = PaintingStyle.stroke
-                ..strokeWidth = name == focusZone ? 2.0 : 1.0
-                ..color = c.withValues(alpha: name == focusZone ? 0.95 : 0.55),
-            );
-          }
-        }
-
-        final lines = geo['zone_lines'];
-        if (lines is List) {
-          for (final line in lines) {
-            if (line is! List || line.length < 2) continue;
-            final a = line[0];
-            final b = line[1];
-            if (a is! List || b is! List) continue;
-            final p0 = normToLocal(a, dest);
-            final p1 = normToLocal(b, dest);
-            canvas.drawLine(
-              p0,
-              p1,
-              Paint()
-                ..color = selected ? Colors.white : Colors.white54
-                ..strokeWidth = selected ? 1.8 : 1.2,
-            );
-          }
-        }
+        _paintClinicalMarks(
+          canvas,
+          dest,
+          geo,
+          selected: selected,
+          rejected: rejected,
+        );
       }
 
       final label = geo['label'];
@@ -726,11 +728,15 @@ class ToothOverlayPainter extends CustomPainter {
           canvas,
           _LabelPaint(
             at: normToLocal([label['x'], label['y']], dest),
-            text: 'T${idx + 1}',
+            text: toothDisplayLabel(t),
             selected: selected,
           ),
         );
       }
+    }
+
+    if (!editMode && isolateIdx == null) {
+      _paintArchMidline(canvas, dest);
     }
 
     if (editMode && editOutline != null) {
@@ -765,10 +771,11 @@ class ToothOverlayPainter extends CustomPainter {
       if (label is Map) {
         labelPaint = _LabelPaint(
           at: normToLocal([label['x'], label['y']], dest),
-          text: 'T${idx + 1}',
+          text: toothDisplayLabel(t),
           selected: false,
         );
       }
+      final marks = _clinicalMarks(geo, dest);
       out.add(
         _CachedToothStroke(
           path: path,
@@ -776,17 +783,208 @@ class ToothOverlayPainter extends CustomPainter {
           fill: Paint()
             ..style = PaintingStyle.fill
             ..color = rejected
-                ? AppColors.danger.withValues(alpha: 0.10)
-                : Colors.white.withValues(alpha: 0.06),
+                ? AppColors.danger.withValues(alpha: 0.08)
+                : Colors.white.withValues(alpha: 0.02),
           stroke: Paint()
             ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.6
-            ..color = rejected ? AppColors.danger : Colors.white70,
+            ..strokeWidth = 1.15
+            ..color = rejected ? AppColors.danger : _contourColor,
           label: labelPaint,
+          box: marks.box,
+          axisFrom: marks.axis?.$1,
+          axisTo: marks.axis?.$2,
+          ticks: marks.ticks,
+          rejected: rejected,
         ),
       );
     }
     _staticCache = out;
+  }
+
+  void _paintCachedTooth(Canvas canvas, _CachedToothStroke c) {
+    canvas.drawPath(c.path, c.fill);
+    canvas.drawPath(c.path, c.stroke);
+    _strokeClinical(
+      canvas,
+      box: c.box,
+      axisFrom: c.axisFrom,
+      axisTo: c.axisTo,
+      ticks: c.ticks,
+      selected: false,
+      rejected: c.rejected,
+    );
+    if (c.label != null) {
+      _paintLabel(canvas, c.label!);
+    }
+  }
+
+  void _paintClinicalMarks(
+    Canvas canvas,
+    Rect dest,
+    Map geo, {
+    required bool selected,
+    required bool rejected,
+  }) {
+    final marks = _clinicalMarks(geo, dest);
+    _strokeClinical(
+      canvas,
+      box: marks.box,
+      axisFrom: marks.axis?.$1,
+      axisTo: marks.axis?.$2,
+      ticks: marks.ticks,
+      selected: selected,
+      rejected: rejected,
+    );
+  }
+
+  ({Rect? box, (Offset, Offset)? axis, List<(Offset, Offset)> ticks})
+      _clinicalMarks(Map geo, Rect dest) {
+    var box = _bboxRect(geo['bbox'], dest);
+    var axis = _normLine(geo['axis'], dest);
+    final ticks = <(Offset, Offset)>[];
+    final rawTicks = geo['width_ticks'];
+    if (rawTicks is List) {
+      for (final line in rawTicks) {
+        final t = _normLine(line, dest);
+        if (t != null) ticks.add(t);
+      }
+    }
+    if (box == null) {
+      final raw = geo['outline'];
+      if (raw is List && raw.length >= 3) {
+        final verts = [
+          for (final p in raw)
+            if (p is List && p.length >= 2)
+              [(p[0] as num).toDouble(), (p[1] as num).toDouble()],
+        ];
+        if (verts.length >= 3) {
+          final nb = outlineBBox(verts);
+          box = Rect.fromLTWH(
+            dest.left + nb.left * dest.width,
+            dest.top + nb.top * dest.height,
+            nb.width * dest.width,
+            nb.height * dest.height,
+          );
+        }
+      }
+    }
+    if (axis == null && box != null) {
+      axis = (Offset(box.center.dx, box.top), Offset(box.center.dx, box.bottom));
+    }
+    if (ticks.isEmpty && box != null) {
+      for (final frac in [0.18, 0.50, 0.82]) {
+        final y = box.top + box.height * frac;
+        ticks.add((Offset(box.left, y), Offset(box.right, y)));
+      }
+    }
+    return (box: box, axis: axis, ticks: ticks);
+  }
+
+  void _strokeClinical(
+    Canvas canvas, {
+    required Rect? box,
+    required Offset? axisFrom,
+    required Offset? axisTo,
+    required List<(Offset, Offset)> ticks,
+    required bool selected,
+    required bool rejected,
+  }) {
+    if (box != null) {
+      canvas.drawRect(
+        box,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = selected ? 2.15 : 1.35
+          ..color = rejected
+              ? AppColors.danger.withValues(alpha: 0.9)
+              : _boxColor.withValues(alpha: selected ? 1 : 0.9),
+      );
+    }
+    if (axisFrom != null && axisTo != null) {
+      canvas.drawLine(
+        axisFrom,
+        axisTo,
+        Paint()
+          ..color = _axisColor.withValues(alpha: selected ? 1 : 0.92)
+          ..strokeWidth = selected ? 2.05 : 1.35
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+    final focusIdx = switch (focusZone) {
+      'cervical' => 0,
+      'middle' => 1,
+      'incisal' => 2,
+      _ => -1,
+    };
+    for (var i = 0; i < ticks.length; i++) {
+      final tick = ticks[i];
+      final hot = selected && i == focusIdx;
+      canvas.drawLine(
+        tick.$1,
+        tick.$2,
+        Paint()
+          ..color = _tickColor.withValues(alpha: hot ? 1 : (selected ? 0.95 : 0.85))
+          ..strokeWidth = hot ? 2.0 : (selected ? 1.55 : 1.2)
+          ..strokeCap = StrokeCap.square,
+      );
+    }
+  }
+
+  Rect? _bboxRect(dynamic bbox, Rect dest) {
+    if (bbox is! Map) return null;
+    final w = (bbox['w'] as num?)?.toDouble() ?? 0;
+    final h = (bbox['h'] as num?)?.toDouble() ?? 0;
+    if (w <= 0.004 || h <= 0.004) return null;
+    return Rect.fromLTWH(
+      dest.left + ((bbox['x'] as num?)?.toDouble() ?? 0) * dest.width,
+      dest.top + ((bbox['y'] as num?)?.toDouble() ?? 0) * dest.height,
+      w * dest.width,
+      h * dest.height,
+    );
+  }
+
+  (Offset, Offset)? _normLine(dynamic line, Rect dest) {
+    if (line is! List || line.length < 2) return null;
+    final a = line[0];
+    final b = line[1];
+    if (a is! List || b is! List || a.length < 2 || b.length < 2) return null;
+    return (normToLocal(a, dest), normToLocal(b, dest));
+  }
+
+  void _paintArchMidline(Canvas canvas, Rect dest) {
+    final centers = <({double x, double top, double bottom})>[];
+    for (final t in teeth) {
+      if (t['rejected'] == true) continue;
+      final geo = t['geometry'];
+      if (geo is! Map) continue;
+      final box = _bboxRect(geo['bbox'], dest);
+      if (box == null) continue;
+      centers.add((
+        x: box.center.dx,
+        top: box.top,
+        bottom: box.bottom,
+      ));
+    }
+    if (centers.length < 2) return;
+    centers.sort((a, b) => a.x.compareTo(b.x));
+    var i = 0;
+    final midX = dest.left + dest.width * 0.5;
+    while (i + 1 < centers.length && centers[i + 1].x < midX) {
+      i++;
+    }
+    if (i + 1 >= centers.length) i = centers.length - 2;
+    final a = centers[i];
+    final b = centers[i + 1];
+    final x = (a.x + b.x) * 0.5;
+    final top = (a.top < b.top ? a.top : b.top) - 6;
+    final bot = (a.bottom > b.bottom ? a.bottom : b.bottom) + 8;
+    canvas.drawLine(
+      Offset(x, top),
+      Offset(x, bot),
+      Paint()
+        ..color = _midlineColor.withValues(alpha: 0.85)
+        ..strokeWidth = 1.05,
+    );
   }
 
   void _paintSelectedEdit(Canvas canvas, Rect dest) {
@@ -903,6 +1101,11 @@ class _CachedToothStroke {
     required this.fill,
     required this.stroke,
     this.label,
+    this.box,
+    this.axisFrom,
+    this.axisTo,
+    this.ticks = const [],
+    this.rejected = false,
   });
 
   final Path path;
@@ -910,6 +1113,11 @@ class _CachedToothStroke {
   final Paint fill;
   final Paint stroke;
   final _LabelPaint? label;
+  final Rect? box;
+  final Offset? axisFrom;
+  final Offset? axisTo;
+  final List<(Offset, Offset)> ticks;
+  final bool rejected;
 }
 
 class _LabelPaint {

@@ -22,6 +22,7 @@ import '../features/reports/reports_page.dart';
 // import '../features/scan_body/scan_body_page.dart';
 import '../features/scans/scans_page.dart';
 import '../features/settings/settings_page.dart';
+import '../features/interpreter/interpreter_page.dart';
 import '../features/shade/shade_page.dart';
 import '../features/shapes/shape_overlay_page.dart';
 import 'app_sidebar.dart';
@@ -361,6 +362,12 @@ class _AppShellState extends State<AppShell> {
         );
       case AppNavItem.smilePreview:
         return ShapeOverlayPage(
+          api: widget.api,
+          patientSession: _patients,
+          active: active,
+        );
+      case AppNavItem.interpreter:
+        return InterpreterPage(
           api: widget.api,
           patientSession: _patients,
           active: active,

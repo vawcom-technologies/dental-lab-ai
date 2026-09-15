@@ -191,12 +191,13 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
     return LayoutBuilder(
       builder: (context, constraints) {
         return SingleChildScrollView(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: constraints.maxHeight),
-            child: IntrinsicHeight(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
+          physics: const BouncingScrollPhysics(
+            parent: AlwaysScrollableScrollPhysics(),
+          ),
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
                   if (widget.gum != null ||
                       teeth.isNotEmpty ||
                       detected != '—') ...[
@@ -213,8 +214,7 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
                       final idx = (t['tooth_index'] as num).toInt();
                       final rejected = t['rejected'] == true;
                       final active = selectedToothIndex == idx;
-                      final label =
-                          t['label']?.toString() ?? 'Tooth ${idx + 1}';
+                      final label = toothDisplayLabel(t);
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: Material(
@@ -500,7 +500,6 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
                       }).toList(),
                     ),
                   ],
-                  const Spacer(),
                   const SizedBox(height: 14),
                   FilledButton(
                     onPressed:
@@ -545,11 +544,9 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
                   ),
                 ],
               ),
-            ),
-          ),
+            );
+          },
         );
-      },
-    );
   }
 }
 

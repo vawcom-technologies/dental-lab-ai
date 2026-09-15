@@ -82,5 +82,26 @@
     "label": "Canine lift",
     "asset": "assets/clinical/shapes/shape_12_canine_lift.png",
     "shapeId": "shape_12"
+  },
+  {
+    "id": 13,
+    "slug": "implant_natural",
+    "label": "Implant natural",
+    "asset": "assets/clinical/shapes/shape_13_implant_natural.png",
+    "shapeId": "shape_13"
+  },
+  {
+    "id": 14,
+    "slug": "implant_bright",
+    "label": "Implant bright",
+    "asset": "assets/clinical/shapes/shape_14_implant_bright.png",
+    "shapeId": "shape_14"
+  },
+  {
+    "id": 15,
+    "slug": "implant_classic",
+    "label": "Implant classic",
+    "asset": "assets/clinical/shapes/shape_15_implant_classic.png",
+    "shapeId": "shape_15"
   }
 ]

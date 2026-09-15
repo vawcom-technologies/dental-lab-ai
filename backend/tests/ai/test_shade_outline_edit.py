@@ -110,6 +110,8 @@ def test_dense_curved_outline_not_collapsed_to_handles():
     assert len(geo["outline"]) >= 18  # densified polyline kept, not sparse handles
     assert EDIT_HANDLES_MIN <= len(geo["edit_handles"]) <= EDIT_HANDLES_MAX
     assert geo["outline"] == dense
+    assert geo["axis"] is not None and len(geo["axis"]) == 2
+    assert isinstance(geo["width_ticks"], list)
 
 
 def test_display_outline_is_moderate_for_rounded_mask():
@@ -118,7 +120,15 @@ def test_display_outline_is_moderate_for_rounded_mask():
     mask = ((xx - 80) / 50) ** 2 + ((yy - 100) / 80) ** 2 <= 1.0
     geo = tooth_display_geometry(mask)
     assert geo is not None
-    assert 16 <= len(geo["outline"]) <= 36
+    assert 24 <= len(geo["outline"]) <= 48
+    # Even spacing around an ellipse — no long flat chords.
+    ring = geo["outline"]
+    chords = [
+        (ring[i][0] - ring[(i + 1) % len(ring)][0]) ** 2
+        + (ring[i][1] - ring[(i + 1) % len(ring)][1]) ** 2
+        for i in range(len(ring))
+    ]
+    assert max(chords) < 0.08
     assert EDIT_HANDLES_MIN <= len(geo["edit_handles"]) <= EDIT_HANDLES_MAX
 
 
@@ -135,3 +145,28 @@ def test_anatomical_handles_cover_extremes():
     assert max(xs) > 0.6
     assert min(ys) < 0.4
     assert max(ys) > 0.6
+
+
+def test_clinical_overlay_marks_match_reference_layout():
+    """Purple box + yellow long axis + horizontal width ticks per crown."""
+    h, w = 200, 120
+    yy, xx = np.ogrid[:h, :w]
+    mask = ((xx - 60) / 32) ** 2 + ((yy - 100) / 72) ** 2 <= 1.0
+    geo = tooth_display_geometry(mask)
+    assert geo is not None
+    axis = geo["axis"]
+    assert axis is not None and len(axis) == 2
+    # Cervical → incisal is mostly vertical (x nearly constant, y increases).
+    assert abs(axis[0][0] - axis[1][0]) < 0.08
+    assert axis[1][1] > axis[0][1]
+    ticks = geo["width_ticks"]
+    assert 2 <= len(ticks) <= 3
+    for a, b in ticks:
+        assert abs(a[1] - b[1]) < 0.08
+        assert abs(a[0] - b[0]) > 0.15
+    ys, xs = np.nonzero(mask)
+    bbox = geo["bbox"]
+    assert bbox["x"] * w <= float(xs.min()) - 1
+    assert (bbox["x"] + bbox["w"]) * w >= float(xs.max()) + 1
+    assert bbox["y"] * h <= float(ys.min()) - 1
+    assert (bbox["y"] + bbox["h"]) * h >= float(ys.max()) + 1

@@ -123,6 +123,15 @@ class _ShadePageState extends State<ShadePage> {
     return null;
   }
 
+  String _toothLabelFor(int index) {
+    for (final t in _teeth) {
+      if ((t['tooth_index'] as num?)?.toInt() == index) {
+        return toothDisplayLabel(t);
+      }
+    }
+    return 'Tooth ${index + 1}';
+  }
+
   List<Map<String, dynamic>> _cloneTeeth(List<Map<String, dynamic>> src) =>
       src.map((t) => Map<String, dynamic>.from(t)).toList();
 
@@ -248,8 +257,8 @@ class _ShadePageState extends State<ShadePage> {
       }
       return {
         'tooth_index': t['tooth_index'],
-        'label': t['label'] ??
-            'Tooth ${((t['tooth_index'] as num?)?.toInt() ?? 0) + 1}',
+        'fdi': t['fdi'],
+        'label': toothDisplayLabel(t),
         'zones': zones,
         'rejected': t['rejected'] == true,
       };
@@ -682,14 +691,7 @@ class _ShadePageState extends State<ShadePage> {
     });
     if (!_hasToothIndex(index)) return;
 
-    final label = () {
-      for (final t in _teeth) {
-        if ((t['tooth_index'] as num?)?.toInt() == index) {
-          return t['label']?.toString() ?? 'Tooth ${index + 1}';
-        }
-      }
-      return 'Tooth ${index + 1}';
-    }();
+    final label = _toothLabelFor(index);
 
     setState(() {
       _isolatedToothIndex = index;
@@ -745,7 +747,7 @@ class _ShadePageState extends State<ShadePage> {
       _saveStatus = null;
     });
     _toast(
-      'Tooth ${index + 1} · ${capitalizeZone(zone)} → $shade',
+      '${_toothLabelFor(index)} · ${capitalizeZone(zone)} → $shade',
       bg: AppColors.success,
     );
     // Persist so Session gets the accepted match (was onlyIfExists before).
@@ -812,7 +814,7 @@ class _ShadePageState extends State<ShadePage> {
     _selectTooth(index, zone: zone);
     if (!mounted) return;
     _toast(
-      'Tooth ${index + 1} · ${capitalizeZone(zone)} — choose a shade, then tap Override',
+      '${_toothLabelFor(index)} · ${capitalizeZone(zone)} — choose a shade, then tap Override',
       bg: AppColors.navy,
     );
   }
@@ -831,15 +833,10 @@ class _ShadePageState extends State<ShadePage> {
       if (ti == idx) continue;
       remaining.add(Map<String, dynamic>.from(t));
     }
-    // Re-index left→right so T1..Tn stay contiguous after a delete.
-    remaining.sort((a, b) {
-      final ax = _toothSortX(a);
-      final bx = _toothSortX(b);
-      return ax.compareTo(bx);
-    });
+    remaining.sort((a, b) => fdiSortKey(a).compareTo(fdiSortKey(b)));
     for (var i = 0; i < remaining.length; i++) {
       remaining[i]['tooth_index'] = i;
-      remaining[i]['label'] = 'Tooth ${i + 1}';
+      remaining[i]['label'] = toothDisplayLabel(remaining[i]);
     }
     setState(() {
       _teeth = remaining;
@@ -1026,23 +1023,6 @@ class _ShadePageState extends State<ShadePage> {
     });
     _startOutlineEdit();
     AppHaptics.success();
-  }
-
-  double _toothSortX(Map<String, dynamic> tooth) {
-    final geo = tooth['geometry'];
-    if (geo is Map) {
-      final label = geo['label'];
-      if (label is Map && label['x'] is num) {
-        return (label['x'] as num).toDouble();
-      }
-      final bbox = geo['bbox'];
-      if (bbox is Map && bbox['x'] is num) {
-        final x = (bbox['x'] as num).toDouble();
-        final w = (bbox['w'] as num?)?.toDouble() ?? 0;
-        return x + w / 2;
-      }
-    }
-    return (tooth['tooth_index'] as num?)?.toDouble() ?? 0;
   }
 
   void _startOutlineEdit() {
@@ -1248,6 +1228,18 @@ class _ShadePageState extends State<ShadePage> {
         throw Exception('Resample returned no tooth');
       }
       final updated = Map<String, dynamic>.from(toothRaw);
+      Map<String, dynamic>? prev;
+      for (final t in _teeth) {
+        if ((t['tooth_index'] as num?)?.toInt() == idx) {
+          prev = t;
+          break;
+        }
+      }
+      if (prev != null) {
+        for (final k in ['fdi', 'label', 'arch', 'arch_index']) {
+          if (prev[k] != null) updated[k] = prev[k];
+        }
+      }
       final zones = updated['zones'];
       if (zones is Map) {
         updated['zones'] = {
@@ -1275,7 +1267,7 @@ class _ShadePageState extends State<ShadePage> {
         _exitOutlineEdit(clearStatus: false);
         _syncUiFromSelection();
         _saveStatus =
-            'Outline applied — zone shades refreshed for T${idx + 1}.';
+            'Outline applied — zone shades refreshed for ${_toothLabelFor(idx)}.';
       });
       AppHaptics.success();
     } catch (e) {
@@ -1311,7 +1303,7 @@ class _ShadePageState extends State<ShadePage> {
       return;
     }
     _toast(
-      '$shade selected — tap Override on Tooth ${_selectedToothIndex! + 1} · ${capitalizeZone(_focusZone)} to apply',
+      '$shade selected — tap Override on ${_toothLabelFor(_selectedToothIndex!)} · ${capitalizeZone(_focusZone)} to apply',
       bg: AppColors.navy,
     );
   }
@@ -2165,11 +2157,6 @@ class _ShadePageState extends State<ShadePage> {
                       child: LayoutBuilder(
                         builder: (context, colConstraints) {
                           final actionSlotH = 66.0;
-                          final overrideH = stackPhotoResult
-                              ? (colConstraints.maxHeight * 0.24)
-                                  .clamp(130.0, 200.0)
-                              : (colConstraints.maxHeight * 0.34)
-                                  .clamp(170.0, 300.0);
                           // Keep action bar mounted whenever a photo is loaded so
                           // the photo Expanded never resizes on select / add.
                           final showActions = !_busy && _previewBytes != null;
@@ -2177,14 +2164,29 @@ class _ShadePageState extends State<ShadePage> {
                           final showLoupe = editing &&
                               _magnifierViewSize != null &&
                               _previewBytes != null;
-                          return Column(
-                            children: [
-                              Expanded(
-                                child: Padding(
-                                  // Room for white card glows (blur ~14) so they
-                                  // aren't clipped by the action bar / column.
-                                  padding: const EdgeInsets.fromLTRB(2, 2, 2, 8),
-                                  child: _ShadePhotoResultSplit(
+                          final avail = colConstraints.maxHeight;
+                          final photoH = ((stackPhotoResult ? 0.52 : 0.48) *
+                                  avail)
+                              .clamp(240.0, math.max(240.0, avail - 168.0))
+                              .toDouble();
+                          return Scrollbar(
+                            thumbVisibility: true,
+                            child: CustomScrollView(
+                              physics: const BouncingScrollPhysics(
+                                parent: AlwaysScrollableScrollPhysics(),
+                              ),
+                              slivers: [
+                                SliverPadding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    2,
+                                    2,
+                                    2,
+                                    8,
+                                  ),
+                                  sliver: SliverToBoxAdapter(
+                                    child: SizedBox(
+                                      height: photoH,
+                                      child: _ShadePhotoResultSplit(
                                     editing: editing,
                                     stacked: stackPhotoResult,
                                     photo: ShadePhotoPane(
@@ -2286,69 +2288,75 @@ class _ShadePageState extends State<ShadePage> {
                                         ),
                                       )
                                     : null,
-                              ),
-                            ),
-                          ),
-                          // Keep the mounted action bar stable without leaving
-                          // a large empty gap before the first upload.
-                          SizedBox(
-                            height: showActions ? actionSlotH : 12,
-                            width: double.infinity,
-                            child: showActions
-                                ? ShadeActionBar(
-                                    editOutlineMode: _editOutlineMode,
-                                    hasPreview: _previewBytes != null,
-                                    canEditTooth:
-                                        _selectedToothIndex != null,
-                                    onCancel: _cancelOutlineEdit,
-                                    onReset: _resetOutlineEdit,
-                                    onApply: _applyOutlineEdit,
-                                    onAdjustEdges: _startOutlineEdit,
-                                    onDelete: _deleteSelectedTooth,
-                                    onAddTooth: _addTooth,
-                                    onUpload: _runAiFromGallery,
-                                    maxWidth: colConstraints.maxWidth,
-                                  )
-                                : null,
-                          ),
-                          ClipRect(
-                            child: AnimatedAlign(
-                              duration: AppMotion.page,
-                              curve: AppMotion.spring,
-                              alignment: Alignment.topCenter,
-                              heightFactor: editing ? 0 : 1,
-                              child: Padding(
-                                padding: EdgeInsets.only(
-                                  top: showActions ? 4 : 0,
-                                  left: 2,
-                                  right: 2,
-                                ),
-                                child: SizedBox(
-                                  height: overrideH,
-                                  width: double.infinity,
-                                  child: ShadeOverridePane(
-                                    focusZone: _focusZone,
-                                    selectedToothIndex: _selectedToothIndex,
-                                    selected: _selected,
-                                    topMatches: _topMatches,
-                                    overallTopMatches: _overallTopMatches,
-                                    swatch: shadeSwatch,
-                                    onShadeChoice: _applyShadeChoice,
-                                    onOverallShadeChoice: (s) =>
-                                        _applyShadeChoice(s, overall: true),
-                                    selectedGum: _pendingGumShade ??
-                                        gumEffectiveShade(_gum),
-                                    onGumShadeChoice: _applyGumShadeChoice,
-                                    tab: _overrideTab,
-                                    onTabChanged: (t) =>
-                                        setState(() => _overrideTab = t),
+                                      ),
+                                    ),
                                   ),
                                 ),
-                              ),
+                                SliverToBoxAdapter(
+                                  child: SizedBox(
+                                    height: showActions ? actionSlotH : 12,
+                                    width: double.infinity,
+                                    child: showActions
+                                        ? ShadeActionBar(
+                                            editOutlineMode: _editOutlineMode,
+                                            hasPreview: _previewBytes != null,
+                                            canEditTooth:
+                                                _selectedToothIndex != null,
+                                            onCancel: _cancelOutlineEdit,
+                                            onReset: _resetOutlineEdit,
+                                            onApply: _applyOutlineEdit,
+                                            onAdjustEdges: _startOutlineEdit,
+                                            onDelete: _deleteSelectedTooth,
+                                            onAddTooth: _addTooth,
+                                            onUpload: _runAiFromGallery,
+                                            maxWidth: colConstraints.maxWidth,
+                                          )
+                                        : null,
+                                  ),
+                                ),
+                                if (!editing)
+                                  SliverPadding(
+                                    padding: EdgeInsets.fromLTRB(
+                                      2,
+                                      showActions ? 8 : 0,
+                                      2,
+                                      28,
+                                    ),
+                                    sliver: SliverToBoxAdapter(
+                                      child: ShadeOverridePane(
+                                        focusZone: _focusZone,
+                                        selectedToothIndex:
+                                            _selectedToothIndex,
+                                        selectedToothLabel:
+                                            _selectedTooth == null
+                                                ? null
+                                                : toothDisplayLabel(
+                                                    _selectedTooth!,
+                                                  ),
+                                        selected: _selected,
+                                        topMatches: _topMatches,
+                                        overallTopMatches: _overallTopMatches,
+                                        swatch: shadeSwatch,
+                                        onShadeChoice: _applyShadeChoice,
+                                        onOverallShadeChoice: (s) =>
+                                            _applyShadeChoice(
+                                          s,
+                                          overall: true,
+                                        ),
+                                        selectedGum: _pendingGumShade ??
+                                            gumEffectiveShade(_gum),
+                                        onGumShadeChoice:
+                                            _applyGumShadeChoice,
+                                        tab: _overrideTab,
+                                        onTabChanged: (t) => setState(
+                                          () => _overrideTab = t,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
-                          ),
-                        ],
-                      );
+                          );
                     },
                   ),
                 ),

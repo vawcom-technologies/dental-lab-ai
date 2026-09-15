@@ -11,13 +11,14 @@ Usage:
 Compare overlays to vendor/individual_tooth_segmentation/figures/.
 """
 
+
 from __future__ import annotations
 
 import argparse
 import os
 import subprocess
 import sys
-import urllib.request
+import threading
 from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -59,67 +60,136 @@ def cmd_setup() -> int:
     return 0
 
 
+WEIGHTS_BYTES = 1_483_702_637
+_DOWNLOAD_WORKERS = 12
+
+
+def _curl_range(url: str, dest: Path, start: int, end: int) -> int:
+    want = end - start + 1
+    if dest.is_file() and dest.stat().st_size == want:
+        print(f"part {dest.name} already {want} bytes", flush=True)
+        return 0
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        "curl",
+        "-k",
+        "--fail",
+        "--retry",
+        "80",
+        "--retry-all-errors",
+        "--retry-delay",
+        "3",
+        "--connect-timeout",
+        "20",
+        "--speed-time",
+        "90",
+        "--speed-limit",
+        "512",
+        "--silent",
+        "--show-error",
+        "-C",
+        "-",
+        "-r",
+        f"{start}-{end}",
+        "-o",
+        str(dest),
+        url,
+    ]
+    print(f"part {dest.name} bytes {start}-{end}", flush=True)
+    return int(subprocess.call(cmd))
+
+
 def cmd_download_weights() -> int:
-    import ssl
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     WEIGHTS.parent.mkdir(parents=True, exist_ok=True)
-    if WEIGHTS.is_file() and WEIGHTS.stat().st_size > 1_000_000_000:
-        print(f"Weights already present: {WEIGHTS} ({WEIGHTS.stat().st_size} bytes)")
+    have = WEIGHTS.stat().st_size if WEIGHTS.is_file() else 0
+    if have >= WEIGHTS_BYTES:
+        print(f"Weights already present: {WEIGHTS} ({have} bytes)")
         return 0
 
-    print(f"→ {WEIGHTS}")
-    print("(~1.5 GB; prefer HTTP — KAIST HTTPS cert is broken)")
+    url = WEIGHTS_URLS[1]  # HTTPS; HTTP only 301s here
+    rest = WEIGHTS_BYTES - have
+    workers = max(1, min(_DOWNLOAD_WORKERS, rest // (4 * 1024 * 1024) or 1))
+    chunk = (rest + workers - 1) // workers
+    part_dir = WEIGHTS.parent / ".kaist_parts"
+    part_dir.mkdir(exist_ok=True)
 
-    curl = subprocess.run(["which", "curl"], capture_output=True, text=True)
-    last_err = "download failed"
-    if curl.returncode == 0:
-        for url in WEIGHTS_URLS:
-            print(f"Downloading {url}")
-            cmd = [
-                "curl",
-                "-L",
-                "-k",
-                "--fail",
-                "--connect-timeout",
-                "30",
-                "-C",
-                "-",
-                "--progress-bar",
-                "-o",
-                str(WEIGHTS),
-                url,
-            ]
-            rc = subprocess.call(cmd)
-            if rc == 0 and WEIGHTS.is_file() and WEIGHTS.stat().st_size > 1_000_000_000:
-                print(f"Saved {WEIGHTS.stat().st_size} bytes")
-                return 0
-            last_err = f"curl failed for {url} (rc={rc})"
-    else:
-        ctx = ssl._create_unverified_context()
-        for url in WEIGHTS_URLS:
-            print(f"Downloading {url}")
-            try:
-                with urllib.request.urlopen(url, context=ctx, timeout=30) as resp:
-                    with open(WEIGHTS, "wb") as f:
-                        while True:
-                            chunk = resp.read(1024 * 1024)
-                            if not chunk:
-                                break
-                            f.write(chunk)
-                if WEIGHTS.is_file() and WEIGHTS.stat().st_size > 1_000_000_000:
-                    print(f"Saved {WEIGHTS.stat().st_size} bytes")
-                    return 0
-            except Exception as exc:
-                last_err = str(exc)
-
-    size = WEIGHTS.stat().st_size if WEIGHTS.is_file() else 0
-    print(f"Download looks incomplete ({size} bytes): {last_err}", file=sys.stderr)
+    print(f"→ {WEIGHTS}", flush=True)
     print(
-        "Manual fallback:\n"
-        f'  curl -L -C - --connect-timeout 30 -o "{WEIGHTS}" "{WEIGHTS_URL}"',
-        file=sys.stderr,
+        f"resuming {have}/{WEIGHTS_BYTES} ({have / WEIGHTS_BYTES:.1%}); "
+        f"{workers} parallel HTTPS ranges",
+        flush=True,
     )
-    return 1
+
+    ranges: list[tuple[Path, int, int]] = []
+    pos = have
+    idx = 0
+    while pos < WEIGHTS_BYTES:
+        end = min(WEIGHTS_BYTES - 1, pos + chunk - 1)
+        ranges.append((part_dir / f"part_{idx:02d}", pos, end))
+        pos = end + 1
+        idx += 1
+
+    last_err = "download failed"
+    stop = threading.Event()
+
+    def _progress() -> None:
+        while not stop.wait(20):
+            part_sum = sum(p.stat().st_size for p, _, _ in ranges if p.is_file())
+            total = have + part_sum
+            print(
+                f"progress {total}/{WEIGHTS_BYTES} ({total / WEIGHTS_BYTES:.1%})",
+                flush=True,
+            )
+
+    threading.Thread(target=_progress, daemon=True).start()
+    with ThreadPoolExecutor(max_workers=len(ranges)) as pool:
+        futs = {
+            pool.submit(_curl_range, url, dest, start, end): dest
+            for dest, start, end in ranges
+        }
+        failed = False
+        try:
+            for fut in as_completed(futs):
+                dest = futs[fut]
+                rc = fut.result()
+                size = dest.stat().st_size if dest.is_file() else 0
+                print(f"done {dest.name} rc={rc} size={size}", flush=True)
+                if rc != 0:
+                    failed = True
+                    last_err = f"curl failed for {dest.name} (rc={rc})"
+        finally:
+            stop.set()
+        if failed:
+            print(f"Download looks incomplete ({have} + parts): {last_err}", file=sys.stderr)
+            return 1
+
+    print("concatenating parts…", flush=True)
+    with open(WEIGHTS, "ab") as out:
+        for dest, _, _ in ranges:
+            with open(dest, "rb") as inp:
+                while True:
+                    buf = inp.read(1024 * 1024)
+                    if not buf:
+                        break
+                    out.write(buf)
+
+    final = WEIGHTS.stat().st_size
+    if final != WEIGHTS_BYTES:
+        print(
+            f"Download looks incomplete ({final} bytes, expected {WEIGHTS_BYTES})",
+            file=sys.stderr,
+        )
+        return 1
+    for dest, _, _ in ranges:
+        dest.unlink(missing_ok=True)
+    try:
+        part_dir.rmdir()
+    except OSError:
+        pass
+    print(f"Saved {final} bytes", flush=True)
+    return 0
 
 
 def _load_rgb(path: Path):

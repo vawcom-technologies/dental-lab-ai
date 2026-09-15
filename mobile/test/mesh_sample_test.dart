@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -312,5 +313,102 @@ void main() {
     expect(g.error, isNull);
     expect(g.positions.length, 9);
     expect(g.indices, isNull);
+  });
+
+  test('ascii PLY vertex rgb is kept by sampleMeshBytes', () {
+    final ply = Uint8List.fromList(
+      'ply\nformat ascii 1.0\nelement vertex 3\n'
+              'property float x\nproperty float y\nproperty float z\n'
+              'property uchar red\nproperty uchar green\nproperty uchar blue\n'
+              'element face 1\nproperty list uchar int vertex_indices\n'
+              'end_header\n'
+              '1 0 0 255 40 40\n'
+              '0 1 0 40 200 40\n'
+              '0 0 1 40 40 255\n'
+              '3 0 1 2\n'
+          .codeUnits,
+    );
+    final ok = sampleMeshBytes(ply, 'rgb.ply');
+    expect(ok.error, isNull);
+    expect(ok.triangles, isNotNull);
+    expect(ok.triangles![3], closeTo(1.0, 1e-6));
+    expect(ok.triangles![4], lessThan(0.2));
+    expect(ok.vertices.first.length, 6);
+  });
+
+  test('uncolored mesh does not get invented vertex RGB', () {
+    final ply = Uint8List.fromList(
+      'ply\nformat ascii 1.0\nelement vertex 3\n'
+              'property float x\nproperty float y\nproperty float z\n'
+              'element face 1\nproperty list uchar int vertex_indices\n'
+              'end_header\n'
+              '1 0 0\n0 1 0\n0 0 1\n3 0 1 2\n'
+          .codeUnits,
+    );
+    final ok = sampleMeshBytes(ply, 'plain.ply');
+    expect(ok.error, isNull);
+    expect(ok.vertices, isNotEmpty);
+    expect(ok.vertices.every((v) => v.length == 3), isTrue);
+    expect(ok.triangles, isNotNull);
+    expect(ok.triangles![3], 0);
+    expect(ok.triangles![4], 0);
+    expect(ok.triangles![5], 0);
+  });
+
+  test('OBJ vertex RGB is kept by sampleMeshBytes', () {
+    final obj = Uint8List.fromList(
+      'v 1 0 0 1 0 0\nv 0 1 0 0 1 0\nv 0 0 1 0 0 1\nf 1 2 3\n'.codeUnits,
+    );
+    final ok = sampleMeshBytes(obj, 'rgb.obj');
+    expect(ok.error, isNull);
+    expect(ok.vertices.first.sublist(3), [1.0, 0.0, 0.0]);
+    expect(ok.triangles![3], closeTo(1.0, 1e-6));
+    expect(ok.triangles![4], closeTo(0.0, 1e-6));
+  });
+
+  List<List<double>> torus({bool gap = false, bool narrowGap = false}) {
+    final pts = <List<double>>[];
+    for (var iu = 0; iu < 80; iu++) {
+      final u = iu / 79 * math.pi;
+      if (gap && u > 0.38 * math.pi && u < 0.62 * math.pi) continue;
+      if (narrowGap && u > 0.45 * math.pi && u < 0.55 * math.pi) continue;
+      for (var iv = 0; iv < 36; iv++) {
+        final v = iv / 35 * 2 * math.pi;
+        const bigR = 20.0, r = 6.0;
+        pts.add([
+          (bigR + r * math.cos(v)) * math.cos(u),
+          (bigR + r * math.cos(v)) * math.sin(u),
+          r * math.sin(v),
+        ]);
+      }
+    }
+    return pts;
+  }
+
+  test('archAngularGapFraction flags a missing mid-arch sector', () {
+    expect(archAngularGapFraction(torus()), lessThan(0.06));
+    expect(archAngularGapFraction(torus(gap: true)), greaterThanOrEqualTo(0.12));
+  });
+
+  test('archCoverageGaps flags a narrow missing-tooth gap', () {
+    final dense = archCoverageGaps(torus());
+    expect(dense.angularGap, lessThan(0.06));
+    expect(dense.enclosedHole, lessThan(0.015));
+    final gapped = archCoverageGaps(torus(narrowGap: true));
+    expect(gapped.angularGap, greaterThanOrEqualTo(0.06));
+  });
+
+  test('archCoverageGaps flags an enclosed occlusal hole', () {
+    final pts = <List<double>>[];
+    for (var ix = -20; ix <= 20; ix++) {
+      for (var iy = -12; iy <= 12; iy++) {
+        if (ix.abs() < 6 && iy.abs() < 5) continue;
+        for (var iz = -4; iz <= 4; iz++) {
+          pts.add([ix.toDouble(), iy.toDouble(), iz.toDouble()]);
+        }
+      }
+    }
+    final cov = archCoverageGaps(pts);
+    expect(cov.enclosedHole, greaterThanOrEqualTo(0.015));
   });
 }

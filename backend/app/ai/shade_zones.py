@@ -16,9 +16,12 @@ from app.ai.shade import _rgb_to_lab
 
 ZONES: tuple[str, str, str] = ("cervical", "middle", "incisal")
 
-SPECULAR_L_STAR = 90.0
-EDGE_ERODE_PX = 2
+SPECULAR_L_STAR = 88.0
+EDGE_ERODE_PX = 3
 MIN_ZONE_SAMPLE_PIXELS = 12
+_SHADOW_L_STAR = 38.0
+_INNER_CROP = 0.11
+_LAB_MAD_K = 2.5
 _MIN_AXIS_PIXELS = 12
 _PCA_ELONGATION_MIN = 1.15  # else fall back to minAreaRect
 
@@ -131,6 +134,7 @@ def sample_zone_lab(
     erode_px: int = EDGE_ERODE_PX,
     min_pixels: int = MIN_ZONE_SAMPLE_PIXELS,
     max_sample_pixels: int = 400,
+    exclude_shadows: bool = True,
 ) -> np.ndarray | None:
     """Median CIE Lab of a zone after specular + edge exclusion. None if too few pixels."""
     import cv2
@@ -151,6 +155,20 @@ def sample_zone_lab(
     if ys.size < min_pixels:
         return None
 
+    # Prefer the inner enamel core — contacts and gingival margin skew Lab.
+    y0, y1 = int(ys.min()), int(ys.max())
+    x0, x1 = int(xs.min()), int(xs.max())
+    py = _INNER_CROP * max(y1 - y0, 1)
+    px = _INNER_CROP * max(x1 - x0, 1)
+    inner = (
+        (ys >= y0 + py)
+        & (ys <= y1 - py)
+        & (xs >= x0 + px)
+        & (xs <= x1 - px)
+    )
+    if int(inner.sum()) >= min_pixels:
+        ys, xs = ys[inner], xs[inner]
+
     # Subsample for speed on large masks
     if ys.size > max_sample_pixels:
         rng = np.random.default_rng(0)
@@ -160,10 +178,19 @@ def sample_zone_lab(
     pixels = np.asarray(image_rgb, dtype=np.float64)[ys, xs]
     labs = _rgb_to_lab(pixels)
     keep = labs[:, 0] <= specular_l_star
-    labs = labs[keep]
-    if labs.shape[0] < min_pixels:
-        # Specular gate too aggressive — use all subsampled pixels
-        labs = _rgb_to_lab(pixels)
-        if labs.shape[0] < min_pixels:
-            return None
+    if exclude_shadows:
+        keep = keep & (labs[:, 0] >= _SHADOW_L_STAR)
+    filtered = labs[keep]
+    if filtered.shape[0] >= min_pixels:
+        labs = filtered
+    elif labs.shape[0] < min_pixels:
+        return None
+    # Drop chroma / L* outliers (gingiva bleed, restorations) via MAD.
+    if labs.shape[0] >= min_pixels + 4:
+        med = np.median(labs, axis=0)
+        dev = np.abs(labs - med)
+        mad = np.maximum(np.median(dev, axis=0), [1.0, 0.8, 0.8])
+        inliers = np.all(dev <= _LAB_MAD_K * mad, axis=1)
+        if int(inliers.sum()) >= min_pixels:
+            labs = labs[inliers]
     return np.median(labs, axis=0)

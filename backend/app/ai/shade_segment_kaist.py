@@ -88,27 +88,27 @@ def _snake_iters() -> int:
     try:
         from app.core.config import settings
 
-        return max(1, int(settings.shade_segment_kaist_snake_iters or 10))
+        return max(1, int(settings.shade_segment_kaist_snake_iters or 8))
     except Exception:
-        return 10
+        return 8
 
 
 def _bring_back_iters() -> int:
     try:
         from app.core.config import settings
 
-        return max(20, int(settings.shade_segment_kaist_bring_back_iters or 60))
+        return max(20, int(settings.shade_segment_kaist_bring_back_iters or 48))
     except Exception:
-        return 60
+        return 48
 
 
 def _evolve_iters() -> int:
     try:
         from app.core.config import settings
 
-        return max(10, int(settings.shade_segment_kaist_evolve_iters or 30))
+        return max(10, int(settings.shade_segment_kaist_evolve_iters or 22))
     except Exception:
-        return 30
+        return 22
 
 
 def resolve_vendor_root(path: str | Path | None = None) -> Path:
@@ -152,7 +152,11 @@ def _device() -> str:
         raw = "auto"
     if raw in ("auto", ""):
         try:
-            import torch
+            import warnings
+
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore")
+                import torch
 
             if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                 return "mps"
@@ -194,9 +198,14 @@ def _optional_import_error(
     if weights_err:
         return weights_err
     try:
-        import torch  # noqa: F401
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore")
+            import torch  # noqa: F401
         import cv2  # noqa: F401
         from PIL import Image  # noqa: F401
+        import skfmm  # noqa: F401
     except ImportError as exc:
         return str(exc)
     return None
@@ -210,11 +219,14 @@ def kaist_segment_status(
     v = resolve_vendor_root(vendor)
     w = resolve_weights(weights)
     err = _optional_import_error(v, w)
+    # Don't import torch until weights exist — NumPy 2 + Torch 2.2 logs a
+    # scary traceback on every shade request even when KAIST is skipped.
+    device = _device() if err is None else "cpu"
     return KaistSegmentStatus(
         available=err is None,
         vendor_root=str(v),
         weights=str(w),
-        device=_device(),
+        device=device,
         resize=_resize_enabled(),
         max_side=_max_side(),
         min_side=_min_side(),
@@ -234,10 +246,11 @@ def kaist_available(
 
 
 def _tooth_band_mask(image_rgb: np.ndarray) -> np.ndarray:
-    """Crown pixels for KAIST framing — drop flash (L>232) and pink gingiva.
+    """Crown pixels for KAIST framing — drop pink gingiva and tiny flash glints.
 
-    `_adaptive_enamel_mask` on intraoral flash shots latches onto specular
-    L≈238 highlights, so the CNN never sees a smile-like crop.
+    Intraoral flash often pushes maxillary enamel to L≈235–248. A hard L≤232
+    cap erased those crowns, so focus boxes framed only the darker lower row
+    and KAIST numbered mandibular teeth as 11/21.
     """
     import cv2
 
@@ -246,7 +259,7 @@ def _tooth_band_mask(image_rgb: np.ndarray) -> np.ndarray:
     L, a, b = _lab_channels(image_rgb)
     body = (
         (L >= 68.0)
-        & (L <= 232.0)
+        & (L <= 250.0)
         & (a < 9.0)
         & (a > -16.0)
         & (b > -6.0)
@@ -256,7 +269,20 @@ def _tooth_band_mask(image_rgb: np.ndarray) -> np.ndarray:
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     u8 = cv2.morphologyEx(u8, cv2.MORPH_OPEN, k, iterations=1)
     u8 = cv2.morphologyEx(u8, cv2.MORPH_CLOSE, k, iterations=1)
-    return u8 > 0
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(u8, connectivity=8)
+    if n <= 1:
+        return u8 > 0
+    kept = np.zeros(u8.shape, dtype=bool)
+    for i in range(1, n):
+        area = int(stats[i, cv2.CC_STAT_AREA])
+        if area < 40:
+            continue
+        cc = labels == i
+        # Isolated specular blobs, not washed-out crown bodies.
+        if area < 400 and float(L[cc].mean()) > 240.0:
+            continue
+        kept |= cc
+    return kept if int(kept.sum()) >= 80 else (u8 > 0)
 
 
 def _pad_box(
@@ -363,6 +389,16 @@ def kaist_focus_boxes(
     h, w = image_rgb.shape[:2]
     full = (0, h, 0, w)
     band = _tooth_band_mask(image_rgb)
+    try:
+        from app.ai.shade_segment import _adaptive_enamel_mask
+
+        # Bright maxillary enamel can be thin in the conservative band; union
+        # so open-mouth shots still split instead of framing only the lower row.
+        enamel = _adaptive_enamel_mask(image_rgb)
+        if int(enamel.sum()) >= 80:
+            band = band | enamel
+    except Exception:
+        logger.exception("kaist enamel union failed — using tooth band only")
     if int(band.sum()) < 80:
         return [full]
     roi = _dental_roi_from_enamel(band)
@@ -476,6 +512,7 @@ def _labels_to_tooth_masks(
     full_h: int,
     full_w: int,
     box: tuple[int, int, int, int],
+    arch: str | None = None,
 ) -> list[ToothMask]:
     teeth: list[ToothMask] = []
     uniq = [int(v) for v in np.unique(labels) if int(v) > 0]
@@ -501,6 +538,7 @@ def _labels_to_tooth_masks(
                 confidence=mask_confidence(full, band_h),
                 rejected=False,
                 reject_reason=None,
+                arch=arch,
             )
         )
     return _sanity_check_instances(teeth)
@@ -635,6 +673,50 @@ def _run_upstream_pipeline(
         return np.asarray(labels)
 
 
+def _labels_for_work(
+    work_rgb: np.ndarray,
+    crop_hw: tuple[int, int],
+    *,
+    status: KaistSegmentStatus,
+    flip_ud: bool,
+) -> np.ndarray | None:
+    """Run KAIST on a work image; return labels in crop coords, or None."""
+    cnn = np.ascontiguousarray(work_rgb[::-1]) if flip_ud else work_rgb
+    with _KAIST_LOCK:
+        try:
+            labels = _run_upstream_pipeline(
+                cnn,
+                vendor=Path(status.vendor_root),
+                weights=Path(status.weights),
+                device=status.device,
+                resize=status.resize,
+                snake_iters=status.snake_iters,
+                bring_back_iters=status.bring_back_iters,
+                evolve_iters=status.evolve_iters,
+            )
+        except Exception:
+            logger.exception("kaist pipeline failed flip=%s", flip_ud)
+            return None
+    labels = np.asarray(labels)
+    if flip_ud:
+        labels = np.ascontiguousarray(labels[::-1])
+    if labels.shape[:2] != work_rgb.shape[:2]:
+        logger.warning(
+            "kaist label size %s != work %s — resizing to work then crop",
+            labels.shape[:2],
+            work_rgb.shape[:2],
+        )
+        labels = _upscale_labels(labels, work_rgb.shape[:2])
+    if labels.shape[:2] != crop_hw:
+        logger.info(
+            "kaist mapping labels %s → crop %s",
+            labels.shape[:2],
+            crop_hw,
+        )
+        labels = _upscale_labels(labels, crop_hw)
+    return labels
+
+
 def detect_teeth_kaist(
     image_rgb: np.ndarray,
     *,
@@ -659,6 +741,7 @@ def detect_teeth_kaist(
         boxes = [(0, h, 0, w)]
 
     gathered: list[ToothMask] = []
+    dual = len(boxes) == 2
     for box_i, box in enumerate(boxes):
         y0, y1, x0, x1 = box
         crop_rgb = arr[y0:y1, x0:x1].copy()
@@ -668,64 +751,47 @@ def detect_teeth_kaist(
         )
         # Intraoral upper row hangs from gingiva at the TOP. KAIST was trained
         # on extra-oral smiles (gingiva/lips below). Flip so it looks like one.
-        flip_ud = len(boxes) == 2 and box_i == 0
-        if flip_ud:
-            work_rgb = np.ascontiguousarray(work_rgb[::-1])
+        # If that orientation is empty, retry the opposite rather than drop the arch.
+        preferred_flip = dual and box_i == 0
+        arch = ("upper" if box_i == 0 else "lower") if dual else None
         logger.info(
             "kaist segment box=%s crop=%s work=%s scale=%.3f flip=%s snake=%s bring=%s evolve=%s device=%s",
             box,
             crop_rgb.shape[:2],
             work_rgb.shape[:2],
             scale,
-            flip_ud,
+            preferred_flip,
             status.snake_iters,
             status.bring_back_iters,
             status.evolve_iters,
             status.device,
         )
-        # One snake at a time — concurrent MPS jobs stalled iPad photos.
-        with _KAIST_LOCK:
-            try:
-                labels = _run_upstream_pipeline(
-                    work_rgb,
-                    vendor=Path(status.vendor_root),
-                    weights=Path(status.weights),
-                    device=status.device,
-                    resize=status.resize,
-                    snake_iters=status.snake_iters,
-                    bring_back_iters=status.bring_back_iters,
-                    evolve_iters=status.evolve_iters,
-                )
-            except Exception:
-                logger.exception("kaist pipeline failed box=%s", box)
-                continue
-
-        labels = np.asarray(labels)
-        if flip_ud:
-            labels = np.ascontiguousarray(labels[::-1])
-        if labels.shape[:2] != work_rgb.shape[:2]:
-            logger.warning(
-                "kaist label size %s != work %s — resizing to work then crop",
-                labels.shape[:2],
-                work_rgb.shape[:2],
-            )
-            labels = _upscale_labels(labels, work_rgb.shape[:2])
-        if labels.shape[:2] != crop_rgb.shape[:2]:
-            logger.info(
-                "kaist mapping labels %s → crop %s",
-                labels.shape[:2],
+        teeth: list[ToothMask] = []
+        used_flip = preferred_flip
+        for flip_ud in (preferred_flip, not preferred_flip):
+            labels = _labels_for_work(
+                work_rgb,
                 crop_rgb.shape[:2],
+                status=status,
+                flip_ud=flip_ud,
             )
-            labels = _upscale_labels(labels, crop_rgb.shape[:2])
-
-        before = len(gathered)
-        gathered.extend(
-            _labels_to_tooth_masks(labels, full_h=h, full_w=w, box=box)
-        )
+            if labels is None:
+                continue
+            teeth = _labels_to_tooth_masks(
+                labels, full_h=h, full_w=w, box=box, arch=arch
+            )
+            used_flip = flip_ud
+            if teeth:
+                break
+            if not dual:
+                break
+            logger.info("kaist box empty flip=%s — retrying opposite orientation", flip_ud)
+        gathered.extend(teeth)
         logger.info(
-            "kaist box teeth=%s flip=%s",
-            len(gathered) - before,
-            flip_ud,
+            "kaist box teeth=%s flip=%s arch=%s",
+            len(teeth),
+            used_flip,
+            arch,
         )
 
     if not gathered and crop and boxes != [(0, h, 0, w)]:

@@ -118,15 +118,18 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
     final aspect =
         (tj.height == 0) ? 1.0 : tj.width / math.max(tj.height, 1.0);
     tj.scene = three.Scene();
-    tj.camera = three.PerspectiveCamera(45, aspect, 0.01, 5000);
-    tj.camera.position.setValues(0, 0.6, 2.2);
+    tj.camera = three.PerspectiveCamera(32, aspect, 0.01, 5000);
+    tj.camera.position.setValues(0, 0.35, 2.4);
 
-    // Studio lighting — ambient fill + sky/ground + headlamp on the camera.
-    tj.scene.add(three.AmbientLight(0xffffff, 0.4));
-    tj.scene.add(three.HemisphereLight(0xf0f4ff, 0x2a3544, 0.65));
-    _keyLight = three.DirectionalLight(0xffffff, 1.05);
-    _keyLight!.position.setValues(2.5, 4.0, 3.0);
+    // White lights so scanner RGB is not tinted pink/brown.
+    tj.scene.add(three.AmbientLight(0xffffff, 0.72));
+    tj.scene.add(three.HemisphereLight(0xffffff, 0x8a8e94, 0.28));
+    _keyLight = three.DirectionalLight(0xffffff, 0.55);
+    _keyLight!.position.setValues(0.4, 1.6, 2.4);
     tj.scene.add(_keyLight!);
+    final fill = three.DirectionalLight(0xffffff, 0.22);
+    fill.position.setValues(-2.0, 0.4, 1.2);
+    tj.scene.add(fill);
 
     _controls = three.OrbitControls(tj.camera, tj.globalKey);
     _controls!.enableDamping = true;
@@ -169,6 +172,12 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
   void deactivate() {
     if (_sceneReady) _three?.pause = true;
     super.deactivate();
+  }
+
+  @override
+  void reassemble() {
+    super.reassemble();
+    if (_sceneReady) _loadCurrent();
   }
 
   @override
@@ -371,17 +380,38 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
 
   three.BufferGeometry _geometryFromPreview(List<List<double>> verts) {
     final positions = Float32List(verts.length * 3);
+    var hasRgb = false;
     for (var i = 0; i < verts.length; i++) {
       final v = verts[i];
       positions[i * 3] = v[0];
       positions[i * 3 + 1] = v[1];
       positions[i * 3 + 2] = v[2];
+      if (v.length >= 6) hasRgb = true;
     }
     final g = three.BufferGeometry();
     g.setAttribute(
       three.Attribute.position,
       three.Float32BufferAttribute(positions, 3),
     );
+    if (hasRgb) {
+      final colors = Float32List(verts.length * 3);
+      var copied = 0;
+      for (var i = 0; i < verts.length; i++) {
+        final v = verts[i];
+        if (v.length < 6) continue;
+        final o = i * 3;
+        colors[o] = v[3];
+        colors[o + 1] = v[4];
+        colors[o + 2] = v[5];
+        copied++;
+      }
+      if (copied == verts.length) {
+        g.setAttribute(
+          three.Attribute.color,
+          three.Float32BufferAttribute(colors, 3),
+        );
+      }
+    }
     return g;
   }
 
@@ -398,11 +428,11 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
 
     if (hasFaces) {
       final mat = three.MeshPhongMaterial({
-        three.MaterialProperty.color: hasColor ? 0xffffff : 0xe8ddd4,
+        three.MaterialProperty.color: 0xffffff,
         three.MaterialProperty.vertexColors: hasColor,
         three.MaterialProperty.side: three.DoubleSide,
-        three.MaterialProperty.shininess: 30,
-        three.MaterialProperty.specular: 0x444444,
+        three.MaterialProperty.shininess: 12,
+        three.MaterialProperty.specular: 0x1a1a1a,
         three.MaterialProperty.flatShading: false,
         three.MaterialProperty.wireframe: false,
         three.MaterialProperty.transparent: false,
@@ -425,7 +455,7 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
     // straight from the input: dots bunch where the scan sampled denser
     // (cavities/fissures) instead of ballooning with the model's mm scale.
     final ptsMat = three.PointsMaterial({
-      three.MaterialProperty.color: _hasVertexColors ? 0xffffff : 0xc5d9f0,
+      three.MaterialProperty.color: 0xffffff,
       three.MaterialProperty.vertexColors: _hasVertexColors,
       three.MaterialProperty.size: 1.6,
       three.MaterialProperty.sizeAttenuation: false,
@@ -493,12 +523,22 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
     if (radius < 1e-9) return;
 
     controls.target.setFrom(center);
-    final dist = radius / math.tan((45 * math.pi / 180) * 0.5) * 1.35;
+    const fovDeg = 32.0;
+    final aspect = (_viewSize?.width ?? tj.width) /
+        math.max(_viewSize?.height ?? tj.height, 1.0);
+    tj.camera.fov = fovDeg;
+    tj.camera.aspect = aspect;
+    // Tight vertical FOV + frontal pose — no oblique stretch on first paint.
+    final dist = radius / math.tan((fovDeg * math.pi / 180) * 0.5) * 1.16;
     tj.camera.position.setValues(
-      center.x + dist * 0.35,
-      center.y + dist * 0.45,
+      center.x,
+      center.y + dist * 0.16,
       center.z + dist,
     );
+    tj.camera.up.setValues(0, 1, 0);
+    try {
+      tj.camera.lookAt(center);
+    } catch (_) {}
     tj.camera.near = math.max(0.001, dist / 200);
     tj.camera.far = dist * 40;
     tj.camera.updateProjectionMatrix();
@@ -600,9 +640,15 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
                 if (_three != null)
                   Positioned.fill(
                     child: FittedBox(
-                      fit: BoxFit.fill,
+                      // contain — never stretch the GL canvas (fill was the
+                      // source of the distorted first-paint look).
+                      fit: BoxFit.contain,
                       clipBehavior: Clip.hardEdge,
-                      child: _three!.build(),
+                      child: SizedBox(
+                        width: w,
+                        height: h,
+                        child: _three!.build(),
+                      ),
                     ),
                   ),
                 if (widget.loading || _meshLoading)

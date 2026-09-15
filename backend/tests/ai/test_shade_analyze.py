@@ -147,3 +147,18 @@ class TestZoneSampleThenMatch:
         assert lab is not None
         matched = match_lab_nearest(lab)
         assert matched["shade"] == "C2"
+
+    def test_specular_flash_does_not_shift_enamel_lab(self):
+        h, w = 120, 80
+        img = np.zeros((h, w, 3), dtype=np.uint8)
+        rgb = np.array(VITA_SHADES["A2"], dtype=np.uint8)
+        mask = np.zeros((h, w), dtype=bool)
+        mask[20:100, 22:58] = True
+        img[mask] = rgb
+        img[44:52, 34:46] = (255, 255, 255)
+        lab = sample_zone_lab(img, mask, erode_px=0, min_pixels=10)
+        assert lab is not None
+        expected = _rgb_to_lab(np.asarray(rgb, dtype=np.float64))
+        assert abs(float(lab[0]) - float(expected[0])) < 4.0
+        matched = match_lab_nearest(lab)
+        assert matched["shade"] == "A2"

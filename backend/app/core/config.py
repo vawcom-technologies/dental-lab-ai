@@ -62,9 +62,11 @@ class Settings(BaseSettings):
     # without forcing every small crop up to the max (that made 165px → 30s).
     shade_segment_kaist_max_side: int = 320
     shade_segment_kaist_min_side: int = 256
-    shade_segment_kaist_snake_iters: int = 10
-    shade_segment_kaist_bring_back_iters: int = 60
-    shade_segment_kaist_evolve_iters: int = 30
+    # Chairside defaults: a little fewer level-set steps (~20–25% faster)
+    # without shrinking the 256–320 work canvas (that would soften outlines).
+    shade_segment_kaist_snake_iters: int = 8
+    shade_segment_kaist_bring_back_iters: int = 48
+    shade_segment_kaist_evolve_iters: int = 22
     # Roboflow PLAK (Inference SDK). Prefer ROBOFLOW_API_KEY in .env
     roboflow_api_key: str = ""
     shade_segment_roboflow_api_key: str = ""
@@ -74,6 +76,14 @@ class Settings(BaseSettings):
     shade_segment_inference_api_url: str = "https://serverless.roboflow.com"
     shade_segment_conf: float = 0.25
     shade_segment_imgsz: int = 1280  # max side for shade analyze downscale
+
+    # Chairside interpreter (doctor ↔ patient). Turns are not stored.
+    # Prefer DeepL (EU). Google Cloud / OpenAI are fallbacks. GTX is last-resort
+    # so local demo works without keys — disable in production if undesired.
+    deepl_api_key: str = ""
+    openai_api_key: str = ""
+    google_translate_api_key: str = ""
+    interpreter_allow_gtx_fallback: bool = True
 
 
 settings = Settings()

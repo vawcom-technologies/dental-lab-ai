@@ -3,13 +3,12 @@ import 'dart:math' as math;
 
 import 'package:image/image.dart' as img;
 
-/// Builds opaque iOS app icons from [assets/brand/appicon.png] and launch
-/// images from [assets/brand/logo.png] (wordmark stays for splash / in-app).
+/// Builds opaque iOS app icons and launch images from the EliteDent wordmark.
 ///
 /// Run from `mobile/`: `dart run tool/generate_app_icons.dart`
 void main() {
-  final appIcon = _decode('assets/brand/appicon.png');
   final logo = _decode('assets/brand/logo.png');
+  final mark = img.trim(logo, mode: img.TrimMode.transparent);
 
   const sizes = <(String, int)>[
     ('Icon-App-20x20@1x.png', 20),
@@ -30,35 +29,19 @@ void main() {
   ];
 
   final dir = Directory('ios/Runner/Assets.xcassets/AppIcon.appiconset');
-  // Trim transparent padding so the mark fills the icon.
-  final mark = img.trim(
-    appIcon,
-    mode: img.TrimMode.transparent,
-  );
+  img.Image? icon1024;
   for (final (name, size) in sizes) {
     // RGB only — App Store 1024px marketing icon cannot have alpha.
-    final canvas = img.Image(width: size, height: size, numChannels: 3);
-    img.fill(canvas, color: img.ColorRgb8(0xFF, 0xFF, 0xFF));
-    // ~70% of the canvas so the tooth has even top/bottom padding.
-    final inset = (size * 0.70).round().clamp(1, size);
-    final scale = math.min(inset / mark.width, inset / mark.height);
-    final scaled = img.copyResize(
-      mark,
-      width: math.max(1, (mark.width * scale).round()),
-      height: math.max(1, (mark.height * scale).round()),
-      interpolation: img.Interpolation.cubic,
-    );
-    img.compositeImage(
-      canvas,
-      scaled,
-      dstX: ((size - scaled.width) / 2).round(),
-      dstY: ((size - scaled.height) / 2).round(),
-    );
+    final canvas = _wordmarkOnWhite(mark, size);
+    if (size == 1024) icon1024 = canvas;
     File('${dir.path}/$name').writeAsBytesSync(img.encodePng(canvas));
   }
 
+  if (icon1024 != null) {
+    File('assets/brand/appicon.png').writeAsBytesSync(img.encodePng(icon1024));
+  }
+
   // Launch images: wordmark on the clinical canvas color.
-  // Point size ≈ canvas; keep ~340pt so splash mark reads large on iPad.
   const launch = <(String, int)>[
     ('LaunchImage.png', 340),
     ('LaunchImage@2x.png', 680),
@@ -69,8 +52,8 @@ void main() {
     final canvas = img.Image(width: size, height: size, numChannels: 4);
     img.fill(canvas, color: img.ColorRgba8(0xE4, 0xEB, 0xF4, 0xFF));
     final scaled = img.copyResize(
-      logo,
-      width: (size * 0.96).round(),
+      mark,
+      width: (size * 0.92).round(),
       interpolation: img.Interpolation.cubic,
     );
     img.compositeImage(
@@ -83,9 +66,29 @@ void main() {
   }
 
   stdout.writeln(
-    'Wrote ${sizes.length} app icons (appicon.png) and '
-    '${launch.length} launch images (logo.png).',
+    'Wrote ${sizes.length} app icons and ${launch.length} launch images '
+    'from the EliteDent wordmark.',
   );
+}
+
+img.Image _wordmarkOnWhite(img.Image mark, int size) {
+  final canvas = img.Image(width: size, height: size, numChannels: 3);
+  img.fill(canvas, color: img.ColorRgb8(0xFF, 0xFF, 0xFF));
+  final inset = (size * 0.88).round().clamp(1, size);
+  final scale = math.min(inset / mark.width, inset / mark.height);
+  final scaled = img.copyResize(
+    mark,
+    width: math.max(1, (mark.width * scale).round()),
+    height: math.max(1, (mark.height * scale).round()),
+    interpolation: img.Interpolation.cubic,
+  );
+  img.compositeImage(
+    canvas,
+    scaled,
+    dstX: ((size - scaled.width) / 2).round(),
+    dstY: ((size - scaled.height) / 2).round(),
+  );
+  return canvas;
 }
 
 img.Image _decode(String path) {

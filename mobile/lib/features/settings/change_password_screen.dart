@@ -106,7 +106,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Center(child: BrandLogo(height: 56, scale: 1.1)),
+                  const Center(child: BrandLogo(height: 56)),
                   const SizedBox(height: 16),
                   Text(
                     loc.security,

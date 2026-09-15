@@ -39,3 +39,50 @@ def test_skfmm_stacked_slices_stay_independent():
     import src.myTools as mts
 
     assert mts.saveFile({"x": 1}, "/no/such.pth") == 0
+
+
+def test_torch_numpy_bridge_roundtrip():
+    from app.ai.kaist_compat import patch_torch_numpy_bridge
+
+    patch_torch_numpy_bridge()
+    import torch
+    import torchvision.transforms.functional as TF
+    from PIL import Image
+
+    src = np.arange(24, dtype=np.uint8).reshape(2, 4, 3)
+    tensor = torch.from_numpy(src)
+    assert tuple(tensor.shape) == (2, 4, 3)
+    back = tensor.numpy()
+    assert back.dtype == np.uint8
+    assert np.array_equal(back, src)
+
+    if torch.backends.mps.is_available():
+        mps = tensor.to("mps").float()
+        arr = mps.numpy()
+        assert arr.shape == (2, 4, 3)
+
+    pic = Image.fromarray(np.zeros((16, 20, 3), dtype=np.uint8))
+    t = TF.to_tensor(pic)
+    assert tuple(t.shape) == (3, 16, 20)
+    assert t.dtype == torch.float32
+    hwc = t.permute(1, 2, 0).numpy()
+    assert hwc.shape == (16, 20, 3)
+
+
+def test_tem_remove_side_empty_labels():
+    backend = Path(__file__).resolve().parents[2]
+    vendor = backend / "vendor" / "individual_tooth_segmentation"
+    if not (vendor / "src" / "teethSeg.py").is_file():
+        return
+
+    sys.path.insert(0, str(vendor))
+    from app.ai.kaist_compat import patch_kaist_vendor
+
+    patch_kaist_vendor()
+    from src.teethSeg import TEM
+
+    img = np.zeros((8, 8, 3), dtype=float)
+    lbl = np.zeros((8, 8), dtype=float)
+    out = TEM.removeSide(img, lbl)
+    assert out.shape == (8, 8)
+    assert np.array_equal(out, lbl)

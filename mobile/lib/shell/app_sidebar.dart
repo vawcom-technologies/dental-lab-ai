@@ -18,6 +18,7 @@ enum AppNavItem {
   scans,
   shade,
   smilePreview,
+  interpreter,
   scanBody,
   messages,
   laboratories,
@@ -85,7 +86,7 @@ class AppSidebar extends StatelessWidget {
                       child: collapsed
                           ? Column(
                               children: [
-                                const BrandLogo(height: 40, scale: 1.2),
+                                const BrandLogo(height: 26, width: 48),
                                 AppButtons.icon(
                                   onPressed: onToggle,
                                   tooltip: AppLocalizations.of(context).commonExpandSidebar,
@@ -102,8 +103,7 @@ class AppSidebar extends StatelessWidget {
                                     const Expanded(
                                       child: Align(
                                         alignment: Alignment.centerLeft,
-                                        child:
-                                            BrandLogo(height: 56, scale: 1.15),
+                                        child: BrandLogo(height: 48),
                                       ),
                                     ),
                                     AppButtons.icon(
@@ -169,6 +169,11 @@ class AppSidebar extends StatelessWidget {
                             AppNavItem.smilePreview,
                             Icons.sentiment_satisfied_alt_outlined,
                             s.navSmilePreview,
+                          ),
+                          _item(
+                            AppNavItem.interpreter,
+                            Icons.translate_rounded,
+                            s.navInterpreter,
                           ),
                           // Scan body parked — restore when needed.
                           // _item(

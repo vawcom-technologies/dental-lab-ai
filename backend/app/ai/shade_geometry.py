@@ -13,8 +13,8 @@ import numpy as np
 from app.ai.shade_zones import ZONES, tooth_long_axis
 
 # Chairside edit budgets — keep Flutter simplifyOutlineForEdit in sync.
-DISPLAY_OUTLINE_MAX = 36
-DISPLAY_OUTLINE_MIN = 16
+DISPLAY_OUTLINE_MAX = 48
+DISPLAY_OUTLINE_MIN = 24
 EDIT_HANDLES_MAX = 12
 EDIT_HANDLES_MIN = 8
 
@@ -23,7 +23,7 @@ def tooth_display_geometry(
     mask: np.ndarray,
     zone_masks: dict[str, np.ndarray] | None = None,
 ) -> dict[str, Any] | None:
-    """Build outline, edit handles, bbox, zone divider lines, zone outlines."""
+    """Build outline, edit handles, clinical marks, zone divider lines."""
     import cv2
 
     if mask.dtype != bool:
@@ -40,14 +40,18 @@ def tooth_display_geometry(
     if cv2.contourArea(cnt) < 8:
         return None
 
-    # Follow mask edge closely — coarse DP made hexagons that ignored anatomy.
-    epsilon = max(0.4, 0.0035 * cv2.arcLength(cnt, True))
+    # Light DP removes pixel jaggies; even-sample keeps the enamel curve.
+    epsilon = max(0.25, 0.0016 * cv2.arcLength(cnt, True))
     approx = cv2.approxPolyDP(cnt, epsilon, True)
-    outline = simplify_normalized_outline(
-        _poly_norm(approx, w, h),
-        max_points=DISPLAY_OUTLINE_MAX,
-        min_points=DISPLAY_OUTLINE_MIN,
-    )
+    dense = _poly_norm(approx, w, h)
+    if len(dense) < 3:
+        dense = _poly_norm(cnt, w, h)
+    if len(dense) > DISPLAY_OUTLINE_MAX:
+        outline = _even_sample_closed(dense, DISPLAY_OUTLINE_MAX)
+    elif len(dense) < DISPLAY_OUTLINE_MIN:
+        outline = _even_sample_closed(dense, DISPLAY_OUTLINE_MIN)
+    else:
+        outline = dense
     edit_handles = anatomical_edit_handles_from_mask(
         mask,
         max_points=EDIT_HANDLES_MAX,
@@ -55,18 +59,20 @@ def tooth_display_geometry(
     )
 
     x, y, bw, bh = cv2.boundingRect(cnt)
-    bbox = {
-        "x": round(x / w, 5),
-        "y": round(y / h, 5),
-        "w": round(bw / w, 5),
-        "h": round(bh / h, 5),
-    }
+    bbox = _padded_bbox(x, y, bw, bh, w, h)
     label = {
         "x": round((x + bw / 2) / w, 5),
         "y": round(max(0.0, (y - 4) / h), 5),
     }
 
-    zone_lines = _zone_divider_lines(mask, w, h)
+    try:
+        axis_obj = tooth_long_axis(mask)
+    except ValueError:
+        axis_obj = None
+
+    zone_lines = _zone_divider_lines(mask, w, h, axis=axis_obj)
+    clinical_axis = _clinical_axis_line(mask, w, h, axis=axis_obj)
+    width_ticks = _width_ticks(mask, w, h, axis=axis_obj)
     zone_outlines: dict[str, list[list[float]]] = {}
     if zone_masks:
         for name in ZONES:
@@ -82,6 +88,8 @@ def tooth_display_geometry(
         "edit_handles": edit_handles,
         "bbox": bbox,
         "label": label,
+        "axis": clinical_axis,
+        "width_ticks": width_ticks,
         "zone_lines": zone_lines,
         "zone_outlines": zone_outlines,
     }
@@ -233,6 +241,32 @@ def _mask_outline(mask: np.ndarray, w: int, h: int) -> list[list[float]]:
     return outline
 
 
+def _even_sample_closed(pts: list[list[float]], count: int) -> list[list[float]]:
+    """Arc-length resample a closed ring so a spline can follow the crown."""
+    if len(pts) < 3 or count < 3:
+        return pts
+    arr = np.asarray(pts, dtype=np.float64)
+    nxt = np.roll(arr, -1, axis=0)
+    seg = np.sqrt(((nxt - arr) ** 2).sum(axis=1))
+    peri = float(seg.sum())
+    if peri < 1e-9:
+        return [[round(float(p[0]), 5), round(float(p[1]), 5)] for p in pts[:count]]
+    cum = np.concatenate([[0.0], np.cumsum(seg)])
+    out: list[list[float]] = []
+    j = 0
+    n = int(arr.shape[0])
+    for t in np.linspace(0.0, peri, count, endpoint=False):
+        while j + 1 < len(cum) and cum[j + 1] <= t:
+            j += 1
+        span = cum[j + 1] - cum[j]
+        u = 0.0 if span < 1e-12 else (t - cum[j]) / span
+        a = arr[j % n]
+        b = arr[(j + 1) % n]
+        p = a + u * (b - a)
+        out.append([round(float(p[0]), 5), round(float(p[1]), 5)])
+    return out
+
+
 def _poly_norm(approx: np.ndarray, w: int, h: int) -> list[list[float]]:
     out: list[list[float]] = []
     for p in approx:
@@ -334,12 +368,109 @@ def mask_from_normalized_outline(
     return mask > 0
 
 
-def _zone_divider_lines(mask: np.ndarray, w: int, h: int) -> list[list[list[float]]]:
-    """Two lines across the tooth at 1/3 and 2/3 along cervical→incisal axis."""
-    try:
-        axis = tooth_long_axis(mask)
-    except ValueError:
+def _padded_bbox(
+    x: int, y: int, bw: int, bh: int, w: int, h: int
+) -> dict[str, float]:
+    """Axis-aligned box slightly larger than the mask, like clinical overlays."""
+    pad_x = max(2.0, 0.045 * float(bw))
+    pad_y = max(2.0, 0.035 * float(bh))
+    nx = max(0.0, float(x) - pad_x)
+    ny = max(0.0, float(y) - pad_y)
+    nw = min(float(w) - nx, float(bw) + 2.0 * pad_x)
+    nh = min(float(h) - ny, float(bh) + 2.0 * pad_y)
+    return {
+        "x": round(nx / w, 5),
+        "y": round(ny / h, 5),
+        "w": round(nw / w, 5),
+        "h": round(nh / h, 5),
+    }
+
+
+def _norm_yx(p_yx: np.ndarray, w: int, h: int) -> list[float]:
+    return [
+        round(float(np.clip(p_yx[1] / w, 0.0, 1.0)), 5),
+        round(float(np.clip(p_yx[0] / h, 0.0, 1.0)), 5),
+    ]
+
+
+def _clinical_axis_line(
+    mask: np.ndarray,
+    w: int,
+    h: int,
+    *,
+    axis: Any | None = None,
+) -> list[list[float]] | None:
+    """Cervical → incisal long axis, extended a little past the crown."""
+    if axis is None:
+        try:
+            axis = tooth_long_axis(mask)
+        except ValueError:
+            return None
+    ys, xs = np.nonzero(mask)
+    if ys.size < 4:
+        return None
+    pts = np.column_stack([ys.astype(np.float64), xs.astype(np.float64)])
+    proj = (pts - axis.centroid_yx) @ axis.direction_yx
+    lo = float(proj.min())
+    hi = float(proj.max())
+    span = hi - lo
+    if span < 1e-6:
+        return None
+    p_cerv = axis.centroid_yx + axis.direction_yx * (lo - 0.06 * span)
+    p_inc = axis.centroid_yx + axis.direction_yx * (hi + 0.10 * span)
+    return [_norm_yx(p_cerv, w, h), _norm_yx(p_inc, w, h)]
+
+
+def _width_ticks(
+    mask: np.ndarray,
+    w: int,
+    h: int,
+    *,
+    axis: Any | None = None,
+) -> list[list[list[float]]]:
+    """Horizontal width marks at cervical / middle / incisal bands."""
+    if axis is None:
+        try:
+            axis = tooth_long_axis(mask)
+        except ValueError:
+            return []
+    ys, xs = np.nonzero(mask)
+    if ys.size < 8:
         return []
+    pts = np.column_stack([ys.astype(np.float64), xs.astype(np.float64)])
+    proj = (pts - axis.centroid_yx) @ axis.direction_yx
+    lo = float(proj.min())
+    hi = float(proj.max())
+    span = hi - lo
+    if span < 1e-6:
+        return []
+    ticks: list[list[list[float]]] = []
+    tol = max(1.25, 0.035 * span)
+    for frac in (0.18, 0.50, 0.82):
+        t = lo + frac * span
+        near = np.abs(proj - t) <= tol
+        if int(near.sum()) < 2:
+            continue
+        band = pts[near]
+        i0 = int(np.argmin(band[:, 1]))
+        i1 = int(np.argmax(band[:, 1]))
+        ticks.append([_norm_yx(band[i0], w, h), _norm_yx(band[i1], w, h)])
+    return ticks
+
+
+def _zone_divider_lines(
+    mask: np.ndarray,
+    w: int,
+    h: int,
+    *,
+    axis: Any | None = None,
+) -> list[list[list[float]]]:
+    """Two lines across the tooth at 1/3 and 2/3 along cervical→incisal axis."""
+    if axis is None:
+        try:
+            axis = tooth_long_axis(mask)
+        except ValueError:
+            return []
 
     ys, xs = np.nonzero(mask)
     pts = np.column_stack([ys.astype(np.float64), xs.astype(np.float64)])

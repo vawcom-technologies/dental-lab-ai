@@ -4,10 +4,12 @@
 2) Configurable Snake / InitContour iteration caps (speed)
 3) Cache ResNeSt weights in memory (skip 1.5GB reload every photo)
 4) Skip pickle / matplotlib / contour-viz IO (not used by the API)
+5) Torch 2.2 ↔ NumPy 2 bridge (from_numpy / Tensor.numpy)
 """
 
 from __future__ import annotations
 
+import ctypes
 import logging
 from typing import Any
 
@@ -16,6 +18,29 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 _model_cache: dict[tuple[str, str], Any] = {}
+
+_NP_TO_TH = {
+    np.dtype(np.float32): "float32",
+    np.dtype(np.float64): "float64",
+    np.dtype(np.float16): "float16",
+    np.dtype(np.uint8): "uint8",
+    np.dtype(np.int8): "int8",
+    np.dtype(np.int16): "int16",
+    np.dtype(np.int32): "int32",
+    np.dtype(np.int64): "int64",
+    np.dtype(np.bool_): "bool",
+}
+_TH_TO_CT = {
+    "uint8": (ctypes.c_uint8, np.uint8),
+    "int8": (ctypes.c_int8, np.int8),
+    "int16": (ctypes.c_int16, np.int16),
+    "int32": (ctypes.c_int32, np.int32),
+    "int64": (ctypes.c_int64, np.int64),
+    "float32": (ctypes.c_float, np.float32),
+    "float64": (ctypes.c_double, np.float64),
+    "float16": (ctypes.c_uint16, np.uint16),
+    "bool": (ctypes.c_uint8, np.uint8),
+}
 
 
 def ensure_kaist_numpy_shims() -> None:
@@ -39,6 +64,81 @@ def ensure_kaist_numpy_shims() -> None:
     lib = sys.modules.get("numpy.lib")
     if lib is not None and not hasattr(lib, "function_base"):
         lib.function_base = mod  # type: ignore[attr-defined]
+
+
+def _ndarray_to_tensor(arr: np.ndarray) -> Any:
+    """np.ndarray → torch.Tensor without Torch's broken NumPy 2 C API."""
+    import torch
+
+    arr = np.ascontiguousarray(arr)
+    name = _NP_TO_TH.get(arr.dtype)
+    if name is None:
+        arr = np.ascontiguousarray(arr, dtype=np.float32)
+        name = "float32"
+    dtype = getattr(torch, name)
+    if arr.size == 0:
+        return torch.empty(arr.shape, dtype=dtype)
+    tensor = torch.frombuffer(memoryview(arr), dtype=dtype).reshape(arr.shape)
+    return tensor.clone()
+
+
+def _tensor_to_ndarray(tensor: Any) -> np.ndarray:
+    """torch.Tensor → np.ndarray without Torch's broken NumPy 2 C API."""
+    import torch
+
+    t = tensor.detach()
+    if t.device.type != "cpu":
+        t = t.cpu()
+    t = t.contiguous()
+    name = str(t.dtype).removeprefix("torch.")
+    if name not in _TH_TO_CT:
+        t = t.to(dtype=torch.float32)
+        name = "float32"
+    ctype, np_dtype = _TH_TO_CT[name]
+    if t.numel() == 0:
+        return np.empty(tuple(t.shape), dtype=np.bool_ if name == "bool" else np_dtype)
+    buf = (ctype * t.numel()).from_address(t.data_ptr())
+    out = np.ctypeslib.as_array(buf).reshape(tuple(t.shape)).copy()
+    if name == "bool":
+        return out.astype(np.bool_, copy=False)
+    if name == "float16":
+        return out.view(np.float16)
+    return out
+
+
+def patch_torch_numpy_bridge() -> None:
+    """Torch 2.2 was built against NumPy 1.x; from_numpy / Tensor.numpy raise.
+
+    KAIST's torchvision `to_tensor` and PseudoER `.numpy()` both need this.
+    """
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore")
+        import torch
+
+    if getattr(torch, "_dental_lab_numpy_bridge", False):
+        return
+
+    _orig_from_numpy = torch.from_numpy
+    _orig_tensor_numpy = torch.Tensor.numpy
+
+    def from_numpy(arr):  # noqa: ANN001
+        try:
+            return _orig_from_numpy(arr)
+        except RuntimeError:
+            return _ndarray_to_tensor(np.asarray(arr))
+
+    def tensor_numpy(self, *args, **kwargs):  # noqa: ANN001
+        try:
+            return _orig_tensor_numpy(self, *args, **kwargs)
+        except RuntimeError:
+            return _tensor_to_ndarray(self)
+
+    torch.from_numpy = from_numpy  # type: ignore[method-assign]
+    torch.Tensor.numpy = tensor_numpy  # type: ignore[method-assign]
+    torch._dental_lab_numpy_bridge = True
+    logger.info("kaist torch↔numpy bridge enabled (Torch 2.2 / NumPy 2)")
 
 
 def clear_kaist_model_cache() -> None:
@@ -68,6 +168,20 @@ def _silence_kaist_io() -> None:
         self._dt.update({"lbl_reg": ir.lbl_reg, "res": ir.res})
 
     TeethSeg.tem = tem
+
+    if not getattr(TEM, "_dental_lab_remove_side", False):
+        _remove_side = TEM.removeSide
+
+        @staticmethod
+        def removeSide(img, lbl):  # noqa: N802
+            idx = np.where(lbl > 0)
+            if idx[0].size == 0:
+                return np.copy(lbl)
+            return _remove_side(img, lbl)
+
+        TEM.removeSide = removeSide
+        TEM._dental_lab_remove_side = True
+
     mts._dental_lab_io_silent = True
 
 
@@ -78,6 +192,7 @@ def patch_kaist_vendor(
     evolve_iters: int | None = None,
 ) -> None:
     ensure_kaist_numpy_shims()
+    patch_torch_numpy_bridge()
     import skfmm
     from src.reinitial import Reinitial
     from src.teethSeg import InitContour, PseudoER, Snake

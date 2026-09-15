@@ -117,3 +117,70 @@ def test_unparseable_returns_bad():
     assert res["result"] == "bad"
     assert "quality_score" not in res
     assert res["prompt_rescan"] is True
+
+
+def test_interior_arch_gap_flags_gaps_and_prompts_rescan():
+    """A dense arch with a missing mid-sector is a dropped-frame / missing-tooth capture."""
+    pts = _arch()
+    u = np.arctan2(pts[:, 1], pts[:, 0])
+    keep = (u < 0.36 * np.pi) | (u > 0.62 * np.pi)
+    res = validate_scan_bytes(_ply_ascii(pts[keep]), filename="gapped.ply")
+    assert "gaps" in _codes(res)
+    assert res["prompt_rescan"] is True
+    assert res["result"] != "good"
+
+
+def test_narrow_missing_tooth_gap_flags_gaps():
+    """A single missing tooth (~10% of the half-arch) must not pass as good."""
+    pts = _arch()
+    u = np.arctan2(pts[:, 1], pts[:, 0])
+    keep = (u < 0.45 * np.pi) | (u > 0.55 * np.pi)
+    res = validate_scan_bytes(_ply_ascii(pts[keep]), filename="narrow-gap.ply")
+    assert "gaps" in _codes(res)
+    assert res["result"] != "good"
+    assert res["prompt_rescan"] is True
+
+
+def test_enclosed_surface_hole_flags_holes():
+    """A capture with an interior void in the occlusal table must prompt a rescan."""
+    rng = np.random.default_rng(3)
+    n = 30000
+    x = rng.uniform(-20.0, 20.0, n)
+    y = rng.uniform(-12.0, 12.0, n)
+    z = rng.normal(0.0, 4.0, n)
+    pts = np.column_stack([x, y, z])
+    hole = (np.abs(x) < 6.0) & (np.abs(y) < 5.0)
+    res = validate_scan_bytes(_ply_ascii(pts[~hole]), filename="holed.ply")
+    assert "holes" in _codes(res)
+    assert res["prompt_rescan"] is True
+    assert res["result"] != "good"
+
+
+def test_small_occlusal_hole_flags_holes():
+    """A smaller interior void still has to show up — coarse dilation used to hide these."""
+    rng = np.random.default_rng(5)
+    n = 40000
+    x = rng.uniform(-20.0, 20.0, n)
+    y = rng.uniform(-12.0, 12.0, n)
+    z = rng.normal(0.0, 4.0, n)
+    pts = np.column_stack([x, y, z])
+    hole = (np.abs(x) < 3.2) & (np.abs(y) < 2.8)
+    res = validate_scan_bytes(_ply_ascii(pts[~hole]), filename="small-hole.ply")
+    assert "holes" in _codes(res)
+    assert res["result"] != "good"
+
+
+def test_reference_good_dense_arch_has_no_false_holes():
+    from pathlib import Path
+
+    path = (
+        Path(__file__).resolve().parents[3]
+        / "references"
+        / "scans"
+        / "good_dense_arch.ply"
+    )
+    if not path.exists():
+        return
+    res = validate_scan_bytes(path.read_bytes(), filename=path.name)
+    assert "gaps" not in _codes(res)
+    assert "holes" not in _codes(res)

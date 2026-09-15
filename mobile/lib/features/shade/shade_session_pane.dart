@@ -376,7 +376,7 @@ class _SessionRecentState extends State<SessionRecent> {
                       children: [
                         Text(
                           t['label']?.toString() ??
-                              'Tooth ${((t['tooth_index'] as num?)?.toInt() ?? 0) + 1}',
+                              toothDisplayLabel(t),
                           style: AppFonts.style(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,

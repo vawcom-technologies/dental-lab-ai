@@ -41,8 +41,8 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
   String? _sampleError;
   bool _sampling = false;
   bool _solid = true;
-  double _yaw = 0.55;
-  double _pitch = -0.35;
+  double _yaw = 0.10;
+  double _pitch = -0.14;
   double _zoom = 1.0;
   double _baseZoom = 1.0;
   Object? _token;
@@ -52,6 +52,12 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
   @override
   void initState() {
     super.initState();
+    _resync();
+  }
+
+  @override
+  void reassemble() {
+    super.reassemble();
     _resync();
   }
 
@@ -261,8 +267,7 @@ class _CpuMeshPainter extends CustomPainter {
       }
       order.sort((a, b) => depth[b].compareTo(depth[a]));
 
-      // Impeller: drawVertices + vertex colors + srcOver often fails to fill
-      // (looks like a point cloud). Use opaque Path fills — reliable on iOS.
+      final fileColor = vertices.any((v) => v.length >= 6);
       final fill = Paint()
         ..style = PaintingStyle.fill
         ..isAntiAlias = false;
@@ -279,11 +284,15 @@ class _CpuMeshPainter extends CustomPainter {
         final len = math.sqrt(nx * nx + ny * ny + nz * nz);
         final facing = len < 1e-9 ? 0.5 : (nCamZ / len);
         final lum = (0.42 + 0.58 * facing.abs()).clamp(0.28, 1.0);
-
-        // Flat shade from first corner color (web preview — not App Store path).
-        final r = (t[o + 3] * lum * 255).round().clamp(0, 255);
-        final g = (t[o + 4] * lum * 255).round().clamp(0, 255);
-        final b = (t[o + 5] * lum * 255).round().clamp(0, 255);
+        final r = fileColor
+            ? (t[o + 3] * lum * 255).round().clamp(0, 255)
+            : (lum * 255).round().clamp(0, 255);
+        final g = fileColor
+            ? (t[o + 4] * lum * 255).round().clamp(0, 255)
+            : r;
+        final b = fileColor
+            ? (t[o + 5] * lum * 255).round().clamp(0, 255)
+            : r;
         fill.color = Color.fromARGB(255, r, g, b);
 
         final p0 = project(ax, ay, az);
@@ -299,21 +308,31 @@ class _CpuMeshPainter extends CustomPainter {
         );
       }
     } else if (vertices.isNotEmpty) {
-      final pts = Float32List(vertices.length * 2);
+      final buckets = <int, List<double>>{};
       for (var i = 0; i < vertices.length; i++) {
         final v = vertices[i];
         final p = project(v[0], v[1], v[2]);
-        pts[i * 2] = p.dx;
-        pts[i * 2 + 1] = p.dy;
+        var r = 255, g = 255, b = 255;
+        if (v.length >= 6) {
+          r = (v[3] * 255).round().clamp(0, 255);
+          g = (v[4] * 255).round().clamp(0, 255);
+          b = (v[5] * 255).round().clamp(0, 255);
+        }
+        final key = (r << 16) | (g << 8) | b;
+        (buckets[key] ??= <double>[]).add(p.dx);
+        buckets[key]!.add(p.dy);
       }
-      canvas.drawRawPoints(
-        ui.PointMode.points,
-        pts,
-        Paint()
-          ..color = const Color(0xFFC5D9F0)
-          ..strokeCap = StrokeCap.round
-          ..strokeWidth = 1.5,
-      );
+      final paint = Paint()
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = 1.5;
+      for (final entry in buckets.entries) {
+        paint.color = Color(0xFF000000 | entry.key);
+        canvas.drawRawPoints(
+          ui.PointMode.points,
+          Float32List.fromList(entry.value),
+          paint,
+        );
+      }
     }
   }
 

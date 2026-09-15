@@ -2,12 +2,15 @@ PODS:
   - Flutter (1.0.0)
   - flutter_secure_storage (6.0.0):
     - Flutter
+  - flutter_tts (0.0.1):
+    - Flutter
   - three_js_sensors (0.2.0):
     - Flutter
 
 DEPENDENCIES:
   - Flutter (from `Flutter`)
   - flutter_secure_storage (from `.symlinks/plugins/flutter_secure_storage/ios`)
+  - flutter_tts (from `.symlinks/plugins/flutter_tts/ios`)
   - three_js_sensors (from `.symlinks/plugins/three_js_sensors/ios`)
 
 EXTERNAL SOURCES:
@@ -15,12 +18,15 @@ EXTERNAL SOURCES:
     :path: Flutter
   flutter_secure_storage:
     :path: ".symlinks/plugins/flutter_secure_storage/ios"
+  flutter_tts:
+    :path: ".symlinks/plugins/flutter_tts/ios"
   three_js_sensors:
     :path: ".symlinks/plugins/three_js_sensors/ios"
 
 SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   flutter_secure_storage: 1ed9476fba7e7a782b22888f956cce43e2c62f13
+  flutter_tts: 35ac3c7d42412733e795ea96ad2d7e05d0a75113
   three_js_sensors: 588c345b9ae356162449f14d11f7d1cf49a713d0
 
 PODFILE CHECKSUM: 4b015915ec662986b54bf30ab778da63f7dda016

@@ -16,6 +16,10 @@ class PatientScanOut(BaseModel):
     file_name: str
     format: str = ""
     created_at: datetime | str | None = None
+    validation_result: str | None = None
+    prompt_rescan: bool = False
+    reasons: list[str] = Field(default_factory=list)
+    issues: list[dict] = Field(default_factory=list)
 
 
 class ShadeDetectionOut(BaseModel):

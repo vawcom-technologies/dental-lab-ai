@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import struct
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -218,6 +219,152 @@ def _stats(verts: list[tuple[float, float, float]]) -> dict[str, float]:
         "planarity": planarity if math.isfinite(planarity) else 0.0,
         "elongation": elongation if math.isfinite(elongation) else 0.0,
     }
+
+
+def _coverage_gaps(verts: list[tuple[float, float, float]]) -> dict[str, float]:
+    """Detect missing sectors and enclosed holes on a dental arch.
+
+    A U-shaped arch has empty tongue space that touches the bounding-box
+    border — that is *not* a scan hole. Interior empty pockets (missing
+    enamel patches) and angular gaps between populated sectors (missing
+    teeth / dropped frames) are.
+
+    Returns scale- and orientation-invariant fractions in ``[0, 1]``.
+    """
+    arr = np.asarray(_finite_verts(verts), dtype=np.float64)
+    n = int(arr.shape[0])
+    empty = {"angular_gap": 0.0, "enclosed_hole": 0.0, "gap_bins": 0.0}
+    if n < 200:
+        return empty
+
+    centred = arr - arr.mean(axis=0)
+    cov = (centred.T @ centred) / max(n - 1, 1)
+    evals, evecs = np.linalg.eigh(cov)  # ascending
+    if not np.all(np.isfinite(evals)):
+        return empty
+    axis0 = evecs[:, 2]
+    axis1 = evecs[:, 1]
+    uv = np.column_stack((centred @ axis0, centred @ axis1))
+    if not np.all(np.isfinite(uv)):
+        return empty
+
+    n_bins = 72
+    ang = np.arctan2(uv[:, 1], uv[:, 0])
+    bins = np.floor((ang + math.pi) / (2 * math.pi) * n_bins).astype(np.int32)
+    bins = np.clip(bins, 0, n_bins - 1)
+    counts = np.bincount(bins, minlength=n_bins).astype(np.float64)
+    positive = counts[counts > 0]
+    if positive.size < 6:
+        return empty
+    med = float(np.median(positive))
+    occupied = counts >= max(med * 0.30, 4.0)
+    occ_idx = np.flatnonzero(occupied)
+    angular_gap = 0.0
+    gap_bins = 0.0
+    if occ_idx.size >= 3:
+        gap_lengths: list[int] = []
+        for i, a in enumerate(occ_idx):
+            b = int(occ_idx[(i + 1) % occ_idx.size])
+            if i + 1 < occ_idx.size:
+                length = int(b - a - 1)
+            else:
+                length = int(b + n_bins - a - 1)
+            gap_lengths.append(max(0, length))
+        gap_lengths.sort(reverse=True)
+        opening = gap_lengths[0]
+        # Closed 360° scans have only tiny residual gaps — count them all.
+        # Skip length-0; count 1-bin dips so a missing tooth still flags.
+        if opening < 0.18 * n_bins:
+            interior = sum(g for g in gap_lengths if g >= 1)
+        else:
+            interior = sum(g for g in gap_lengths[1:] if g >= 1)
+        span = max(n_bins - opening, 1)
+        angular_gap = float(interior) / float(span)
+        gap_bins = float(interior)
+
+    gs = 64
+    mn = uv.min(axis=0)
+    span_uv = np.maximum(uv.max(axis=0) - mn, 1e-9)
+    ij = np.floor((uv - mn) / span_uv * (gs - 1.000001)).astype(np.int32)
+    ij = np.clip(ij, 0, gs - 1)
+    grid = np.zeros((gs, gs), dtype=np.uint8)
+    grid[ij[:, 1], ij[:, 0]] = 1
+    # Dilate occupancy to seal 1-cell leaks into tongue space and fill
+    # sampling specks. Measure holes on the same map so a U-arch opening
+    # stays connected to the border. A 64² grid keeps millimetre-scale
+    # occlusal voids after that 1-cell close.
+    dilated = grid.copy()
+    if gs >= 3:
+        dilated[1:, :] |= grid[:-1, :]
+        dilated[:-1, :] |= grid[1:, :]
+        dilated[:, 1:] |= grid[:, :-1]
+        dilated[:, :-1] |= grid[:, 1:]
+
+    reached = np.zeros_like(dilated, dtype=bool)
+    q: deque[tuple[int, int]] = deque()
+
+    def _push(y: int, x: int) -> None:
+        if dilated[y, x] == 0 and not reached[y, x]:
+            reached[y, x] = True
+            q.append((y, x))
+
+    for x in range(gs):
+        _push(0, x)
+        _push(gs - 1, x)
+    for y in range(gs):
+        _push(y, 0)
+        _push(y, gs - 1)
+    while q:
+        y, x = q.popleft()
+        if y > 0:
+            _push(y - 1, x)
+        if y + 1 < gs:
+            _push(y + 1, x)
+        if x > 0:
+            _push(y, x - 1)
+        if x + 1 < gs:
+            _push(y, x + 1)
+
+    enclosed = (dilated == 0) & (~reached)
+    enclosed = _filter_tiny_components(enclosed, min_size=2)
+    hole_cells = int(enclosed.sum())
+    occ_cells = int(dilated.sum())
+    enclosed_frac = hole_cells / max(occ_cells, 1)
+    return {
+        "angular_gap": angular_gap if math.isfinite(angular_gap) else 0.0,
+        "enclosed_hole": enclosed_frac if math.isfinite(enclosed_frac) else 0.0,
+        "gap_bins": gap_bins,
+    }
+
+
+def _filter_tiny_components(mask: np.ndarray, min_size: int = 2) -> np.ndarray:
+    """Keep enclosed blobs of at least [min_size] cells (drop sampling specks)."""
+    h, w = mask.shape
+    seen = np.zeros_like(mask, dtype=bool)
+    keep = np.zeros_like(mask, dtype=bool)
+    for y in range(h):
+        for x in range(w):
+            if not mask[y, x] or seen[y, x]:
+                continue
+            stack = [(y, x)]
+            seen[y, x] = True
+            cells = [(y, x)]
+            while stack:
+                cy, cx = stack.pop()
+                for ny, nx in (
+                    (cy - 1, cx),
+                    (cy + 1, cx),
+                    (cy, cx - 1),
+                    (cy, cx + 1),
+                ):
+                    if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] and not seen[ny, nx]:
+                        seen[ny, nx] = True
+                        stack.append((ny, nx))
+                        cells.append((ny, nx))
+            if len(cells) >= min_size:
+                for cy, cx in cells:
+                    keep[cy, cx] = True
+    return keep
 
 
 def detect_mesh_format(data: bytes, filename: str = "") -> str:
@@ -513,7 +660,38 @@ def validate_scan_bytes(data: bytes, filename: str = "scan.ply") -> dict[str, An
         })
         score -= 0.15
 
+    # 4. Holes / missing sectors — enclosed empty pockets and interior
+    #    angular gaps. Tongue space of a U-arch is connected to the bbox
+    #    border and is not scored (see test_dense_arch_scores_good).
+    cov = _coverage_gaps(verts)
+    st["angular_gap"] = cov["angular_gap"]
+    st["enclosed_hole"] = cov["enclosed_hole"]
+    if len(verts) >= 200:
+        if cov["angular_gap"] >= 0.06:
+            reasons.append(
+                "Gaps in the arch — missing teeth or dropped scan frames."
+            )
+            issues.append({
+                "severity": "high" if cov["angular_gap"] >= 0.12 else "medium",
+                "code": "gaps",
+                "message": f"arch gap≈{cov['angular_gap']:.2f}",
+            })
+            score -= 0.40 if cov["angular_gap"] >= 0.12 else 0.28
+        if cov["enclosed_hole"] >= 0.015:
+            reasons.append(
+                "Holes in the scanned surface — incomplete capture."
+            )
+            issues.append({
+                "severity": "high" if cov["enclosed_hole"] >= 0.04 else "medium",
+                "code": "holes",
+                "message": f"surface holes≈{cov['enclosed_hole']:.2f}",
+            })
+            score -= 0.35 if cov["enclosed_hole"] >= 0.04 else 0.26
+
     score = max(0.0, min(1.0, score))
+    if any(i["code"] in ("gaps", "holes") for i in issues):
+        # Visible coverage defects must never pass as a good scan.
+        score = min(score, 0.74)
     if any(i["code"] == "missing_margin" for i in issues):
         result = "missing_margin"
     elif score >= 0.75:
@@ -529,7 +707,9 @@ def validate_scan_bytes(data: bytes, filename: str = "scan.ply") -> dict[str, An
             "(vertex heuristics; PLY fixtures in references/scans/)."
         )
 
-    prompt_rescan = result in ("bad", "blurry", "missing_margin")
+    prompt_rescan = result in ("bad", "blurry", "missing_margin") or any(
+        i["code"] in ("gaps", "holes") for i in issues
+    )
     return {
         "result": result,
         "reasons": reasons,
@@ -540,8 +720,8 @@ def validate_scan_bytes(data: bytes, filename: str = "scan.ply") -> dict[str, An
         "mesh_kind": parsed.get("kind"),
         "note": (
             "Mesh validator supports PLY / STL / OBJ. Scored on vertex "
-            "completeness plus scale-/orientation-invariant PCA shape checks "
-            "(planarity, elongation); supervised model later."
+            "completeness, PCA shape (planarity, elongation), and arch "
+            "coverage (interior gaps / enclosed surface holes)."
         ),
         "filename": filename,
         "prompt_rescan": prompt_rescan,

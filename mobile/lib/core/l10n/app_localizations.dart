@@ -33,6 +33,7 @@ class AppLocalizations {
   String get navLaboratories => _t('nav.laboratories');
   String get navNotifications => _t('nav.notifications');
   String get navReports => _t('nav.reports');
+  String get navInterpreter => _t('nav.interpreter');
   String get navSettings => _t('nav.settings');
   String get navProfile => _t('nav.profile');
   String get proEdition => _t('proEdition');
@@ -795,6 +796,10 @@ class AppLocalizations {
   String get smileLoadSmileHint => _t('smile.loadSmileHint');
   String get smileLoadSmileHintPortrait => _t('smile.loadSmileHintPortrait');
   String get smilePlacement => _t('smile.placement');
+  String get smileBatemModels => _t('smile.batemModels');
+  String get smileModelOpen => _t('smile.modelOpen');
+  String get smileModelClosed => _t('smile.modelClosed');
+  String get smileUseThisModel => _t('smile.useThisModel');
   String get smileNudge => _t('smile.nudge');
   String get smileResetPlacement => _t('smile.resetPlacement');
   String get smileCenterShape => _t('smile.centerShape');
@@ -1018,8 +1023,36 @@ class AppLocalizations {
   // ── Scans quality / preview hints ────────────────────────────────────────
   String get scansQualityNeedPatient => _t('scans.qualityNeedPatient');
   String get scansQualityNeedUpload => _t('scans.qualityNeedUpload');
+  String get scansSimulatorPickTitle => _t('scans.simulatorPickTitle');
+  String get scansSimulatorPickHint => _t('scans.simulatorPickHint');
+  String get scansSimulatorPickEmpty => _t('scans.simulatorPickEmpty');
+  String get scansNeedMeshFile => _t('scans.needMeshFile');
+  String get scansCouldNotReadFile => _t('scans.couldNotReadFile');
   String get scansUploadPreviewHint => _t('scans.uploadPreviewHint');
   String get scansEmptyHintUpload => _t('scans.emptyHintUpload');
+
+  // ── Chairside interpreter (doctor ↔ patient, not UI language) ────────────
+  String get interpreterSubtitle => _t('interpreter.subtitle');
+  String get interpreterDoctor => _t('interpreter.doctor');
+  String get interpreterPatient => _t('interpreter.patient');
+  String get interpreterDoctorLanguage => _t('interpreter.doctorLanguage');
+  String get interpreterPatientLanguage => _t('interpreter.patientLanguage');
+  String get interpreterDoctorHint => _t('interpreter.doctorHint');
+  String get interpreterPatientHint => _t('interpreter.patientHint');
+  String get interpreterHoldToTalk => _t('interpreter.holdToTalk');
+  String get interpreterListening => _t('interpreter.listening');
+  String get interpreterTypeInstead => _t('interpreter.typeInstead');
+  String get interpreterTypeHint => _t('interpreter.typeHint');
+  String get interpreterSend => _t('interpreter.send');
+  String get interpreterSpeak => _t('interpreter.speak');
+  String get interpreterSwap => _t('interpreter.swap');
+  String get interpreterClear => _t('interpreter.clear');
+  String get interpreterAutoSpeak => _t('interpreter.autoSpeak');
+  String get interpreterNothingHeard => _t('interpreter.nothingHeard');
+  String get interpreterSearchLanguage => _t('interpreter.searchLanguage');
+  String get interpreterClinicLanguages => _t('interpreter.clinicLanguages');
+  String get interpreterAllLanguages => _t('interpreter.allLanguages');
+  String get interpreterPatientOptional => _t('interpreter.patientOptional');
 
   static const _en = <String, String>{
     'nav.dashboard': 'Dashboard',
@@ -1030,6 +1063,7 @@ class AppLocalizations {
     'nav.scans': 'Scans',
     'nav.shade': 'Shade Detection',
     'nav.smilePreview': 'Smile Preview',
+    'nav.interpreter': 'Interpreter',
     'nav.scanBody': 'Scan Body',
     'nav.messages': 'Messages',
     'nav.laboratories': 'System Users',
@@ -1676,6 +1710,10 @@ class AppLocalizations {
     'smile.loadSmileHintPortrait':
         'Then tap a shape in the library below and place it over the teeth.',
     'smile.placement': 'Placement',
+    'smile.batemModels': 'Batem models',
+    'smile.modelOpen': 'Open',
+    'smile.modelClosed': 'Closed',
+    'smile.useThisModel': 'Use this model',
     'smile.nudge': 'Nudge',
     'smile.resetPlacement': 'Reset placement',
     'smile.centerShape': 'Center shape',
@@ -1738,8 +1776,41 @@ class AppLocalizations {
         'Select a patient, then upload a scan to see quality results.',
     'scans.qualityNeedUpload':
         'No scan uploaded yet — upload a PLY, STL, or OBJ to run the quality check.',
+    'scans.simulatorPickTitle': 'Choose a scan from this Mac',
+    'scans.simulatorPickHint':
+        'The iPad Simulator cannot open Mac Downloads. Copy the PLY, STL, or OBJ into dental-lab-ai/mobile/debug_scans, then pick it here.',
+    'scans.simulatorPickEmpty':
+        'No mesh files found. Copy a PLY, STL, or OBJ into mobile/debug_scans and try again.',
+    'scans.needMeshFile': 'Choose a PLY, STL, or OBJ scan.',
+    'scans.couldNotReadFile': 'Could not read that file. Try another scan.',
     'scans.uploadPreviewHint': 'Upload a PLY / STL / OBJ to preview',
     'scans.emptyHintUpload': 'No patients yet — add one to upload scans.',
+    'interpreter.subtitle':
+        'Doctor ↔ patient during treatment. Does not change the app language.',
+    'interpreter.doctor': 'Doctor',
+    'interpreter.patient': 'Patient',
+    'interpreter.doctorLanguage': 'Doctor language',
+    'interpreter.patientLanguage': 'Patient language',
+    'interpreter.doctorHint':
+        'Hold to speak, or type. The patient pane shows the translation.',
+    'interpreter.patientHint':
+        'Hold for the patient to speak, or type. You will see it in your language.',
+    'interpreter.holdToTalk': 'Hold to talk',
+    'interpreter.listening': 'Listening…',
+    'interpreter.typeInstead': 'Voice not available — type instead',
+    'interpreter.typeHint': 'Type a sentence…',
+    'interpreter.send': 'Send',
+    'interpreter.speak': 'Speak aloud',
+    'interpreter.swap': 'Swap languages',
+    'interpreter.clear': 'Clear this visit',
+    'interpreter.autoSpeak': 'Read translations aloud',
+    'interpreter.nothingHeard':
+        'Nothing was heard. Hold the button and speak, or type.',
+    'interpreter.searchLanguage': 'Search languages',
+    'interpreter.clinicLanguages': 'Clinic languages',
+    'interpreter.allLanguages': 'All languages',
+    'interpreter.patientOptional':
+        'Optional — remembers this patient’s language',
   };
 
   static const _de = <String, String>{
@@ -1751,6 +1822,7 @@ class AppLocalizations {
     'nav.scans': 'Scans',
     'nav.shade': 'Farbbestimmung',
     'nav.smilePreview': 'Lächeln-Vorschau',
+    'nav.interpreter': 'Dolmetscher',
     'nav.scanBody': 'Scanbody',
     'nav.messages': 'Nachrichten',
     'nav.laboratories': 'Systembenutzer',
@@ -2418,6 +2490,10 @@ class AppLocalizations {
     'smile.loadSmileHintPortrait':
         'Tippen Sie dann unten in der Bibliothek auf eine Form und platzieren Sie sie über den Zähnen.',
     'smile.placement': 'Platzierung',
+    'smile.batemModels': 'Batem-Modelle',
+    'smile.modelOpen': 'Offen',
+    'smile.modelClosed': 'Geschlossen',
+    'smile.useThisModel': 'Dieses Modell verwenden',
     'smile.nudge': 'Verschieben',
     'smile.resetPlacement': 'Platzierung zurücksetzen',
     'smile.centerShape': 'Form zentrieren',
@@ -2494,9 +2570,43 @@ class AppLocalizations {
         'Patient auswählen, dann Scan hochladen, um Qualitätsergebnisse zu sehen.',
     'scans.qualityNeedUpload':
         'Noch kein Scan hochgeladen — laden Sie eine PLY, STL oder OBJ hoch, um die Qualitätsprüfung zu starten.',
+    'scans.simulatorPickTitle': 'Scan von diesem Mac wählen',
+    'scans.simulatorPickHint':
+        'Der iPad-Simulator kann den Mac-Ordner Downloads nicht öffnen. Kopieren Sie die PLY, STL oder OBJ nach dental-lab-ai/mobile/debug_scans und wählen Sie sie hier.',
+    'scans.simulatorPickEmpty':
+        'Keine Mesh-Dateien gefunden. Kopieren Sie eine PLY, STL oder OBJ nach mobile/debug_scans und versuchen Sie es erneut.',
+    'scans.needMeshFile': 'Bitte eine PLY-, STL- oder OBJ-Datei wählen.',
+    'scans.couldNotReadFile':
+        'Datei konnte nicht gelesen werden. Bitte einen anderen Scan wählen.',
     'scans.uploadPreviewHint':
         'PLY / STL / OBJ hochladen für die Vorschau',
     'scans.emptyHintUpload':
         'Noch keine Patienten — fügen Sie einen hinzu, um Scans hochzuladen.',
+    'interpreter.subtitle':
+        'Arzt ↔ Patient während der Behandlung. Ändert nicht die App-Sprache.',
+    'interpreter.doctor': 'Arzt',
+    'interpreter.patient': 'Patient',
+    'interpreter.doctorLanguage': 'Arztsprache',
+    'interpreter.patientLanguage': 'Patientensprache',
+    'interpreter.doctorHint':
+        'Halten zum Sprechen oder tippen. Die Patientenseite zeigt die Übersetzung.',
+    'interpreter.patientHint':
+        'Halten, damit der Patient spricht, oder tippen. Sie sehen es in Ihrer Sprache.',
+    'interpreter.holdToTalk': 'Halten zum Sprechen',
+    'interpreter.listening': 'Hört zu…',
+    'interpreter.typeInstead': 'Sprache nicht verfügbar — bitte tippen',
+    'interpreter.typeHint': 'Satz eingeben…',
+    'interpreter.send': 'Senden',
+    'interpreter.speak': 'Vorlesen',
+    'interpreter.swap': 'Sprachen tauschen',
+    'interpreter.clear': 'Diesen Besuch löschen',
+    'interpreter.autoSpeak': 'Übersetzungen vorlesen',
+    'interpreter.nothingHeard':
+        'Nichts gehört. Taste halten und sprechen, oder tippen.',
+    'interpreter.searchLanguage': 'Sprachen suchen',
+    'interpreter.clinicLanguages': 'Praxissprachen',
+    'interpreter.allLanguages': 'Alle Sprachen',
+    'interpreter.patientOptional':
+        'Optional — merkt sich die Sprache dieses Patienten',
   };
 }

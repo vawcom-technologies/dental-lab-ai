@@ -78,7 +78,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Center(child: BrandLogo(height: 64, scale: 1.15)),
+                  const Center(child: BrandLogo(height: 64)),
                   const SizedBox(height: 16),
                   Text(
                     loc.forgotPasswordTitle,

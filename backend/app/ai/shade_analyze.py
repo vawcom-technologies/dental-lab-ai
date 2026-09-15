@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import numpy as np
@@ -123,10 +124,11 @@ def analyze_shade_from_rgb(image_rgb: np.ndarray) -> dict[str, Any]:
     teeth = detect_teeth(arr, meta_out=segment_meta)
     # Only surface usable masks — fragments must not appear as T1..Tn in the UI.
     teeth = [t for t in teeth if not t.rejected]
-    tooth_results = [_analyze_tooth(arr, tooth) for tooth in teeth]
+    tooth_results = _analyze_teeth(arr, teeth)
     # Re-index after filtering (preserve arch labels from segmenter).
     for i, (row, tooth) in enumerate(zip(tooth_results, teeth)):
         row["tooth_index"] = i
+        row["fdi"] = tooth.fdi
         row["label"] = tooth_display_label(
             ToothMask(
                 tooth_index=i,
@@ -136,6 +138,7 @@ def analyze_shade_from_rgb(image_rgb: np.ndarray) -> dict[str, Any]:
                 reject_reason=tooth.reject_reason,
                 arch=tooth.arch,
                 arch_index=tooth.arch_index,
+                fdi=tooth.fdi,
             )
         )
         row["arch"] = tooth.arch
@@ -145,15 +148,15 @@ def analyze_shade_from_rgb(image_rgb: np.ndarray) -> dict[str, Any]:
     dual = any(t.arch for t in teeth)
     note = (
         (
-            f"Detected {accepted} tooth mask(s) (upper then lower, left → right). "
-            "Tap a tooth on the photo or in the list; "
-            "lines show cervical / middle / incisal zones."
+            f"Detected {accepted} tooth mask(s) (ISO 3950, front → back per quadrant). "
+            "Tap a tooth on the photo or in the list. "
+            "Boxes, axes, and green ticks mark each crown."
         )
         if dual and accepted
         else (
-            f"Detected {accepted} tooth mask(s) (left → right). "
-            "Tap a tooth on the photo or in the list; "
-            "lines show cervical / middle / incisal zones."
+            f"Detected {accepted} tooth mask(s) (ISO 3950, front → back per quadrant). "
+            "Tap a tooth on the photo or in the list. "
+            "Boxes, axes, and green ticks mark each crown."
         )
         if accepted
         else "No reliable tooth masks found — retake with teeth filling the frame, even lighting, lips retracted."
@@ -238,12 +241,24 @@ def analyze_tooth_from_outline_rgb(
     }
 
 
+def _analyze_teeth(
+    image_rgb: np.ndarray, teeth: list[ToothMask]
+) -> list[dict[str, Any]]:
+    """Zone Lab + geometry per tooth. Parallel when several crowns are present."""
+    if len(teeth) < 3:
+        return [_analyze_tooth(image_rgb, t) for t in teeth]
+    workers = min(4, len(teeth))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(pool.map(lambda t: _analyze_tooth(image_rgb, t), teeth))
+
+
 def _analyze_tooth(image_rgb: np.ndarray, tooth: ToothMask) -> dict[str, Any]:
     base: dict[str, Any] = {
         "tooth_index": tooth.tooth_index,
         "label": tooth_display_label(tooth),
         "arch": tooth.arch,
         "arch_index": tooth.arch_index,
+        "fdi": tooth.fdi,
         "confidence": tooth.confidence,
         "rejected": tooth.rejected,
         "reject_reason": tooth.reject_reason,
@@ -332,7 +347,9 @@ def _analyze_gum(
         return None
     pixel_count = int(gum_mask.sum())
     # Thin gingival bands vanish if we erode like tooth zones.
-    lab = sample_zone_lab(image_rgb, gum_mask, erode_px=0, min_pixels=8)
+    lab = sample_zone_lab(
+        image_rgb, gum_mask, erode_px=0, min_pixels=8, exclude_shadows=False
+    )
     if lab is None:
         return None
     matched = match_lab_nearest(lab, top_n=5, palette=GINGIVA_SHADES)

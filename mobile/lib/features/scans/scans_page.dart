@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
@@ -13,6 +12,7 @@ import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'mesh_sample.dart';
 import 'mesh_viewer.dart';
+import 'pick_mesh_file.dart';
 
 class ScansPage extends StatefulWidget {
   const ScansPage({
@@ -191,7 +191,7 @@ class _ScansPageState extends State<ScansPage>
       'format': row['format'] ?? _formatOf(name),
       'uploaded_at': row['created_at'] ?? row['uploaded_at'],
       'patient_name': _patientLabel,
-      'validation_result': row['validation_result'] ?? 'saved',
+      'validation_result': row['validation_result'] ?? 'pending',
       'quality_score': row['quality_score'] ?? 1.0,
       '_bytes': ?bytes,
     };
@@ -247,6 +247,7 @@ class _ScansPageState extends State<ScansPage>
     required Object scanId,
     required Uint8List bytes,
     required String filename,
+    Map<String, dynamic>? scan,
   }) async {
     setState(() {
       _previewLoading = true;
@@ -266,6 +267,18 @@ class _ScansPageState extends State<ScansPage>
             : null;
         _previewLoading = false;
       });
+      Map<String, dynamic>? target = scan;
+      if (target == null) {
+        for (final s in _scans) {
+          if ('${s['id']}' == '$scanId') {
+            target = s;
+            break;
+          }
+        }
+      }
+      if (target != null) {
+        _ensureQuality(target, bytes);
+      }
     } catch (e) {
       if (!mounted || _previewScanId != scanId) return;
       setState(() {
@@ -274,6 +287,57 @@ class _ScansPageState extends State<ScansPage>
         _previewLoading = false;
       });
     }
+  }
+
+  Future<void> _ensureQuality(
+    Map<String, dynamic> scan,
+    Uint8List bytes,
+  ) async {
+    if (scan['_qualityChecked'] == true) {
+      if (mounted) {
+        setState(() => _lastResult = _resultFromScan(scan));
+      }
+      return;
+    }
+    Map<String, dynamic> validation;
+    try {
+      validation = await widget.api.validateScan(
+        bytes,
+        '${scan['filename'] ?? 'scan.ply'}',
+      );
+    } catch (_) {
+      validation = assessScanQuality(
+        bytes,
+        '${scan['filename'] ?? 'scan.ply'}',
+      );
+    }
+    scan['_qualityChecked'] = true;
+    scan['validation_result'] =
+        validation['result'] ?? scan['validation_result'];
+    scan['issues'] = validation['issues'] ?? const [];
+    scan['reasons'] = validation['reasons'] ?? const [];
+    scan['prompt_rescan'] = validation['prompt_rescan'] == true;
+    scan['note'] = validation['note'];
+    if (!mounted) return;
+    final selected = _scans.isEmpty
+        ? null
+        : _scans[_selected.clamp(0, _scans.length - 1)];
+    if (selected != null && '${selected['id']}' == '${scan['id']}') {
+      setState(() => _lastResult = validation);
+    } else {
+      setState(() {});
+    }
+  }
+
+  Map<String, dynamic>? _resultFromScan(Map<String, dynamic> scan) {
+    return {
+      'result': scan['validation_result'],
+      'validation_result': scan['validation_result'],
+      'issues': scan['issues'] ?? const [],
+      'reasons': scan['reasons'] ?? const [],
+      'prompt_rescan': scan['prompt_rescan'] == true,
+      'note': scan['note'],
+    };
   }
 
   Future<void> _loadPreviewFor(Map<String, dynamic> scan) async {
@@ -286,6 +350,7 @@ class _ScansPageState extends State<ScansPage>
         scanId: scanId,
         bytes: localBytes,
         filename: '${scan['filename'] ?? 'scan.ply'}',
+        scan: scan,
       );
       return;
     }
@@ -318,6 +383,7 @@ class _ScansPageState extends State<ScansPage>
         scanId: scanId,
         bytes: bytes,
         filename: '${scan['filename'] ?? 'scan.ply'}',
+        scan: scan,
       );
     } catch (e) {
       if (!mounted || _previewScanId != scanId) return;
@@ -332,23 +398,10 @@ class _ScansPageState extends State<ScansPage>
   Future<void> _upload() async {
     if (_busy || _patient == null) return;
     try {
-      // Web needs withData; native iPad prefers path + xFile (large PLYs).
-      final result = await FilePicker.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: const ['ply', 'stl', 'obj'],
-        withData: true,
-      );
-      if (result == null || result.files.isEmpty) return;
-      final file = result.files.first;
-      Uint8List? bytes;
-      try {
-        bytes = await file.xFile.readAsBytes();
-      } catch (_) {
-        if (file.bytes != null && file.bytes!.isNotEmpty) {
-          bytes = Uint8List.fromList(file.bytes!);
-        }
-      }
-      if (bytes == null || bytes.isEmpty) {
+      final picked = await pickMeshFile(context);
+      if (picked == null) return;
+      final bytes = picked.bytes;
+      if (bytes.isEmpty) {
         if (mounted) AppSnackBars.error(context, 'Could not read file bytes');
         return;
       }
@@ -358,7 +411,7 @@ class _ScansPageState extends State<ScansPage>
       if (!confirmed || !mounted) return;
 
       final data = Uint8List.fromList(bytes);
-      final name = file.name;
+      final name = picked.name;
       final pid = _pid(_patient!);
 
       setState(() => _busy = true);
@@ -377,18 +430,7 @@ class _ScansPageState extends State<ScansPage>
       try {
         validation = await widget.api.validateScan(data, name);
       } catch (_) {
-        final sampled = sampleMeshBytes(data, name);
-        validation = {
-          'result': sampled.error == null ? 'ok' : 'fail',
-          'reasons': [
-            if (sampled.error != null) sampled.error!,
-            if (sampled.error == null)
-              'Local parse OK (${_formatOf(name).toUpperCase()})',
-          ],
-          'note': 'Validated on device',
-          'issues': const [],
-          'prompt_rescan': sampled.error != null,
-        };
+        validation = assessScanQuality(data, name);
       }
 
       final item = _normalizeScan(
@@ -401,6 +443,7 @@ class _ScansPageState extends State<ScansPage>
           'issues': validation['issues'] ?? const [],
           'prompt_rescan': validation['prompt_rescan'] == true,
           'note': validation['note'],
+          '_qualityChecked': true,
         },
         bytes: data,
       );
@@ -506,7 +549,10 @@ class _ScansPageState extends State<ScansPage>
           color: selected ? AppColors.sidebarActive : Colors.transparent,
           child: InkWell(
             onTap: () {
-              setState(() => _selected = index);
+              setState(() {
+                _selected = index;
+                _lastResult = _resultFromScan(scan);
+              });
               _loadPreviewFor(scan);
             },
             child: Padding(
@@ -581,7 +627,7 @@ class _ScansPageState extends State<ScansPage>
         _lastResult?['validation_result'] as String? ??
         _lastResult?['result'] as String? ??
         'unknown';
-    final needsRescan = _lastResult?['prompt_rescan'] == true ||
+    final needsRescan = scan?['prompt_rescan'] == true ||
         result == 'bad' ||
         result == 'blurry' ||
         result == 'missing_margin';
@@ -918,6 +964,19 @@ class _ScansPageState extends State<ScansPage>
                                             );
                                           }).toList(),
                                         ),
+                                        if (_reasonsFor(scan, _lastResult)
+                                            .isNotEmpty) ...[
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            _reasonsFor(scan, _lastResult)
+                                                .join('\n'),
+                                            style: const TextStyle(
+                                              color: AppColors.muted,
+                                              fontSize: 12,
+                                              height: 1.35,
+                                            ),
+                                          ),
+                                        ],
                                         const SizedBox(height: 12),
                                       ],
                                       if (needsRescan) ...[
@@ -966,6 +1025,15 @@ class _ScansPageState extends State<ScansPage>
         .map((e) => e.map((k, v) => MapEntry(k.toString(), v)))
         .cast<Map<String, dynamic>>()
         .toList();
+  }
+
+  List<String> _reasonsFor(
+    Map<String, dynamic>? scan,
+    Map<String, dynamic>? last,
+  ) {
+    final raw = last?['reasons'] ?? scan?['reasons'];
+    if (raw is! List) return const [];
+    return raw.map((e) => e.toString()).where((s) => s.trim().isNotEmpty).toList();
   }
 }
 

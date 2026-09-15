@@ -21,6 +21,7 @@ from app.api import (
     appointments,
     reports,
     notifications,
+    interpreter,
 )
 from app.core.debug_middleware import DebugRequestMiddleware, configure_api_logging
 from app.openapi_docs import attach_custom_openapi
@@ -122,6 +123,12 @@ app.include_router(
     reports.router,
     prefix="/api/reports",
     tags=["Reports"],
+)
+# Chairside doctor ↔ patient interpreter (text + optional audio). Not stored.
+app.include_router(
+    interpreter.router,
+    prefix="/api/interpreter",
+    tags=["Interpreter"],
 )
 # Chat WebSocket: /ws/chat  (JWT via Sec-WebSocket-Protocol, not query)
 app.include_router(chat.ws_router, tags=["chat"])

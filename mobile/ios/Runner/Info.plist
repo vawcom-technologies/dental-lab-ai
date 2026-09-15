@@ -16,7 +16,9 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Elite Dent needs the camera to capture chairside patient photos and record chat video messages.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Elite Dent needs the microphone to record voice notes and videos in chat.</string>
+	<string>Elite Dent needs the microphone for the chairside interpreter and for chat voice notes.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Elite Dent uses speech recognition so the doctor and patient can speak to the interpreter.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Elite Dent can import existing patient photos and chat videos from your library when needed.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
@@ -27,6 +29,98 @@
 	<string>public.app-category.medical</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>UISupportsDocumentBrowser</key>
+	<true/>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.elitedent.ply</string>
+			<key>UTTypeDescription</key>
+			<string>PLY 3D mesh</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+				<string>public.content</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>ply</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>model/ply</string>
+					<string>application/x-ply</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.elitedent.stl</string>
+			<key>UTTypeDescription</key>
+			<string>STL 3D mesh</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+				<string>public.content</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>stl</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>model/stl</string>
+					<string>application/sla</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.elitedent.obj</string>
+			<key>UTTypeDescription</key>
+			<string>OBJ 3D mesh</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+				<string>public.content</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>obj</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>model/obj</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>3D mesh</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.elitedent.ply</string>
+				<string>com.elitedent.stl</string>
+				<string>com.elitedent.obj</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleDisplayName</key>
 	<string>Elite Dent</string>
 	<key>CFBundleExecutable</key>

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, File, UploadFile, status
 
+from app.ai.scan_quality import validate_scan_bytes
 from app.core.security import AuthUser, get_current_user
 from app.schemas_patient_media import DeleteOkOut, PatientScanOut
 from app.services import patient_media as pm
@@ -18,7 +20,8 @@ _TABLE = "patient_scans"
 _KIND = "scans"
 
 
-def _serialize(row: dict) -> PatientScanOut:
+def _serialize(row: dict, validation: dict | None = None) -> PatientScanOut:
+    extra = validation or {}
     return PatientScanOut(
         id=str(row["id"]),
         patient_id=str(row["patient_id"]),
@@ -28,6 +31,10 @@ def _serialize(row: dict) -> PatientScanOut:
         file_name=str(row.get("file_name") or ""),
         format=str(row.get("format") or ""),
         created_at=row.get("created_at"),
+        validation_result=extra.get("result") or extra.get("validation_result"),
+        prompt_rescan=bool(extra.get("prompt_rescan", False)),
+        reasons=list(extra.get("reasons") or []),
+        issues=list(extra.get("issues") or []),
     )
 
 
@@ -63,6 +70,16 @@ async def upload_patient_scan(
         user.id,
         file.filename,
     )
+    data = await file.read()
+    try:
+        await file.seek(0)
+    except Exception:
+        from io import BytesIO
+
+        file.file = BytesIO(data)
+    validation = await asyncio.to_thread(
+        validate_scan_bytes, data, file.filename or "scan.ply"
+    )
     row = pm.upload_and_insert(
         table=_TABLE,
         kind=_KIND,
@@ -70,7 +87,7 @@ async def upload_patient_scan(
         user_id=user.id,
         file=file,
     )
-    return _serialize(row)
+    return _serialize(row, validation)
 
 
 @scans_router.delete(
