@@ -9,8 +9,9 @@ void main() {
 
   test('Shape library includes the three implant models', () {
     expect(ShapeLibrary.total, 15);
+    expect(ShapeLibrary.lowerArchItems, isEmpty);
     expect(
-      ShapeLibrary.items.map((e) => e.label),
+      ShapeLibrary.catalog.map((e) => e.label),
       containsAll(['Implant natural', 'Implant bright', 'Implant classic']),
     );
   });

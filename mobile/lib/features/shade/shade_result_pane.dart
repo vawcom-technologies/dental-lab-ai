@@ -191,6 +191,7 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
     return LayoutBuilder(
       builder: (context, constraints) {
         return SingleChildScrollView(
+          primary: false,
           physics: const BouncingScrollPhysics(
             parent: AlwaysScrollableScrollPhysics(),
           ),

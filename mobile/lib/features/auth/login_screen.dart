@@ -114,16 +114,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: const Padding(
-                        padding: EdgeInsets.fromLTRB(18, 14, 18, 14),
-                        child: BrandLogo(height: 96),
-                      ),
-                    ),
+                    const BrandLogo(height: 96),
                     const SizedBox(height: 20),
                     Text(
                       loc.proEdition,

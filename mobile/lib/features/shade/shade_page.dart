@@ -2172,6 +2172,7 @@ class _ShadePageState extends State<ShadePage> {
                           return Scrollbar(
                             thumbVisibility: true,
                             child: CustomScrollView(
+                              primary: false,
                               physics: const BouncingScrollPhysics(
                                 parent: AlwaysScrollableScrollPhysics(),
                               ),

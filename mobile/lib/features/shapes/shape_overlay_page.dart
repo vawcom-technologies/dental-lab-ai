@@ -132,17 +132,29 @@ class ShapeLibrary {
     ),
   ];
 
-  static int get total => items.length;
+  /// Lower-arch Batem models (720×480, gingiva at top). Empty until the client
+  /// delivers the PNGs — drop them in `assets/clinical/shapes/` as
+  /// `shape_16_…` and list them here. The accordion includes them automatically.
+  static const lowerArchItems = <ShapeLibraryItem>[];
 
-  static ShapeLibraryItem at(int index) =>
-      items[index.clamp(0, items.length - 1)];
+  static List<ShapeLibraryItem> get catalog => [
+        ...items,
+        ...lowerArchItems,
+      ];
+
+  static int get total => catalog.length;
+
+  static ShapeLibraryItem at(int index) {
+    final all = catalog;
+    return all[index.clamp(0, all.length - 1)];
+  }
 
   static int indexOfShapeId(String? shapeId) {
     if (shapeId == null || shapeId.isEmpty) return 0;
     final match = RegExp(r'shape_(\d+)').firstMatch(shapeId);
     if (match == null) return 0;
     final id = int.tryParse(match.group(1)!) ?? 1;
-    final idx = items.indexWhere((e) => e.id == id);
+    final idx = catalog.indexWhere((e) => e.id == id);
     return idx < 0 ? 0 : idx;
   }
 }
@@ -168,6 +180,7 @@ class BatemModelAccordion extends StatelessWidget {
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
     return ListView.builder(
+      primary: false,
       padding: const EdgeInsets.only(bottom: 8),
       shrinkWrap: shrinkWrap,
       physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,

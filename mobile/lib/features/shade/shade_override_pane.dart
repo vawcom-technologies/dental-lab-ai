@@ -129,6 +129,7 @@ class ShadeOverridePane extends StatelessWidget {
               if (constraints.hasBoundedHeight)
                 Expanded(
                   child: SingleChildScrollView(
+                    primary: false,
                     physics: const BouncingScrollPhysics(
                       parent: AlwaysScrollableScrollPhysics(),
                     ),
