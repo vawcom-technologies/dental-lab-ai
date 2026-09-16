@@ -15,6 +15,7 @@ Future<void> main() async {
   final localeController = LocaleController();
   await localeController.load();
   final api = ApiClient();
+  debugPrint('Elite Dent API_BASE=${api.baseUrl}');
   runApp(DentalLabApp(localeController: localeController, api: api));
 }
 

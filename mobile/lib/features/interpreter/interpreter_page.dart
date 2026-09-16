@@ -76,7 +76,16 @@ class _InterpreterPageState extends State<InterpreterPage> {
   bool _cloudStt = false;
   bool _listeningDoctor = false;
   bool _listeningPatient = false;
+  bool _warnedNoVoice = false;
   String _partial = '';
+  String _speechStatus = '';
+  String? _speechError;
+  double _peakSoundLevel = -120;
+  DateTime? _holdBegan;
+  int? _holdPointer;
+  int _holdEpoch = 0;
+  Completer<void>? _speechIdle;
+  List<LocaleName> _speechLocales = const [];
   final List<InterpreterTurn> _turns = [];
   SharedPreferences? _prefs;
 
@@ -174,20 +183,113 @@ class _InterpreterPageState extends State<InterpreterPage> {
   Future<void> _initSpeech() async {
     try {
       final ok = await _speech.initialize(
-        onError: (_) {},
-        onStatus: (_) {},
+        onError: (error) {
+          _speechError = error.errorMsg;
+          debugPrint(
+            'interpreter stt error: ${error.errorMsg} permanent=${error.permanent}',
+          );
+        },
+        onStatus: (status) {
+          _speechStatus = status;
+          debugPrint('interpreter stt status: $status');
+          if (status == 'notListening' || status == 'done') {
+            final idle = _speechIdle;
+            if (idle != null && !idle.isCompleted) idle.complete();
+          }
+        },
       );
+      if (ok) {
+        try {
+          _speechLocales = await _speech.locales();
+          debugPrint(
+            'interpreter stt locales: ${_speechLocales.map((e) => e.localeId).take(12).join(", ")}',
+          );
+        } catch (_) {
+          _speechLocales = const [];
+        }
+      }
       if (mounted) setState(() => _speechReady = ok);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('interpreter stt init: $e');
       if (mounted) setState(() => _speechReady = false);
     }
   }
 
   Future<void> _initTts() async {
     try {
+      await _tts.autoStopSharedSession(false);
+      await _tts.awaitSpeakCompletion(false);
+      await _ensureTtsPlayback();
       await _tts.setSpeechRate(0.46);
-      await _tts.setVolume(1);
+      await _tts.setVolume(1.0);
+      _tts.setErrorHandler((msg) {
+        debugPrint('interpreter tts error: $msg');
+      });
+    } catch (e) {
+      debugPrint('interpreter tts init: $e');
+    }
+  }
+
+  Future<void> _ensureTtsPlayback() async {
+    // defaultToSpeaker is only valid with playAndRecord. playback+speaker
+    // fails silently (plugin returns 0) and the session stays ambient, which
+    // is mute when the iPad ringer is off. Bluetooth HFP + A2DP together
+    // can also fail the category set.
+    var ok = await _tryIosAudioCategory(
+      IosTextToSpeechAudioCategory.playAndRecord,
+      const [
+        IosTextToSpeechAudioCategoryOptions.defaultToSpeaker,
+        IosTextToSpeechAudioCategoryOptions.mixWithOthers,
+      ],
+      IosTextToSpeechAudioMode.spokenAudio,
+    );
+    if (!ok) {
+      ok = await _tryIosAudioCategory(
+        IosTextToSpeechAudioCategory.playback,
+        const [IosTextToSpeechAudioCategoryOptions.mixWithOthers],
+        IosTextToSpeechAudioMode.spokenAudio,
+      );
+    }
+    try {
+      await _tts.setSharedInstance(true);
+    } catch (e) {
+      debugPrint('interpreter tts activate: $e');
+    }
+    if (!ok) {
+      debugPrint('interpreter tts audio session: category set failed');
+    }
+  }
+
+  /// Leave TTS spokenAudio mode so the mic can actually capture.
+  Future<void> _ensureMicCapture() async {
+    try {
+      await _tts.stop();
     } catch (_) {}
+    await _tryIosAudioCategory(
+      IosTextToSpeechAudioCategory.playAndRecord,
+      const [
+        IosTextToSpeechAudioCategoryOptions.defaultToSpeaker,
+        IosTextToSpeechAudioCategoryOptions.mixWithOthers,
+      ],
+      IosTextToSpeechAudioMode.defaultMode,
+    );
+    try {
+      await _tts.setSharedInstance(false);
+    } catch (_) {}
+  }
+
+  Future<bool> _tryIosAudioCategory(
+    IosTextToSpeechAudioCategory category,
+    List<IosTextToSpeechAudioCategoryOptions> options,
+    IosTextToSpeechAudioMode mode,
+  ) async {
+    try {
+      final result = await _tts.setIosAudioCategory(category, options, mode);
+      return result != 0 && result != false;
+    } catch (e) {
+      debugPrint('interpreter tts audio session: $e');
+      return false;
+    }
   }
 
   Future<void> _loadPatientLanguage() async {
@@ -340,7 +442,11 @@ class _InterpreterPageState extends State<InterpreterPage> {
       });
       AppHaptics.success();
       if (_autoSpeak && turn.translated.isNotEmpty) {
-        await _speak(turn.translated, turn.targetLang);
+        await _speak(
+          turn.translated,
+          lang: turn.targetLang,
+          announceIfSilent: true,
+        );
       }
     } catch (e) {
       if (!mounted) return;
@@ -349,30 +455,135 @@ class _InterpreterPageState extends State<InterpreterPage> {
     }
   }
 
-  Future<void> _speak(String text, String lang) async {
+  Future<void> _speak(
+    String text, {
+    required String lang,
+    bool announceIfSilent = false,
+  }) async {
+    final spoken = text.trim();
+    if (spoken.isEmpty) return;
     final row = InterpreterLanguage.byCode(_languages, lang);
-    final locale = row?.speechLocale.isNotEmpty == true
-        ? row!.speechLocale.replaceAll('_', '-')
-        : lang;
+    final locales = row?.ttsLocales ??
+        <String>[lang.replaceAll('_', '-'), lang];
     try {
       await _tts.stop();
-      await _tts.setLanguage(locale);
-      await _tts.speak(text);
+      await _ensureTtsPlayback();
+      await _tts.clearVoice();
+      var bound = false;
+      final voice = await _installedVoice(locales);
+      if (voice != null) {
+        final payload = <String, String>{
+          'name': voice['name']!,
+          'locale': voice['locale']!,
+        };
+        final id = voice['identifier'];
+        if (id != null && id.isNotEmpty) payload['identifier'] = id;
+        await _tts.setVoice(payload);
+        bound = true;
+      } else {
+        for (final locale in locales) {
+          if (await _languageInstalled(locale)) {
+            await _tts.setLanguage(locale);
+            bound = true;
+            break;
+          }
+        }
+        if (!bound) {
+          await _tts.setLanguage(locales.first);
+        }
+      }
+      if (!bound && announceIfSilent) _announceNoVoice();
+      await _tts.setSpeechRate(0.46);
+      await _tts.setVolume(1.0);
+      final started = await _tts.speak(spoken);
+      if ((started == 0 || started == false) && announceIfSilent) {
+        _announceNoVoice();
+      }
+    } catch (e) {
+      debugPrint('interpreter tts speak: $e');
+      if (announceIfSilent && mounted) {
+        AppSnackBars.info(
+          context,
+          AppLocalizations.of(context).interpreterTtsFailed,
+        );
+      }
+    }
+  }
+
+  void _announceNoVoice() {
+    if (!mounted || _warnedNoVoice) return;
+    _warnedNoVoice = true;
+    AppSnackBars.info(context, AppLocalizations.of(context).interpreterNoVoice);
+  }
+
+  Future<Map<String, String>?> _installedVoice(Iterable<String> locales) async {
+    try {
+      final raw = await _tts.getVoices;
+      if (raw is! List) return null;
+      final voices = <Map<String, String>>[];
+      for (final row in raw) {
+        if (row is Map) {
+          final name = '${row['name'] ?? ''}'.trim();
+          final loc = '${row['locale'] ?? ''}'.trim();
+          if (name.isEmpty || loc.isEmpty) continue;
+          final id = '${row['identifier'] ?? ''}'.trim();
+          voices.add({
+            'name': name,
+            'locale': loc,
+            if (id.isNotEmpty) 'identifier': id,
+          });
+        }
+      }
+      for (final locale in locales) {
+        final hit = matchTtsVoice(locale, voices);
+        if (hit != null) return hit;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> _languageInstalled(String locale) async {
+    try {
+      final ok = await _tts.isLanguageAvailable(locale);
+      if (ok == true || ok == 1 || ok == '1') return true;
+      final langs = await _tts.getLanguages;
+      if (langs is List) {
+        return matchSpeechLocale(
+              locale,
+              langs.map((e) => '$e'),
+            ) !=
+            null;
+      }
     } catch (_) {}
+    return false;
+  }
+
+  String? _deviceSpeechLocale(InterpreterLanguage lang) {
+    if (!lang.supportsSpeech || !_speechReady) return null;
+    return matchSpeechLocale(
+      lang.speechLocale,
+      _speechLocales.map((e) => e.localeId),
+    );
   }
 
   bool _canHold(bool fromDoctor) {
-    final lang = fromDoctor ? _doctor : _patient;
     if (_busy) return false;
-    if (lang.supportsSpeech && _speechReady) return true;
+    if (_deviceSpeechLocale(fromDoctor ? _doctor : _patient) != null) {
+      return true;
+    }
     if (_cloudStt) return true;
     return false;
   }
 
-  Future<void> _startHold(bool fromDoctor) async {
+  Future<void> _startHold(bool fromDoctor, int epoch) async {
     if (!_canHold(fromDoctor) || _listeningDoctor || _listeningPatient) return;
-    AppHaptics.medium();
+    if (epoch != _holdEpoch) return;
     final lang = fromDoctor ? _doctor : _patient;
+    _holdBegan = DateTime.now();
+    _peakSoundLevel = -120;
+    _speechError = null;
     setState(() {
       if (fromDoctor) {
         _listeningDoctor = true;
@@ -381,27 +592,46 @@ class _InterpreterPageState extends State<InterpreterPage> {
       }
       _partial = '';
     });
-    if (lang.supportsSpeech && _speechReady) {
+    final deviceLocale = _deviceSpeechLocale(lang);
+    if (deviceLocale != null) {
       try {
+        await _ensureMicCapture();
+        if (epoch != _holdEpoch) return;
+        debugPrint('interpreter stt listen locale=$deviceLocale');
         await _speech.listen(
           onResult: (result) {
             if (!mounted) return;
             setState(() => _partial = result.recognizedWords);
           },
+          onSoundLevelChange: (level) {
+            if (level > _peakSoundLevel) _peakSoundLevel = level;
+          },
           listenOptions: SpeechListenOptions(
-            localeId: lang.speechLocale,
+            localeId: deviceLocale,
             partialResults: true,
-            cancelOnError: true,
-            listenMode: ListenMode.dictation,
+            cancelOnError: false,
+            listenMode: ListenMode.confirmation,
             listenFor: const Duration(seconds: 25),
             pauseFor: const Duration(seconds: 8),
           ),
         );
-        return;
-      } catch (_) {
-        // Fall through to file recording.
+        if (epoch != _holdEpoch) {
+          try {
+            if (_speech.isListening) await _speech.stop();
+          } catch (_) {}
+          return;
+        }
+        if (_speech.isListening || _speechStatus == 'listening') {
+          return;
+        }
+        debugPrint(
+          'interpreter stt did not start status=$_speechStatus err=$_speechError',
+        );
+      } catch (e) {
+        debugPrint('interpreter stt listen: $e');
       }
     }
+    if (epoch != _holdEpoch) return;
     if (!_cloudStt) {
       await _stopHold(fromDoctor, cancelled: true);
       if (!mounted) return;
@@ -429,15 +659,23 @@ class _InterpreterPageState extends State<InterpreterPage> {
   }
 
   Future<void> _stopHold(bool fromDoctor, {bool cancelled = false}) async {
+    _holdEpoch++;
     final listening = fromDoctor ? _listeningDoctor : _listeningPatient;
     if (!listening) return;
     String spoken = _partial.trim();
     List<int>? audio;
     String filename = 'speech.m4a';
+    final heldFor = _holdBegan == null
+        ? Duration.zero
+        : DateTime.now().difference(_holdBegan!);
     try {
-      if (_speech.isListening) {
+      if (_speech.isListening || _speechStatus == 'listening') {
+        _speechIdle = Completer<void>();
         await _speech.stop();
-        await Future<void>.delayed(const Duration(milliseconds: 180));
+        await _speechIdle!.future.timeout(
+          const Duration(milliseconds: 1200),
+          onTimeout: () {},
+        );
         spoken = _partial.trim();
       }
       if (await _recorder.isRecording()) {
@@ -463,10 +701,13 @@ class _InterpreterPageState extends State<InterpreterPage> {
       await _runTurn(audio: audio, filename: filename, fromDoctor: fromDoctor);
       return;
     }
-    AppSnackBars.info(
-      context,
-      AppLocalizations.of(context).interpreterNothingHeard,
+    if (heldFor < const Duration(milliseconds: 400)) return;
+    final loc = AppLocalizations.of(context);
+    final lang = fromDoctor ? _doctor : _patient;
+    debugPrint(
+      'interpreter stt empty peak=$_peakSoundLevel status=$_speechStatus err=$_speechError heldMs=${heldFor.inMilliseconds}',
     );
+    AppSnackBars.info(context, loc.interpreterNothingHeardLang(lang.nativeName));
   }
 
   Future<void> _pickLanguage({required bool doctor}) async {
@@ -632,7 +873,11 @@ class _InterpreterPageState extends State<InterpreterPage> {
               if (headline.isNotEmpty)
                 AppButtons.icon(
                   tooltip: loc.interpreterSpeak,
-                  onPressed: () => _speak(headline, lang.code),
+                  onPressed: () => _speak(
+                    headline,
+                    lang: lang.code,
+                    announceIfSilent: true,
+                  ),
                   icon: Icons.volume_up_outlined,
                   color: AppColors.dentalBlue,
                 ),
@@ -807,15 +1052,24 @@ class _InterpreterPageState extends State<InterpreterPage> {
             ],
           ),
           const SizedBox(height: 10),
-          GestureDetector(
+          Listener(
             behavior: HitTestBehavior.opaque,
-            onTap: () {
-              (fromDoctor ? _doctorFocus : _patientFocus).requestFocus();
+            onPointerDown: (event) {
+              if (_holdPointer != null) return;
+              _holdPointer = event.pointer;
+              final epoch = ++_holdEpoch;
+              unawaited(_startHold(fromDoctor, epoch));
             },
-            onLongPressStart: (_) => _startHold(fromDoctor),
-            onLongPressEnd: (_) => _stopHold(fromDoctor),
-            onLongPressCancel: () =>
-                _stopHold(fromDoctor, cancelled: true),
+            onPointerUp: (event) {
+              if (_holdPointer != event.pointer) return;
+              _holdPointer = null;
+              unawaited(_stopHold(fromDoctor));
+            },
+            onPointerCancel: (event) {
+              if (_holdPointer != event.pointer) return;
+              _holdPointer = null;
+              unawaited(_stopHold(fromDoctor, cancelled: true));
+            },
             child: AnimatedContainer(
               duration: AppMotion.fast,
               height: 52,

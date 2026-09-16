@@ -182,6 +182,127 @@ class TestKaistHelpers:
         assert top[0] <= 70
         assert top[1] >= 115
 
+    def test_focus_boxes_keep_dark_laterals_on_mouth_band(self):
+        """Clinic 328×764: enamel ROI missed 22/23 and cropped them out."""
+        from app.ai.shade_segment_kaist import kaist_focus_boxes
+
+        h, w = 328, 764
+        img = np.zeros((h, w, 3), dtype=np.uint8)
+        img[:] = (40, 28, 26)
+        gum = (180, 110, 120)
+        bright = (230, 210, 175)
+        dim = (175, 155, 120)
+        img[16:48, :] = gum
+        img[h - 36 : h - 8, :] = gum
+        img[55:140, 240:360] = bright
+        img[55:140, 370:490] = bright
+        img[70:135, 40:120] = dim
+        img[70:135, 640:730] = dim
+        img[148:182, :] = (28, 18, 20)
+        img[190:270, 240:360] = bright
+        img[190:270, 370:490] = bright
+        img[200:265, 40:120] = dim
+        img[200:265, 640:730] = dim
+        boxes = kaist_focus_boxes(img)
+        assert len(boxes) == 2
+        for _y0, _y1, x0, x1 in boxes:
+            assert x0 == 0
+            assert x1 == w
+
+    def test_portrait_extraoral_smile_is_one_mouth_crop(self):
+        """Face photos must not dual-split into mustache + beard (clinic 8:36)."""
+        from app.ai.shade import VITA_SHADES
+        from app.ai.shade_segment_kaist import kaist_focus_boxes
+
+        h, w = 480, 360
+        img = np.zeros((h, w, 3), dtype=np.uint8)
+        img[:] = (40, 28, 26)
+        enamel = np.array(VITA_SHADES["A2"], dtype=np.uint8)
+        gum = (180, 110, 120)
+        img[40:120, 80:280] = gum
+        img[200:255, 70:290] = enamel
+        img[258:305, 80:280] = enamel
+        img[320:400, 60:300] = gum
+        boxes = kaist_focus_boxes(img)
+        assert len(boxes) == 1
+        y0, y1, _x0, _x1 = boxes[0]
+        assert y0 <= 210
+        assert y1 >= 290
+
+    def test_portrait_crop_ignores_lip_below_smile(self):
+        from app.ai.shade import VITA_SHADES
+        from app.ai.shade_segment_kaist import kaist_focus_boxes
+
+        h, w = 500, 360
+        img = np.zeros((h, w, 3), dtype=np.uint8)
+        img[:] = (40, 28, 26)
+        enamel = np.array(VITA_SHADES["A2"], dtype=np.uint8)
+        img[180:250, 60:300] = enamel
+        img[380:450, 80:280] = enamel  # lip / beard highlight
+        boxes = kaist_focus_boxes(img)
+        assert len(boxes) == 1
+        _y0, y1, _x0, _x1 = boxes[0]
+        assert y1 < 360
+
+    def test_labels_drop_gingiva_keep_crowns(self):
+        from app.ai.shade import VITA_SHADES
+        from app.ai.shade_segment_kaist import _labels_to_tooth_masks
+
+        h, w = 80, 200
+        crop = np.zeros((h, w, 3), dtype=np.uint8)
+        crop[:] = (180, 110, 120)
+        enamel = np.array(VITA_SHADES["A2"], dtype=np.uint8)
+        labels = np.zeros((h, w), dtype=np.int32)
+        for i, x0 in enumerate((20, 70, 120), start=1):
+            crop[25:70, x0 : x0 + 40] = enamel
+            labels[25:70, x0 : x0 + 40] = i
+        labels[2:18, 30:170] = 9
+        teeth = _labels_to_tooth_masks(
+            labels, full_h=h, full_w=w, box=(0, h, 0, w), crop_rgb=crop
+        )
+        accepted = [t for t in teeth if not t.rejected]
+        assert len(accepted) == 3
+        assert all(float(np.nonzero(t.mask)[0].mean()) > 20 for t in accepted)
+
+    def test_merge_vertical_halves_of_one_crown(self):
+        from app.ai.shade_segment import _merge_split_crown_slices
+
+        h, w = 80, 200
+        left = np.zeros((h, w), dtype=bool)
+        right = np.zeros((h, w), dtype=bool)
+        left[10:70, 80:102] = True
+        right[10:70, 102:124] = True
+        out = _merge_split_crown_slices([left, right])
+        assert len(out) == 1
+        assert int(out[0].sum()) == int(left.sum()) + int(right.sum())
+
+    def test_does_not_merge_two_full_adjacent_teeth(self):
+        from app.ai.shade_segment import _merge_split_crown_slices
+
+        h, w = 80, 240
+        a = np.zeros((h, w), dtype=bool)
+        b = np.zeros((h, w), dtype=bool)
+        a[15:65, 40:90] = True
+        b[15:65, 92:142] = True
+        out = _merge_split_crown_slices([a, b])
+        assert len(out) == 2
+
+    def test_merges_touching_central_fragments_among_full_teeth(self):
+        """Classical gap-fill often returns 11 as two touching slices."""
+        from app.ai.shade_segment import _merge_split_crown_slices
+
+        h, w = 160, 460
+        masks = []
+        # 13, 12, 11-left, 11-right, 21, 22 — same proportions as the clinic photo.
+        for x0, tw in ((20, 58), (90, 73), (175, 47), (222, 71), (310, 73), (395, 58)):
+            m = np.zeros((h, w), dtype=bool)
+            m[30:130, x0 : x0 + tw] = True
+            masks.append(m)
+        out = _merge_split_crown_slices(masks)
+        assert len(out) == 5
+        cxs = sorted(float(np.nonzero(m)[1].mean()) for m in out)
+        assert any(185 < cx < 250 for cx in cxs)
+
     def test_prepare_work_compresses_flash(self):
         from app.ai.shade_segment_kaist import prepare_kaist_work_rgb
 

@@ -3,6 +3,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 
+import 'camera_preview_fit.dart';
+
 /// Which dental arch the dentist wants in frame.
 enum JawFocus { both, top, bottom }
 
@@ -15,20 +17,34 @@ extension JawFocusLabel on JawFocus {
 }
 
 /// Capture frame (includes cheeks / sides of mouth). Teeth art sits smaller inside.
-Rect guideRectForAngle(String angle) {
+///
+/// [viewport] is the on-screen preview. In portrait the mouth window stays a
+/// landscape band (the smile is wider than it is tall) so 11" / 13" iPads
+/// don't get a stretched tall frame.
+Rect guideRectForAngle(String angle, {Size viewport = Size.zero}) {
+  final Rect base;
   switch (angle) {
     case 'left':
-      return const Rect.fromLTRB(0.06, 0.22, 0.70, 0.78);
+      base = const Rect.fromLTRB(0.06, 0.22, 0.70, 0.78);
     case 'right':
-      return const Rect.fromLTRB(0.30, 0.22, 0.94, 0.78);
+      base = const Rect.fromLTRB(0.30, 0.22, 0.94, 0.78);
     default: // frontal — room around the smile for lips/cheeks
-      return const Rect.fromLTRB(0.10, 0.22, 0.90, 0.78);
+      base = const Rect.fromLTRB(0.10, 0.22, 0.90, 0.78);
   }
+  if (viewport.height <= viewport.width || viewport.height <= 0) {
+    return base;
+  }
+  const frameAspect = 1.55;
+  final widthFrac = base.width;
+  final heightFrac = (widthFrac / frameAspect * (viewport.width / viewport.height))
+      .clamp(0.28, 0.48);
+  final top = ((1 - heightFrac) / 2).clamp(0.0, 1.0);
+  return Rect.fromLTRB(base.left, top, base.right, top + heightFrac);
 }
 
 /// Crop window for the selected jaw within the angle guide.
-Rect cropRectFor(String angle, JawFocus focus) {
-  final g = guideRectForAngle(angle);
+Rect cropRectFor(String angle, JawFocus focus, {Size viewport = Size.zero}) {
+  final g = guideRectForAngle(angle, viewport: viewport);
   switch (focus) {
     case JawFocus.top:
       return Rect.fromLTRB(g.left, g.top, g.right, g.top + g.height * 0.62);
@@ -39,17 +55,44 @@ Rect cropRectFor(String angle, JawFocus focus) {
   }
 }
 
-/// Crop captured JPEG to the active guide / jaw band.
+/// Crop captured JPEG to the on-screen guide / jaw band.
+///
+/// [previewAspect] is the live feed's displayed width/height (after portrait
+/// swap). iOS stills are often 4:3 while preview is 16:9 — matching first
+/// keeps the crop aligned with what the dentist framed.
+///
+/// [visible] is the BoxFit.cover window inside that preview (0–1).
 Uint8List cropCaptureToGuide(
   Uint8List jpeg, {
   required String angle,
   required JawFocus focus,
+  Rect visible = const Rect.fromLTWH(0, 0, 1, 1),
+  double? previewAspect,
+  Size viewport = Size.zero,
 }) {
   final decoded = img.decodeImage(jpeg);
   if (decoded == null || decoded.width < 8 || decoded.height < 8) return jpeg;
 
-  final oriented = img.bakeOrientation(decoded);
-  final frac = cropRectFor(angle, focus);
+  var oriented = img.bakeOrientation(decoded);
+  if (previewAspect != null && previewAspect > 0) {
+    final crop = centerCropToAspect(
+      Size(oriented.width.toDouble(), oriented.height.toDouble()),
+      previewAspect,
+    );
+    final x = crop.left.round().clamp(0, oriented.width - 1);
+    final y = crop.top.round().clamp(0, oriented.height - 1);
+    oriented = img.copyCrop(
+      oriented,
+      x: x,
+      y: y,
+      width: crop.width.round().clamp(1, oriented.width - x),
+      height: crop.height.round().clamp(1, oriented.height - y),
+    );
+  }
+  final frac = mapGuideToImage(
+    guide: cropRectFor(angle, focus, viewport: viewport),
+    visible: visible,
+  );
   final x = (frac.left * oriented.width).round().clamp(0, oriented.width - 1);
   final y = (frac.top * oriented.height).round().clamp(0, oriented.height - 1);
   final w = (frac.width * oriented.width).round().clamp(1, oriented.width - x);
@@ -101,8 +144,8 @@ class CameraGuideOverlay extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final size = Size(constraints.maxWidth, constraints.maxHeight);
-        final guide = guideRectForAngle(angle);
-        final focusRect = cropRectFor(angle, focus);
+        final guide = guideRectForAngle(angle, viewport: size);
+        final focusRect = cropRectFor(angle, focus, viewport: size);
         final guidePx = Rect.fromLTRB(
           guide.left * size.width,
           guide.top * size.height,

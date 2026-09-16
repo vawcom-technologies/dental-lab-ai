@@ -9,6 +9,7 @@ import '../../core/navigation/app_page_routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/tooth_loader.dart';
 import 'camera_guide.dart';
+import 'camera_preview_fit.dart';
 import '../../core/l10n/app_localizations.dart';
 
 /// Full-screen live camera with angle guide + jaw focus. Pops JPEG bytes.
@@ -44,7 +45,7 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
     final box = _previewKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null || !box.hasSize) return offset;
     final size = box.size;
-    final g = guideRectForAngle(widget.angle);
+    final g = guideRectForAngle(widget.angle, viewport: size);
     final guidePx = Rect.fromLTRB(
       g.left * size.width,
       g.top * size.height,
@@ -83,6 +84,35 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
     } else if (state == AppLifecycleState.resumed) {
       _start(preferredIndex: _cameraIndex);
     }
+  }
+
+  @override
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+    if (!mounted || !_ready) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {
+        _overlayOffset = _clampedOffset(_overlayOffset, _overlayScale);
+      });
+    });
+  }
+
+  bool _previewIsLandscape(CameraController c) {
+    final orientation = applicableCameraOrientation(
+      deviceOrientation: c.value.deviceOrientation,
+      isRecordingVideo: c.value.isRecordingVideo,
+      recordingOrientation: c.value.recordingOrientation,
+      previewPauseOrientation: c.value.previewPauseOrientation,
+      lockedCaptureOrientation: c.value.lockedCaptureOrientation,
+    );
+    return isLandscapeDeviceOrientation(orientation);
+  }
+
+  Size? _orientedPreviewSize(CameraController c) {
+    final preview = c.value.previewSize;
+    if (preview == null) return null;
+    return displayedPreviewSize(preview, landscape: _previewIsLandscape(c));
   }
 
   Future<void> _start({int preferredIndex = 0}) async {
@@ -186,11 +216,21 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
     try {
       final file = await c.takePicture();
       final raw = await file.readAsBytes();
-      // Crop to the on-screen guide / jaw band before returning.
+      final oriented = _orientedPreviewSize(c);
+      final box = _previewKey.currentContext?.findRenderObject() as RenderBox?;
+      final view = (box != null && box.hasSize) ? box.size : Size.zero;
+      final visible = (oriented != null && view.width > 0 && view.height > 0)
+          ? coverVisibleFraction(oriented, view)
+          : const Rect.fromLTWH(0, 0, 1, 1);
       final bytes = cropCaptureToGuide(
         Uint8List.fromList(raw),
         angle: widget.angle,
         focus: _focus,
+        visible: visible,
+        previewAspect: oriented == null || oriented.height <= 0
+            ? null
+            : oriented.width / oriented.height,
+        viewport: view,
       );
       AppHaptics.success();
       if (!mounted) return;
@@ -216,49 +256,40 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
           fit: StackFit.expand,
           children: [
             if (_ready && c != null && c.value.isInitialized)
-              Center(
-                child: AspectRatio(
-                  key: _previewKey,
-                  aspectRatio: c.value.aspectRatio,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      CameraPreview(c),
-                      GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onLongPress: _pickJawFocus,
-                        onScaleStart: showTeeth
-                            ? (_) {
-                                _scaleAtStart = _overlayScale;
-                              }
-                            : null,
-                        onScaleUpdate: showTeeth
-                            ? (details) {
-                                setState(() {
-                                  var scale = _overlayScale;
-                                  if (details.pointerCount >= 2) {
-                                    scale = (_scaleAtStart * details.scale)
-                                        .clamp(
-                                      CameraGuideOverlay.minScale,
-                                      CameraGuideOverlay.maxScale,
-                                    );
-                                    _overlayScale = scale;
-                                  }
-                                  _overlayOffset = _clampedOffset(
-                                    _overlayOffset + details.focalPointDelta,
-                                    scale,
-                                  );
-                                });
-                              }
-                            : null,
-                        child: CameraGuideOverlay(
-                          angle: widget.angle,
-                          focus: _focus,
-                          scale: _overlayScale,
-                          offset: _overlayOffset,
-                        ),
-                      ),
-                    ],
+              _CoveredCameraPreview(
+                key: _previewKey,
+                controller: c,
+                overlay: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onLongPress: _pickJawFocus,
+                  onScaleStart: showTeeth
+                      ? (_) {
+                          _scaleAtStart = _overlayScale;
+                        }
+                      : null,
+                  onScaleUpdate: showTeeth
+                      ? (details) {
+                          setState(() {
+                            var scale = _overlayScale;
+                            if (details.pointerCount >= 2) {
+                              scale = (_scaleAtStart * details.scale).clamp(
+                                CameraGuideOverlay.minScale,
+                                CameraGuideOverlay.maxScale,
+                              );
+                              _overlayScale = scale;
+                            }
+                            _overlayOffset = _clampedOffset(
+                              _overlayOffset + details.focalPointDelta,
+                              scale,
+                            );
+                          });
+                        }
+                      : null,
+                  child: CameraGuideOverlay(
+                    angle: widget.angle,
+                    focus: _focus,
+                    scale: _overlayScale,
+                    offset: _overlayOffset,
                   ),
                 ),
               )
@@ -473,6 +504,68 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Fills the viewport with the live feed without stretching (BoxFit.cover).
+///
+/// [CameraPreview] already inverts aspect in portrait. Wrapping it again in
+/// the sensor's landscape ratio is what squashed the image on iPads.
+class _CoveredCameraPreview extends StatelessWidget {
+  const _CoveredCameraPreview({
+    super.key,
+    required this.controller,
+    required this.overlay,
+  });
+
+  final CameraController controller;
+  final Widget overlay;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<CameraValue>(
+      valueListenable: controller,
+      builder: (context, value, child) {
+        if (!value.isInitialized || value.previewSize == null) {
+          return const SizedBox.expand();
+        }
+        final orientation = applicableCameraOrientation(
+          deviceOrientation: value.deviceOrientation,
+          isRecordingVideo: value.isRecordingVideo,
+          recordingOrientation: value.recordingOrientation,
+          previewPauseOrientation: value.previewPauseOrientation,
+          lockedCaptureOrientation: value.lockedCaptureOrientation,
+        );
+        final landscape = isLandscapeDeviceOrientation(orientation);
+        final source = displayedPreviewSize(
+          value.previewSize!,
+          landscape: landscape,
+        );
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final view = Size(constraints.maxWidth, constraints.maxHeight);
+            final dest = coverDestinationSize(source, view);
+            return ClipRect(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  OverflowBox(
+                    alignment: Alignment.center,
+                    minWidth: dest.width,
+                    maxWidth: dest.width,
+                    minHeight: dest.height,
+                    maxHeight: dest.height,
+                    child: CameraPreview(controller),
+                  ),
+                  child!,
+                ],
+              ),
+            );
+          },
+        );
+      },
+      child: overlay,
     );
   }
 }

@@ -13,5 +13,20 @@ void main() {
     );
     expect(InterpreterLanguage.byCode(kInterpreterLanguages, 'ar')?.rtl, isTrue);
     expect(InterpreterLanguage.byCode(kInterpreterLanguages, 'de')?.rtl, isFalse);
+    expect(
+      InterpreterLanguage.byCode(kInterpreterLanguages, 'ar')?.ttsLocales,
+      containsAll(['ar-SA', 'ar']),
+    );
+    expect(
+      matchSpeechLocale('ar_SA', ['en-US', 'ar-SA', 'de-DE']),
+      'ar-SA',
+    );
+    expect(
+      matchTtsVoice('ar-SA', [
+        {'name': 'Samantha', 'locale': 'en-US'},
+        {'name': 'Maged', 'locale': 'ar-SA'},
+      ])?['name'],
+      'Maged',
+    );
   });
 }

@@ -36,8 +36,8 @@ _MAX_TEETH = 12
 _ANTERIOR_MAX_PER_ROW = 6  # 2 centrals + up to 2 per side
 _ANTERIOR_SIDE = 2
 _VALLEY_DEPTH_RATIO = 0.52
-_MIN_REL_AREA = 0.35
-_MIN_REL_HEIGHT = 0.40
+_MIN_REL_AREA = 0.18
+_MIN_REL_HEIGHT = 0.32
 # Watershed: markers from DT ridge peaks; min sep scales with ROI.
 _WATERSHED_MIN_PEAK_FRAC = 0.28
 
@@ -106,12 +106,15 @@ def detect_teeth(
         if teeth_or_none is not None:
             used = "kaist"
             model_id = "kaist/individual_tooth_segmentation"
+            teeth_or_none = _merge_kaist_split_crowns(teeth_or_none)
             teeth_or_none = _complete_missing_kaist_arch(
                 image_rgb, teeth_or_none, config
             )
             teeth_or_none = _add_uncovered_classical_teeth(
                 image_rgb, teeth_or_none, config
             )
+            teeth_or_none = _merge_kaist_split_crowns(teeth_or_none)
+            teeth_or_none = _trim_to_anterior_shade_window(teeth_or_none)
             out = _assign_arch_metadata(teeth_or_none)
             _fill_segment_meta(
                 meta_out,
@@ -213,6 +216,92 @@ def _mask_centroid_y(tooth: ToothMask) -> float | None:
     if tooth.mask.size == 0 or not np.any(tooth.mask):
         return None
     return float(np.nonzero(tooth.mask)[0].mean())
+
+
+def _merge_split_crown_slices(components: list[np.ndarray]) -> list[np.ndarray]:
+    """Reunite KAIST vertical halves of one crown (clinic 11 → 12+11).
+
+    Two adjacent pieces whose combined width is still one typical crown should
+    merge. Two full neighbours are ~2× that wide, so they stay split.
+    """
+    if len(components) <= 1:
+        return components
+    items = [_mask_geom(comp) for comp in components]
+    items.sort(key=lambda d: d["cx"])
+    widths = sorted((d["w"] for d in items), reverse=True)
+    ref_w = float(np.median(widths[: max(2, len(widths) // 2 + 1)]))
+    med_h = float(np.median([d["h"] for d in items]))
+    ref_w = max(ref_w, 0.55 * med_h)
+    merged = [items[0]]
+    for item in items[1:]:
+        prev = merged[-1]
+        gap = item["x0"] - prev["x1"]
+        oy0 = max(prev["y0"], item["y0"])
+        oy1 = min(prev["y1"], item["y1"])
+        overlap_h = max(0, oy1 - oy0 + 1)
+        min_h = max(1, min(prev["h"], item["h"]))
+        y_overlap = overlap_h / float(min_h)
+        combined_w = item["x1"] - prev["x0"] + 1
+        combined_h = max(prev["y1"], item["y1"]) - min(prev["y0"], item["y0"]) + 1
+        looks_one_crown = combined_w <= 1.62 * ref_w + 4
+        still_crown_aspect = combined_w <= 1.35 * max(prev["h"], item["h"], med_h) + 4
+        should_merge = (
+            looks_one_crown
+            and still_crown_aspect
+            and y_overlap >= 0.50
+            and gap <= 8
+        )
+        if should_merge:
+            prev["mask"] = prev["mask"] | item["mask"]
+            prev.update(_mask_geom(prev["mask"]))
+        else:
+            merged.append(item)
+    return [m["mask"] for m in merged]
+
+
+def _merge_kaist_split_crowns(teeth: list[ToothMask]) -> list[ToothMask]:
+    """Merge over-sliced KAIST crowns per arch, then drop empty leftovers."""
+    groups: dict[str, list[ToothMask]] = {}
+    for t in teeth:
+        key = t.arch or "_none"
+        groups.setdefault(key, []).append(t)
+    out: list[ToothMask] = []
+    for key, group in groups.items():
+        live = [t for t in group if not t.rejected and np.any(t.mask)]
+        rejected = [t for t in group if t.rejected]
+        masks = _merge_split_crown_slices([t.mask for t in live])
+        used: set[int] = set()
+        for mask in masks:
+            src = None
+            best = -1
+            for i, t in enumerate(live):
+                if i in used:
+                    continue
+                inter = int(np.count_nonzero(t.mask & mask))
+                if inter > best:
+                    best = inter
+                    src = t
+                    src_i = i
+            if src is None:
+                continue
+            used.add(src_i)
+            out.append(replace(src, mask=mask))
+        out.extend(rejected)
+    return out
+
+
+def _trim_to_anterior_shade_window(teeth: list[ToothMask]) -> list[ToothMask]:
+    """Keep two centrals + up to two neighbours per side after KAIST+fill."""
+    accepted = [t for t in teeth if not t.rejected and np.any(t.mask)]
+    rejected = [t for t in teeth if t.rejected]
+    if len(accepted) <= 4:
+        return teeth
+    kept_masks = _keep_anterior_window([t.mask for t in accepted])
+    kept_ids = {id(m) for m in kept_masks}
+    trimmed = [t for t in accepted if id(t.mask) in kept_ids]
+    if len(trimmed) < 4:
+        return teeth
+    return trimmed + rejected
 
 
 def _complete_missing_kaist_arch(
@@ -342,9 +431,9 @@ def _plausible_gap_tooth(cand: ToothMask, accepted: list[ToothMask]) -> bool:
     nearest = min(abs(cg["cy"] - g["cy"]) for g in rows)
     if nearest > 0.55 * med_h:
         return False
-    if cg["area"] < 0.40 * med_a or cg["area"] > 3.2 * med_a:
+    if cg["area"] < 0.18 * med_a or cg["area"] > 3.2 * med_a:
         return False
-    if cg["h"] < 0.45 * med_h or cg["h"] > 1.85 * med_h:
+    if cg["h"] < 0.32 * med_h or cg["h"] > 1.85 * med_h:
         return False
     return True
 
@@ -767,9 +856,10 @@ def _split_arch_at_midline(
     best_i = 0
     best = float("inf")
     for i in range(len(located) - 1):
-        gap = xs[i + 1] - xs[i]
         gap_mid = 0.5 * (xs[i] + xs[i + 1])
-        score = abs(gap_mid - target) - 0.25 * gap
+        # Nearest contact to the facial midline. Do not reward a large gap —
+        # intraoral dark triangles (21–22) are missing teeth, not the midline.
+        score = abs(gap_mid - target)
         if score < best:
             best = score
             best_i = i
@@ -2462,15 +2552,16 @@ def _keep_anterior_row(geoms: list[dict]) -> list[dict]:
     plausible = [
         g
         for g in geoms
-        if g["area"] >= 0.38 * ref_area and g["h"] >= 0.45 * ref_h
+        if g["area"] >= 0.18 * ref_area and g["h"] >= 0.32 * ref_h
     ] or geoms
     # Already in the shade window — do not drop laterals/canines.
     if len(plausible) <= _ANTERIOR_MAX_PER_ROW:
         return plausible
 
+    # Span of the whole row, not the bright majority — a dim contralateral
+    # side must not slide the midline onto 12/11.
     center_x = 0.5 * (
-        float(np.median([g["cx"] for g in plausible]))
-        + 0.5 * (plausible[0]["cx"] + plausible[-1]["cx"])
+        min(g["cx"] for g in geoms) + max(g["cx"] for g in geoms)
     )
     pair = _pick_central_pair(plausible, center_x)
     if pair is None:
@@ -2480,8 +2571,8 @@ def _keep_anterior_row(geoms: list[dict]) -> list[dict]:
 
     i0, i1 = pair
     centrals = [plausible[i0], plausible[i1]]
-    min_area = 0.38 * min(centrals[0]["area"], centrals[1]["area"])
-    min_h = 0.45 * min(centrals[0]["h"], centrals[1]["h"])
+    min_area = 0.18 * min(centrals[0]["area"], centrals[1]["area"])
+    min_h = 0.32 * min(centrals[0]["h"], centrals[1]["h"])
 
     left: list[dict] = []
     for g in reversed(plausible[:i0]):

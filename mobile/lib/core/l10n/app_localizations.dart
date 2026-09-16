@@ -1048,7 +1048,11 @@ class AppLocalizations {
   String get interpreterSwap => _t('interpreter.swap');
   String get interpreterClear => _t('interpreter.clear');
   String get interpreterAutoSpeak => _t('interpreter.autoSpeak');
+  String get interpreterTtsFailed => _t('interpreter.ttsFailed');
   String get interpreterNothingHeard => _t('interpreter.nothingHeard');
+  String interpreterNothingHeardLang(String lang) =>
+      _t('interpreter.nothingHeardLang').replaceAll('{lang}', lang);
+  String get interpreterNoVoice => _t('interpreter.noVoice');
   String get interpreterSearchLanguage => _t('interpreter.searchLanguage');
   String get interpreterClinicLanguages => _t('interpreter.clinicLanguages');
   String get interpreterAllLanguages => _t('interpreter.allLanguages');
@@ -1804,8 +1808,14 @@ class AppLocalizations {
     'interpreter.swap': 'Swap languages',
     'interpreter.clear': 'Clear this visit',
     'interpreter.autoSpeak': 'Read translations aloud',
+    'interpreter.ttsFailed':
+        'Could not play speech. Unmute the iPad (not silent) and tap Speak aloud.',
     'interpreter.nothingHeard':
         'Nothing was heard. Hold the button and speak, or type.',
+    'interpreter.nothingHeardLang':
+        'Nothing was heard in {lang}. Keep holding and speak that language, or type.',
+    'interpreter.noVoice':
+        'This device has no spoken voice for that language. The translation is on screen.',
     'interpreter.searchLanguage': 'Search languages',
     'interpreter.clinicLanguages': 'Clinic languages',
     'interpreter.allLanguages': 'All languages',
@@ -2601,8 +2611,14 @@ class AppLocalizations {
     'interpreter.swap': 'Sprachen tauschen',
     'interpreter.clear': 'Diesen Besuch löschen',
     'interpreter.autoSpeak': 'Übersetzungen vorlesen',
+    'interpreter.ttsFailed':
+        'Sprache nicht abspielbar. iPad laut schalten (nicht lautlos) und Vorlesen tippen.',
     'interpreter.nothingHeard':
         'Nichts gehört. Taste halten und sprechen, oder tippen.',
+    'interpreter.nothingHeardLang':
+        'Nichts gehört auf {lang}. Taste halten und in dieser Sprache sprechen, oder tippen.',
+    'interpreter.noVoice':
+        'Dieses Gerät hat keine Stimme für diese Sprache. Die Übersetzung steht auf dem Bildschirm.',
     'interpreter.searchLanguage': 'Sprachen suchen',
     'interpreter.clinicLanguages': 'Praxissprachen',
     'interpreter.allLanguages': 'Alle Sprachen',

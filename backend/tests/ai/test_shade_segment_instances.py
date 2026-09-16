@@ -398,6 +398,29 @@ class TestAnteriorWindow:
         assert any(abs(cx - 156) < 20 for cx in cxs)
         assert any(abs(cx - 196) < 20 for cx in cxs)
 
+    def test_keeps_smaller_contralateral_laterals(self):
+        """Dim 22/23 must stay in the shade window (clinic both-arch photo)."""
+        from app.ai.shade_segment import _keep_anterior_window
+
+        h, w = 80, 400
+        masks = []
+        for x0, tw, th in (
+            (40, 36, 40),
+            (90, 36, 40),
+            (140, 40, 44),
+            (200, 40, 44),
+            (260, 20, 24),
+            (310, 18, 22),
+        ):
+            m = np.zeros((h, w), dtype=bool)
+            y0 = 20 + (44 - th) // 2
+            m[y0 : y0 + th, x0 : x0 + tw] = True
+            masks.append(m)
+        kept = _keep_anterior_window(masks)
+        cxs = sorted(float(np.nonzero(m)[1].mean()) for m in kept)
+        assert len(kept) >= 6
+        assert max(cxs) >= 300
+
     def test_drops_tiny_cheek_fragment(self):
         from app.ai.shade_segment import _keep_anterior_window
 

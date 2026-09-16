@@ -4,15 +4,30 @@ import 'dart:io' show Platform;
 ///
 /// Physical iPads cannot use 127.0.0.1. Debug builds on a real iOS device
 /// fall back to this Mac's Bonjour name.
-/// ponytail: change if this Mac is renamed
 String resolveApiBase() {
   const fromEnv = String.fromEnvironment('API_BASE', defaultValue: '');
-  if (fromEnv.isNotEmpty) return fromEnv;
+  if (fromEnv.isNotEmpty) {
+    return fromEnv.trim().replaceFirst(RegExp(r'/$'), '');
+  }
   if (!bool.fromEnvironment('dart.vm.product') && Platform.isIOS) {
-    final sim = Platform.environment['SIMULATOR_DEVICE_NAME'];
-    if (sim == null || sim.isEmpty) {
-      return 'http://Mishis-MacBook-Pro.local:8000';
+    if (_looksLikeIosSimulator()) {
+      return 'http://127.0.0.1:8000';
     }
+    return 'http://Arhams-MacBook-Pro.local:8000';
   }
   return 'http://127.0.0.1:8000';
+}
+
+bool _looksLikeIosSimulator() {
+  const keys = [
+    'SIMULATOR_DEVICE_NAME',
+    'SIMULATOR_UDID',
+    'SIMULATOR_HOST_HOME',
+    'SIMULATOR_ROOT',
+  ];
+  for (final key in keys) {
+    final value = Platform.environment[key];
+    if (value != null && value.isNotEmpty) return true;
+  }
+  return false;
 }

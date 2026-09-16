@@ -44,6 +44,17 @@ class TestFdiFrontToBack:
         assert out[0].fdi == 11
         assert out[3].fdi == 21
 
+    def test_intraoral_dark_triangle_is_not_the_midline(self):
+        """11–21 in contact + a wide 21–22 dark space must still be 11/21."""
+        h, w = 220, 640
+        xs = [90, 160, 250, 330, 490, 560]
+        out = _assign_arch_metadata(_teeth_from_centers(h, w, 80, xs))
+        t11 = next(t for t in out if t.fdi == 11)
+        t21 = next(t for t in out if t.fdi == 21)
+        assert abs(float(np.nonzero(t11.mask)[1].mean()) - 250) < 8
+        assert abs(float(np.nonzero(t21.mask)[1].mean()) - 330) < 8
+        assert [t.fdi for t in out] == [11, 12, 13, 21, 22, 23]
+
     def test_dual_arch_uses_all_four_quadrants(self):
         h, w = 360, 640
         upper = _teeth_from_centers(h, w, 90, [100, 180, 250, 390, 460, 540])

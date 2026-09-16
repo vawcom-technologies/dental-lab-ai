@@ -18,6 +18,41 @@ class InterpreterLanguage {
 
   bool get supportsSpeech => speechLocale.isNotEmpty;
 
+  /// Locales to try for TTS, most specific first (`ar_SA` → `ar-SA` → `ar`).
+  List<String> get ttsLocales {
+    final out = <String>[];
+    void add(String raw) {
+      final s = raw.trim();
+      if (s.isEmpty) return;
+      final dash = s.replaceAll('_', '-');
+      if (!out.contains(dash)) out.add(dash);
+    }
+
+    add(speechLocale);
+    add(code);
+    switch (code) {
+      case 'ar':
+        add('ar-SA');
+        add('ar-EG');
+        add('ar-AE');
+        break;
+      case 'en':
+        add('en-US');
+        add('en-GB');
+        break;
+      case 'de':
+        add('de-DE');
+        add('de-AT');
+        break;
+      case 'zh':
+        add('zh-CN');
+        add('zh-Hans');
+        add('zh-TW');
+        break;
+    }
+    return out;
+  }
+
   String get pickerLabel => nativeName == name ? name : '$name · $nativeName';
 
   factory InterpreterLanguage.fromJson(Map<String, dynamic> json) {
@@ -41,6 +76,54 @@ class InterpreterLanguage {
     }
     return null;
   }
+
+  /// BCP-47 for iOS TTS (`ar-SA`). Speech locales in this catalog use `_`.
+  String get ttsLocale {
+    final raw = speechLocale.trim();
+    if (raw.isEmpty) return code;
+    return raw.replaceAll('_', '-');
+  }
+}
+
+String _normLocale(String value) =>
+    value.trim().replaceAll('-', '_').toLowerCase();
+
+/// Pick a device speech-recognition locale that matches [wanted]
+/// (`ar_SA`, `ar-SA`, or a language prefix like `ar`).
+String? matchSpeechLocale(String wanted, Iterable<String> available) {
+  final needle = _normLocale(wanted);
+  if (needle.isEmpty) return null;
+  final prefix = needle.split('_').first;
+  String? prefixHit;
+  for (final raw in available) {
+    final id = _normLocale(raw);
+    if (id == needle) return raw;
+    if (prefixHit == null && (id == prefix || id.startsWith('${prefix}_'))) {
+      prefixHit = raw;
+    }
+  }
+  return prefixHit;
+}
+
+/// Pick an installed TTS voice whose locale matches [wanted] (`ar-SA`).
+Map<String, String>? matchTtsVoice(
+  String wanted,
+  Iterable<Map<String, String>> voices,
+) {
+  final needle = _normLocale(wanted);
+  if (needle.isEmpty) return null;
+  final prefix = needle.split('_').first;
+  Map<String, String>? prefixHit;
+  for (final voice in voices) {
+    final locale = _normLocale(voice['locale'] ?? '');
+    if (locale.isEmpty) continue;
+    if (locale == needle) return voice;
+    if (prefixHit == null &&
+        (locale == prefix || locale.startsWith('${prefix}_'))) {
+      prefixHit = voice;
+    }
+  }
+  return prefixHit;
 }
 
 /// Offline fallback — same clinic-first order as the API.
