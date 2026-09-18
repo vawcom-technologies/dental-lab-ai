@@ -33,6 +33,9 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Local iOS Debug signing (Personal Team). Do not commit.
+ios/Flutter/Local.xcconfig
+
 # Store / local API URLs (keep examples)
 .env
 .env.production

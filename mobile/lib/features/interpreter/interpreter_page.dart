@@ -1,9 +1,7 @@
 import 'dart:async';
 
-import 'package:cross_file/cross_file.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
-import 'package:record/record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
@@ -18,7 +16,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/touchable.dart';
 import '../../core/widgets/ui_kit.dart';
-import '../chat/utils/voice_record_path.dart';
+import 'apple_translate.dart';
 import 'interpreter_languages.dart';
 
 class InterpreterTurn {
@@ -65,7 +63,6 @@ class _InterpreterPageState extends State<InterpreterPage> {
   final _patientFocus = FocusNode();
   final _speech = SpeechToText();
   final _tts = FlutterTts();
-  final _recorder = AudioRecorder();
 
   List<InterpreterLanguage> _languages = List.of(kInterpreterLanguages);
   String _doctorLang = 'de';
@@ -73,7 +70,6 @@ class _InterpreterPageState extends State<InterpreterPage> {
   bool _autoSpeak = true;
   bool _busy = false;
   bool _speechReady = false;
-  bool _cloudStt = false;
   bool _listeningDoctor = false;
   bool _listeningPatient = false;
   bool _warnedNoVoice = false;
@@ -82,8 +78,10 @@ class _InterpreterPageState extends State<InterpreterPage> {
   String? _speechError;
   double _peakSoundLevel = -120;
   DateTime? _holdBegan;
+  DateTime? _pointerDownAt;
   int? _holdPointer;
   int _holdEpoch = 0;
+  bool _pressToStop = false;
   Completer<void>? _speechIdle;
   List<LocaleName> _speechLocales = const [];
   final List<InterpreterTurn> _turns = [];
@@ -117,7 +115,6 @@ class _InterpreterPageState extends State<InterpreterPage> {
     _patientFocus.dispose();
     unawaited(_speech.stop());
     unawaited(_tts.stop());
-    unawaited(_recorder.dispose());
     super.dispose();
   }
 
@@ -149,8 +146,12 @@ class _InterpreterPageState extends State<InterpreterPage> {
     if (mounted) setState(() {});
     await _loadPatientLanguage();
     await _loadCatalog();
-    await _initSpeech();
     await _initTts();
+    // Ask for Speech on first Hold, not here — a system dialog during
+    // bootstrap cancels the pointer and never shows again on the button.
+    try {
+      if (await _speech.hasPermission) await _initSpeech();
+    } catch (_) {}
   }
 
   Future<void> _loadCatalog() async {
@@ -168,12 +169,9 @@ class _InterpreterPageState extends State<InterpreterPage> {
           }
         }
       }
-      final providers = raw['providers'];
-      final stt = providers is Map ? '${providers['stt'] ?? ''}' : '';
       if (!mounted) return;
       setState(() {
         if (parsed.length >= 20) _languages = parsed;
-        _cloudStt = stt == 'whisper';
       });
     } catch (_) {
       // Local catalog is enough for the picker.
@@ -209,6 +207,7 @@ class _InterpreterPageState extends State<InterpreterPage> {
         }
       }
       if (mounted) setState(() => _speechReady = ok);
+      if (ok) _warmSpeechForSelection();
     } catch (e) {
       debugPrint('interpreter stt init: $e');
       if (mounted) setState(() => _speechReady = false);
@@ -389,9 +388,7 @@ class _InterpreterPageState extends State<InterpreterPage> {
 
   Future<void> _runTurn({
     required bool fromDoctor,
-    String? text,
-    List<int>? audio,
-    String filename = 'speech.m4a',
+    required String text,
   }) async {
     if (_busy) return;
     setState(() {
@@ -402,38 +399,39 @@ class _InterpreterPageState extends State<InterpreterPage> {
     try {
       final source = fromDoctor ? _doctorLang : _patientLang;
       final target = fromDoctor ? _patientLang : _doctorLang;
-      final Map<String, dynamic> raw;
-      if (audio != null && audio.isNotEmpty) {
-        raw = await widget.api
-            .interpreterTurnAudio(
-              bytes: audio,
-              filename: filename,
-              sourceLang: source,
-              targetLang: target,
-            )
-            .timeout(const Duration(seconds: 45));
+      final original = text.trim();
+      var translated = '';
+      if (source == target) {
+        translated = original;
       } else {
-        raw = await widget.api
-            .interpreterTurn(
-              text: text ?? '',
-              sourceLang: source,
-              targetLang: target,
-            )
-            .timeout(const Duration(seconds: 45));
+        try {
+          translated = (await AppleTranslate.translate(
+                text: original,
+                sourceLang: source,
+                targetLang: target,
+              ))
+                  ?.trim() ??
+              '';
+        } on AppleTranslateUnsupported {
+          translated = await _backendTranslate(
+            original,
+            sourceLang: source,
+            targetLang: target,
+          );
+        }
       }
       if (!mounted) return;
-      final translated = '${raw['translated'] ?? ''}'.trim();
       if (translated.isEmpty) {
         throw Exception(
-          AppLocalizations.of(context).interpreterNothingHeard,
+          AppLocalizations.of(context).interpreterAppleTranslateFailed,
         );
       }
       final turn = InterpreterTurn(
         fromDoctor: fromDoctor,
-        original: '${raw['original'] ?? text ?? ''}'.trim(),
+        original: original,
         translated: translated,
-        sourceLang: '${raw['source_lang'] ?? source}',
-        targetLang: '${raw['target_lang'] ?? target}',
+        sourceLang: source,
+        targetLang: target,
       );
       if (!mounted) return;
       setState(() {
@@ -453,6 +451,21 @@ class _InterpreterPageState extends State<InterpreterPage> {
       setState(() => _busy = false);
       AppSnackBars.error(context, friendlyError(e, AppLocalizations.of(context)));
     }
+  }
+
+  Future<String> _backendTranslate(
+    String text, {
+    required String sourceLang,
+    required String targetLang,
+  }) async {
+    final raw = await widget.api
+        .interpreterTurn(
+          text: text,
+          sourceLang: sourceLang,
+          targetLang: targetLang,
+        )
+        .timeout(const Duration(seconds: 45));
+    return '${raw['translated'] ?? ''}'.trim();
   }
 
   Future<void> _speak(
@@ -561,26 +574,62 @@ class _InterpreterPageState extends State<InterpreterPage> {
   }
 
   String? _deviceSpeechLocale(InterpreterLanguage lang) {
-    if (!lang.supportsSpeech || !_speechReady) return null;
-    return matchSpeechLocale(
+    if (!lang.supportsSpeech) return null;
+    final hit = matchSpeechLocale(
       lang.speechLocale,
       _speechLocales.map((e) => e.localeId),
     );
+    if (hit != null) return hit;
+    if (!_speechReady || _speechLocales.isEmpty) return lang.speechLocale;
+    return null;
   }
 
   bool _canHold(bool fromDoctor) {
     if (_busy) return false;
-    if (_deviceSpeechLocale(fromDoctor ? _doctor : _patient) != null) {
-      return true;
+    return (fromDoctor ? _doctor : _patient).supportsSpeech;
+  }
+
+  void _warmSpeechForSelection() {
+    for (final lang in [_doctor, _patient]) {
+      if (!lang.supportsSpeech) continue;
+      final locale = _deviceSpeechLocale(lang) ?? lang.speechLocale;
+      unawaited(AppleTranslate.warmSpeech(locale));
     }
-    if (_cloudStt) return true;
-    return false;
+  }
+
+  Future<bool> _listenApple(String locale, int epoch) async {
+    if (epoch != _holdEpoch) return false;
+    debugPrint('interpreter stt listen locale=$locale');
+    await _speech.listen(
+      onResult: (result) {
+        final words = result.recognizedWords.trim();
+        if (words.isEmpty || !mounted) return;
+        setState(() => _partial = words);
+      },
+      onSoundLevelChange: (level) {
+        if (level > _peakSoundLevel) _peakSoundLevel = level;
+      },
+      listenOptions: SpeechListenOptions(
+        localeId: locale,
+        partialResults: true,
+        cancelOnError: false,
+        onDevice: false,
+        autoPunctuation: true,
+        listenMode: ListenMode.dictation,
+        listenFor: const Duration(seconds: 30),
+        pauseFor: const Duration(seconds: 8),
+      ),
+    );
+    return epoch == _holdEpoch &&
+        (_speech.isListening || _speechStatus == 'listening');
   }
 
   Future<void> _startHold(bool fromDoctor, int epoch) async {
-    if (!_canHold(fromDoctor) || _listeningDoctor || _listeningPatient) return;
     if (epoch != _holdEpoch) return;
+    if (_listeningDoctor || _listeningPatient) return;
     final lang = fromDoctor ? _doctor : _patient;
+    if (!lang.supportsSpeech) return;
+    FocusManager.instance.primaryFocus?.unfocus();
     _holdBegan = DateTime.now();
     _peakSoundLevel = -120;
     _speechError = null;
@@ -592,82 +641,60 @@ class _InterpreterPageState extends State<InterpreterPage> {
       }
       _partial = '';
     });
-    final deviceLocale = _deviceSpeechLocale(lang);
-    if (deviceLocale != null) {
-      try {
-        await _ensureMicCapture();
-        if (epoch != _holdEpoch) return;
-        debugPrint('interpreter stt listen locale=$deviceLocale');
-        await _speech.listen(
-          onResult: (result) {
-            if (!mounted) return;
-            setState(() => _partial = result.recognizedWords);
-          },
-          onSoundLevelChange: (level) {
-            if (level > _peakSoundLevel) _peakSoundLevel = level;
-          },
-          listenOptions: SpeechListenOptions(
-            localeId: deviceLocale,
-            partialResults: true,
-            cancelOnError: false,
-            listenMode: ListenMode.confirmation,
-            listenFor: const Duration(seconds: 25),
-            pauseFor: const Duration(seconds: 8),
-          ),
-        );
-        if (epoch != _holdEpoch) {
-          try {
-            if (_speech.isListening) await _speech.stop();
-          } catch (_) {}
-          return;
-        }
-        if (_speech.isListening || _speechStatus == 'listening') {
-          return;
-        }
-        debugPrint(
-          'interpreter stt did not start status=$_speechStatus err=$_speechError',
-        );
-      } catch (e) {
-        debugPrint('interpreter stt listen: $e');
-      }
-    }
-    if (epoch != _holdEpoch) return;
-    if (!_cloudStt) {
-      await _stopHold(fromDoctor, cancelled: true);
-      if (!mounted) return;
-      AppSnackBars.info(
-        context,
-        AppLocalizations.of(context).interpreterTypeInstead,
-      );
-      return;
-    }
     try {
-      final hasMic = await _recorder.hasPermission();
-      if (!hasMic) {
-        await _stopHold(fromDoctor, cancelled: true);
+      if (!_speechReady) {
+        await _initSpeech();
+        if (epoch != _holdEpoch) return;
+      }
+      if (!_speechReady) {
+        if (!mounted) return;
+        setState(() {
+          _listeningDoctor = false;
+          _listeningPatient = false;
+        });
+        AppSnackBars.info(
+          context,
+          AppLocalizations.of(context).interpreterAllowSpeech,
+        );
         return;
       }
-      final encoder = await _recorder.isEncoderSupported(AudioEncoder.aacLc)
-          ? AudioEncoder.aacLc
-          : AudioEncoder.wav;
-      final ext = encoder == AudioEncoder.wav ? 'wav' : 'm4a';
-      final path = await resolveVoiceRecordPath(extension: ext);
-      await _recorder.start(RecordConfig(encoder: encoder), path: path);
-    } catch (_) {
-      await _stopHold(fromDoctor, cancelled: true);
+      await _ensureMicCapture();
+      if (epoch != _holdEpoch) return;
+      if (_speechLocales.isEmpty) {
+        try {
+          _speechLocales = await _speech.locales();
+        } catch (_) {}
+      }
+      final deviceLocale = _deviceSpeechLocale(lang) ?? lang.speechLocale;
+      final started = await _listenApple(deviceLocale, epoch);
+      if (started) {
+        return;
+      }
+      debugPrint(
+        'interpreter stt did not start status=$_speechStatus err=$_speechError',
+      );
+    } catch (e) {
+      debugPrint('interpreter stt listen: $e');
     }
+    if (epoch != _holdEpoch) return;
+    if (!mounted) return;
+    setState(() {
+      _listeningDoctor = false;
+      _listeningPatient = false;
+      _partial = '';
+    });
+    AppSnackBars.info(
+      context,
+      AppLocalizations.of(context).interpreterTypeInstead,
+    );
   }
 
   Future<void> _stopHold(bool fromDoctor, {bool cancelled = false}) async {
     _holdEpoch++;
+    _pressToStop = false;
     final listening = fromDoctor ? _listeningDoctor : _listeningPatient;
     if (!listening) return;
-    String spoken = _partial.trim();
-    List<int>? audio;
-    String filename = 'speech.m4a';
-    final heldFor = _holdBegan == null
-        ? Duration.zero
-        : DateTime.now().difference(_holdBegan!);
+    var spoken = _partial.trim();
     try {
       if (_speech.isListening || _speechStatus == 'listening') {
         _speechIdle = Completer<void>();
@@ -676,14 +703,8 @@ class _InterpreterPageState extends State<InterpreterPage> {
           const Duration(milliseconds: 1200),
           onTimeout: () {},
         );
-        spoken = _partial.trim();
-      }
-      if (await _recorder.isRecording()) {
-        final path = await _recorder.stop();
-        if (path != null && path.isNotEmpty) {
-          audio = await XFile(path).readAsBytes();
-          filename = path.split('/').last;
-        }
+        final after = _partial.trim();
+        if (after.isNotEmpty) spoken = after;
       }
     } catch (_) {}
     if (!mounted) return;
@@ -697,15 +718,10 @@ class _InterpreterPageState extends State<InterpreterPage> {
       await _runTurn(text: spoken, fromDoctor: fromDoctor);
       return;
     }
-    if (audio != null && audio.isNotEmpty) {
-      await _runTurn(audio: audio, filename: filename, fromDoctor: fromDoctor);
-      return;
-    }
-    if (heldFor < const Duration(milliseconds: 400)) return;
     final loc = AppLocalizations.of(context);
     final lang = fromDoctor ? _doctor : _patient;
     debugPrint(
-      'interpreter stt empty peak=$_peakSoundLevel status=$_speechStatus err=$_speechError heldMs=${heldFor.inMilliseconds}',
+      'interpreter stt empty peak=$_peakSoundLevel status=$_speechStatus err=$_speechError',
     );
     AppSnackBars.info(context, loc.interpreterNothingHeardLang(lang.nativeName));
   }
@@ -726,6 +742,7 @@ class _InterpreterPageState extends State<InterpreterPage> {
     } else {
       await _setPatientLang(selected.code);
     }
+    _warmSpeechForSelection();
   }
 
   @override
@@ -895,7 +912,14 @@ class _InterpreterPageState extends State<InterpreterPage> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Expanded(
-                    child: SingleChildScrollView(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {
+                        if (_busy || listening) return;
+                        (fromDoctor ? _doctorFocus : _patientFocus)
+                            .requestFocus();
+                      },
+                      child: SingleChildScrollView(
                       child: Directionality(
                         textDirection: lang.rtl
                             ? TextDirection.rtl
@@ -947,6 +971,7 @@ class _InterpreterPageState extends State<InterpreterPage> {
                                     ],
                                   ),
                       ),
+                      ),
                     ),
                   ),
                   if (_turns.isNotEmpty) ...[
@@ -961,7 +986,30 @@ class _InterpreterPageState extends State<InterpreterPage> {
                           final turn = _turns[index];
                           final mine = turn.fromDoctor == fromDoctor;
                           final label = mine ? turn.original : turn.translated;
-                          return Container(
+                          return Touchable(
+                            onTap: _busy
+                                ? null
+                                : () {
+                                    if (mine) {
+                                      unawaited(
+                                        _speak(
+                                          turn.translated,
+                                          lang: turn.targetLang,
+                                          announceIfSilent: true,
+                                        ),
+                                      );
+                                    } else {
+                                      unawaited(
+                                        _speak(
+                                          label,
+                                          lang: lang.code,
+                                          announceIfSilent: true,
+                                        ),
+                                      );
+                                    }
+                                  },
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
                             constraints: const BoxConstraints(maxWidth: 220),
                             padding: const EdgeInsets.symmetric(
                               horizontal: 10,
@@ -981,6 +1029,7 @@ class _InterpreterPageState extends State<InterpreterPage> {
                                 fontSize: 12,
                                 color: AppColors.navy,
                               ),
+                            ),
                             ),
                           );
                         },
@@ -1056,19 +1105,41 @@ class _InterpreterPageState extends State<InterpreterPage> {
             behavior: HitTestBehavior.opaque,
             onPointerDown: (event) {
               if (_holdPointer != null) return;
+              if (_busy && !listening) return;
+              if (!listening && !canHold) return;
               _holdPointer = event.pointer;
+              _pointerDownAt = DateTime.now();
+              if (listening) {
+                _pressToStop = true;
+                return;
+              }
+              _pressToStop = false;
               final epoch = ++_holdEpoch;
               unawaited(_startHold(fromDoctor, epoch));
             },
             onPointerUp: (event) {
               if (_holdPointer != event.pointer) return;
               _holdPointer = null;
-              unawaited(_stopHold(fromDoctor));
+              if (_pressToStop) {
+                _pressToStop = false;
+                unawaited(_stopHold(fromDoctor));
+                return;
+              }
+              final down = _pointerDownAt;
+              final held = down == null
+                  ? Duration.zero
+                  : DateTime.now().difference(down);
+              // Finger-up after a real hold stops. A tap leaves Apple Speech
+              // running until the next tap (the permission sheet also cancels
+              // the pointer and must not abort listen).
+              if (held >= const Duration(milliseconds: 450)) {
+                unawaited(_stopHold(fromDoctor));
+              }
             },
             onPointerCancel: (event) {
               if (_holdPointer != event.pointer) return;
               _holdPointer = null;
-              unawaited(_stopHold(fromDoctor, cancelled: true));
+              _pressToStop = false;
             },
             child: AnimatedContainer(
               duration: AppMotion.fast,

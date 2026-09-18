@@ -1042,6 +1042,9 @@ class AppLocalizations {
   String get interpreterHoldToTalk => _t('interpreter.holdToTalk');
   String get interpreterListening => _t('interpreter.listening');
   String get interpreterTypeInstead => _t('interpreter.typeInstead');
+  String get interpreterAllowSpeech => _t('interpreter.allowSpeech');
+  String get interpreterAppleTranslateFailed =>
+      _t('interpreter.appleTranslateFailed');
   String get interpreterTypeHint => _t('interpreter.typeHint');
   String get interpreterSend => _t('interpreter.send');
   String get interpreterSpeak => _t('interpreter.speak');
@@ -1802,6 +1805,10 @@ class AppLocalizations {
     'interpreter.holdToTalk': 'Hold to talk',
     'interpreter.listening': 'Listening…',
     'interpreter.typeInstead': 'Voice not available — type instead',
+    'interpreter.allowSpeech':
+        'Allow Speech Recognition and Microphone for Elite Dent, then tap Hold to talk again.',
+    'interpreter.appleTranslateFailed':
+        'Apple Translate could not run. Use iPadOS 18 or later and allow the language download when iPad asks.',
     'interpreter.typeHint': 'Type a sentence…',
     'interpreter.send': 'Send',
     'interpreter.speak': 'Speak aloud',
@@ -2605,6 +2612,10 @@ class AppLocalizations {
     'interpreter.holdToTalk': 'Halten zum Sprechen',
     'interpreter.listening': 'Hört zu…',
     'interpreter.typeInstead': 'Sprache nicht verfügbar — bitte tippen',
+    'interpreter.allowSpeech':
+        'Bitte Spracheingabe und Mikrofon für Elite Dent erlauben, dann erneut Halten zum Sprechen tippen.',
+    'interpreter.appleTranslateFailed':
+        'Apple Übersetzen nicht möglich. iPadOS 18 oder neuer verwenden und den Sprachdownload erlauben, wenn das iPad fragt.',
     'interpreter.typeHint': 'Satz eingeben…',
     'interpreter.send': 'Senden',
     'interpreter.speak': 'Vorlesen',

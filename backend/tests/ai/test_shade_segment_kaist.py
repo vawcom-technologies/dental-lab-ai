@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from unittest.mock import patch
 
 import numpy as np
@@ -97,6 +99,59 @@ class TestKaistHelpers:
         work, _scale = _resize_for_work(img, max_side=320, min_side=256)
         assert work.shape[0] >= 150
         assert work.shape[0] > 83
+
+    def test_dual_arch_boxes_run_on_two_threads(self):
+        from app.ai.shade_segment import ToothMask
+        from app.ai.shade_segment_kaist import (
+            KaistSegmentStatus,
+            detect_teeth_kaist,
+        )
+        from app.ai import shade_segment_kaist as mod
+
+        barrier = threading.Barrier(2)
+        seen: list[int] = []
+
+        def fake_box(*_a, **kwargs):
+            seen.append(kwargs["box_i"])
+            barrier.wait(timeout=2)
+            mask = np.zeros((200, 120), dtype=bool)
+            mask[10:40, 20:50] = True
+            return [
+                ToothMask(
+                    tooth_index=0,
+                    mask=mask,
+                    confidence=0.9,
+                    rejected=False,
+                )
+            ]
+
+        status = KaistSegmentStatus(
+            available=True,
+            vendor_root=".",
+            weights="x",
+            device="cpu",
+            resize=False,
+            max_side=320,
+            min_side=256,
+            snake_iters=10,
+            bring_back_iters=60,
+            evolve_iters=30,
+        )
+        img = np.zeros((200, 120, 3), dtype=np.uint8)
+        with (
+            patch.object(mod, "kaist_segment_status", return_value=status),
+            patch.object(
+                mod,
+                "kaist_focus_boxes",
+                return_value=[(0, 90, 0, 120), (90, 180, 0, 120)],
+            ),
+            patch.object(mod, "_segment_kaist_box", side_effect=fake_box),
+        ):
+            t0 = time.perf_counter()
+            detect_teeth_kaist(img)
+            elapsed = time.perf_counter() - t0
+        assert sorted(seen) == [0, 1]
+        assert elapsed < 1.5
 
     def test_max_side_zero_clamps_to_default(self, monkeypatch):
         from app.ai import shade_segment_kaist as mod
@@ -583,3 +638,70 @@ class TestKaistRouting:
         assert float(np.nonzero(t12.mask)[1].mean()) < float(
             np.nonzero(t11.mask)[1].mean()
         )
+
+    @patch("app.ai.shade_segment_kaist.kaist_available", return_value=True)
+    @patch("app.ai.shade_segment_kaist.detect_teeth_kaist")
+    def test_kaist_missing_arch_runs_classical_once(self, mock_detect, _mock_avail):
+        from app.ai.shade import VITA_SHADES
+        from app.ai import shade_segment as seg
+
+        h, w = 480, 640
+        img = np.zeros((h, w, 3), dtype=np.uint8)
+        img[:] = (25, 18, 16)
+        gum = np.array([180, 110, 120], dtype=np.uint8)
+        enamel = np.array(VITA_SHADES["A2"], dtype=np.uint8)
+        img[int(h * 0.18) : int(h * 0.28), int(w * 0.15) : int(w * 0.85)] = gum
+        for x0 in (170, 240, 310, 380):
+            img[int(h * 0.28) : int(h * 0.42), x0 : x0 + 55] = enamel
+        img[int(h * 0.72) : int(h * 0.82), int(w * 0.15) : int(w * 0.85)] = gum
+        kaist_only = []
+        for i, x0 in enumerate((175, 245, 315, 385)):
+            img[int(h * 0.58) : int(h * 0.72), x0 : x0 + 55] = enamel
+            mask = np.zeros((h, w), dtype=bool)
+            mask[int(h * 0.58) : int(h * 0.72), x0 : x0 + 55] = True
+            kaist_only.append(
+                ToothMask(
+                    tooth_index=i,
+                    mask=mask,
+                    confidence=0.9,
+                    rejected=False,
+                    arch="lower",
+                )
+            )
+        mock_detect.return_value = kaist_only
+        calls = {"n": 0}
+        real = seg._detect_teeth_classical
+
+        def counted(*args, **kwargs):
+            calls["n"] += 1
+            return real(*args, **kwargs)
+
+        with patch.object(seg, "_detect_teeth_classical", side_effect=counted):
+            teeth = [t for t in detect_teeth(img, backend="kaist") if not t.rejected]
+        assert calls["n"] == 1
+        fdis = {t.fdi for t in teeth}
+        assert {11, 21} & fdis
+        assert {41, 31} & fdis
+
+
+class TestKaistWarmup:
+    def test_warmup_skips_when_unavailable(self):
+        from app.ai.shade_segment_kaist import KaistSegmentStatus, warmup_kaist_weights
+
+        fake = KaistSegmentStatus(
+            available=False,
+            vendor_root="",
+            weights="",
+            device="cpu",
+            resize=False,
+            max_side=320,
+            min_side=256,
+            snake_iters=8,
+            bring_back_iters=48,
+            evolve_iters=22,
+            import_error="weights missing",
+        )
+        with patch(
+            "app.ai.shade_segment_kaist.kaist_segment_status", return_value=fake
+        ):
+            assert warmup_kaist_weights().startswith("skipped")

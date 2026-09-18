@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -110,7 +111,14 @@ def _maybe_downscale_rgb(arr: np.ndarray) -> np.ndarray:
 
 
 def analyze_shade_from_bytes(data: bytes) -> dict[str, Any]:
-    return analyze_shade_from_rgb(_load_rgb_from_bytes(data))
+    started = time.perf_counter()
+    rgb = _load_rgb_from_bytes(data)
+    logger.info(
+        "shade_analyze decode_ms=%.0f bytes=%s",
+        (time.perf_counter() - started) * 1000,
+        len(data),
+    )
+    return analyze_shade_from_rgb(rgb)
 
 
 def analyze_shade_from_rgb(image_rgb: np.ndarray) -> dict[str, Any]:
@@ -119,12 +127,18 @@ def analyze_shade_from_rgb(image_rgb: np.ndarray) -> dict[str, Any]:
     if arr.ndim != 3 or arr.shape[2] != 3:
         raise ValueError("image_rgb must be HxWx3")
 
+    t0 = time.perf_counter()
     arr = _maybe_downscale_rgb(arr)
+    downscale_ms = (time.perf_counter() - t0) * 1000
     segment_meta: dict[str, Any] = {}
+    t1 = time.perf_counter()
     teeth = detect_teeth(arr, meta_out=segment_meta)
+    segment_ms = (time.perf_counter() - t1) * 1000
     # Only surface usable masks — fragments must not appear as T1..Tn in the UI.
     teeth = [t for t in teeth if not t.rejected]
+    t2 = time.perf_counter()
     tooth_results = _analyze_teeth(arr, teeth)
+    zones_ms = (time.perf_counter() - t2) * 1000
     # Re-index after filtering (preserve arch labels from segmenter).
     for i, (row, tooth) in enumerate(zip(tooth_results, teeth)):
         row["tooth_index"] = i
@@ -167,6 +181,17 @@ def analyze_shade_from_rgb(image_rgb: np.ndarray) -> dict[str, Any]:
         note = f"[segment={backend}, fallback from {requested}] " + note
     else:
         note = f"[segment={backend}] " + note
+    t3 = time.perf_counter()
+    gum = _analyze_gum(arr, teeth)
+    gum_ms = (time.perf_counter() - t3) * 1000
+    logger.info(
+        "shade_analyze downscale_ms=%.0f segment_ms=%.0f zones_ms=%.0f gum_ms=%.0f teeth=%s",
+        downscale_ms,
+        segment_ms,
+        zones_ms,
+        gum_ms,
+        len(tooth_results),
+    )
     return {
         "teeth": tooth_results,
         "tooth_count": len(tooth_results),
@@ -174,7 +199,7 @@ def analyze_shade_from_rgb(image_rgb: np.ndarray) -> dict[str, Any]:
         "image_width": w,
         "image_height": h,
         "note": note,
-        "gum": _analyze_gum(arr, teeth),
+        "gum": gum,
         **segment_meta,
     }
 

@@ -22,7 +22,8 @@ Additive classical extensions (toggleable; do not replace the above):
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import Literal
 
@@ -107,11 +108,12 @@ def detect_teeth(
             used = "kaist"
             model_id = "kaist/individual_tooth_segmentation"
             teeth_or_none = _merge_kaist_split_crowns(teeth_or_none)
+            get_classical = _lazy_classical(image_rgb, config)
             teeth_or_none = _complete_missing_kaist_arch(
-                image_rgb, teeth_or_none, config
+                image_rgb, teeth_or_none, config, get_classical=get_classical
             )
             teeth_or_none = _add_uncovered_classical_teeth(
-                image_rgb, teeth_or_none, config
+                image_rgb, teeth_or_none, config, get_classical=get_classical
             )
             teeth_or_none = _merge_kaist_split_crowns(teeth_or_none)
             teeth_or_none = _trim_to_anterior_shade_window(teeth_or_none)
@@ -304,10 +306,43 @@ def _trim_to_anterior_shade_window(teeth: list[ToothMask]) -> list[ToothMask]:
     return trimmed + rejected
 
 
+def _lazy_classical(
+    image_rgb: np.ndarray, config: SegmentConfig | None
+) -> Callable[[], list[ToothMask]]:
+    """Run classical once per photo and reuse for missing-arch + gap fill."""
+    cached: list[ToothMask] | None = None
+
+    def get() -> list[ToothMask]:
+        nonlocal cached
+        if cached is None:
+            started = time.perf_counter()
+            cached = _detect_teeth_classical(image_rgb, config)
+            logger.info(
+                "shade_segment classical_ms=%.0f teeth=%s",
+                (time.perf_counter() - started) * 1000,
+                len(cached),
+            )
+        return cached
+
+    return get
+
+
+def _classical_teeth(
+    image_rgb: np.ndarray,
+    config: SegmentConfig | None,
+    get_classical: Callable[[], list[ToothMask]] | None,
+) -> list[ToothMask]:
+    if get_classical is not None:
+        return get_classical()
+    return _detect_teeth_classical(image_rgb, config)
+
+
 def _complete_missing_kaist_arch(
     image_rgb: np.ndarray,
     teeth: list[ToothMask],
     config: SegmentConfig | None,
+    *,
+    get_classical: Callable[[], list[ToothMask]] | None = None,
 ) -> list[ToothMask]:
     """If KAIST framed two arches but only segmented one, fill the other.
 
@@ -345,7 +380,7 @@ def _complete_missing_kaist_arch(
         "shade_segment KAIST missed %s arch — filling from classical", arch
     )
     extra: list[ToothMask] = []
-    for t in _detect_teeth_classical(image_rgb, config):
+    for t in _classical_teeth(image_rgb, config, get_classical):
         if t.rejected:
             continue
         cy = _mask_centroid_y(t)
@@ -373,6 +408,8 @@ def _add_uncovered_classical_teeth(
     image_rgb: np.ndarray,
     teeth: list[ToothMask],
     config: SegmentConfig | None,
+    *,
+    get_classical: Callable[[], list[ToothMask]] | None = None,
 ) -> list[ToothMask]:
     """Insert classical crowns that sit in KAIST gaps on the same arch row.
 
@@ -386,7 +423,7 @@ def _add_uncovered_classical_teeth(
 
     extras: list[ToothMask] = []
     known = list(accepted)
-    for c in _detect_teeth_classical(image_rgb, config):
+    for c in _classical_teeth(image_rgb, config, get_classical):
         if c.rejected or not np.any(c.mask):
             continue
         if any(_mask_smaller_coverage(c.mask, t.mask) >= 0.35 for t in known):

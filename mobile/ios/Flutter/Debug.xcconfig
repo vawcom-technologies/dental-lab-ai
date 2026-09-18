@@ -1,2 +1,6 @@
 #include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
 #include "Generated.xcconfig"
+// App Store team. Debug target does not set DEVELOPMENT_TEAM in the pbxproj
+// so this can be overridden by gitignored Local.xcconfig (Personal Team).
+DEVELOPMENT_TEAM = JUBUU3MW7R
+#include? "Local.xcconfig"

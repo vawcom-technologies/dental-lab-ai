@@ -231,7 +231,10 @@ def translate_text(
             errors.append(f"{name}: unavailable")
 
     raise InterpreterError(
-        "Translation is not available right now. Check interpreter API keys.",
+        "Translation is not available right now. "
+        "Add DEEPL_API_KEY (or GOOGLE_TRANSLATE_API_KEY / OPENAI_API_KEY) "
+        "to backend/.env and restart the API. "
+        + ("; ".join(errors) if errors else ""),
         status_code=503,
     )
 
@@ -409,6 +412,7 @@ def _gtx_translate(text: str, source: str, target: str) -> str | None:
             },
         )
     if res.status_code >= 400:
+        logger.info("interpreter gtx status=%s", res.status_code)
         raise InterpreterError("Fallback translator is unavailable.")
     try:
         payload = res.json()

@@ -21,6 +21,8 @@ import os
 import sys
 import tempfile
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -247,6 +249,45 @@ def kaist_available(
     weights: str | Path | None = None,
 ) -> bool:
     return kaist_segment_status(vendor=vendor, weights=weights).available
+
+
+def warmup_kaist_weights() -> str:
+    """Load the existing ResNeSt checkpoint into RAM. Does not change the .pth."""
+    status = kaist_segment_status()
+    if not status.available:
+        logger.info("kaist warmup skipped: %s", status.import_error)
+        return f"skipped: {status.import_error}"
+
+    vendor_s = str(Path(status.vendor_root))
+    if vendor_s not in sys.path:
+        sys.path.insert(0, vendor_s)
+
+    from app.ai.kaist_compat import patch_kaist_vendor
+
+    started = time.perf_counter()
+    patch_kaist_vendor(
+        snake_iters=status.snake_iters,
+        bring_back_iters=status.bring_back_iters,
+        evolve_iters=status.evolve_iters,
+    )
+    from src.teethSeg import PseudoER
+
+    config: dict[str, Any] = {
+        "DEFAULT": {"ROOT": vendor_s, "DEVICE": status.device},
+        "MODEL": {"WEIGHTS": str(Path(status.weights))},
+    }
+    try:
+        with _KAIST_LOCK:
+            PseudoER(config, 1).setModel()
+    except Exception as exc:
+        logger.exception("kaist warmup failed")
+        return f"failed: {exc}"
+    logger.info(
+        "kaist warmup done ms=%.0f device=%s",
+        (time.perf_counter() - started) * 1000,
+        status.device,
+    )
+    return "ok"
 
 
 def _tooth_band_mask(image_rgb: np.ndarray) -> np.ndarray:
@@ -739,21 +780,20 @@ def _run_upstream_pipeline(
     os.environ.setdefault("MPLBACKEND", "Agg")
 
     vendor_s = str(vendor)
-    if vendor_s not in sys.path:
-        sys.path.insert(0, vendor_s)
+    with _KAIST_LOCK:
+        if vendor_s not in sys.path:
+            sys.path.insert(0, vendor_s)
+        from app.ai.kaist_compat import patch_kaist_vendor
 
-    from app.ai.kaist_compat import patch_kaist_vendor
+        patch_kaist_vendor(
+            snake_iters=snake_iters,
+            bring_back_iters=bring_back_iters,
+            evolve_iters=evolve_iters,
+        )
+        from PIL import Image
 
-    patch_kaist_vendor(
-        snake_iters=snake_iters,
-        bring_back_iters=bring_back_iters,
-        evolve_iters=evolve_iters,
-    )
-
-    from PIL import Image
-
-    import src.myTools as mts
-    from src.makeup import TeethSeg
+        import src.myTools as mts
+        from src.makeup import TeethSeg
 
     with tempfile.TemporaryDirectory(prefix="kaist_seg_") as tmp:
         root = Path(tmp)
@@ -781,7 +821,9 @@ def _run_upstream_pipeline(
         dir_img.mkdir(parents=True, exist_ok=True)
         sts = mts.SaveTools(str(dir_img))
         ts = TeethSeg(str(dir_img), img_id, sts, config)
-        ts.pseudoER()
+        # MPS/CNN is not safe to run twice at once. Snakes are CPU per TeethSeg.
+        with _KAIST_LOCK:
+            ts.pseudoER()
         ts.initContour()
         ts.snake()
         ts.tem()
@@ -801,21 +843,20 @@ def _labels_for_work(
 ) -> np.ndarray | None:
     """Run KAIST on a work image; return labels in crop coords, or None."""
     cnn = np.ascontiguousarray(work_rgb[::-1]) if flip_ud else work_rgb
-    with _KAIST_LOCK:
-        try:
-            labels = _run_upstream_pipeline(
-                cnn,
-                vendor=Path(status.vendor_root),
-                weights=Path(status.weights),
-                device=status.device,
-                resize=status.resize,
-                snake_iters=status.snake_iters,
-                bring_back_iters=status.bring_back_iters,
-                evolve_iters=status.evolve_iters,
-            )
-        except Exception:
-            logger.exception("kaist pipeline failed flip=%s", flip_ud)
-            return None
+    try:
+        labels = _run_upstream_pipeline(
+            cnn,
+            vendor=Path(status.vendor_root),
+            weights=Path(status.weights),
+            device=status.device,
+            resize=status.resize,
+            snake_iters=status.snake_iters,
+            bring_back_iters=status.bring_back_iters,
+            evolve_iters=status.evolve_iters,
+        )
+    except Exception:
+        logger.exception("kaist pipeline failed flip=%s", flip_ud)
+        return None
     labels = np.asarray(labels)
     if flip_ud:
         labels = np.ascontiguousarray(labels[::-1])
@@ -836,6 +877,86 @@ def _labels_for_work(
     return labels
 
 
+def _segment_kaist_box(
+    arr: np.ndarray,
+    box: tuple[int, int, int, int],
+    *,
+    status: KaistSegmentStatus,
+    dual: bool,
+    box_i: int,
+    h: int,
+    w: int,
+) -> list[ToothMask]:
+    """Same per-arch pipeline as before (iters, canvas, flip retry)."""
+    y0, y1, x0, x1 = box
+    crop_rgb = arr[y0:y1, x0:x1].copy()
+    work_src = prepare_kaist_work_rgb(crop_rgb)
+    work_rgb, scale = _resize_for_work(
+        work_src, status.max_side, status.min_side
+    )
+    preferred_flip = dual and box_i == 0  # upper intraoral: gingiva at top; KAIST expects extra-oral
+    arch = ("upper" if box_i == 0 else "lower") if dual else None
+    logger.info(
+        "kaist segment box=%s crop=%s work=%s scale=%.3f flip=%s snake=%s bring=%s evolve=%s device=%s",
+        box,
+        crop_rgb.shape[:2],
+        work_rgb.shape[:2],
+        scale,
+        preferred_flip,
+        status.snake_iters,
+        status.bring_back_iters,
+        status.evolve_iters,
+        status.device,
+    )
+    teeth: list[ToothMask] = []
+    used_flip = preferred_flip
+    for flip_ud in (preferred_flip, not preferred_flip):
+        t_flip = time.perf_counter()
+        labels = _labels_for_work(
+            work_rgb,
+            crop_rgb.shape[:2],
+            status=status,
+            flip_ud=flip_ud,
+        )
+        flip_ms = (time.perf_counter() - t_flip) * 1000
+        if labels is None:
+            logger.info(
+                "kaist box=%s flip=%s ms=%.0f failed",
+                box,
+                flip_ud,
+                flip_ms,
+            )
+            continue
+        teeth = _labels_to_tooth_masks(
+            labels,
+            full_h=h,
+            full_w=w,
+            box=box,
+            arch=arch,
+            crop_rgb=crop_rgb,
+        )
+        used_flip = flip_ud
+        logger.info(
+            "kaist box=%s flip=%s ms=%.0f teeth=%s",
+            box,
+            flip_ud,
+            flip_ms,
+            len(teeth),
+        )
+        if teeth:
+            break
+        if not dual:
+            break
+        logger.info("kaist box empty flip=%s — retrying opposite orientation", flip_ud)
+    logger.info(
+        "kaist box teeth=%s flip=%s arch=%s",
+        len(teeth),
+        used_flip,
+        arch,
+    )
+    return teeth
+
+
 def detect_teeth_kaist(
     image_rgb: np.ndarray,
     *,
@@ -853,6 +974,7 @@ def detect_teeth_kaist(
         logger.warning("kaist unavailable: %s", status.import_error)
         return []
 
+    started = time.perf_counter()
     h, w = arr.shape[:2]
     if crop:
         boxes = kaist_focus_boxes(arr)
@@ -861,62 +983,24 @@ def detect_teeth_kaist(
 
     gathered: list[ToothMask] = []
     dual = len(boxes) == 2
-    for box_i, box in enumerate(boxes):
-        y0, y1, x0, x1 = box
-        crop_rgb = arr[y0:y1, x0:x1].copy()
-        work_src = prepare_kaist_work_rgb(crop_rgb)
-        work_rgb, scale = _resize_for_work(
-            work_src, status.max_side, status.min_side
+
+    def run_box(box_i: int) -> list[ToothMask]:
+        return _segment_kaist_box(
+            arr,
+            boxes[box_i],
+            status=status,
+            dual=dual,
+            box_i=box_i,
+            h=h,
+            w=w,
         )
-        # Intraoral upper row hangs from gingiva at the TOP. KAIST was trained
-        # on extra-oral smiles (gingiva/lips below). Flip so it looks like one.
-        # If that orientation is empty, retry the opposite rather than drop the arch.
-        preferred_flip = dual and box_i == 0
-        arch = ("upper" if box_i == 0 else "lower") if dual else None
-        logger.info(
-            "kaist segment box=%s crop=%s work=%s scale=%.3f flip=%s snake=%s bring=%s evolve=%s device=%s",
-            box,
-            crop_rgb.shape[:2],
-            work_rgb.shape[:2],
-            scale,
-            preferred_flip,
-            status.snake_iters,
-            status.bring_back_iters,
-            status.evolve_iters,
-            status.device,
-        )
-        teeth: list[ToothMask] = []
-        used_flip = preferred_flip
-        for flip_ud in (preferred_flip, not preferred_flip):
-            labels = _labels_for_work(
-                work_rgb,
-                crop_rgb.shape[:2],
-                status=status,
-                flip_ud=flip_ud,
-            )
-            if labels is None:
-                continue
-            teeth = _labels_to_tooth_masks(
-                labels,
-                full_h=h,
-                full_w=w,
-                box=box,
-                arch=arch,
-                crop_rgb=crop_rgb,
-            )
-            used_flip = flip_ud
-            if teeth:
-                break
-            if not dual:
-                break
-            logger.info("kaist box empty flip=%s — retrying opposite orientation", flip_ud)
-        gathered.extend(teeth)
-        logger.info(
-            "kaist box teeth=%s flip=%s arch=%s",
-            len(teeth),
-            used_flip,
-            arch,
-        )
+
+    if dual:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            parts = list(pool.map(run_box, (0, 1)))
+        gathered = [t for part in parts for t in part]
+    else:
+        gathered = run_box(0)
 
     if not gathered and crop and boxes != [(0, h, 0, w)]:
         logger.info("kaist focus crops empty — retrying full frame")
@@ -934,9 +1018,10 @@ def detect_teeth_kaist(
             arch_index=t.arch_index,
         )
     logger.info(
-        "kaist done teeth=%s accepted=%s boxes=%s",
+        "kaist done teeth=%s accepted=%s boxes=%s ms=%.0f",
         len(gathered),
         sum(1 for t in gathered if not t.rejected),
         len(boxes),
+        (time.perf_counter() - started) * 1000,
     )
     return gathered

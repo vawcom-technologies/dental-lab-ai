@@ -1,5 +1,9 @@
 """Dental Lab AI — FastAPI application entrypoint."""
 
+from __future__ import annotations
+
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
@@ -26,11 +30,31 @@ from app.api import (
 from app.core.debug_middleware import DebugRequestMiddleware, configure_api_logging
 from app.openapi_docs import attach_custom_openapi
 
+logger = logging.getLogger("app")
+
+
+async def _warmup_kaist_background() -> None:
+    """Load existing KAIST weights after listen so Railway health is not blocked."""
+    try:
+        from app.ai.shade_segment_kaist import warmup_kaist_weights
+
+        result = await asyncio.to_thread(warmup_kaist_weights)
+        logger.info("kaist warmup %s", result)
+    except Exception:
+        logger.exception("kaist warmup failed")
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     configure_api_logging()
+    warm = asyncio.create_task(_warmup_kaist_background())
     yield
+    if not warm.done():
+        warm.cancel()
+        try:
+            await warm
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(

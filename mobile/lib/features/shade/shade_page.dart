@@ -1575,20 +1575,10 @@ class _ShadePageState extends State<ShadePage> {
   }
 
   /// Same mapping pipeline as gallery Upload & detect (`POST /api/ai/shade/suggest`).
+  /// [data] must already be a prepared shade JPEG (caller ran [prepareShadeJpeg]).
   Future<void> _applySuggestFromBytes(Uint8List data, String name) async {
-    // Native HEIC→JPEG + EXIF bake so preview pixels match backend transpose.
-    final baked = await prepareShadeJpeg(data);
-    if (mounted && !identical(baked.bytes, _previewBytes)) {
-      setState(() {
-        _setPreviewJpeg(
-          baked.bytes,
-          width: baked.width,
-          height: baked.height,
-        );
-      });
-    }
     final result = await widget.api.suggestShade(
-      baked.bytes,
+      data,
       shadeJpegFilename(name),
     );
     if (!mounted) return;
@@ -1672,17 +1662,36 @@ class _ShadePageState extends State<ShadePage> {
       final pid = _pid(_patient!);
       final detecting = AppLocalizations.of(context).shadeDetecting;
 
-      setState(() => _busy = true);
+      setState(() {
+        _busy = true;
+        _setPreviewJpeg(data, width: baked.width, height: baked.height);
+        _previewFilename = name;
+        _photoTransformController.value = Matrix4.identity();
+        _exitOutlineEdit(clearStatus: false);
+        _teeth = [];
+        _rememberTeeth();
+        _isolatedToothIndex = null;
+        _selectedToothIndex = null;
+        _finalShade = null;
+        _detected = '—';
+        _confidence = 0;
+        _topMatches = [];
+        _overallTopMatches = [];
+        _gum = null;
+        _pendingGumShade = null;
+      });
       final uploaded = await runWithToothLoadingDialog(
         context,
         message: detecting,
         action: () async {
-          final row = await widget.api.uploadShadeDetection(
+          final upload = widget.api.uploadShadeDetection(
             patientId: pid,
             bytes: data,
             filename: name,
           );
-          final result = await widget.api.suggestShade(data, name);
+          final suggest = widget.api.suggestShade(data, name);
+          final row = await upload;
+          final result = await suggest;
           return (row: row, result: result);
         },
       );
@@ -1691,10 +1700,6 @@ class _ShadePageState extends State<ShadePage> {
       setState(() {
         _allShadeItems = [uploaded.row, ..._allShadeItems];
         _shadeDetectionId = '${uploaded.row['id'] ?? ''}'.trim();
-        _setPreviewJpeg(data, width: baked.width, height: baked.height);
-        _previewFilename = name;
-        _photoTransformController.value = Matrix4.identity();
-        _exitOutlineEdit(clearStatus: false);
       });
 
       _applySuggestResult(uploaded.result);

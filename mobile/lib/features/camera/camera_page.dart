@@ -1291,7 +1291,7 @@ class _FilledNetworkPhoto extends StatelessWidget {
     required this.url,
     required this.headers,
     this.interactive = false,
-    this.fit = BoxFit.contain,
+    this.fit = BoxFit.cover,
   });
 
   final String url;
