@@ -37,6 +37,7 @@ class AppSidebar extends StatelessWidget {
     this.messageBadge = 0,
     this.notificationBadge = 0,
     this.showLaboratories = false,
+    this.asDrawer = false,
   });
 
   final AppNavItem active;
@@ -46,39 +47,64 @@ class AppSidebar extends StatelessWidget {
   final int messageBadge;
   final int notificationBadge;
   final bool showLaboratories;
+  /// Full-height menu for phones. iPad keeps the floating sidebar.
+  final bool asDrawer;
 
   @override
   Widget build(BuildContext context) {
     final s = AppLocalizations.of(context);
     final width = collapsed ? 72.0 : 248.0;
+    final hideToggle = asDrawer;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onHorizontalDragEnd: (details) {
-        final v = details.primaryVelocity ?? 0;
-        if (collapsed && v > 250) {
-          onToggle();
-        } else if (!collapsed && v < -250) {
-          onToggle();
-        }
-      },
+      onHorizontalDragEnd: hideToggle
+          ? null
+          : (details) {
+              final v = details.primaryVelocity ?? 0;
+              if (collapsed && v > 250) {
+                onToggle();
+              } else if (!collapsed && v < -250) {
+                onToggle();
+              }
+            },
       child: AnimatedContainer(
         duration: AppMotion.normal,
         curve: AppMotion.easeOut,
-        width: width,
-        margin: const EdgeInsets.fromLTRB(12, 12, 0, 12),
+        width: asDrawer ? null : width,
+        margin: asDrawer
+            ? EdgeInsets.zero
+            : const EdgeInsets.fromLTRB(12, 12, 0, 12),
         // Keep content at the target width while the sidebar animates,
         // otherwise the logo row overflows mid-tween.
         child: GlassSurface(
-          borderRadius: AppRadii.border,
-          blur: 22,
-          tint: AppColors.sidebarBg.withValues(alpha: 0.72),
-          child: ClipRect(
-            child: OverflowBox(
-              alignment: Alignment.centerLeft,
-              minWidth: width,
-              maxWidth: width,
-              child: SafeArea(
-                child: Column(
+          borderRadius: asDrawer ? BorderRadius.zero : AppRadii.border,
+          blur: asDrawer ? 0 : 22,
+          tint: AppColors.sidebarBg.withValues(alpha: asDrawer ? 1 : 0.72),
+          child: asDrawer
+              ? SafeArea(
+                  child: _sidebarColumn(context, s, hideToggle: true),
+                )
+              : ClipRect(
+                  child: OverflowBox(
+                    alignment: Alignment.centerLeft,
+                    minWidth: width,
+                    maxWidth: width,
+                    child: SafeArea(
+                      child: _sidebarColumn(context, s, hideToggle: false),
+                    ),
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sidebarColumn(
+    BuildContext context,
+    AppLocalizations s, {
+    required bool hideToggle,
+  }) {
+    return Column(
                   children: [
                     Padding(
                       padding:
@@ -87,12 +113,13 @@ class AppSidebar extends StatelessWidget {
                           ? Column(
                               children: [
                                 const BrandLogo(height: 26, width: 48),
-                                AppButtons.icon(
-                                  onPressed: onToggle,
-                                  tooltip: AppLocalizations.of(context).commonExpandSidebar,
-                                  icon: Icons.chevron_right_rounded,
-                                  color: AppColors.muted,
-                                ),
+                                if (!hideToggle)
+                                  AppButtons.icon(
+                                    onPressed: onToggle,
+                                    tooltip: AppLocalizations.of(context).commonExpandSidebar,
+                                    icon: Icons.chevron_right_rounded,
+                                    color: AppColors.muted,
+                                  ),
                               ],
                             )
                           : Column(
@@ -106,12 +133,13 @@ class AppSidebar extends StatelessWidget {
                                         child: BrandLogo(height: 48),
                                       ),
                                     ),
-                                    AppButtons.icon(
-                                      onPressed: onToggle,
-                                      tooltip: AppLocalizations.of(context).commonCollapseSidebar,
-                                      icon: Icons.chevron_left_rounded,
-                                      color: AppColors.muted,
-                                    ),
+                                    if (!hideToggle)
+                                      AppButtons.icon(
+                                        onPressed: onToggle,
+                                        tooltip: AppLocalizations.of(context).commonCollapseSidebar,
+                                        icon: Icons.chevron_left_rounded,
+                                        color: AppColors.muted,
+                                      ),
                                   ],
                                 ),
                                 const SizedBox(height: 8),
@@ -227,12 +255,6 @@ class AppSidebar extends StatelessWidget {
                       ),
                     ),
                   ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 

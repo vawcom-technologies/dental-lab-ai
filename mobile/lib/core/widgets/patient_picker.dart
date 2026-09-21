@@ -167,9 +167,14 @@ class _PatientPickerButtonState extends State<PatientPickerButton> {
         ),
       ],
       builder: (context, controller, child) {
-        final compact = AppBreakpoints.isPortrait(context);
+        final compact = AppBreakpoints.isPhone(context) ||
+            AppBreakpoints.isPortrait(context);
         return SizedBox(
-          width: compact ? 168 : widget.width,
+          width: AppBreakpoints.isPhone(context)
+              ? 150
+              : compact
+                  ? 168
+                  : widget.width,
           child: Touchable(
             enabled: widget.enabled,
             borderRadius: AppRadii.borderSm,

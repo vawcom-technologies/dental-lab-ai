@@ -17,6 +17,16 @@ class AppBreakpoints {
   /// Below this content width, Shade photo + result stack instead of 50/50.
   static const shadeStack = 680.0;
 
+  /// Compact phones (iPhone). iPad mini shortest side is 744pt — never
+  /// matches this, so iPad layouts stay on the tablet path.
+  static const phone = 600.0;
+
+  static bool isPhone(BuildContext context) {
+    return MediaQuery.sizeOf(context).shortestSide < phone;
+  }
+
+  static bool isPhoneSize(Size size) => size.shortestSide < phone;
+
   static bool isNarrowWindow(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     return size.height > size.width || size.width < collapseSidebar;
@@ -26,6 +36,39 @@ class AppBreakpoints {
     final size = MediaQuery.sizeOf(context);
     return size.height > size.width;
   }
+
+  /// Page chrome insets. Phone-only tightening; iPad keeps [landscape]
+  /// (and optional iPad-portrait insets).
+  static EdgeInsets pagePadding(
+    BuildContext context, {
+    EdgeInsets landscape = const EdgeInsets.fromLTRB(28, 24, 28, 24),
+    EdgeInsets? portrait,
+  }) {
+    if (isPhone(context)) {
+      return const EdgeInsets.fromLTRB(16, 12, 16, 12);
+    }
+    if (portrait != null && isPortrait(context)) return portrait;
+    return landscape;
+  }
+}
+
+/// Lets pages open the phone navigation drawer. Absent on iPad.
+class PhoneNavScope extends InheritedWidget {
+  const PhoneNavScope({
+    super.key,
+    required this.openMenu,
+    required super.child,
+  });
+
+  final VoidCallback openMenu;
+
+  static PhoneNavScope? maybeOf(BuildContext context) {
+    return context.dependOnInheritedWidgetOfExactType<PhoneNavScope>();
+  }
+
+  @override
+  bool updateShouldNotify(PhoneNavScope oldWidget) =>
+      openMenu != oldWidget.openMenu;
 }
 
 /// Two-pane layout: [panel] sits beside [content] when there is room and
@@ -84,7 +127,8 @@ class AdaptiveSplit extends StatelessWidget {
         // remount focused text fields (e.g. Messages composer in portrait).
         final screen = MediaQuery.sizeOf(context);
         final portrait = screen.height > screen.width;
-        final stacked = constraints.maxWidth < breakpoint ||
+        final stacked = AppBreakpoints.isPhoneSize(screen) ||
+            constraints.maxWidth < breakpoint ||
             (portrait && constraints.maxWidth < 980);
         if (!stacked) {
           final w = (constraints.maxWidth * panelFraction)

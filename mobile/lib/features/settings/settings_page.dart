@@ -6,6 +6,7 @@ import '../../core/auth/app_roles.dart';
 import '../../core/auth/session_coordinator.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/l10n/locale_controller.dart';
+import '../../core/layout/adaptive.dart';
 import '../../core/navigation/app_page_routes.dart';
 import '../../core/settings/app_settings.dart';
 import '../../core/theme/app_theme.dart';
@@ -178,16 +179,17 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
         slivers: [
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(28, 20, 28, 8),
+            padding: AppBreakpoints.pagePadding(context).copyWith(bottom: 8),
             sliver: SliverToBoxAdapter(
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
+                  const PhoneMenuButton(),
                   Expanded(
                     child: Text(
                       loc.settingsTitle,
                       style: AppFonts.style(
-                        fontSize: 34,
+                        fontSize: AppBreakpoints.isPhone(context) ? 28 : 34,
                         fontWeight: FontWeight.w700,
                         color: AppColors.navy,
                         letterSpacing: -0.6,
@@ -205,7 +207,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(28, 8, 28, 36),
+            padding: AppBreakpoints.pagePadding(context).copyWith(top: 8, bottom: 36),
             sliver: SliverLayoutBuilder(
               builder: (context, constraints) {
                 final wide = constraints.crossAxisExtent >= 900;
@@ -453,8 +455,10 @@ class _GlassProfileHero extends StatelessWidget {
               children: [
                 Text(
                   name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: AppFonts.style(
-                    fontSize: 22,
+                    fontSize: AppBreakpoints.isPhone(context) ? 18 : 22,
                     fontWeight: FontWeight.w700,
                     color: AppColors.navy,
                     letterSpacing: -0.3,
@@ -464,6 +468,8 @@ class _GlassProfileHero extends StatelessWidget {
                   const SizedBox(height: 3),
                   Text(
                     email,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: AppFonts.style(
                       fontSize: 15,
                       color: const Color(0xFF6B7C93),
@@ -474,6 +480,8 @@ class _GlassProfileHero extends StatelessWidget {
                   const SizedBox(height: 6),
                   Text(
                     subtitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: AppFonts.style(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,

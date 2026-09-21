@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/layout/adaptive.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../../core/l10n/app_localizations.dart';
 
@@ -26,27 +27,28 @@ class _SmilePreviewPageState extends State<SmilePreviewPage> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+      padding: AppBreakpoints.pagePadding(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Expanded(
+              const PhoneMenuButton(),
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       'Smile Preview',
                       style: TextStyle(
-                        fontSize: 28,
+                        fontSize: AppBreakpoints.isPhone(context) ? 20 : 28,
                         fontWeight: FontWeight.w700,
                         color: AppColors.navy,
                       ),
                     ),
                     Text(
                       'Select a tooth shape from the client library, then overlay on the patient photo (Week 3).',
-                      style: TextStyle(color: AppColors.muted),
+                      style: TextStyle(color: AppColors.muted, fontSize: AppBreakpoints.isPhone(context) ? 13 : 14),
                     ),
                   ],
                 ),
@@ -61,7 +63,10 @@ class _SmilePreviewPageState extends State<SmilePreviewPage> {
           ),
           const SizedBox(height: 16),
           Expanded(
-            child: Row(
+            child: Flex(
+              direction: AppBreakpoints.isPhone(context)
+                  ? Axis.vertical
+                  : Axis.horizontal,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Expanded(
@@ -161,9 +166,13 @@ class _SmilePreviewPageState extends State<SmilePreviewPage> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
                 SizedBox(
-                  width: 280,
+                  width: AppBreakpoints.isPhone(context) ? 0 : 12,
+                  height: AppBreakpoints.isPhone(context) ? 12 : 0,
+                ),
+                SizedBox(
+                  width: AppBreakpoints.isPhone(context) ? null : 280,
+                  height: AppBreakpoints.isPhone(context) ? 280 : null,
                   child: SectionCard(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,

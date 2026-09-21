@@ -753,11 +753,9 @@ class _InterpreterPageState extends State<InterpreterPage> {
     final selected = widget.patientSession.selected;
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(
-        portrait ? 16 : 28,
-        portrait ? 16 : 24,
-        portrait ? 16 : 28,
-        portrait ? 16 : 24,
+      padding: AppBreakpoints.pagePadding(
+        context,
+        portrait: const EdgeInsets.fromLTRB(16, 16, 16, 16),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

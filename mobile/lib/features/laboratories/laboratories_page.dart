@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/auth/app_roles.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/layout/adaptive.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'admin_user.dart';
@@ -188,7 +189,7 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
                   ? loc.updating
                   : loc.labsLoading,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+            padding: AppBreakpoints.pagePadding(context),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [

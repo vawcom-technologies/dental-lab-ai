@@ -1126,7 +1126,6 @@ class _CameraPageState extends State<CameraPage> {
     _error = AppSnackBars.drain(context, _error);
     _status = AppSnackBars.drain(context, _status, error: false);
     final canCapture = !_busy && _patient != null && _photos.length < maxPhotos;
-    final portrait = AppBreakpoints.isPortrait(context);
 
     // BusyBarrier covers take/upload (and other _runBusy work). Skip it while
     // the initial page loader is showing so we don't stack two tooth loaders.
@@ -1134,11 +1133,9 @@ class _CameraPageState extends State<CameraPage> {
       busy: _busy && !_loading,
       message: _busyLabel,
       child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          portrait ? 16 : 28,
-          portrait ? 16 : 24,
-          portrait ? 16 : 28,
-          portrait ? 16 : 24,
+        padding: AppBreakpoints.pagePadding(
+          context,
+          portrait: const EdgeInsets.fromLTRB(16, 16, 16, 16),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1243,7 +1240,12 @@ class _CameraEmpty extends StatelessWidget {
           borderRadius: BorderRadius.circular(24),
           blur: 18,
           tint: Colors.white.withValues(alpha: 0.55),
-          padding: const EdgeInsets.fromLTRB(36, 40, 36, 36),
+          padding: EdgeInsets.fromLTRB(
+            AppBreakpoints.isPhone(context) ? 20 : 36,
+            AppBreakpoints.isPhone(context) ? 24 : 40,
+            AppBreakpoints.isPhone(context) ? 20 : 36,
+            AppBreakpoints.isPhone(context) ? 24 : 36,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [

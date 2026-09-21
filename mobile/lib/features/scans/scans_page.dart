@@ -640,7 +640,7 @@ class _ScansPageState extends State<ScansPage>
         final t = _fsExpand.value.clamp(0.0, 1.0);
         final chrome = (1.0 - t).clamp(0.0, 1.0);
         final pad = EdgeInsets.lerp(
-          const EdgeInsets.fromLTRB(28, 24, 28, 24),
+          AppBreakpoints.pagePadding(context),
           EdgeInsets.zero,
           t,
         )!;

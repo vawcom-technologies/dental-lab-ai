@@ -948,11 +948,9 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
         final t = _fsExpand.value.clamp(0.0, 1.0);
         final chrome = (1.0 - t).clamp(0.0, 1.0);
         final pad = EdgeInsets.lerp(
-          EdgeInsets.fromLTRB(
-            portrait ? 16 : 28,
-            portrait ? 16 : 24,
-            portrait ? 16 : 28,
-            portrait ? 16 : 24,
+          AppBreakpoints.pagePadding(
+            context,
+            portrait: const EdgeInsets.fromLTRB(16, 16, 16, 16),
           ),
           EdgeInsets.zero,
           t,

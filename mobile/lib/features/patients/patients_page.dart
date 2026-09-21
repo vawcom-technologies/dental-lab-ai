@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
 import '../../core/auth/app_roles.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/layout/adaptive.dart';
 import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
@@ -360,7 +361,7 @@ class _PatientsPageState extends State<PatientsPage> {
           busy: blocked,
           message: opening ? loc.patientsOpening : null,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+            padding: AppBreakpoints.pagePadding(context),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -434,11 +435,11 @@ class _PatientsPageState extends State<PatientsPage> {
                   ],
                 ),
                 const SizedBox(height: 18),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: GlassSurface(
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final stackedSearch = AppBreakpoints.isPhone(context) ||
+                        constraints.maxWidth < 560;
+                    final search = GlassSurface(
                         borderRadius: BorderRadius.circular(16),
                         blur: 14,
                         tint: Colors.white.withValues(alpha: 0.55),
@@ -471,12 +472,8 @@ class _PatientsPageState extends State<PatientsPage> {
                             filled: false,
                           ),
                         ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    SizedBox(
-                      width: 200,
-                      child: GlassSurface(
+                      );
+                    final filter = GlassSurface(
                         borderRadius: BorderRadius.circular(16),
                         blur: 14,
                         tint: Colors.white.withValues(alpha: 0.55),
@@ -516,9 +513,26 @@ class _PatientsPageState extends State<PatientsPage> {
                                   },
                           ),
                         ),
-                      ),
-                    ),
-                  ],
+                      );
+                    if (stackedSearch) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          search,
+                          const SizedBox(height: 10),
+                          filter,
+                        ],
+                      );
+                    }
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(child: search),
+                        const SizedBox(width: 12),
+                        SizedBox(width: 200, child: filter),
+                      ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 16),
                 Expanded(

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/auth/app_roles.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/layout/adaptive.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 
@@ -185,7 +186,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final displayName = _name.text.trim().isEmpty ? 'User' : _name.text.trim();
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+      padding: AppBreakpoints.pagePadding(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -203,7 +204,10 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
           const SizedBox(height: 16),
           Expanded(
-            child: Row(
+            child: Flex(
+              direction: AppBreakpoints.isPhone(context)
+                  ? Axis.vertical
+                  : Axis.horizontal,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Expanded(
@@ -302,7 +306,10 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 14),
+                SizedBox(
+                  width: AppBreakpoints.isPhone(context) ? 0 : 14,
+                  height: AppBreakpoints.isPhone(context) ? 12 : 0,
+                ),
                 Expanded(
                   flex: 4,
                   child: Column(

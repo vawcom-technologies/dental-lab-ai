@@ -264,13 +264,11 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final portrait = AppBreakpoints.isPortrait(context);
     return Padding(
-      padding: EdgeInsets.fromLTRB(
-        portrait ? 16 : 28,
-        portrait ? 16 : 22,
-        portrait ? 16 : 28,
-        portrait ? 16 : 22,
+      padding: AppBreakpoints.pagePadding(
+        context,
+        landscape: const EdgeInsets.fromLTRB(28, 22, 28, 22),
+        portrait: const EdgeInsets.fromLTRB(16, 16, 16, 16),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -720,7 +718,12 @@ class _AppointmentsEmpty extends StatelessWidget {
           borderRadius: BorderRadius.circular(24),
           blur: 18,
           tint: Colors.white.withValues(alpha: 0.55),
-          padding: const EdgeInsets.fromLTRB(36, 40, 36, 36),
+          padding: EdgeInsets.fromLTRB(
+            AppBreakpoints.isPhone(context) ? 20 : 36,
+            AppBreakpoints.isPhone(context) ? 24 : 40,
+            AppBreakpoints.isPhone(context) ? 20 : 36,
+            AppBreakpoints.isPhone(context) ? 24 : 36,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [

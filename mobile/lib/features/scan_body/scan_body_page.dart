@@ -461,7 +461,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
       busy: _busy || _saving,
       message: _saving ? AppLocalizations.of(context).saving : AppLocalizations.of(context).commonWorking,
       child: Padding(
-      padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+      padding: AppBreakpoints.pagePadding(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

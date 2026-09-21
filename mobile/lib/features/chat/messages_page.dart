@@ -101,7 +101,7 @@ class _MessagesPageState extends State<MessagesPage> {
     return ChangeNotifierProvider<ChatController>.value(
       value: _controller,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+        padding: AppBreakpoints.pagePadding(context),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

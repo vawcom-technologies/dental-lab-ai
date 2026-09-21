@@ -4,6 +4,7 @@ import '../l10n/app_localizations.dart';
 import '../layout/adaptive.dart';
 import '../navigation/app_page_routes.dart';
 import '../theme/app_theme.dart';
+import 'app_buttons.dart';
 import 'glass_surface.dart';
 import 'pressable.dart';
 import 'soft_pill_button.dart';
@@ -373,17 +374,18 @@ class PageHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final compact = AppBreakpoints.isPortrait(context);
+    final phone = AppBreakpoints.isPhone(context);
+    final compact = phone || AppBreakpoints.isPortrait(context);
     final titleBlock = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           title,
-          maxLines: 1,
+          maxLines: phone ? 2 : 1,
           overflow: TextOverflow.ellipsis,
-          softWrap: false,
+          softWrap: phone,
           style: AppFonts.style(
-            fontSize: compact ? 22 : 28,
+            fontSize: phone ? 20 : (compact ? 22 : 28),
             fontWeight: FontWeight.w700,
             color: AppColors.navy,
             letterSpacing: -0.4,
@@ -435,11 +437,13 @@ class PageHeader extends StatelessWidget {
         final maxW = constraints.maxWidth.isFinite
             ? constraints.maxWidth
             : MediaQuery.sizeOf(context).width;
+        final phone = AppBreakpoints.isPhone(context);
         final stacked =
-            AppBreakpoints.isPortrait(context) || maxW < 980;
+            phone || AppBreakpoints.isPortrait(context) || maxW < 980;
         final ident = Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
+            const PhoneMenuButton(),
             if (icon != null) ...[
               NeoIconBadge(icon: icon!, size: stacked ? 40 : 44, iconSize: 20),
               const SizedBox(width: 12),
@@ -525,6 +529,27 @@ class SectionLabel extends StatelessWidget {
         fontWeight: FontWeight.w600,
         color: AppColors.muted,
         letterSpacing: 0.4,
+      ),
+    );
+  }
+}
+
+/// Hamburger that opens the phone drawer. Hidden on iPad.
+class PhoneMenuButton extends StatelessWidget {
+  const PhoneMenuButton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final nav = PhoneNavScope.maybeOf(context);
+    if (nav == null || !AppBreakpoints.isPhone(context)) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: AppButtons.icon(
+        tooltip: AppLocalizations.of(context).commonMenu,
+        onPressed: nav.openMenu,
+        icon: Icons.menu_rounded,
       ),
     );
   }

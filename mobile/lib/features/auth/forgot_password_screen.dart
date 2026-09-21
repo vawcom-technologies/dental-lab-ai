@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/layout/adaptive.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/brand_logo.dart';
 import '../../core/widgets/ui_kit.dart';
@@ -65,26 +66,40 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
+    final phone = AppBreakpoints.isPhone(context);
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     return Scaffold(
       backgroundColor: AppColors.surface,
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Padding(
-            padding: const EdgeInsets.all(28),
-            child: SectionCard(
-              padding: const EdgeInsets.fromLTRB(28, 28, 28, 22),
-              child: Column(
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                phone ? 16 : 28,
+                phone ? 12 : 28,
+                phone ? 16 : 28,
+                (phone ? 16 : 28) + bottomInset,
+              ),
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              child: SectionCard(
+                padding: EdgeInsets.fromLTRB(
+                  phone ? 20 : 28,
+                  phone ? 22 : 28,
+                  phone ? 20 : 28,
+                  phone ? 16 : 22,
+                ),
+                child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Center(child: BrandLogo(height: 64)),
+                  Center(child: BrandLogo(height: phone ? 48 : 64)),
                   const SizedBox(height: 16),
                   Text(
                     loc.forgotPasswordTitle,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 24,
+                    style: TextStyle(
+                      fontSize: phone ? 22 : 24,
                       fontWeight: FontWeight.w700,
                       color: AppColors.navy,
                     ),
@@ -129,6 +144,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             ),
           ),
         ),
+      ),
       ),
     );
   }

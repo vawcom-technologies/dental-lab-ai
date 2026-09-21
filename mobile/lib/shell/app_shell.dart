@@ -53,6 +53,7 @@ class _AppShellState extends State<AppShell> {
   bool _sidebarCollapsed = false;
   /// When the window is narrow (iPad portrait), expand overrides auto-collapse.
   bool _narrowSidebarOpen = false;
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
   late final ChatController _chat;
   late final PatientSession _patients;
   late final NotificationInboxController _inbox;
@@ -235,6 +236,61 @@ class _AppShellState extends State<AppShell> {
                   // flip sidebar collapsed/expanded (that remounts Messages and
                   // dismisses the composer immediately).
                   final screen = MediaQuery.sizeOf(context);
+                  final phone = AppBreakpoints.isPhoneSize(screen);
+                  final pages = ClipRect(
+                    child: AppPaneFade(
+                      token: _active,
+                      child: IndexedStack(
+                        index: activeIndex < 0 ? 0 : activeIndex,
+                        sizing: StackFit.expand,
+                        children: [
+                          for (final item in _navOrder)
+                            _mountedPages.contains(item)
+                                ? KeyedSubtree(
+                                    key: _pageKey(item),
+                                    child: TickerMode(
+                                      enabled: item == _active,
+                                      child: RepaintBoundary(
+                                        child: _createPage(item),
+                                      ),
+                                    ),
+                                  )
+                                : const SizedBox.shrink(),
+                        ],
+                      ),
+                    ),
+                  );
+
+                  if (phone) {
+                    return PhoneNavScope(
+                      openMenu: () =>
+                          _scaffoldKey.currentState?.openDrawer(),
+                      child: Scaffold(
+                        key: _scaffoldKey,
+                        backgroundColor: Colors.transparent,
+                        drawer: Drawer(
+                          backgroundColor: AppColors.sidebarBg,
+                          width: (screen.width * 0.86).clamp(260.0, 320.0),
+                          child: AppSidebar(
+                            active: _active,
+                            collapsed: false,
+                            asDrawer: true,
+                            onToggle: () =>
+                                _scaffoldKey.currentState?.closeDrawer(),
+                            onSelect: (item) {
+                              _scaffoldKey.currentState?.closeDrawer();
+                              _go(item);
+                            },
+                            messageBadge: _messageBadge,
+                            notificationBadge: _notificationBadge,
+                            showLaboratories: widget.api.isAdmin,
+                          ),
+                        ),
+                        body: SafeArea(child: pages),
+                      ),
+                    );
+                  }
+
                   final narrow = screen.height > screen.width ||
                       constraints.maxWidth < AppBreakpoints.collapseSidebar;
                   final sidebarCollapsed =
@@ -266,29 +322,7 @@ class _AppShellState extends State<AppShell> {
                       Expanded(
                         child: SafeArea(
                           left: false,
-                          child: ClipRect(
-                            child: AppPaneFade(
-                              token: _active,
-                              child: IndexedStack(
-                                index: activeIndex < 0 ? 0 : activeIndex,
-                                sizing: StackFit.expand,
-                                children: [
-                                  for (final item in _navOrder)
-                                    _mountedPages.contains(item)
-                                        ? KeyedSubtree(
-                                            key: _pageKey(item),
-                                            child: TickerMode(
-                                              enabled: item == _active,
-                                              child: RepaintBoundary(
-                                                child: _createPage(item),
-                                              ),
-                                            ),
-                                          )
-                                        : const SizedBox.shrink(),
-                                ],
-                              ),
-                            ),
-                          ),
+                          child: pages,
                         ),
                       ),
                     ],

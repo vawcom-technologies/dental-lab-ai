@@ -253,7 +253,7 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+      padding: AppBreakpoints.pagePadding(context),
       child: Column(
 
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -379,8 +379,10 @@ class _DashboardPageState extends State<DashboardPage> {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        const _TableHeader(),
-                        const Divider(height: 1),
+                        if (!AppBreakpoints.isPhone(context)) ...[
+                          const _TableHeader(),
+                          const Divider(height: 1),
+                        ],
                         Expanded(
                           child: _loading
                               ? ToothPageLoader(
@@ -550,12 +552,17 @@ class _KpiCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(color: AppColors.muted, fontSize: 12)),
+          Text(
+            title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: AppColors.muted, fontSize: 12),
+          ),
           const SizedBox(height: 8),
           Text(
             value,
-            style: const TextStyle(
-              fontSize: 28,
+            style: TextStyle(
+              fontSize: AppBreakpoints.isPhone(context) ? 24 : 28,
               fontWeight: FontWeight.w700,
               color: AppColors.navy,
             ),
@@ -563,6 +570,8 @@ class _KpiCard extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             hint,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(color: hintColor, fontSize: 12, fontWeight: FontWeight.w600),
           ),
         ],
@@ -620,6 +629,46 @@ class _PatientRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (AppBreakpoints.isPhone(context)) {
+      return Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: AppColors.border)),
+        ),
+        child: Row(
+          children: [
+            InitialsAvatar(name: name, size: 36),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$id · $updated',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            PatientStatusMenu(
+              status: status,
+              enabled: canEditStatus && onStatusChanged != null,
+              onSelected: onStatusChanged,
+            ),
+          ],
+        ),
+      );
+    }
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12),
       decoration: const BoxDecoration(

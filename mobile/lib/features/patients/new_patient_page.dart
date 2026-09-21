@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/layout/adaptive.dart';
 import '../../core/session/patient_session.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'patient_models.dart';
@@ -79,7 +80,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+      padding: AppBreakpoints.pagePadding(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

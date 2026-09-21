@@ -29,5 +29,9 @@ bool _looksLikeIosSimulator() {
     final value = Platform.environment[key];
     if (value != null && value.isNotEmpty) return true;
   }
+  // Flutter does not forward SIMULATOR_* into the Dart isolate. The sandbox
+  // HOME on Simulator always lives under CoreSimulator.
+  final home = Platform.environment['HOME'] ?? '';
+  if (home.contains('CoreSimulator')) return true;
   return false;
 }

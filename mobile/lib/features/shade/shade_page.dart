@@ -2096,11 +2096,9 @@ class _ShadePageState extends State<ShadePage> {
         _sessionCollapsed || (portrait && !_sessionPinnedOpen);
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(
-        portrait ? 16 : 28,
-        portrait ? 16 : 24,
-        portrait ? 16 : 28,
-        portrait ? 16 : 24,
+      padding: AppBreakpoints.pagePadding(
+        context,
+        portrait: const EdgeInsets.fromLTRB(16, 16, 16, 16),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

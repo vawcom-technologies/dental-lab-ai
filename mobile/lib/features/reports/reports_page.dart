@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/layout/adaptive.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../../shell/app_sidebar.dart';
@@ -181,7 +182,7 @@ class _ReportsPageState extends State<ReportsPage> {
     );
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+      padding: AppBreakpoints.pagePadding(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -308,7 +309,7 @@ class _PeriodControl extends StatelessWidget {
     return Align(
       alignment: Alignment.centerLeft,
       child: SizedBox(
-        width: 420,
+        width: AppBreakpoints.isPhone(context) ? double.infinity : 420,
         child: IgnorePointer(
           ignoring: !enabled,
           child: Opacity(

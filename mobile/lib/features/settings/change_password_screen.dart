@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/auth/session_coordinator.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/layout/adaptive.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/brand_logo.dart';
 import '../../core/widgets/ui_kit.dart';
@@ -100,7 +101,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 460),
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(28),
+            padding: AppBreakpoints.isPhone(context)
+                ? const EdgeInsets.all(16)
+                : const EdgeInsets.all(28),
             child: SectionCard(
               padding: const EdgeInsets.fromLTRB(26, 26, 26, 20),
               child: Column(

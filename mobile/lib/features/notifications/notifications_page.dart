@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/layout/adaptive.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/touchable.dart';
 import '../../core/widgets/ui_kit.dart';
@@ -173,7 +174,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     final visible = _visible;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+      padding: AppBreakpoints.pagePadding(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

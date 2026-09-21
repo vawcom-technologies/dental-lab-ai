@@ -524,6 +524,7 @@ class AppLocalizations {
   String get commonOneYearOld => _t('common.oneYearOld');
   String get commonExpandSidebar => _t('common.expandSidebar');
   String get commonCollapseSidebar => _t('common.collapseSidebar');
+  String get commonMenu => _t('common.menu');
   String get commonShowPassword => _t('common.showPassword');
   String get commonHidePassword => _t('common.hidePassword');
   String get commonMinPasswordLength => _t('common.minPasswordLength');
@@ -1493,6 +1494,7 @@ class AppLocalizations {
     'common.oneYearOld': '1 year old',
     'common.expandSidebar': 'Expand sidebar',
     'common.collapseSidebar': 'Collapse sidebar',
+    'common.menu': 'Menu',
     'common.showPassword': 'Show password',
     'common.hidePassword': 'Hide password',
     'common.minPasswordLength': 'At least 8 characters',
@@ -2278,6 +2280,7 @@ class AppLocalizations {
     'common.oneYearOld': '1 Jahr alt',
     'common.expandSidebar': 'Seitenleiste erweitern',
     'common.collapseSidebar': 'Seitenleiste einklappen',
+    'common.menu': 'Menü',
     'common.showPassword': 'Passwort anzeigen',
     'common.hidePassword': 'Passwort verbergen',
     'common.minPasswordLength': 'Mindestens 8 Zeichen',
