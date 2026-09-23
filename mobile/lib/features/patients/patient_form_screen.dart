@@ -124,7 +124,9 @@ class _PatientFormScreenState extends State<PatientFormScreen> {
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _notes,
-                    decoration: const InputDecoration(labelText: 'Notes'),
+                    decoration: InputDecoration(
+                      labelText: AppLocalizations.of(context).notes,
+                    ),
                     maxLines: 3,
                   ),
                   const SizedBox(height: 24),

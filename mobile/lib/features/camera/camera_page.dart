@@ -3,12 +3,11 @@ import 'dart:typed_data';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:intl/intl.dart';
-
 import '../../core/api/api_client.dart';
 import '../../core/haptics/app_haptics.dart';
 import '../../core/images/orient_image.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/l10n/date_formats.dart';
 import '../../core/layout/adaptive.dart';
 import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
@@ -131,7 +130,7 @@ class _CameraPageState extends State<CameraPage> {
     final s = '$raw'.trim();
     if (s.isEmpty) return '';
     try {
-      return DateFormat('MMM d, h:mm a').format(DateTime.parse(s).toLocal());
+      return formatAppDateTime(context, DateTime.parse(s).toLocal());
     } catch (_) {
       return s;
     }

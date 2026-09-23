@@ -801,6 +801,11 @@ class AppLocalizations {
   String get smileModelOpen => _t('smile.modelOpen');
   String get smileModelClosed => _t('smile.modelClosed');
   String get smileUseThisModel => _t('smile.useThisModel');
+  String get smileUpperJaw => _t('smile.upperJaw');
+  String get smileLowerJaw => _t('smile.lowerJaw');
+  String get patientsNoNotes => _t('patients.noNotes');
+  String get patientsNoClinicalNotes => _t('patients.noClinicalNotes');
+  String get appointmentsNoNotes => _t('appointments.noNotes');
   String get smileNudge => _t('smile.nudge');
   String get smileResetPlacement => _t('smile.resetPlacement');
   String get smileCenterShape => _t('smile.centerShape');
@@ -1723,6 +1728,11 @@ class AppLocalizations {
     'smile.modelOpen': 'Open',
     'smile.modelClosed': 'Closed',
     'smile.useThisModel': 'Use this model',
+    'smile.upperJaw': 'Upper jaw',
+    'smile.lowerJaw': 'Lower jaw',
+    'patients.noNotes': 'No notes',
+    'patients.noClinicalNotes': 'No clinical notes yet.',
+    'appointments.noNotes': 'No notes',
     'smile.nudge': 'Nudge',
     'smile.resetPlacement': 'Reset placement',
     'smile.centerShape': 'Center shape',
@@ -2514,6 +2524,11 @@ class AppLocalizations {
     'smile.modelOpen': 'Offen',
     'smile.modelClosed': 'Geschlossen',
     'smile.useThisModel': 'Dieses Modell verwenden',
+    'smile.upperJaw': 'Oberkiefer',
+    'smile.lowerJaw': 'Unterkiefer',
+    'patients.noNotes': 'Keine Notizen',
+    'patients.noClinicalNotes': 'Noch keine klinischen Notizen.',
+    'appointments.noNotes': 'Keine Notizen',
     'smile.nudge': 'Verschieben',
     'smile.resetPlacement': 'Platzierung zurücksetzen',
     'smile.centerShape': 'Form zentrieren',

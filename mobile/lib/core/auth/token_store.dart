@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// Keychain / Keystore persistence for JWTs. Never use SharedPreferences.
@@ -18,14 +19,27 @@ class TokenStore {
     required String? refreshToken,
   }) async {
     if (accessToken != null && accessToken.isNotEmpty) {
-      await _storage.write(key: _accessKey, value: accessToken);
+      await _write(_accessKey, accessToken);
     } else {
       await _storage.delete(key: _accessKey);
     }
     if (refreshToken != null && refreshToken.isNotEmpty) {
-      await _storage.write(key: _refreshKey, value: refreshToken);
+      await _write(_refreshKey, refreshToken);
     } else {
       await _storage.delete(key: _refreshKey);
+    }
+  }
+
+  /// iOS keychain can throw -25299 (item already exists) on overwrite.
+  Future<void> _write(String key, String value) async {
+    try {
+      await _storage.write(key: key, value: value);
+    } on PlatformException catch (e) {
+      final duplicate = e.code == '-25299' ||
+          '${e.message}'.contains('already exists');
+      if (!duplicate) rethrow;
+      await _storage.delete(key: key);
+      await _storage.write(key: key, value: value);
     }
   }
 

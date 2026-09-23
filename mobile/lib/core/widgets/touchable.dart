@@ -20,6 +20,17 @@ class EliteScrollBehavior extends CupertinoScrollBehavior {
   ScrollPhysics getScrollPhysics(BuildContext context) {
     return const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics());
   }
+
+  @override
+  Widget buildScrollbar(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) {
+    // Never attach a shared PrimaryScrollController scrollbar — several
+    // pages stay mounted in the shell IndexedStack.
+    return child;
+  }
 }
 
 /// Soft press scale + optional haptic — for nav rows, chips, custom controls.

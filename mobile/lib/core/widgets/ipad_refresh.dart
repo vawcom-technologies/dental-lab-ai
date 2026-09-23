@@ -26,6 +26,7 @@ class IpadRefresh extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CustomScrollView(
+      primary: false,
       physics: const BouncingScrollPhysics(
         parent: AlwaysScrollableScrollPhysics(),
       ),

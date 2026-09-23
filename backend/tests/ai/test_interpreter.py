@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from app.ai.interpreter import LANGUAGES, language_or_raise, translate_text
+from app.ai.interpreter import (
+    LANGUAGES,
+    detect_formality,
+    language_or_raise,
+    translate_text,
+)
 
 
 def test_language_codes_are_unique():
@@ -22,6 +27,16 @@ def test_rtl_flags():
     rtl = {row["code"] for row in LANGUAGES if row["rtl"]}
     assert {"ar", "fa", "ur", "he", "ckb", "ku", "ps"} <= rtl
     assert "de" not in rtl
+
+
+def test_detect_formality_defaults_to_sie():
+    assert detect_formality("Bitte den Mund öffnen.", "de", "ar") == "formal"
+    assert detect_formality("Please open your mouth.", "en", "de") == "formal"
+
+
+def test_detect_formality_keeps_du_and_sie():
+    assert detect_formality("Kannst du den Mund öffnen?", "de", "en") == "informal"
+    assert detect_formality("Können Sie den Mund öffnen?", "de", "en") == "formal"
 
 
 def test_same_language_is_identity():

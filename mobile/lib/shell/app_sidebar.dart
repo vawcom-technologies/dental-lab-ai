@@ -157,6 +157,7 @@ class AppSidebar extends StatelessWidget {
                     ),
                     Expanded(
                       child: ListView(
+                        primary: false,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 10,
                           vertical: 6,

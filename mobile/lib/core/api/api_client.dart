@@ -1629,6 +1629,7 @@ class ApiClient {
     required String text,
     required String sourceLang,
     required String targetLang,
+    String? formality,
   }) async {
     final res = await _http
         .post(
@@ -1638,6 +1639,7 @@ class ApiClient {
             'text': text,
             'source_lang': sourceLang,
             'target_lang': targetLang,
+            ?formality: formality,
           }),
         )
         .timeout(const Duration(seconds: 45));
@@ -1650,6 +1652,7 @@ class ApiClient {
     required String filename,
     required String sourceLang,
     required String targetLang,
+    String? formality,
   }) async {
     final req = http.MultipartRequest(
       'POST',
@@ -1658,6 +1661,7 @@ class ApiClient {
     req.headers.addAll(_authHeaders);
     req.fields['source_lang'] = sourceLang;
     req.fields['target_lang'] = targetLang;
+    if (formality != null) req.fields['formality'] = formality;
     req.files.add(
       http.MultipartFile.fromBytes('file', bytes, filename: filename),
     );

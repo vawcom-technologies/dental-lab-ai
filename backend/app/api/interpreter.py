@@ -24,6 +24,7 @@ class InterpreterTurnIn(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
     source_lang: str = Field(min_length=2, max_length=8)
     target_lang: str = Field(min_length=2, max_length=8)
+    formality: str | None = Field(default=None, max_length=16)
 
 
 def _http(exc: InterpreterError) -> HTTPException:
@@ -49,6 +50,7 @@ async def interpreter_turn(
             text=payload.text,
             source_lang=payload.source_lang,
             target_lang=payload.target_lang,
+            formality=payload.formality,
         )
     except InterpreterError as exc:
         raise _http(exc) from exc
@@ -67,6 +69,7 @@ async def interpreter_turn(
 async def interpreter_turn_audio(
     source_lang: str = Form(...),
     target_lang: str = Form(...),
+    formality: str | None = Form(None),
     file: UploadFile = File(...),
     _: AuthUser = Depends(require_dentist),
 ):
@@ -78,6 +81,7 @@ async def interpreter_turn_audio(
             filename=file.filename or "speech.m4a",
             source_lang=source_lang,
             target_lang=target_lang,
+            formality=formality,
         )
     except InterpreterError as exc:
         raise _http(exc) from exc

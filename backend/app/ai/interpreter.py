@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -182,11 +183,44 @@ def configured_providers() -> dict[str, str]:
     return {"translate": translate, "stt": stt}
 
 
+_INFORMAL_DE = re.compile(
+    r"\b(du|dir|dich|dein|deine|deinen|deinem|deiner|euch|euer|eure)\b",
+    re.IGNORECASE,
+)
+_FORMAL_DE = re.compile(r"\b(Sie|Ihnen|Ihre|Ihren|Ihrem|Ihrer)\b")
+
+
+def detect_formality(text: str, source_lang: str, target_lang: str) -> str:
+    """'formal' or 'informal'. Clinic German defaults to Sie unless they said du."""
+    src = (source_lang or "").lower()
+    dst = (target_lang or "").lower()
+    if src != "de" and dst != "de":
+        return "formal"
+    if _INFORMAL_DE.search(text or ""):
+        return "informal"
+    if _FORMAL_DE.search(text or ""):
+        return "formal"
+    return "formal"
+
+
+def _output_misses_formality(text: str, target_lang: str, formality: str) -> bool:
+    if (target_lang or "").lower() != "de":
+        return False
+    informal = bool(_INFORMAL_DE.search(text or ""))
+    formal = bool(_FORMAL_DE.search(text or ""))
+    if formality == "formal" and informal:
+        return True
+    if formality == "informal" and formal and not informal:
+        return True
+    return False
+
+
 def translate_text(
     text: str,
     *,
     source_lang: str,
     target_lang: str,
+    formality: str | None = None,
 ) -> dict[str, Any]:
     original = (text or "").strip()
     if not original:
@@ -204,9 +238,15 @@ def translate_text(
             "target_lang": dst["code"],
             "provider": "identity",
             "stt": False,
+            "formality": (formality or detect_formality(original, source_lang, target_lang)),
         }
 
+    wanted = (formality or detect_formality(original, source_lang, target_lang)).strip().lower()
+    if wanted not in {"formal", "informal"}:
+        wanted = "formal"
+
     errors: list[str] = []
+    fallback: dict[str, Any] | None = None
     for name, fn in (
         ("deepl", _deepl_translate),
         ("google", _google_translate),
@@ -214,21 +254,29 @@ def translate_text(
         ("gtx", _gtx_translate),
     ):
         try:
-            translated = fn(original, src["code"], dst["code"])
+            translated = fn(original, src["code"], dst["code"], wanted)
             if translated:
-                return {
+                payload = {
                     "original": original,
                     "translated": translated,
                     "source_lang": src["code"],
                     "target_lang": dst["code"],
                     "provider": name,
                     "stt": False,
+                    "formality": wanted,
                 }
+                if not _output_misses_formality(translated, dst["code"], wanted):
+                    return payload
+                if fallback is None:
+                    fallback = payload
         except InterpreterError as exc:
             errors.append(f"{name}: {exc}")
         except Exception as exc:  # pragma: no cover - network
             logger.info("interpreter provider %s failed: %s", name, type(exc).__name__)
             errors.append(f"{name}: unavailable")
+
+    if fallback is not None:
+        return fallback
 
     raise InterpreterError(
         "Translation is not available right now. "
@@ -286,6 +334,7 @@ def run_turn(
     filename: str = "speech.m4a",
     source_lang: str,
     target_lang: str,
+    formality: str | None = None,
 ) -> dict[str, Any]:
     spoken = False
     if audio:
@@ -295,12 +344,28 @@ def run_turn(
         text or "",
         source_lang=source_lang,
         target_lang=target_lang,
+        formality=formality,
     )
     result["stt"] = spoken
     return result
 
 
-def _deepl_translate(text: str, source: str, target: str) -> str | None:
+_DEEPL_FORMALITY_TARGETS = {
+    "DE",
+    "FR",
+    "IT",
+    "ES",
+    "NL",
+    "PL",
+    "PT",
+    "JA",
+    "RU",
+}
+
+
+def _deepl_translate(
+    text: str, source: str, target: str, formality: str = "formal"
+) -> str | None:
     key = (settings.deepl_api_key or "").strip()
     if not key:
         return None
@@ -316,6 +381,8 @@ def _deepl_translate(text: str, source: str, target: str) -> str | None:
     data: dict[str, Any] = {"text": [text], "target_lang": dst}
     if src:
         data["source_lang"] = src
+    if dst in _DEEPL_FORMALITY_TARGETS:
+        data["formality"] = "prefer_more" if formality == "formal" else "prefer_less"
     with httpx.Client(timeout=_HTTP_TIMEOUT) as client:
         res = client.post(
             base,
@@ -330,7 +397,9 @@ def _deepl_translate(text: str, source: str, target: str) -> str | None:
     return str(translations[0].get("text") or "").strip()
 
 
-def _google_translate(text: str, source: str, target: str) -> str | None:
+def _google_translate(
+    text: str, source: str, target: str, _formality: str = "formal"
+) -> str | None:
     key = (settings.google_translate_api_key or "").strip()
     if not key:
         return None
@@ -355,7 +424,9 @@ def _google_translate(text: str, source: str, target: str) -> str | None:
     return str(translations[0].get("translatedText") or "").strip()
 
 
-def _openai_translate(text: str, source: str, target: str) -> str | None:
+def _openai_translate(
+    text: str, source: str, target: str, formality: str = "formal"
+) -> str | None:
     key = (settings.openai_api_key or "").strip()
     if not key:
         return None
@@ -366,6 +437,14 @@ def _openai_translate(text: str, source: str, target: str) -> str | None:
         "Return only the translation, no quotes or notes. "
         "Keep medical/dental terms accurate."
     )
+    if dst["code"] == "de":
+        prompt += (
+            " Address the listener with informal German du/dir/dich, never Sie."
+            if formality == "informal"
+            else " Address the listener with formal German Sie/Ihnen/Ihr, never du/dir/dich."
+        )
+    elif src["code"] == "de":
+        prompt += " Preserve the source formality (Sie vs du) in the translation."
     with httpx.Client(timeout=_HTTP_TIMEOUT) as client:
         res = client.post(
             "https://api.openai.com/v1/chat/completions",
@@ -388,7 +467,9 @@ def _openai_translate(text: str, source: str, target: str) -> str | None:
     return content.strip().strip('"')
 
 
-def _gtx_translate(text: str, source: str, target: str) -> str | None:
+def _gtx_translate(
+    text: str, source: str, target: str, _formality: str = "formal"
+) -> str | None:
     if not settings.interpreter_allow_gtx_fallback:
         return None
     params = {

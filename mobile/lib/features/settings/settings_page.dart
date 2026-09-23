@@ -174,6 +174,7 @@ class _SettingsPageState extends State<SettingsPage> {
       busy: _deleting,
       message: loc.settingsDeletingAccount,
       child: CustomScrollView(
+        primary: false,
         physics: const BouncingScrollPhysics(
           parent: AlwaysScrollableScrollPhysics(),
         ),

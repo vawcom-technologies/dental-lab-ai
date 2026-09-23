@@ -28,6 +28,8 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Elite Dent connects to the lab server on your local network during clinic setup.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Elite Dent may access location while you import chairside photos that already include it, or when checking the clinic network during setup. The app does not track your position or share it.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Elite Dent needs the camera to capture chairside patient photos and record chat video messages.</string>
 	<key>NSMicrophoneUsageDescription</key>

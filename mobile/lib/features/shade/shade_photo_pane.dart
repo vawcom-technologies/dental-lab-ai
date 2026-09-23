@@ -171,7 +171,7 @@ class ShadePhotoPane extends StatelessWidget {
                                 previewBytes!,
                                 fit: BoxFit.contain,
                                 gaplessPlayback: true,
-                                filterQuality: FilterQuality.low,
+                                filterQuality: FilterQuality.high,
                               ),
                               if (teeth.isNotEmpty && !busy)
                                 Positioned.fill(

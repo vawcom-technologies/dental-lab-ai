@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../theme/app_theme.dart';
 import 'app_buttons.dart';
 import '../l10n/app_localizations.dart';
+import '../l10n/date_formats.dart';
 
 /// Form field that stores ISO `yyyy-MM-dd` while showing a friendly DOB label.
 class DobPickerField extends StatelessWidget {
@@ -21,7 +22,9 @@ class DobPickerField extends StatelessWidget {
 
   static String formatDisplay(DateTime dob, [BuildContext? context]) {
     final age = DentalDatePickerDialog.ageInYears(dob);
-    final date = DateFormat('MMM d, yyyy').format(dob);
+    final date = context == null
+        ? DateFormat('MMM d, yyyy').format(dob)
+        : formatAppDate(context, dob, 'MMM d, yyyy');
     final loc = context != null ? AppLocalizations.of(context) : null;
     final ageLabel = age == 1
         ? (loc?.commonOneYearOld ?? '1 year old')
@@ -114,7 +117,7 @@ class _DobWheelDialogState extends State<_DobWheelDialog> {
   @override
   Widget build(BuildContext context) {
     final age = DentalDatePickerDialog.ageInYears(_selected);
-    final header = DateFormat('MMM d, yyyy').format(_selected);
+    final header = formatAppDate(context, _selected, 'MMM d, yyyy');
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -153,7 +156,9 @@ class _DobWheelDialogState extends State<_DobWheelDialog> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      age == 1 ? 'Age 1 year' : 'Age $age years',
+                      age == 1
+                          ? AppLocalizations.of(context).commonOneYearOld
+                          : AppLocalizations.of(context).commonYearsOld(age),
                       style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -185,7 +190,7 @@ class _DobWheelDialogState extends State<_DobWheelDialog> {
                 children: [
                   AppButtons.ghost(
                     onPressed: () => Navigator.of(context).pop(),
-                    label: 'Cancel',
+                    label: AppLocalizations.of(context).cancel,
                   ),
                   const SizedBox(width: 8),
                   AppButtons.primary(
@@ -350,35 +355,9 @@ class _DentalDatePickerDialogState extends State<DentalDatePickerDialog> {
   /// 0 = year, 1 = month, 2 = day (DOB flow).
   late int _dobStep;
 
-  static const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  static const _months = [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
-  ];
-  static const _monthShort = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
+  List<String> get _weekdays => appWeekdayShort(context);
+  List<String> get _months => appMonthNames(context, short: false);
+  List<String> get _monthShort => appMonthNames(context, short: true);
 
   @override
   void initState() {
@@ -506,7 +485,7 @@ class _DentalDatePickerDialogState extends State<DentalDatePickerDialog> {
   Widget build(BuildContext context) {
     final isDob = widget.forDateOfBirth;
     final headerFmt =
-        DateFormat(isDob ? 'MMM d, yyyy' : 'EEE, MMM d');
+        appDateFormat(context, isDob ? 'MMM d, yyyy' : 'EEE, MMM d');
     final age = DentalDatePickerDialog.ageInYears(_selectedDate);
 
     return Dialog(
@@ -560,7 +539,9 @@ class _DentalDatePickerDialogState extends State<DentalDatePickerDialog> {
                       if (isDob) ...[
                         const SizedBox(height: 4),
                         Text(
-                          age == 1 ? 'Age 1 year' : 'Age $age years',
+                          age == 1
+                          ? AppLocalizations.of(context).commonOneYearOld
+                          : AppLocalizations.of(context).commonYearsOld(age),
                           style: const TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
@@ -712,7 +693,7 @@ class _DentalDatePickerDialogState extends State<DentalDatePickerDialog> {
               children: [
                 AppButtons.ghost(
                   onPressed: () => Navigator.of(context).pop(),
-                  label: 'Cancel',
+                  label: AppLocalizations.of(context).cancel,
                 ),
                 const SizedBox(width: 8),
                 AppButtons.primary(

@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
 import '../../core/auth/app_roles.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/l10n/date_formats.dart';
 import '../../core/layout/adaptive.dart';
 import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
@@ -1807,9 +1808,10 @@ class _PendingAccessDrawer extends StatelessWidget {
                                   final r = rows[i];
                                   final when = r.createdAt == null
                                       ? ''
-                                      : DateFormat.yMMMd()
-                                          .add_Hm()
-                                          .format(r.createdAt!.toLocal());
+                                      : formatAppDateTime(
+                                          context,
+                                          r.createdAt!.toLocal(),
+                                        );
                                   return SectionCard(
                                     padding: const EdgeInsets.all(14),
                                     depth: 0.45,
@@ -2308,7 +2310,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                                     vertical: 6,
                                   ),
                                   child: Text(
-                                    'Notes',
+                                    loc.notes,
                                     style: AppFonts.style(
                                       fontSize: 13,
                                       fontWeight: FontWeight.w600,
@@ -2457,7 +2459,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                 : notes.isEmpty
                     ? Center(
                         child: Text(
-                          'No clinical notes yet.',
+                          loc.patientsNoClinicalNotes,
                           style: AppFonts.style(
                             color: AppColors.muted,
                             fontSize: 14,
@@ -2477,9 +2479,10 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                           final canMutate = isAuthor && !blocked;
                           final when = n.createdAt == null
                               ? ''
-                              : DateFormat.yMMMd()
-                                  .add_Hm()
-                                  .format(n.createdAt!.toLocal());
+                              : formatAppDateTime(
+                                  context,
+                                  n.createdAt!.toLocal(),
+                                );
                           return _InsetGroup(
                             padding: const EdgeInsets.fromLTRB(
                               14,
@@ -2629,7 +2632,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
   }) {
     final when = entry.createdAt == null
         ? ''
-        : DateFormat.yMMMd().add_Hm().format(entry.createdAt!.toLocal());
+        : formatAppDateTime(context, entry.createdAt!.toLocal());
 
     String? subtext;
     Widget? actions;

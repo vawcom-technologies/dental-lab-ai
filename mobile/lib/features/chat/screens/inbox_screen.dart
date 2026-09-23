@@ -1,9 +1,9 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/l10n/app_localizations.dart';
+import '../../../core/l10n/date_formats.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/ui_kit.dart';
 import '../models/chat_models.dart';
@@ -379,7 +379,7 @@ class _ConversationTile extends StatelessWidget {
                         if (time != null) ...[
                           const SizedBox(width: 8),
                           Text(
-                            _formatInboxTime(time),
+                            _formatInboxTime(context, time),
                             style: AppFonts.style(
                               fontSize: 13,
                               color: unread > 0
@@ -523,18 +523,18 @@ class _GlassAvatar extends StatelessWidget {
   }
 }
 
-String _formatInboxTime(DateTime dt) {
+String _formatInboxTime(BuildContext context, DateTime dt) {
   final local = dt.toLocal();
   final now = DateTime.now();
   final sameDay = local.year == now.year &&
       local.month == now.month &&
       local.day == now.day;
-  if (sameDay) return DateFormat.jm().format(local);
+  if (sameDay) return formatAppTime(context, local);
   final yesterday = now.subtract(const Duration(days: 1));
   if (local.year == yesterday.year &&
       local.month == yesterday.month &&
       local.day == yesterday.day) {
-    return 'Yesterday';
+    return AppLocalizations.of(context).commonYesterday;
   }
-  return DateFormat.MMMd().format(local);
+  return formatAppDate(context, local, 'MMM d');
 }

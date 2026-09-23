@@ -91,6 +91,24 @@ class ShadeResultPane extends StatefulWidget {
 class _ShadeResultPaneState extends State<ShadeResultPane> {
   /// 0 = Results, 1 = Tooth Selection (local UI only; selection is parent state).
   int _tab = 0;
+  final _openArch = <String>{'upper', 'lower'};
+  final _openTooth = <int>{};
+
+  @override
+  void initState() {
+    super.initState();
+    final sel = widget.selectedToothIndex;
+    if (sel != null) _openTooth.add(sel);
+  }
+
+  @override
+  void didUpdateWidget(covariant ShadeResultPane oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final sel = widget.selectedToothIndex;
+    if (sel != null && sel != oldWidget.selectedToothIndex) {
+      _openTooth.add(sel);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -166,9 +184,251 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
     );
   }
 
+  bool _isLowerArch(Map<String, dynamic> tooth) {
+    final arch = tooth['arch']?.toString();
+    if (arch == 'lower') return true;
+    if (arch == 'upper') return false;
+    final fdi = (tooth['fdi'] as num?)?.toInt();
+    return fdi != null && fdi >= 31 && fdi <= 48;
+  }
+
+  Widget _archHeader(String id, String label) {
+    final open = _openArch.contains(id);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: AppColors.neo,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          onTap: () {
+            setState(() {
+              if (open) {
+                _openArch.remove(id);
+              } else {
+                _openArch.add(id);
+              }
+            });
+          },
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                      color: AppColors.navy,
+                    ),
+                  ),
+                ),
+                Icon(
+                  open
+                      ? Icons.keyboard_arrow_up_rounded
+                      : Icons.keyboard_arrow_down_rounded,
+                  color: AppColors.navy,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _jawAccordion(
+    BuildContext context,
+    List<Map<String, dynamic>> teeth,
+  ) {
+    final loc = AppLocalizations.of(context);
+    final upper = <Map<String, dynamic>>[];
+    final lower = <Map<String, dynamic>>[];
+    for (final t in teeth) {
+      if (_isLowerArch(t)) {
+        lower.add(t);
+      } else {
+        upper.add(t);
+      }
+    }
+    return [
+      if (upper.isNotEmpty) ...[
+        _archHeader('upper', loc.smileUpperJaw),
+        if (_openArch.contains('upper'))
+          for (final t in upper) _toothCard(context, t),
+      ],
+      if (lower.isNotEmpty) ...[
+        _archHeader('lower', loc.smileLowerJaw),
+        if (_openArch.contains('lower'))
+          for (final t in lower) _toothCard(context, t),
+      ],
+    ];
+  }
+
+  Widget _toothCard(BuildContext context, Map<String, dynamic> t) {
+    final idx = (t['tooth_index'] as num).toInt();
+    final rejected = t['rejected'] == true;
+    final active = widget.selectedToothIndex == idx;
+    final open = _openTooth.contains(idx);
+    final label = toothDisplayLabel(t);
+    final focusZone = widget.focusZone;
+    final pendingShade = widget.pendingShade;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: active
+              ? AppColors.dentalBlue.withValues(alpha: 0.12)
+              : AppColors.neo,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: active ? AppColors.dentalBlue : AppColors.border,
+            width: active ? 1.8 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            InkWell(
+              onTap: () {
+                setState(() => _openTooth.add(idx));
+                widget.onSelectTooth(idx);
+              },
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(12),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 10, 4, 10),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                    if (rejected)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Text(
+                          t['reject_reason']?.toString() ?? 'flagged',
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: AppColors.warning,
+                          ),
+                        ),
+                      ),
+                    if (active) ...[
+                      IconButton(
+                        tooltip: AppLocalizations.of(context).shadeDeleteTooth,
+                        onPressed: widget.onDeleteTooth,
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          size: 20,
+                          color: AppColors.danger,
+                        ),
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 36,
+                          minHeight: 36,
+                        ),
+                      ),
+                      Text(
+                        AppLocalizations.of(context).shadeSelected,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.dentalBlue,
+                        ),
+                      ),
+                    ],
+                    IconButton(
+                      tooltip: open
+                          ? AppLocalizations.of(context).smileModelOpen
+                          : AppLocalizations.of(context).smileModelClosed,
+                      onPressed: () {
+                        setState(() {
+                          if (open) {
+                            _openTooth.remove(idx);
+                          } else {
+                            _openTooth.add(idx);
+                          }
+                        });
+                      },
+                      icon: Icon(
+                        open
+                            ? Icons.keyboard_arrow_up_rounded
+                            : Icons.keyboard_arrow_down_rounded,
+                        color: AppColors.navy,
+                      ),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            ClipRect(
+              child: AnimatedSize(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                alignment: Alignment.topCenter,
+                child: open
+                    ? Padding(
+                        padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                        child: Row(
+                          children: [
+                            for (final zName in kShadeZones) ...[
+                              if (zName != kShadeZones.first)
+                                const SizedBox(width: 6),
+                              Expanded(
+                                child: MiniZoneChip(
+                                  label: capitalizeZone(zName),
+                                  shade: () {
+                                    final focusedZone =
+                                        active && focusZone == zName;
+                                    if (focusedZone && pendingShade != null) {
+                                      return pendingShade;
+                                    }
+                                    return widget.zoneEffective(
+                                      widget.zoneOf(t, zName),
+                                    );
+                                  }(),
+                                  overridden: widget.zoneOverridden(
+                                    widget.zoneOf(t, zName),
+                                  ),
+                                  pending: active &&
+                                      focusZone == zName &&
+                                      pendingShade != null,
+                                  focused: active && focusZone == zName,
+                                  swatch: widget.swatch,
+                                  onTap: () {
+                                    widget.onSelectTooth(idx, zone: zName);
+                                  },
+                                  onOverride: () {
+                                    widget.onBeginZoneOverride(idx, zName);
+                                  },
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      )
+                    : const SizedBox(width: double.infinity),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildResultsScroll(BuildContext context) {
     final teeth = widget.teeth;
-    final selectedToothIndex = widget.selectedToothIndex;
     final focusZone = widget.focusZone;
     final pendingShade = widget.pendingShade;
     final detected = widget.detected;
@@ -178,12 +438,6 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
     final overallTopMatches = widget.overallTopMatches;
     final saving = widget.saving;
     final swatch = widget.swatch;
-    final zoneEffective = widget.zoneEffective;
-    final zoneOf = widget.zoneOf;
-    final zoneOverridden = widget.zoneOverridden;
-    final onSelectTooth = widget.onSelectTooth;
-    final onDeleteTooth = widget.onDeleteTooth;
-    final onBeginZoneOverride = widget.onBeginZoneOverride;
     final onOverallShade = widget.onOverallShade;
     final onAcceptAi = widget.onAcceptAi;
     final onSaveOverride = widget.onSaveOverride;
@@ -210,141 +464,7 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
                     ),
                     const SizedBox(height: 10),
                   ],
-                  if (teeth.isNotEmpty) ...[
-                    ...teeth.map((t) {
-                      final idx = (t['tooth_index'] as num).toInt();
-                      final rejected = t['rejected'] == true;
-                      final active = selectedToothIndex == idx;
-                      final label = toothDisplayLabel(t);
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: () => onSelectTooth(idx),
-                            borderRadius: BorderRadius.circular(12),
-                            child: Ink(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: active
-                                    ? AppColors.dentalBlue
-                                        .withValues(alpha: 0.12)
-                                    : AppColors.neo,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: active
-                                      ? AppColors.dentalBlue
-                                      : AppColors.border,
-                                  width: active ? 1.8 : 1,
-                                ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Text(
-                                        label,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                      if (rejected) ...[
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          t['reject_reason']?.toString() ??
-                                              'flagged',
-                                          style: const TextStyle(
-                                            fontSize: 10,
-                                            color: AppColors.warning,
-                                          ),
-                                        ),
-                                      ],
-                                      const Spacer(),
-                                      if (active) ...[
-                                        IconButton(
-                                          tooltip: AppLocalizations.of(context)
-                                              .shadeDeleteTooth,
-                                          onPressed: onDeleteTooth,
-                                          icon: const Icon(
-                                            Icons.delete_outline,
-                                            size: 20,
-                                            color: AppColors.danger,
-                                          ),
-                                          visualDensity: VisualDensity.compact,
-                                          padding: EdgeInsets.zero,
-                                          constraints: const BoxConstraints(
-                                            minWidth: 36,
-                                            minHeight: 36,
-                                          ),
-                                        ),
-                                        Text(
-                                          AppLocalizations.of(context)
-                                              .shadeSelected,
-                                          style: const TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w700,
-                                            color: AppColors.dentalBlue,
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    children: [
-                                      for (final zName in kShadeZones) ...[
-                                        if (zName != kShadeZones.first)
-                                          const SizedBox(width: 6),
-                                        Expanded(
-                                          child: MiniZoneChip(
-                                            label: capitalizeZone(zName),
-                                            shade: () {
-                                              final focusedZone = active &&
-                                                  focusZone == zName;
-                                              if (focusedZone &&
-                                                  pendingShade != null) {
-                                                return pendingShade;
-                                              }
-                                              return zoneEffective(
-                                                zoneOf(t, zName),
-                                              );
-                                            }(),
-                                            overridden: zoneOverridden(
-                                              zoneOf(t, zName),
-                                            ),
-                                            pending: active &&
-                                                focusZone == zName &&
-                                                pendingShade != null,
-                                            focused:
-                                                active && focusZone == zName,
-                                            swatch: swatch,
-                                            onTap: () {
-                                              onSelectTooth(
-                                                idx,
-                                                zone: zName,
-                                              );
-                                            },
-                                            onOverride: () {
-                                              onBeginZoneOverride(
-                                                idx,
-                                                zName,
-                                              );
-                                            },
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    }),
-                  ],
+                  if (teeth.isNotEmpty) ..._jawAccordion(context, teeth),
                   const SizedBox(height: 10),
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -600,7 +720,7 @@ class ShadeOutlineLoupe extends StatelessWidget {
             previewBytes,
             fit: BoxFit.contain,
             gaplessPlayback: true,
-            filterQuality: FilterQuality.none,
+            filterQuality: FilterQuality.high,
           ),
           RepaintBoundary(
             child: CustomPaint(

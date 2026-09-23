@@ -9,6 +9,7 @@ import '../../../core/api/api_client.dart';
 import '../../../core/haptics/app_haptics.dart';
 import '../../../core/layout/adaptive.dart';
 import '../../../core/l10n/app_localizations.dart';
+import '../../../core/l10n/date_formats.dart';
 import '../../../core/navigation/app_page_routes.dart';
 import '../../../core/session/patient_session.dart';
 import '../../../core/theme/app_theme.dart';
@@ -456,7 +457,7 @@ String _dayHeading(BuildContext context, DateTime day) {
   if (day == today) return loc.commonToday;
   if (day == tomorrow) return loc.commonTomorrow;
   if (day == yesterday) return loc.commonYesterday;
-  return DateFormat('EEEE, MMM d').format(day);
+  return formatAppDate(context, day, 'EEEE, MMM d');
 }
 
 class _StatusFilterBar extends StatelessWidget {
@@ -790,6 +791,7 @@ class _AppointmentsAgenda extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CustomScrollView(
+      primary: false,
       physics: const BouncingScrollPhysics(
         parent: AlwaysScrollableScrollPhysics(),
       ),
@@ -812,7 +814,7 @@ class _AppointmentsAgenda extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    DateFormat('MMM d').format(group.day),
+                    formatAppDate(context, group.day, 'MMM d'),
                     style: AppFonts.style(
                       fontSize: 13,
                       fontWeight: FontWeight.w500,
@@ -874,8 +876,6 @@ class _AppointmentRow extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onEdit;
 
-  static final _timeFmt = DateFormat('h:mm a');
-
   @override
   Widget build(BuildContext context) {
     final style = AppointmentStatusStyle.of(appointment.status);
@@ -905,7 +905,7 @@ class _AppointmentRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _timeFmt.format(appointment.startTime),
+                    formatAppTime(context, appointment.startTime),
                     style: AppFonts.style(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
@@ -914,7 +914,7 @@ class _AppointmentRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    _timeFmt.format(appointment.endTime),
+                    formatAppTime(context, appointment.endTime),
                     style: AppFonts.style(
                       fontSize: 12,
                       color: AppColors.muted,
@@ -1010,9 +1010,6 @@ class _AppointmentDetailPane extends StatelessWidget {
   final VoidCallback? onEdit;
   final VoidCallback onBook;
 
-  static final _dateFmt = DateFormat('EEEE, MMMM d');
-  static final _timeFmt = DateFormat('h:mm a');
-
   @override
   Widget build(BuildContext context) {
     final appointment = this.appointment;
@@ -1079,13 +1076,13 @@ class _AppointmentDetailPane extends StatelessWidget {
           _DetailRow(
             icon: Icons.calendar_today_outlined,
             label: loc.appointmentsDate,
-            value: _dateFmt.format(appointment.startTime),
+            value: formatAppDate(context, appointment.startTime, 'EEEE, MMMM d'),
           ),
           _DetailRow(
             icon: Icons.schedule_outlined,
             label: loc.appointmentsTime,
             value:
-                '${_timeFmt.format(appointment.startTime)} – ${_timeFmt.format(appointment.endTime)} · $mins min',
+                '${formatAppTime(context, appointment.startTime)} – ${formatAppTime(context, appointment.endTime)} · $mins min',
           ),
           if (appointment.patientEmail.isNotEmpty)
             _DetailRow(
@@ -1096,7 +1093,9 @@ class _AppointmentDetailPane extends StatelessWidget {
           _DetailRow(
             icon: Icons.notes_outlined,
             label: loc.appointmentsNotes,
-            value: notes.isEmpty ? 'No notes' : notes,
+            value: notes.isEmpty
+                ? AppLocalizations.of(context).appointmentsNoNotes
+                : notes,
           ),
           const Spacer(),
           AppButtons.primary(
@@ -1362,7 +1361,8 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                       mode: CupertinoDatePickerMode.time,
                       initialDateTime: pending,
                       minuteInterval: 5,
-                      use24hFormat: false,
+                      use24hFormat:
+                          Localizations.localeOf(context).languageCode == 'de',
                       onDateTimeChanged: (value) => pending = value,
                     ),
                   ),
@@ -1487,9 +1487,9 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
-    final dateLabel = DateFormat('EEE, MMM d, yyyy').format(_start);
-    final timeLabel = DateFormat('h:mm a').format(_start);
-    final endLabel = DateFormat('h:mm a').format(_end);
+    final dateLabel = formatAppDate(context, _start, 'EEE, MMM d, yyyy');
+    final timeLabel = formatAppTime(context, _start);
+    final endLabel = formatAppTime(context, _end);
     Map<String, dynamic>? selectedPatient;
     for (final p in _patients) {
       if (widget.patientSession.pidOf(p) == _patientId) {

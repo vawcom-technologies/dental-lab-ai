@@ -372,8 +372,8 @@ def _padded_bbox(
     x: int, y: int, bw: int, bh: int, w: int, h: int
 ) -> dict[str, float]:
     """Axis-aligned box slightly larger than the mask, like clinical overlays."""
-    pad_x = max(2.0, 0.045 * float(bw))
-    pad_y = max(2.0, 0.035 * float(bh))
+    pad_x = max(1.0, 0.02 * float(bw))
+    pad_y = max(1.0, 0.02 * float(bh))
     nx = max(0.0, float(x) - pad_x)
     ny = max(0.0, float(y) - pad_y)
     nw = min(float(w) - nx, float(bw) + 2.0 * pad_x)

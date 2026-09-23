@@ -548,6 +548,12 @@ class ChatController extends ChangeNotifier {
   }
 
   @override
+  void notifyListeners() {
+    if (_disposed) return;
+    super.notifyListeners();
+  }
+
+  @override
   void dispose() {
     _disposed = true;
     _api.removeAuthListener(_onAuthChanged);

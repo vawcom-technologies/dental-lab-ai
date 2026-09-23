@@ -115,6 +115,7 @@ def detect_teeth(
             teeth_or_none = _add_uncovered_classical_teeth(
                 image_rgb, teeth_or_none, config, get_classical=get_classical
             )
+            teeth_or_none = _fill_short_arch_from_enamel(image_rgb, teeth_or_none)
             teeth_or_none = _merge_kaist_split_crowns(teeth_or_none)
             teeth_or_none = _trim_to_anterior_shade_window(teeth_or_none)
             out = _assign_arch_metadata(teeth_or_none)
@@ -459,20 +460,162 @@ def _nearest_arch(tooth: ToothMask, accepted: list[ToothMask]) -> str | None:
 
 
 def _plausible_gap_tooth(cand: ToothMask, accepted: list[ToothMask]) -> bool:
+    """Keep laterals/canines on a short row; do not add a 7th distal premolar."""
+    return _plausible_missing_neighbor(cand, accepted)
+
+
+def _plausible_missing_neighbor(
+    cand: ToothMask, accepted: list[ToothMask]
+) -> bool:
     cg = _mask_geom(cand.mask)
-    rows = [_mask_geom(t.mask) for t in accepted]
-    med_h = float(np.median([g["h"] for g in rows]))
-    med_a = float(np.median([g["area"] for g in rows]))
+    geoms = [_mask_geom(t.mask) for t in accepted if np.any(t.mask)]
+    if not geoms:
+        return False
+    rows = _cluster_masks_by_row(geoms)
+    best_row = min(
+        rows,
+        key=lambda r: abs(cg["cy"] - float(np.median([g["cy"] for g in r]))),
+    )
+    rcy = float(np.median([g["cy"] for g in best_row]))
+    med_h = float(np.median([g["h"] for g in best_row]))
+    med_a = float(np.median([g["area"] for g in best_row]))
+    med_w = float(np.median([g["w"] for g in best_row]))
     if med_h < 1.0 or med_a < 1.0:
         return False
-    nearest = min(abs(cg["cy"] - g["cy"]) for g in rows)
-    if nearest > 0.55 * med_h:
+    if abs(cg["cy"] - rcy) > 0.65 * med_h:
         return False
-    if cg["area"] < 0.18 * med_a or cg["area"] > 3.2 * med_a:
+    if cg["area"] < 0.16 * med_a or cg["area"] > 3.2 * med_a:
         return False
-    if cg["h"] < 0.32 * med_h or cg["h"] > 1.85 * med_h:
+    if cg["h"] < 0.28 * med_h or cg["h"] > 1.85 * med_h:
         return False
-    return True
+    if len(best_row) >= _ANTERIOR_MAX_PER_ROW:
+        return False
+    xs = sorted(g["cx"] for g in best_row)
+    for a, b in zip(xs, xs[1:]):
+        if a + 0.18 * med_w < cg["cx"] < b - 0.18 * med_w:
+            return True
+    if cg["cx"] < xs[0] and xs[0] - cg["cx"] < 1.55 * med_w:
+        return True
+    if cg["cx"] > xs[-1] and cg["cx"] - xs[-1] < 1.55 * med_w:
+        return True
+    return False
+
+
+def _fill_short_arch_from_enamel(
+    image_rgb: np.ndarray,
+    teeth: list[ToothMask],
+) -> list[ToothMask]:
+    """Carve leftover enamel next to a short row (missing 12/22 on a smile)."""
+    accepted = [t for t in teeth if not t.rejected and np.any(t.mask)]
+    if len(accepted) < 2:
+        return teeth
+    try:
+        from app.ai.shade_segment_kaist import _tooth_band_mask
+
+        leftover = _tooth_band_mask(image_rgb) | _adaptive_enamel_mask(image_rgb)
+    except Exception:
+        leftover = _adaptive_enamel_mask(image_rgb)
+    if int(leftover.sum()) < 80:
+        return teeth
+
+    import cv2
+
+    known = np.zeros(leftover.shape, dtype=bool)
+    for t in accepted:
+        known |= t.mask
+    known = cv2.dilate(known.astype(np.uint8), np.ones((5, 5), np.uint8), 1).astype(
+        bool
+    )
+    leftover = leftover & ~known
+    if int(leftover.sum()) < 40:
+        return teeth
+
+    _n, labels, stats, _centroids = cv2.connectedComponentsWithStats(
+        leftover.astype(np.uint8), 8
+    )
+    extras: list[ToothMask] = []
+    known_teeth = list(accepted)
+    for i in range(1, int(stats.shape[0])):
+        if int(stats[i, cv2.CC_STAT_AREA]) < 40:
+            continue
+        mask = _clip_enamel_fill_to_slot(labels == i, known_teeth)
+        if int(mask.sum()) < 40 or _mask_solidity(mask) < 0.68:
+            continue
+        cand = ToothMask(
+            tooth_index=0,
+            mask=mask,
+            confidence=0.55,
+            rejected=False,
+        )
+        if any(_mask_smaller_coverage(mask, t.mask) >= 0.28 for t in known_teeth):
+            continue
+        if not _plausible_missing_neighbor(cand, known_teeth):
+            continue
+        tagged = replace(cand, arch=_nearest_arch(cand, known_teeth))
+        extras.append(tagged)
+        known_teeth.append(tagged)
+    if extras:
+        logger.info(
+            "shade_segment filled %s missing neighbors from leftover enamel",
+            len(extras),
+        )
+    return list(teeth) + extras
+
+
+def _mask_solidity(mask: np.ndarray) -> float:
+    import cv2
+
+    if not np.any(mask):
+        return 0.0
+    cnts, _ = cv2.findContours(
+        mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+    if not cnts:
+        return 0.0
+    cnt = max(cnts, key=cv2.contourArea)
+    area = float(cv2.contourArea(cnt))
+    hull = float(cv2.contourArea(cv2.convexHull(cnt)))
+    return area / hull if hull > 1.0 else 0.0
+
+
+def _clip_enamel_fill_to_slot(
+    mask: np.ndarray, known: list[ToothMask]
+) -> np.ndarray:
+    """Keep only the crown-sized window beside the nearest neighbour."""
+    if not np.any(mask) or not known:
+        return mask
+    cg = _mask_geom(mask)
+    geoms = [_mask_geom(t.mask) for t in known if np.any(t.mask)]
+    if not geoms:
+        return mask
+    rows = _cluster_masks_by_row(geoms)
+    best = min(
+        rows,
+        key=lambda r: abs(cg["cy"] - float(np.median([g["cy"] for g in r]))),
+    )
+    med_w = float(np.median([g["w"] for g in best]))
+    med_h = float(np.median([g["h"] for g in best]))
+    rcy = float(np.median([g["cy"] for g in best]))
+    xs = sorted(best, key=lambda g: g["cx"])
+    if cg["cx"] < xs[0]["cx"]:
+        x1 = int(xs[0]["x0"] - 0.04 * med_w)
+        x0 = int(x1 - 1.25 * med_w)
+    elif cg["cx"] > xs[-1]["cx"]:
+        x0 = int(xs[-1]["x1"] + 0.04 * med_w)
+        x1 = int(x0 + 1.25 * med_w)
+    else:
+        left = max((g for g in xs if g["cx"] < cg["cx"]), key=lambda g: g["cx"])
+        right = min((g for g in xs if g["cx"] > cg["cx"]), key=lambda g: g["cx"])
+        x0 = int(left["x1"] + 0.04 * med_w)
+        x1 = int(right["x0"] - 0.04 * med_w)
+    y0 = int(rcy - 0.72 * med_h)
+    y1 = int(rcy + 0.72 * med_h)
+    h, w = mask.shape[:2]
+    x0, x1 = max(0, x0), min(w, max(x0 + 1, x1))
+    y0, y1 = max(0, y0), min(h, max(y0 + 1, y1))
+    slot = np.zeros_like(mask)
+    slot[y0:y1, x0:x1] = True
+    return mask & slot
 
 
 def _try_detect_teeth_kaist(image_rgb: np.ndarray) -> list[ToothMask] | None:
@@ -2851,8 +2994,10 @@ def _sanity_check_instances(teeth: list[ToothMask]) -> list[ToothMask]:
         wd = int(xs.max() - xs.min() + 1) if xs.size else 0
         if areas[i] < 0.2 * med_a:
             reason = "too_small"
-        elif widths[i] > 2.5 * med_w and widths[i] > med_w + 4:
+        elif widths[i] > 2.2 * med_w and widths[i] > med_w + 4:
             reason = "too_wide_merged"
+        elif _mask_solidity(t.mask) < 0.62 and widths[i] > 1.35 * max(heights[i], 1):
+            reason = "tadpole"
         elif (
             med_h > 0
             and ht >= 1.85 * med_h

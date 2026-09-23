@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/haptics/app_haptics.dart';
+import '../../core/layout/adaptive.dart';
 import '../../core/navigation/app_page_routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/touchable.dart';
@@ -31,7 +32,10 @@ class ShadeSessionPane extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 1100;
-    final sessionWidth = collapsed ? 52.0 : (wide ? 300.0 : 252.0);
+    final phone = AppBreakpoints.isPhone(context);
+    final sessionWidth = collapsed
+        ? 52.0
+        : (phone ? 188.0 : (wide ? 300.0 : 252.0));
     return AnimatedContainer(
       duration: AppMotion.page,
       curve: AppMotion.spring,

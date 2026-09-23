@@ -99,7 +99,7 @@ Uint8List cropCaptureToGuide(
   final h =
       (frac.height * oriented.height).round().clamp(1, oriented.height - y);
   final cropped = img.copyCrop(oriented, x: x, y: y, width: w, height: h);
-  return Uint8List.fromList(img.encodeJpg(cropped, quality: 92));
+  return Uint8List.fromList(img.encodeJpg(cropped, quality: 96));
 }
 
 /// Dim mask + realistic tooth guide (reference art for frontal).

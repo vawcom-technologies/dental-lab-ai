@@ -39,6 +39,7 @@ class ShadePage extends StatefulWidget {
 }
 
 class _ShadePageState extends State<ShadePage> {
+  final _shadeScroll = ScrollController();
   List<Map<String, dynamic>> _patients = [];
   Map<String, dynamic>? _patient;
   Map<String, dynamic>? _case;
@@ -897,6 +898,8 @@ class _ShadePageState extends State<ShadePage> {
   }
 
   Size get _overlayImageSize {
+    // Image.memory letterboxes by the JPEG's intrinsic size. containRect
+    // must use that same aspect or the outlines sit a few mm off the enamel.
     if (_previewImageSize.width > 1 && _previewImageSize.height > 1) {
       return _previewImageSize;
     }
@@ -1349,6 +1352,7 @@ class _ShadePageState extends State<ShadePage> {
 
   @override
   void dispose() {
+    _shadeScroll.dispose();
     _dragTick.dispose();
     _magnifierFocal.dispose();
     _photoTransformController.dispose();
@@ -1637,9 +1641,9 @@ class _ShadePageState extends State<ShadePage> {
       // when quality/max size are set; prepareShadeJpeg is the safety net.
       final picked = await ImagePicker().pickImage(
         source: ImageSource.gallery,
-        imageQuality: 90,
-        maxWidth: 2048,
-        maxHeight: 2048,
+        imageQuality: 96,
+        maxWidth: 2400,
+        maxHeight: 2400,
       );
       if (picked == null) return;
 
@@ -2092,8 +2096,9 @@ class _ShadePageState extends State<ShadePage> {
     }
 
     final portrait = AppBreakpoints.isPortrait(context);
+    final phone = AppBreakpoints.isPhone(context);
     final sessionCollapsed =
-        _sessionCollapsed || (portrait && !_sessionPinnedOpen);
+        _sessionCollapsed || ((portrait || phone) && !_sessionPinnedOpen);
 
     return Padding(
       padding: AppBreakpoints.pagePadding(
@@ -2168,13 +2173,22 @@ class _ShadePageState extends State<ShadePage> {
                               _magnifierViewSize != null &&
                               _previewBytes != null;
                           final avail = colConstraints.maxHeight;
-                          final photoH = ((stackPhotoResult ? 0.52 : 0.48) *
-                                  avail)
-                              .clamp(240.0, math.max(240.0, avail - 168.0))
-                              .toDouble();
+                          final photoH = phone
+                              ? (avail -
+                                      (showActions ? actionSlotH + 16.0 : 12.0))
+                                  .clamp(200.0, avail)
+                                  .toDouble()
+                              : ((stackPhotoResult ? 0.68 : 0.70) * avail)
+                                  .clamp(
+                                    280.0,
+                                    math.max(280.0, avail - 88.0),
+                                  )
+                                  .toDouble();
                           return Scrollbar(
+                            controller: _shadeScroll,
                             thumbVisibility: true,
                             child: CustomScrollView(
+                              controller: _shadeScroll,
                               primary: false,
                               physics: const BouncingScrollPhysics(
                                 parent: AlwaysScrollableScrollPhysics(),
@@ -2445,10 +2459,11 @@ class _ShadePhotoResultSplitState extends State<_ShadePhotoResultSplit>
     return LayoutBuilder(
       builder: (context, constraints) {
         final half = math.max(0.0, (constraints.maxWidth - 12) / 2);
+        final short = constraints.maxHeight < 420;
         final resultH = widget.stacked
             ? math.min(
-                constraints.maxHeight * 0.48,
-                math.max(220.0, constraints.maxHeight * 0.42),
+                constraints.maxHeight * (short ? 0.36 : 0.48),
+                math.max(short ? 160.0 : 220.0, constraints.maxHeight * 0.36),
               )
             : math.min(
                 280.0,

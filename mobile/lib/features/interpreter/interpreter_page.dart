@@ -17,6 +17,7 @@ import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/touchable.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'apple_translate.dart';
+import 'interpreter_formality.dart';
 import 'interpreter_languages.dart';
 
 class InterpreterTurn {
@@ -400,6 +401,11 @@ class _InterpreterPageState extends State<InterpreterPage> {
       final source = fromDoctor ? _doctorLang : _patientLang;
       final target = fromDoctor ? _patientLang : _doctorLang;
       final original = text.trim();
+      final wanted = detectInterpreterFormality(
+        original,
+        sourceLang: source,
+        targetLang: target,
+      );
       var translated = '';
       if (source == target) {
         translated = original;
@@ -413,10 +419,19 @@ class _InterpreterPageState extends State<InterpreterPage> {
                   ?.trim() ??
               '';
         } on AppleTranslateUnsupported {
+          translated = '';
+        }
+        if (translated.isEmpty ||
+            translationMissesFormality(
+              translated,
+              targetLang: target,
+              wanted: wanted,
+            )) {
           translated = await _backendTranslate(
             original,
             sourceLang: source,
             targetLang: target,
+            formality: wanted.name,
           );
         }
       }
@@ -457,12 +472,14 @@ class _InterpreterPageState extends State<InterpreterPage> {
     String text, {
     required String sourceLang,
     required String targetLang,
+    String? formality,
   }) async {
     final raw = await widget.api
         .interpreterTurn(
           text: text,
           sourceLang: sourceLang,
           targetLang: targetLang,
+          formality: formality,
         )
         .timeout(const Duration(seconds: 45));
     return '${raw['translated'] ?? ''}'.trim();

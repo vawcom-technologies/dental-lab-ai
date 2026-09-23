@@ -5,21 +5,21 @@ import 'package:image/image.dart' as img;
 
 /// Longest side sent to shade upload / detect. iPad camera-roll photos are
 /// often 12MP HEIC; the backend segments at ≤1280px and times out at 90s.
-const int kShadeUploadMaxSide = 1600;
+const int kShadeUploadMaxSide = 2400;
 
 /// Bake EXIF orientation into pixels and re-encode as JPEG.
 ///
 /// [Image.memory] ignores EXIF orientation tags. The shade backend applies
 /// `exif_transpose` before segmentation — without baking here, overlays are
 /// drawn against a differently-oriented preview (common for iPad camera roll).
-Uint8List bakeExifOrientation(Uint8List bytes, {int quality = 92}) {
+Uint8List bakeExifOrientation(Uint8List bytes, {int quality = 96}) {
   return bakeExifOrientationSized(bytes, quality: quality).bytes;
 }
 
 /// Bake EXIF and return pixel size of the JPEG used on screen.
 ({Uint8List bytes, int width, int height}) bakeExifOrientationSized(
   Uint8List bytes, {
-  int quality = 92,
+  int quality = 96,
 }) {
   if (bytes.isEmpty) {
     return (bytes: bytes, width: 0, height: 0);
@@ -49,7 +49,7 @@ Uint8List bakeExifOrientation(Uint8List bytes, {int quality = 92}) {
 /// Pillow on the server would fail — upload looks fine, teeth never appear.
 Future<({Uint8List bytes, int width, int height})> prepareShadeJpeg(
   Uint8List bytes, {
-  int quality = 90,
+  int quality = 96,
   int maxSide = kShadeUploadMaxSide,
 }) async {
   if (bytes.isEmpty) {
@@ -150,7 +150,7 @@ Future<({Uint8List bytes, int width, int height})?> _prepareWithUi(
     decoded,
     width: (decoded.width * scale).round().clamp(1, maxSide),
     height: (decoded.height * scale).round().clamp(1, maxSide),
-    interpolation: img.Interpolation.linear,
+    interpolation: img.Interpolation.cubic,
   );
   return (
     bytes: Uint8List.fromList(img.encodeJpg(resized, quality: quality)),

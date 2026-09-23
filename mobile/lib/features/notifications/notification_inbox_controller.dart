@@ -19,6 +19,7 @@ class NotificationInboxController extends ChangeNotifier {
   bool _queued = false;
   bool _seeded = false;
   bool _markingAll = false;
+  bool _disposed = false;
   final Set<String> _knownIds = {};
   final List<Map<String, dynamic>> _pendingToasts = [];
 
@@ -34,6 +35,7 @@ class NotificationInboxController extends ChangeNotifier {
 
   Future<void> start() async {
     prefs = await AppSettings.load();
+    if (_disposed) return;
     await refresh(announce: false);
     _timer?.cancel();
     _timer = Timer.periodic(_pollEvery, (_) {
@@ -43,7 +45,13 @@ class NotificationInboxController extends ChangeNotifier {
 
   /// Pull latest rows. [announce] queues a toast for newly arrived *incoming*
   /// alerts (not "You …" activity from this device).
+  void _notify() {
+    if (_disposed) return;
+    notifyListeners();
+  }
+
   Future<void> refresh({bool announce = true}) async {
+    if (_disposed) return;
     if (_inFlight) {
       _queued = true;
       return;
@@ -72,14 +80,15 @@ class NotificationInboxController extends ChangeNotifier {
       if (fresh.isNotEmpty) {
         _pendingToasts.addAll(fresh);
       }
-      notifyListeners();
+      _notify();
     } catch (e) {
+      if (_disposed) return;
       _error = friendlyError(e);
       onError?.call(_error!);
-      notifyListeners();
+      _notify();
     } finally {
       _inFlight = false;
-      if (_queued) {
+      if (!_disposed && _queued) {
         _queued = false;
         unawaited(refresh(announce: announce));
       }
@@ -94,16 +103,18 @@ class NotificationInboxController extends ChangeNotifier {
   }
 
   Future<void> markRead(String id) async {
+    if (_disposed) return;
     final trimmed = id.trim();
     if (trimmed.isEmpty) return;
     await api.markNotificationRead(trimmed);
+    if (_disposed) return;
     for (final n in _items) {
       if ('${n['id']}' == trimmed) {
         n['read'] = true;
       }
     }
     _unreadCount = _items.where((n) => n['read'] != true).length;
-    notifyListeners();
+    _notify();
   }
 
   Future<void> markAllRead() async {
@@ -114,7 +125,7 @@ class NotificationInboxController extends ChangeNotifier {
       n['read'] = true;
     }
     _unreadCount = 0;
-    notifyListeners();
+    _notify();
     try {
       await api.markAllNotificationsRead();
     } finally {
@@ -157,6 +168,8 @@ class NotificationInboxController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    _queued = false;
     _timer?.cancel();
     super.dispose();
   }

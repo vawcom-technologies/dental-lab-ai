@@ -5,11 +5,11 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/l10n/date_formats.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/tooth_loader.dart';
 import '../models/chat_models.dart';
@@ -77,7 +77,7 @@ class ChatMessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final time = message.createdAt != null
-        ? DateFormat.jm().format(message.createdAt!.toLocal())
+        ? formatAppTime(context, message.createdAt!.toLocal())
         : '';
     final fg = mine ? Colors.white : _BubbleColors.theirsFg;
     final muted = mine ? Colors.white.withValues(alpha: 0.72) : AppColors.muted;

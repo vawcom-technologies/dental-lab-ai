@@ -28,20 +28,24 @@ void main() {
     ('Icon-App-1024x1024@1x.png', 1024),
   ];
 
+  // Master 1024 is RGB (App Store forbids alpha). Smaller sizes downsample it.
+  final icon1024 = _wordmarkOnWhite(mark, 1024);
   final dir = Directory('ios/Runner/Assets.xcassets/AppIcon.appiconset');
-  img.Image? icon1024;
   for (final (name, size) in sizes) {
-    // RGB only — App Store 1024px marketing icon cannot have alpha.
-    final canvas = _wordmarkOnWhite(mark, size);
-    if (size == 1024) icon1024 = canvas;
+    final canvas = size == 1024
+        ? icon1024
+        : img.copyResize(
+            icon1024,
+            width: size,
+            height: size,
+            interpolation: img.Interpolation.cubic,
+          );
     File('${dir.path}/$name').writeAsBytesSync(img.encodePng(canvas));
   }
 
-  if (icon1024 != null) {
-    File('assets/brand/appicon.png').writeAsBytesSync(img.encodePng(icon1024));
-  }
+  File('assets/brand/appicon.png').writeAsBytesSync(img.encodePng(icon1024));
+  _writeRoundedPreview(icon1024);
 
-  // Launch images: wordmark on the clinical canvas color.
   const launch = <(String, int)>[
     ('LaunchImage.png', 340),
     ('LaunchImage@2x.png', 680),
@@ -71,10 +75,11 @@ void main() {
   );
 }
 
+/// Full original wordmark on white, filling the square like the home-screen icon.
 img.Image _wordmarkOnWhite(img.Image mark, int size) {
   final canvas = img.Image(width: size, height: size, numChannels: 3);
   img.fill(canvas, color: img.ColorRgb8(0xFF, 0xFF, 0xFF));
-  final inset = (size * 0.88).round().clamp(1, size);
+  final inset = (size * 0.90).round().clamp(1, size);
   final scale = math.min(inset / mark.width, inset / mark.height);
   final scaled = img.copyResize(
     mark,
@@ -89,6 +94,44 @@ img.Image _wordmarkOnWhite(img.Image mark, int size) {
     dstY: ((size - scaled.height) / 2).round(),
   );
   return canvas;
+}
+
+/// Home-screen style preview (rounded) for review — not used as the App Store icon.
+void _writeRoundedPreview(img.Image square) {
+  const preview = 512;
+  const radius = 114; // ~22.4% of 512, iOS squircle-ish
+  final scaled = img.copyResize(
+    square,
+    width: preview,
+    height: preview,
+    interpolation: img.Interpolation.cubic,
+  );
+  final out = img.Image(width: preview, height: preview, numChannels: 4);
+  img.fill(out, color: img.ColorRgba8(0, 0, 0, 0));
+  for (var y = 0; y < preview; y++) {
+    for (var x = 0; x < preview; x++) {
+      if (_inRoundedRect(x, y, preview, radius)) {
+        final p = scaled.getPixel(x, y);
+        out.setPixelRgba(x, y, p.r.toInt(), p.g.toInt(), p.b.toInt(), 255);
+      }
+    }
+  }
+  File('/tmp/elite-dent-app-icon-preview.png').writeAsBytesSync(img.encodePng(out));
+}
+
+bool _inRoundedRect(int x, int y, int size, int r) {
+  final cx = x < r
+      ? r - x
+      : x >= size - r
+          ? x - (size - r - 1)
+          : 0;
+  final cy = y < r
+      ? r - y
+      : y >= size - r
+          ? y - (size - r - 1)
+          : 0;
+  if (cx == 0 || cy == 0) return true;
+  return cx * cx + cy * cy <= r * r;
 }
 
 img.Image _decode(String path) {

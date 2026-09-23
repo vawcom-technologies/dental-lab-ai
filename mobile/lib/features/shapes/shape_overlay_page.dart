@@ -112,6 +112,10 @@ class ShapeLibrary {
       label: 'Canine lift',
       asset: 'assets/clinical/shapes/shape_12_canine_lift.png',
     ),
+  ];
+
+  /// Lower-arch Batem models (gingiva at the bottom after 180° correction).
+  static const lowerArchItems = <ShapeLibraryItem>[
     ShapeLibraryItem(
       id: 13,
       shapeId: 'shape_13',
@@ -131,11 +135,6 @@ class ShapeLibrary {
       asset: 'assets/clinical/shapes/shape_15_implant_classic.png',
     ),
   ];
-
-  /// Lower-arch Batem models (720×480, gingiva at top). Empty until the client
-  /// delivers the PNGs — drop them in `assets/clinical/shapes/` as
-  /// `shape_16_…` and list them here. The accordion includes them automatically.
-  static const lowerArchItems = <ShapeLibraryItem>[];
 
   static List<ShapeLibraryItem> get catalog => [
         ...items,
@@ -159,8 +158,8 @@ class ShapeLibrary {
   }
 }
 
-/// Accordion of Batem smile models — each row Open / Closed independently.
-class BatemModelAccordion extends StatelessWidget {
+/// Accordion of Batem smile models — jaw sections and rows open independently.
+class BatemModelAccordion extends StatefulWidget {
   const BatemModelAccordion({
     super.key,
     required this.selectedIndex,
@@ -177,170 +176,250 @@ class BatemModelAccordion extends StatelessWidget {
   final bool shrinkWrap;
 
   @override
+  State<BatemModelAccordion> createState() => _BatemModelAccordionState();
+}
+
+class _BatemModelAccordionState extends State<BatemModelAccordion> {
+  final _openArch = <String>{'upper', 'lower'};
+
+  @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
-    return ListView.builder(
+    final children = <Widget>[
+      _archHeader('upper', loc.smileUpperJaw),
+      if (_openArch.contains('upper'))
+        ..._rowsFor(ShapeLibrary.items, startIndex: 0),
+      _archHeader('lower', loc.smileLowerJaw),
+      if (_openArch.contains('lower'))
+        ..._rowsFor(
+          ShapeLibrary.lowerArchItems,
+          startIndex: ShapeLibrary.items.length,
+        ),
+    ];
+    return ListView(
       primary: false,
       padding: const EdgeInsets.only(bottom: 8),
-      shrinkWrap: shrinkWrap,
-      physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
-      itemCount: ShapeLibrary.total,
-      itemBuilder: (context, i) {
-        final item = ShapeLibrary.at(i);
-        final selected = i == selectedIndex;
-        final open = openIds.contains(item.id);
-        return Padding(
-          key: ValueKey('batem-${item.id}'),
-          padding: const EdgeInsets.only(bottom: 8),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: selected
-                  ? AppColors.dentalBlue.withValues(alpha: 0.06)
-                  : Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: selected ? AppColors.dentalBlue : AppColors.border,
-                width: selected ? 1.8 : 1,
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+      shrinkWrap: widget.shrinkWrap,
+      physics: widget.shrinkWrap ? const NeverScrollableScrollPhysics() : null,
+      children: children,
+    );
+  }
+
+  Widget _archHeader(String id, String label) {
+    final open = _openArch.contains(id);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: AppColors.neo,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          onTap: () {
+            setState(() {
+              if (open) {
+                _openArch.remove(id);
+              } else {
+                _openArch.add(id);
+              }
+            });
+          },
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+            child: Row(
               children: [
-                InkWell(
-                  onTap: () => onToggle(item.id),
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(12),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(10, 10, 8, 10),
-                    child: Row(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(6),
-                          child: ColoredBox(
-                            color: const Color(0xFF0F1724),
-                            child: SizedBox(
-                              width: 48,
-                              height: 36,
-                              child: ShapeToothImage(
-                                item: item,
-                                fit: BoxFit.contain,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            item.label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                              color: selected
-                                  ? AppColors.dentalBlue
-                                  : AppColors.navy,
-                            ),
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: open
-                                ? AppColors.dentalBlue.withValues(alpha: 0.12)
-                                : AppColors.neo,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            open ? loc.smileModelOpen : loc.smileModelClosed,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: open
-                                  ? AppColors.dentalBlue
-                                  : AppColors.muted,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Icon(
-                          open
-                              ? Icons.expand_less_rounded
-                              : Icons.expand_more_rounded,
-                          color: AppColors.muted,
-                        ),
-                      ],
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                      color: AppColors.navy,
                     ),
                   ),
                 ),
-                ClipRect(
-                  child: AnimatedSize(
-                    duration: const Duration(milliseconds: 180),
-                    curve: Curves.easeOut,
-                    alignment: Alignment.topCenter,
-                    child: open
-                        ? Padding(
-                            padding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Material(
-                                  color: const Color(0xFF0F1724),
-                                  borderRadius: BorderRadius.circular(10),
-                                  clipBehavior: Clip.antiAlias,
-                                  child: InkWell(
-                                    onTap: () => onSelect(i),
-                                    child: SizedBox(
-                                      height: 120,
-                                      child: Stack(
-                                        fit: StackFit.expand,
-                                        children: [
-                                          Padding(
-                                            padding: const EdgeInsets.all(8),
-                                            child: ShapeToothImage(
-                                              item: item,
-                                              fit: BoxFit.contain,
-                                            ),
-                                          ),
-                                          if (selected)
-                                            const Positioned(
-                                              top: 8,
-                                              right: 8,
-                                              child: Icon(
-                                                Icons.check_circle,
-                                                color: AppColors.dentalBlue,
-                                                size: 22,
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                FilledButton(
-                                  onPressed: () => onSelect(i),
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: AppColors.navy,
-                                    minimumSize: const Size.fromHeight(36),
-                                  ),
-                                  child: Text(loc.smileUseThisModel),
-                                ),
-                              ],
-                            ),
-                          )
-                        : const SizedBox(width: double.infinity),
-                  ),
+                Icon(
+                  open
+                      ? Icons.keyboard_arrow_up_rounded
+                      : Icons.keyboard_arrow_down_rounded,
+                  color: AppColors.navy,
                 ),
               ],
             ),
           ),
-        );
-      },
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _rowsFor(List<ShapeLibraryItem> items, {required int startIndex}) {
+    final loc = AppLocalizations.of(context);
+    return [
+      for (var i = 0; i < items.length; i++)
+        _modelRow(
+          loc: loc,
+          item: items[i],
+          catalogIndex: startIndex + i,
+        ),
+    ];
+  }
+
+  Widget _modelRow({
+    required AppLocalizations loc,
+    required ShapeLibraryItem item,
+    required int catalogIndex,
+  }) {
+    final selected = catalogIndex == widget.selectedIndex;
+    final open = widget.openIds.contains(item.id);
+    return Padding(
+      key: ValueKey('batem-${item.id}'),
+      padding: const EdgeInsets.only(bottom: 8),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: selected
+              ? AppColors.dentalBlue.withValues(alpha: 0.06)
+              : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? AppColors.dentalBlue : AppColors.border,
+            width: selected ? 1.8 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            InkWell(
+              onTap: () => widget.onToggle(item.id),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(12),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 10, 8, 10),
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: ColoredBox(
+                        color: const Color(0xFF0F1724),
+                        child: SizedBox(
+                          width: 48,
+                          height: 36,
+                          child: ShapeToothImage(
+                            item: item,
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        item.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          color: selected
+                              ? AppColors.dentalBlue
+                              : AppColors.navy,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: open
+                            ? AppColors.dentalBlue.withValues(alpha: 0.12)
+                            : AppColors.neo,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        open ? loc.smileModelOpen : loc.smileModelClosed,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: open
+                              ? AppColors.dentalBlue
+                              : AppColors.muted,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      open
+                          ? Icons.keyboard_arrow_up_rounded
+                          : Icons.keyboard_arrow_down_rounded,
+                      color: AppColors.navy,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            ClipRect(
+              child: AnimatedSize(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                alignment: Alignment.topCenter,
+                child: open
+                    ? Padding(
+                        padding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Material(
+                              color: const Color(0xFF0F1724),
+                              borderRadius: BorderRadius.circular(10),
+                              clipBehavior: Clip.antiAlias,
+                              child: InkWell(
+                                onTap: () => widget.onSelect(catalogIndex),
+                                child: SizedBox(
+                                  height: 120,
+                                  child: Stack(
+                                    fit: StackFit.expand,
+                                    children: [
+                                      Padding(
+                                        padding: const EdgeInsets.all(8),
+                                        child: ShapeToothImage(
+                                          item: item,
+                                          fit: BoxFit.contain,
+                                        ),
+                                      ),
+                                      if (selected)
+                                        const Positioned(
+                                          top: 8,
+                                          right: 8,
+                                          child: Icon(
+                                            Icons.check_circle,
+                                            color: AppColors.dentalBlue,
+                                            size: 22,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            FilledButton(
+                              onPressed: () => widget.onSelect(catalogIndex),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppColors.navy,
+                                minimumSize: const Size.fromHeight(36),
+                              ),
+                              child: Text(loc.smileUseThisModel),
+                            ),
+                          ],
+                        ),
+                      )
+                    : const SizedBox(width: double.infinity),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
