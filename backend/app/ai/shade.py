@@ -156,19 +156,50 @@ def confidence_from_delta_e(delta_e: float) -> float:
     return float(max(0.05, min(0.97, 1.0 / (1.0 + float(delta_e) / 16.0))))
 
 
+# Phone flash raises L* and b* together. db/dL ≈ 0.22 on these sRGB tabs.
+# Searching that exposure puts the sample on the shared VITA scale instead of
+# collapsing every bright tooth onto B1.
+_EXPOSURE_DB_PER_DL = 0.22
+_EXPOSURE_DL_MAX = 18.0
+_EXPOSURE_DL_STEP = 1.0
+_EXPOSURE_PENALTY = 0.05
+
+
+def _exposure_corrected_lab(sample_lab: np.ndarray) -> np.ndarray:
+    """Shift L* and the flash-linked b* so the sample sits on the VITA scale."""
+    lab = np.asarray(sample_lab, dtype=np.float64).reshape(3)
+    best_score = float("inf")
+    best = lab
+    dL = -_EXPOSURE_DL_MAX
+    while dL <= _EXPOSURE_DL_MAX + 1e-9:
+        corr = np.array(
+            [lab[0] - dL, lab[1], lab[2] - _EXPOSURE_DB_PER_DL * dL],
+            dtype=np.float64,
+        )
+        penalty = _EXPOSURE_PENALTY * abs(dL)
+        score = min(_delta_e_cie2000(corr, tab) for tab in _VITA_LAB.values()) + penalty
+        if score < best_score:
+            best_score = score
+            best = corr
+        dL += _EXPOSURE_DL_STEP
+    return best
+
+
 def match_lab_nearest(
     sample_lab: np.ndarray,
     *,
     top_n: int = 3,
     palette: dict[str, tuple[float, float, float]] | None = None,
 ) -> dict[str, Any]:
-    """Nearest shade by raw CIEDE2000 (no chroma/family reweighting).
+    """Nearest shade on the shared scale.
 
-    Default palette is VITA Classical (enamel). Pass GINGIVA_SHADES for gum.
+    VITA Classical (default) is exposure-corrected onto the tab photos first.
+    Pass GINGIVA_SHADES for gum — those stay on raw CIEDE2000.
     """
     lab = np.asarray(sample_lab, dtype=np.float64).reshape(3)
     if palette is None:
         lab_map = _VITA_LAB
+        lab = _exposure_corrected_lab(lab)
     elif palette is GINGIVA_SHADES:
         lab_map = _GINGIVA_LAB
     else:
@@ -186,6 +217,7 @@ def match_lab_nearest(
     return {
         "shade": best_shade,
         "delta_e_2000": float(best_de),
+        "corrected_lab": [float(x) for x in lab.tolist()],
         "top_matches": [
             {"shade": s, "delta_e_2000": round(float(d), 2)}
             for s, d in scored[: max(1, top_n)]

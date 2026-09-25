@@ -69,11 +69,14 @@ def _load_rgb_from_bytes(data: bytes) -> np.ndarray:
         raise ValueError(
             "Could not read this photo. Export it as JPEG and try again."
         ) from exc
+    icc = image.info.get("icc_profile")
     try:
         image = ImageOps.exif_transpose(image)
     except Exception:
         pass
-    image = image.convert("RGB")
+    if icc and not image.info.get("icc_profile"):
+        image.info["icc_profile"] = icc
+    image = _to_srgb(image)
     w0, h0 = image.size
     max_side = _segment_max_side()
     if max(w0, h0) > max_side:
@@ -83,6 +86,23 @@ def _load_rgb_from_bytes(data: bytes) -> np.ndarray:
             Image.Resampling.BILINEAR,
         )
     return np.asarray(image, dtype=np.uint8)
+
+
+def _to_srgb(image: Image.Image) -> Image.Image:
+    """Map the upload into sRGB so it uses the same space as the shade tabs."""
+    icc = image.info.get("icc_profile")
+    if icc:
+        try:
+            from PIL import ImageCms
+
+            src = ImageCms.ImageCmsProfile(io.BytesIO(icc))
+            dst = ImageCms.createProfile("sRGB")
+            converted = ImageCms.profileToProfile(image, src, dst, outputMode="RGB")
+            if converted is not None:
+                return converted
+        except Exception:
+            logger.info("shade photo ICC profile could not be applied")
+    return image.convert("RGB")
 
 
 def _segment_max_side() -> int:
@@ -266,6 +286,40 @@ def analyze_tooth_from_outline_rgb(
     }
 
 
+def _geometry_for_tooth(
+    tooth: ToothMask,
+    zone_masks: dict[str, np.ndarray] | None = None,
+) -> dict[str, Any] | None:
+    """Outline follows the pre-snap crown; shade zones stay on `tooth.mask`."""
+    geo = tooth_display_geometry(tooth.mask, zone_masks)
+    outline = tooth.display_outline
+    if geo is None or not outline or len(outline) < 3:
+        return geo
+    pts = [[float(p[0]), float(p[1])] for p in outline]
+    geo["outline"] = pts
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    x0, x1 = min(xs), max(xs)
+    y0, y1 = min(ys), max(ys)
+    bw = max(1e-4, x1 - x0)
+    bh = max(1e-4, y1 - y0)
+    pad_x = 0.02 * bw
+    pad_y = 0.02 * bh
+    nx = max(0.0, x0 - pad_x)
+    ny = max(0.0, y0 - pad_y)
+    geo["bbox"] = {
+        "x": round(nx, 5),
+        "y": round(ny, 5),
+        "w": round(min(1.0 - nx, bw + 2.0 * pad_x), 5),
+        "h": round(min(1.0 - ny, bh + 2.0 * pad_y), 5),
+    }
+    geo["label"] = {
+        "x": round((x0 + x1) / 2.0, 5),
+        "y": round(max(0.0, y0 - 0.01), 5),
+    }
+    return geo
+
+
 def _analyze_teeth(
     image_rgb: np.ndarray, teeth: list[ToothMask]
 ) -> list[dict[str, Any]]:
@@ -292,7 +346,7 @@ def _analyze_tooth(image_rgb: np.ndarray, tooth: ToothMask) -> dict[str, Any]:
     }
     # Skip only unusable dust; still zone soft-rejected masks so the dentist can pick them.
     if tooth.rejected and tooth.reject_reason == "too_small":
-        base["geometry"] = tooth_display_geometry(tooth.mask)
+        base["geometry"] = _geometry_for_tooth(tooth)
         return base
 
     try:
@@ -300,7 +354,7 @@ def _analyze_tooth(image_rgb: np.ndarray, tooth: ToothMask) -> dict[str, Any]:
     except ValueError:
         base["rejected"] = True
         base["reject_reason"] = tooth.reject_reason or "incomplete"
-        base["geometry"] = tooth_display_geometry(tooth.mask)
+        base["geometry"] = _geometry_for_tooth(tooth)
         return base
 
     zones_out: dict[str, dict[str, Any]] = {}
@@ -315,7 +369,7 @@ def _analyze_tooth(image_rgb: np.ndarray, tooth: ToothMask) -> dict[str, Any]:
             matched_any = True
 
     base["zones"] = zones_out
-    base["geometry"] = tooth_display_geometry(tooth.mask, zone_masks)
+    base["geometry"] = _geometry_for_tooth(tooth, zone_masks)
     if matched_any:
         # Usable samples win over soft segment rejection.
         base["rejected"] = False
@@ -327,18 +381,20 @@ def _analyze_tooth(image_rgb: np.ndarray, tooth: ToothMask) -> dict[str, Any]:
 
 
 def _match_zone(image_rgb: np.ndarray, zone_mask: np.ndarray) -> dict[str, Any]:
-    lab = sample_zone_lab(image_rgb, zone_mask)
+    lab = sample_zone_lab(image_rgb, zone_mask, drop_non_enamel=True)
     if lab is None:
         return _empty_zone()
 
     matched = match_lab_nearest(lab, top_n=5)
+    # corrected_lab is the sample placed on the shared VITA scale's exposure.
+    used = matched.get("corrected_lab") or lab.tolist()
     # Fresh detection: override always null → effective == detected
     return {
         "detected_shade": matched["shade"],
         "delta_e_2000": round(float(matched["delta_e_2000"]), 2),
         "override_shade": None,
         "effective_shade": matched["shade"],
-        "sampled_lab": [round(float(x), 2) for x in lab.tolist()],
+        "sampled_lab": [round(float(x), 2) for x in used],
         "top_matches": matched["top_matches"],
     }
 

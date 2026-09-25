@@ -747,6 +747,48 @@ def _cluster_scored_by_cy(
     return [upper, lower]
 
 
+def _outline_norm_from_crop(
+    mask: np.ndarray,
+    box: tuple[int, int, int, int],
+    full_h: int,
+    full_w: int,
+) -> tuple[tuple[float, float], ...] | None:
+    """Normalized crown ring from the pre-snap crop mask."""
+    import cv2
+
+    from app.ai.shade_geometry import (
+        DISPLAY_OUTLINE_MAX,
+        DISPLAY_OUTLINE_MIN,
+        _even_sample_closed,
+    )
+
+    if full_h < 2 or full_w < 2 or int(np.asarray(mask).sum()) < 8:
+        return None
+    u8 = (np.asarray(mask).astype(np.uint8)) * 255
+    contours, _ = cv2.findContours(u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    if not contours:
+        return None
+    cnt = max(contours, key=cv2.contourArea)
+    if cv2.contourArea(cnt) < 8 or len(cnt) < 3:
+        return None
+    y0, _y1, x0, _x1 = box
+    pts: list[list[float]] = []
+    for p in cnt.reshape(-1, 2):
+        pts.append(
+            [
+                round((float(p[0]) + x0) / float(full_w), 5),
+                round((float(p[1]) + y0) / float(full_h), 5),
+            ]
+        )
+    if len(pts) < 3:
+        return None
+    if len(pts) > DISPLAY_OUTLINE_MAX:
+        pts = _even_sample_closed(pts, DISPLAY_OUTLINE_MAX)
+    elif len(pts) < DISPLAY_OUTLINE_MIN:
+        pts = _even_sample_closed(pts, DISPLAY_OUTLINE_MIN)
+    return tuple((float(p[0]), float(p[1])) for p in pts)
+
+
 def _labels_to_tooth_masks(
     labels: np.ndarray,
     *,
@@ -765,9 +807,16 @@ def _labels_to_tooth_masks(
         if int(enamel.sum()) < 80:
             enamel = None
     for i, crop_m in enumerate(crop_masks[:_MAX_TEETH]):
+        display_outline = None
+        analysis = crop_m
         if enamel is not None:
-            crop_m = _snap_mask_to_enamel(crop_m, enamel)
-        full = _paste_mask(crop_m, (full_h, full_w), box)
+            snapped = _snap_mask_to_enamel(crop_m, enamel)
+            if int(np.count_nonzero(snapped != crop_m)) > 0:
+                display_outline = _outline_norm_from_crop(
+                    crop_m, box, full_h, full_w
+                )
+            analysis = snapped
+        full = _paste_mask(analysis, (full_h, full_w), box)
         if int(full.sum()) < _MIN_MASK_PIXELS:
             continue
         teeth.append(
@@ -778,6 +827,7 @@ def _labels_to_tooth_masks(
                 rejected=False,
                 reject_reason=None,
                 arch=arch,
+                display_outline=display_outline,
             )
         )
     return _sanity_check_instances(teeth)
@@ -878,16 +928,47 @@ def _scale_rgb(crop_rgb: np.ndarray, scale: float) -> tuple[np.ndarray, float]:
 
 
 def _upscale_labels(labels: np.ndarray, out_hw: tuple[int, int]) -> np.ndarray:
+    """Draw each label's contour at the destination size.
+
+    Nearest-neighbor resize stair-steps the crown when the work image is
+    smaller than the crop. Scaling the contour points keeps the enamel curve.
+    """
     import cv2
 
     h, w = out_hw
-    if labels.shape[:2] == (h, w):
-        return labels
-    return cv2.resize(
-        labels.astype(np.float32),
-        (w, h),
-        interpolation=cv2.INTER_NEAREST,
-    ).astype(np.int32)
+    src = np.asarray(labels)
+    if src.shape[:2] == (h, w):
+        return src.astype(np.int32, copy=False)
+    src_h, src_w = src.shape[:2]
+    if src_h < 1 or src_w < 1 or h < 1 or w < 1:
+        return np.zeros((max(h, 1), max(w, 1)), dtype=np.int32)
+    sx = w / float(src_w)
+    sy = h / float(src_h)
+    out = np.zeros((h, w), dtype=np.int32)
+    for lid in np.unique(src):
+        lid_i = int(lid)
+        if lid_i <= 0:
+            continue
+        u8 = (src == lid).astype(np.uint8) * 255
+        contours, _ = cv2.findContours(u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        polys: list[np.ndarray] = []
+        for cnt in contours:
+            if cnt is None or len(cnt) < 3:
+                continue
+            pts = cnt.astype(np.float64)
+            pts[:, 0, 0] = np.clip(pts[:, 0, 0] * sx, 0, w - 1)
+            pts[:, 0, 1] = np.clip(pts[:, 0, 1] * sy, 0, h - 1)
+            polys.append(np.round(pts).astype(np.int32))
+        if polys:
+            cv2.fillPoly(out, polys, lid_i)
+        else:
+            nearest = cv2.resize(
+                u8,
+                (w, h),
+                interpolation=cv2.INTER_NEAREST,
+            )
+            out[nearest > 0] = lid_i
+    return out
 
 
 def _run_upstream_pipeline(
@@ -1141,6 +1222,7 @@ def detect_teeth_kaist(
             reject_reason=t.reject_reason,
             arch=t.arch,
             arch_index=t.arch_index,
+            display_outline=t.display_outline,
         )
     logger.info(
         "kaist done teeth=%s accepted=%s boxes=%s ms=%.0f",

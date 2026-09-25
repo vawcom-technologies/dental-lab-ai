@@ -68,6 +68,55 @@ class TestKaistHelpers:
         assert teeth[0].mask[105:135, 210:225].all()
         assert not teeth[0].mask[0, 0]
 
+    def test_upscale_labels_scales_the_contour(self):
+        import cv2
+
+        from app.ai.shade_segment_kaist import _upscale_labels
+
+        labels = np.zeros((20, 20), dtype=np.int32)
+        yy, xx = np.ogrid[:20, :20]
+        labels[(xx - 10) ** 2 + (yy - 10) ** 2 <= 49] = 1
+        out = _upscale_labels(labels, (80, 80))
+        nearest = cv2.resize(
+            labels.astype(np.float32),
+            (80, 80),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        assert int((out > 0).sum()) > 0
+        area_ratio = float((out > 0).sum()) / float(labels.sum() * 16)
+        assert 0.85 < area_ratio < 1.15
+        assert not np.array_equal(out > 0, nearest > 0)
+
+    def test_display_outline_keeps_crown_before_enamel_snap(self):
+        labels = np.zeros((40, 60), dtype=np.int32)
+        labels[8:32, 10:28] = 1
+        crop = np.zeros((40, 60, 3), dtype=np.uint8)
+        box = (0, 40, 0, 60)
+
+        def shrink(mask, enamel):
+            out = mask.copy()
+            out[:14, :] = False
+            return out
+
+        with (
+            patch(
+                "app.ai.shade_segment_kaist._snap_mask_to_enamel",
+                side_effect=shrink,
+            ),
+            patch(
+                "app.ai.shade_segment_kaist._kaist_crown_keep_mask",
+                return_value=np.ones((40, 60), dtype=bool),
+            ),
+        ):
+            teeth = _labels_to_tooth_masks(
+                labels, full_h=40, full_w=60, box=box, crop_rgb=crop
+            )
+        assert len(teeth) == 1
+        assert teeth[0].display_outline is not None
+        assert len(teeth[0].display_outline) >= 96
+        assert min(p[1] for p in teeth[0].display_outline) < 0.25
+        assert not teeth[0].mask[:14, 10:28].any()
+
     def test_labels_to_masks_keeps_arch_tag(self):
         labels = np.zeros((20, 30), dtype=np.int32)
         labels[2:18, 5:25] = 1

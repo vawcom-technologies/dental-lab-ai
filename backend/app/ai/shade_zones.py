@@ -135,6 +135,7 @@ def sample_zone_lab(
     min_pixels: int = MIN_ZONE_SAMPLE_PIXELS,
     max_sample_pixels: int = 400,
     exclude_shadows: bool = True,
+    drop_non_enamel: bool = False,
 ) -> np.ndarray | None:
     """Median CIE Lab of a zone after specular + edge exclusion. None if too few pixels."""
     import cv2
@@ -185,6 +186,12 @@ def sample_zone_lab(
         labs = filtered
     elif labs.shape[0] < min_pixels:
         return None
+    if drop_non_enamel:
+        # Pink gingiva (high a*) and gray-blue incisal translucency are not
+        # on the VITA enamel scale. Keep them only if the zone is nothing else.
+        enamel = (labs[:, 1] <= 8.0) & (labs[:, 2] >= 6.0)
+        if int(enamel.sum()) >= min_pixels:
+            labs = labs[enamel]
     # Drop chroma / L* outliers (gingiva bleed, restorations) via MAD.
     if labs.shape[0] >= min_pixels + 4:
         med = np.median(labs, axis=0)

@@ -712,12 +712,12 @@ class ToothOverlayPainter extends CustomPainter {
         canvas.drawPath(path, stroke);
       }
 
-      if (!(editMode && selected)) {
+      if (selected && !editMode) {
         _paintClinicalMarks(
           canvas,
           dest,
           geo,
-          selected: selected,
+          selected: true,
           rejected: rejected,
         );
       }
@@ -775,7 +775,6 @@ class ToothOverlayPainter extends CustomPainter {
           selected: false,
         );
       }
-      final marks = _clinicalMarks(geo, dest);
       out.add(
         _CachedToothStroke(
           path: path,
@@ -790,11 +789,6 @@ class ToothOverlayPainter extends CustomPainter {
             ..strokeWidth = 1.15
             ..color = rejected ? AppColors.danger : _contourColor,
           label: labelPaint,
-          box: marks.box,
-          axisFrom: marks.axis?.$1,
-          axisTo: marks.axis?.$2,
-          ticks: marks.ticks,
-          rejected: rejected,
         ),
       );
     }
@@ -804,15 +798,6 @@ class ToothOverlayPainter extends CustomPainter {
   void _paintCachedTooth(Canvas canvas, _CachedToothStroke c) {
     canvas.drawPath(c.path, c.fill);
     canvas.drawPath(c.path, c.stroke);
-    _strokeClinical(
-      canvas,
-      box: c.box,
-      axisFrom: c.axisFrom,
-      axisTo: c.axisTo,
-      ticks: c.ticks,
-      selected: false,
-      rejected: c.rejected,
-    );
     if (c.label != null) {
       _paintLabel(canvas, c.label!);
     }
@@ -1101,11 +1086,6 @@ class _CachedToothStroke {
     required this.fill,
     required this.stroke,
     this.label,
-    this.box,
-    this.axisFrom,
-    this.axisTo,
-    this.ticks = const [],
-    this.rejected = false,
   });
 
   final Path path;
@@ -1113,11 +1093,6 @@ class _CachedToothStroke {
   final Paint fill;
   final Paint stroke;
   final _LabelPaint? label;
-  final Rect? box;
-  final Offset? axisFrom;
-  final Offset? axisTo;
-  final List<(Offset, Offset)> ticks;
-  final bool rejected;
 }
 
 class _LabelPaint {

@@ -76,6 +76,8 @@ class ToothMask:
     arch: str | None = None  # "upper" | "lower" when dual-arch smile detected
     arch_index: int = 0  # left→right within that arch (image space)
     fdi: int | None = None  # ISO 3950, front→back in the quadrant
+    # Pre-snap crown ring in normalized [x, y]. Shade sampling stays on `mask`.
+    display_outline: tuple[tuple[float, float], ...] | None = None
 
 
 def detect_teeth(
@@ -118,6 +120,7 @@ def detect_teeth(
             teeth_or_none = _fill_short_arch_from_enamel(image_rgb, teeth_or_none)
             teeth_or_none = _merge_kaist_split_crowns(teeth_or_none)
             teeth_or_none = _trim_to_anterior_shade_window(teeth_or_none)
+            teeth_or_none = _maybe_sam_refine_outlines(image_rgb, teeth_or_none)
             out = _assign_arch_metadata(teeth_or_none)
             _fill_segment_meta(
                 meta_out,
@@ -189,6 +192,46 @@ def detect_teeth(
         resolved,
     )
     return out
+
+
+_sam_skip_logged = False
+
+
+def _maybe_sam_refine_outlines(
+    image_rgb: np.ndarray, teeth: list[ToothMask]
+) -> list[ToothMask]:
+    """Snap KAIST boxes to enamel with SAM2 when ultralytics is installed."""
+    global _sam_skip_logged
+    if not teeth:
+        return teeth
+    try:
+        from app.core.config import settings
+
+        if not bool(settings.shade_segment_sam_refine):
+            return teeth
+        weights = (settings.shade_segment_sam_weights or "sam2_b.pt").strip()
+    except Exception:
+        return teeth
+    try:
+        import ultralytics  # noqa: F401
+    except ImportError:
+        if not _sam_skip_logged:
+            logger.info(
+                "SAM outline refine skipped — install ultralytics to enable it"
+            )
+            _sam_skip_logged = True
+        return teeth
+    try:
+        from app.ai.shade_segment_production import refine_existing_masks
+
+        refined = refine_existing_masks(image_rgb, teeth, sam_weights=weights)
+    except Exception:
+        logger.exception("SAM outline refine failed — keeping KAIST contours")
+        return teeth
+    if not refined:
+        return teeth
+    logger.info("SAM outline refine applied teeth=%s", len(refined))
+    return refined
 
 
 def _fill_segment_meta(
@@ -288,7 +331,14 @@ def _merge_kaist_split_crowns(teeth: list[ToothMask]) -> list[ToothMask]:
             if src is None:
                 continue
             used.add(src_i)
-            out.append(replace(src, mask=mask))
+            merged_slice = mask is not src.mask
+            out.append(
+                replace(
+                    src,
+                    mask=mask,
+                    display_outline=None if merged_slice else src.display_outline,
+                )
+            )
         out.extend(rejected)
     return out
 

@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     shade_segment_inference_api_url: str = "https://serverless.roboflow.com"
     shade_segment_conf: float = 0.25
     shade_segment_imgsz: int = 1280  # max side for shade analyze downscale
+    # Box-prompt SAM2 on KAIST crowns. Skipped when ultralytics is not installed.
+    shade_segment_sam_refine: bool = True
+    shade_segment_sam_weights: str = "sam2_b.pt"
 
     # Chairside interpreter (doctor ↔ patient). Turns are not stored.
     # Prefer DeepL (EU). Google Cloud / OpenAI are fallbacks. GTX is last-resort

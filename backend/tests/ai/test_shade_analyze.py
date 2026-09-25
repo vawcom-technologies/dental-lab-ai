@@ -148,6 +148,26 @@ class TestZoneSampleThenMatch:
         matched = match_lab_nearest(lab)
         assert matched["shade"] == "C2"
 
+    def test_brighter_photo_still_matches_shared_scale(self):
+        """Flash raises L* and b*; the match must stay on that tab, not jump to B1."""
+
+        def lin(c):
+            c = c / 255.0
+            return np.where(c > 0.04045, ((c + 0.055) / 1.055) ** 2.4, c / 12.92)
+
+        def unlin(c):
+            c = np.clip(c, 0, None)
+            out = np.where(
+                c <= 0.0031308, 12.92 * c, 1.055 * c ** (1 / 2.4) - 0.055
+            )
+            return np.clip(out * 255.0, 0, 255)
+
+        for shade in ("A2", "A3", "A3.5", "A4", "B1", "B2"):
+            rgb = np.array(VITA_SHADES[shade], dtype=np.float64)
+            photo = unlin(lin(rgb) * 1.4)
+            matched = match_lab_nearest(_rgb_to_lab(photo))
+            assert matched["shade"] == shade
+
     def test_specular_flash_does_not_shift_enamel_lab(self):
         h, w = 120, 80
         img = np.zeros((h, w, 3), dtype=np.uint8)

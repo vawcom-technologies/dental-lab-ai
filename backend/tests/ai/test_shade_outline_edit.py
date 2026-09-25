@@ -120,7 +120,7 @@ def test_display_outline_is_moderate_for_rounded_mask():
     mask = ((xx - 80) / 50) ** 2 + ((yy - 100) / 80) ** 2 <= 1.0
     geo = tooth_display_geometry(mask)
     assert geo is not None
-    assert 24 <= len(geo["outline"]) <= 48
+    assert 96 <= len(geo["outline"]) <= 160
     # Even spacing around an ellipse — no long flat chords.
     ring = geo["outline"]
     chords = [

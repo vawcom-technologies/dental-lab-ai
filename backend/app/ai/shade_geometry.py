@@ -13,8 +13,9 @@ import numpy as np
 from app.ai.shade_zones import ZONES, tooth_long_axis
 
 # Chairside edit budgets — keep Flutter simplifyOutlineForEdit in sync.
-DISPLAY_OUTLINE_MAX = 48
-DISPLAY_OUTLINE_MIN = 24
+# Display ring stays dense so the stroke can follow enamel instead of a blob.
+DISPLAY_OUTLINE_MAX = 160
+DISPLAY_OUTLINE_MIN = 96
 EDIT_HANDLES_MAX = 12
 EDIT_HANDLES_MIN = 8
 
@@ -40,12 +41,9 @@ def tooth_display_geometry(
     if cv2.contourArea(cnt) < 8:
         return None
 
-    # Light DP removes pixel jaggies; even-sample keeps the enamel curve.
-    epsilon = max(0.25, 0.0016 * cv2.arcLength(cnt, True))
-    approx = cv2.approxPolyDP(cnt, epsilon, True)
-    dense = _poly_norm(approx, w, h)
-    if len(dense) < 3:
-        dense = _poly_norm(cnt, w, h)
+    # Even-sample the pixel contour. Douglas–Peucker here rounded off
+    # incisal corners before the app drew the ring.
+    dense = _poly_norm(cnt, w, h)
     if len(dense) > DISPLAY_OUTLINE_MAX:
         outline = _even_sample_closed(dense, DISPLAY_OUTLINE_MAX)
     elif len(dense) < DISPLAY_OUTLINE_MIN:

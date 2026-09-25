@@ -250,6 +250,49 @@ def _refine_with_sam2(
     return refined
 
 
+def refine_existing_masks(
+    image_rgb: np.ndarray,
+    teeth: list[ToothMask],
+    *,
+    sam_weights: str,
+) -> list[ToothMask]:
+    """Replace each crown mask with a SAM2 box prompt, clipped to the seed."""
+    from dataclasses import replace
+
+    if not teeth:
+        return teeth
+    u8 = np.clip(np.asarray(image_rgb), 0, 255).astype(np.uint8)
+    live: list[tuple[int, np.ndarray, float, tuple[float, float, float, float]]] = []
+    for i, tooth in enumerate(teeth):
+        if tooth.rejected or tooth.mask is None or not np.any(tooth.mask):
+            continue
+        ys, xs = np.nonzero(tooth.mask)
+        if ys.size < 8:
+            continue
+        xyxy = (float(xs.min()), float(ys.min()), float(xs.max()) + 1, float(ys.max()) + 1)
+        live.append((i, tooth.mask, float(tooth.confidence), xyxy))
+    if not live:
+        return teeth
+    refined = _refine_with_sam2(
+        u8,
+        [(mask, conf, xyxy) for _i, mask, conf, xyxy in live],
+        sam_weights,
+    )
+    if len(refined) != len(live):
+        return teeth
+    out = list(teeth)
+    for (i, seed, _conf, _xyxy), (mask, _sam_conf) in zip(live, refined):
+        if mask.shape != seed.shape or int(mask.sum()) < _MIN_MASK_PIXELS:
+            continue
+        overlap = int(np.count_nonzero(mask & seed))
+        if overlap < 0.35 * int(seed.sum()):
+            continue
+        if np.array_equal(mask, seed):
+            continue
+        out[i] = replace(teeth[i], mask=mask, display_outline=None)
+    return out
+
+
 def _sort_instances(
     instances: list[tuple[np.ndarray, float]],
 ) -> list[tuple[np.ndarray, float]]:
