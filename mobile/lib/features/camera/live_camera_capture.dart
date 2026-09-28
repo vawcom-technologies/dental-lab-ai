@@ -2,7 +2,9 @@ import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/haptics/app_haptics.dart';
 import '../../core/navigation/app_page_routes.dart';
@@ -29,10 +31,17 @@ class LiveCameraCapturePage extends StatefulWidget {
 
 class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
     with WidgetsBindingObserver {
+  static const _presets = <ResolutionPreset>[
+    ResolutionPreset.veryHigh,
+    ResolutionPreset.high,
+    ResolutionPreset.medium,
+  ];
+
   CameraController? _controller;
   List<CameraDescription> _cameras = const [];
   int _cameraIndex = 0;
   bool _ready = false;
+  bool _starting = false;
   bool _capturing = false;
   String? _error;
   JawFocus _focus = JawFocus.both;
@@ -40,6 +49,7 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
   double _scaleAtStart = CameraGuideOverlay.defaultScale;
   Offset _overlayOffset = Offset.zero;
   final _previewKey = GlobalKey();
+  final _picker = ImagePicker();
 
   Offset _clampedOffset(Offset offset, double scale) {
     final box = _previewKey.currentContext?.findRenderObject() as RenderBox?;
@@ -69,19 +79,27 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _controller?.dispose();
+    final c = _controller;
+    _controller = null;
+    c?.dispose();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final c = _controller;
-    if (c == null || !c.value.isInitialized) return;
-    if (state == AppLifecycleState.inactive) {
+    // iOS fires `inactive` during interruptions (Control Center, capture).
+    // Disposing there kills takePicture mid-shot — only tear down on pause.
+    if (state == AppLifecycleState.inactive) return;
+    if (state == AppLifecycleState.paused) {
+      if (_capturing) return;
+      if (c == null || !c.value.isInitialized) return;
       c.dispose();
       _controller = null;
-      _ready = false;
+      if (mounted) setState(() => _ready = false);
     } else if (state == AppLifecycleState.resumed) {
+      if (_capturing) return;
+      if (_controller != null && _controller!.value.isInitialized) return;
       _start(preferredIndex: _cameraIndex);
     }
   }
@@ -116,6 +134,8 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
   }
 
   Future<void> _start({int preferredIndex = 0}) async {
+    if (_starting || _capturing) return;
+    _starting = true;
     setState(() {
       _error = null;
       _ready = false;
@@ -124,7 +144,10 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
       final cameras = await availableCameras();
       if (!mounted) return;
       if (cameras.isEmpty) {
-        setState(() => _error = 'No camera found on this device.');
+        setState(
+          () => _error =
+              'No camera found. Use the system camera or photo library.',
+        );
         return;
       }
       _cameras = cameras;
@@ -136,8 +159,30 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
       await _openCamera(index);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = _friendlyCameraError(e));
+    } finally {
+      _starting = false;
     }
+  }
+
+  String _friendlyCameraError(Object e) {
+    final raw = e.toString();
+    if (e is CameraException) {
+      switch (e.code) {
+        case 'CameraAccessDenied':
+        case 'CameraAccessDeniedWithoutPrompt':
+        case 'AccessDenied':
+          return 'Camera permission is off. Enable it in Settings, then retry.';
+        case 'CameraAccessRestricted':
+          return 'Camera access is restricted on this device.';
+        default:
+          break;
+      }
+      if (e.description != null && e.description!.trim().isNotEmpty) {
+        return e.description!.trim();
+      }
+    }
+    return raw.replaceFirst('Exception: ', '').replaceFirst('CameraException: ', '');
   }
 
   Future<void> _openCamera(int index) async {
@@ -146,25 +191,52 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
     await previous?.dispose();
 
     final description = _cameras[index];
-    final controller = CameraController(
-      description,
-      ResolutionPreset.veryHigh,
-      enableAudio: false,
-      imageFormatGroup: ImageFormatGroup.jpeg,
-    );
-    _controller = controller;
-    _cameraIndex = index;
-    await controller.initialize();
+    Object? lastError;
+    for (final preset in _presets) {
+      final controller = CameraController(
+        description,
+        preset,
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.jpeg,
+      );
+      try {
+        await controller.initialize();
+        if (!mounted) {
+          await controller.dispose();
+          return;
+        }
+        // Let the first frame settle before allowing capture.
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+        if (!mounted) {
+          await controller.dispose();
+          return;
+        }
+        _controller = controller;
+        _cameraIndex = index;
+        setState(() {
+          _ready = true;
+          _error = null;
+        });
+        return;
+      } catch (e) {
+        lastError = e;
+        await controller.dispose();
+      }
+    }
     if (!mounted) return;
-    setState(() => _ready = true);
+    setState(() {
+      _error = _friendlyCameraError(
+        lastError ?? Exception('Could not start the camera.'),
+      );
+      _ready = false;
+    });
   }
 
   Future<void> _flip() async {
-    if (_cameras.length < 2 || _capturing) return;
+    if (_cameras.length < 2 || _capturing || _starting) return;
     AppHaptics.selection();
-    final next = (_cameraIndex + 1) % _cameras.length;
     setState(() => _ready = false);
-    await _openCamera(next);
+    await _openCamera((_cameraIndex + 1) % _cameras.length);
   }
 
   void _resetOverlay() {
@@ -210,27 +282,42 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
 
   Future<void> _capture() async {
     final c = _controller;
-    if (c == null || !c.value.isInitialized || _capturing) return;
+    if (c == null ||
+        !c.value.isInitialized ||
+        _capturing ||
+        c.value.isTakingPicture) {
+      return;
+    }
     setState(() => _capturing = true);
     AppHaptics.medium();
     try {
       final file = await c.takePicture();
       final raw = await file.readAsBytes();
+      if (raw.isEmpty) {
+        throw Exception('Camera returned an empty photo. Please try again.');
+      }
       final oriented = _orientedPreviewSize(c);
       final box = _previewKey.currentContext?.findRenderObject() as RenderBox?;
       final view = (box != null && box.hasSize) ? box.size : Size.zero;
       final visible = (oriented != null && view.width > 0 && view.height > 0)
           ? coverVisibleFraction(oriented, view)
           : const Rect.fromLTWH(0, 0, 1, 1);
-      final bytes = cropCaptureToGuide(
-        Uint8List.fromList(raw),
-        angle: widget.angle,
-        focus: _focus,
-        visible: visible,
-        previewAspect: oriented == null || oriented.height <= 0
-            ? null
-            : oriented.width / oriented.height,
-        viewport: view,
+      final bytes = await compute(
+        _cropCaptureArgs,
+        _CropCaptureArgs(
+          jpeg: Uint8List.fromList(raw),
+          angle: widget.angle,
+          focusName: _focus.name,
+          visibleLeft: visible.left,
+          visibleTop: visible.top,
+          visibleWidth: visible.width,
+          visibleHeight: visible.height,
+          previewAspect: oriented == null || oriented.height <= 0
+              ? null
+              : oriented.width / oriented.height,
+          viewportWidth: view.width,
+          viewportHeight: view.height,
+        ),
       );
       AppHaptics.success();
       if (!mounted) return;
@@ -239,7 +326,82 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
       AppHaptics.warn();
       if (!mounted) return;
       setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
+        _error = _friendlyCameraError(e);
+        _capturing = false;
+      });
+    }
+  }
+
+  Future<void> _captureViaSystemCamera() async {
+    if (_capturing) return;
+    setState(() => _capturing = true);
+    AppHaptics.medium();
+    try {
+      final file = await _picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 92,
+        maxWidth: 2048,
+        maxHeight: 2048,
+        preferredCameraDevice: CameraDevice.rear,
+      );
+      if (file == null) {
+        if (mounted) setState(() => _capturing = false);
+        return;
+      }
+      final raw = Uint8List.fromList(await file.readAsBytes());
+      final bytes = await compute(
+        _cropCaptureArgs,
+        _CropCaptureArgs(
+          jpeg: raw,
+          angle: widget.angle,
+          focusName: _focus.name,
+        ),
+      );
+      AppHaptics.success();
+      if (!mounted) return;
+      Navigator.of(context).pop<Uint8List>(bytes);
+    } catch (e) {
+      AppHaptics.warn();
+      if (!mounted) return;
+      setState(() {
+        _error = _friendlyCameraError(e);
+        _capturing = false;
+      });
+    }
+  }
+
+  Future<void> _captureViaGallery() async {
+    if (_capturing) return;
+    setState(() => _capturing = true);
+    AppHaptics.medium();
+    try {
+      final file = await _picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 92,
+        maxWidth: 2048,
+        maxHeight: 2048,
+      );
+      if (file == null) {
+        if (mounted) setState(() => _capturing = false);
+        return;
+      }
+      final raw = Uint8List.fromList(await file.readAsBytes());
+      final bytes = await compute(
+        _cropCaptureArgs,
+        _CropCaptureArgs(
+          jpeg: raw,
+          angle: widget.angle,
+          focusName: _focus.name,
+        ),
+      );
+      AppHaptics.success();
+      if (!mounted) return;
+      Navigator.of(context).pop<Uint8List>(bytes);
+    } catch (e) {
+      AppHaptics.warn();
+      if (!mounted) return;
+      setState(() {
+        _error = _friendlyCameraError(e);
         _capturing = false;
       });
     }
@@ -249,6 +411,7 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
   Widget build(BuildContext context) {
     final c = _controller;
     final showTeeth = widget.angle == 'frontal';
+    final loc = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -320,9 +483,35 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
                         style: const TextStyle(color: Colors.white, height: 1.35),
                       ),
                       const SizedBox(height: 16),
-                      FilledButton(
-                        onPressed: () => _start(preferredIndex: _cameraIndex),
-                        child: Text(AppLocalizations.of(context).cameraRetryCamera),
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          FilledButton(
+                            onPressed: _capturing
+                                ? null
+                                : () => _start(preferredIndex: _cameraIndex),
+                            child: Text(loc.cameraRetryCamera),
+                          ),
+                          OutlinedButton(
+                            onPressed:
+                                _capturing ? null : _captureViaSystemCamera,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              side: const BorderSide(color: Colors.white54),
+                            ),
+                            child: const Text('System camera'),
+                          ),
+                          OutlinedButton(
+                            onPressed: _capturing ? null : _captureViaGallery,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              side: const BorderSide(color: Colors.white54),
+                            ),
+                            child: Text(loc.cameraGallery),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -349,7 +538,7 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
                     if (_cameras.length > 1)
                       IconButton(
                         onPressed: _capturing ? null : _flip,
-                        tooltip: AppLocalizations.of(context).cameraSwitchCamera,
+                        tooltip: loc.cameraSwitchCamera,
                         icon: const Icon(
                           Icons.cameraswitch_outlined,
                           color: Colors.white,
@@ -362,7 +551,7 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
                       if (_cameras.length > 1) const SizedBox(height: 4),
                       IconButton(
                         onPressed: _capturing ? null : _resetOverlay,
-                        tooltip: AppLocalizations.of(context).cameraResetOverlay,
+                        tooltip: loc.cameraResetOverlay,
                         icon: const Icon(
                           Icons.filter_center_focus,
                           color: Colors.white,
@@ -461,25 +650,29 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
                   if (showTeeth) const SizedBox(height: 8),
                   GestureDetector(
                     onTap: _ready && !_capturing ? _capture : null,
-                    child: Container(
-                      width: 74,
-                      height: 74,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 4),
-                        color: _capturing
-                            ? AppColors.dentalBlue.withValues(alpha: 0.5)
-                            : Colors.white24,
-                      ),
-                      child: Center(
-                        child: Container(
-                          width: 56,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: _capturing
-                                ? AppColors.dentalBlue
-                                : Colors.white,
+                    child: Semantics(
+                      button: true,
+                      label: loc.cameraTakePhoto,
+                      child: Container(
+                        width: 74,
+                        height: 74,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 4),
+                          color: _capturing
+                              ? AppColors.dentalBlue.withValues(alpha: 0.5)
+                              : Colors.white24,
+                        ),
+                        child: Center(
+                          child: Container(
+                            width: 56,
+                            height: 56,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: _capturing
+                                  ? AppColors.dentalBlue
+                                  : Colors.white,
+                            ),
                           ),
                         ),
                       ),
@@ -506,6 +699,52 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
       ),
     );
   }
+}
+
+class _CropCaptureArgs {
+  const _CropCaptureArgs({
+    required this.jpeg,
+    required this.angle,
+    required this.focusName,
+    this.visibleLeft = 0,
+    this.visibleTop = 0,
+    this.visibleWidth = 1,
+    this.visibleHeight = 1,
+    this.previewAspect,
+    this.viewportWidth = 0,
+    this.viewportHeight = 0,
+  });
+
+  final Uint8List jpeg;
+  final String angle;
+  final String focusName;
+  final double visibleLeft;
+  final double visibleTop;
+  final double visibleWidth;
+  final double visibleHeight;
+  final double? previewAspect;
+  final double viewportWidth;
+  final double viewportHeight;
+}
+
+Uint8List _cropCaptureArgs(_CropCaptureArgs args) {
+  final focus = JawFocus.values.firstWhere(
+    (f) => f.name == args.focusName,
+    orElse: () => JawFocus.both,
+  );
+  return cropCaptureToGuide(
+    args.jpeg,
+    angle: args.angle,
+    focus: focus,
+    visible: Rect.fromLTWH(
+      args.visibleLeft,
+      args.visibleTop,
+      args.visibleWidth,
+      args.visibleHeight,
+    ),
+    previewAspect: args.previewAspect,
+    viewport: Size(args.viewportWidth, args.viewportHeight),
+  );
 }
 
 /// Fills the viewport with the live feed without stretching (BoxFit.cover).

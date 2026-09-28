@@ -1,5 +1,4 @@
 import 'dart:typed_data';
-import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 
@@ -266,6 +265,19 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
     ];
   }
 
+  String? _zoneShadeForTooth(
+    Map<String, dynamic> t, {
+    required String zone,
+    required bool active,
+  }) {
+    if (active &&
+        widget.focusZone == zone &&
+        widget.pendingShade != null) {
+      return widget.pendingShade;
+    }
+    return widget.zoneEffective(widget.zoneOf(t, zone));
+  }
+
   Widget _toothCard(BuildContext context, Map<String, dynamic> t) {
     final idx = (t['tooth_index'] as num).toInt();
     final rejected = t['rejected'] == true;
@@ -274,6 +286,13 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
     final label = toothDisplayLabel(t);
     final focusZone = widget.focusZone;
     final pendingShade = widget.pendingShade;
+    final zoneShades = {
+      for (final z in kShadeZones)
+        z: _zoneShadeForTooth(t, zone: z, active: active),
+    };
+    final summaryShade = zoneShades['middle'] ??
+        zoneShades['cervical'] ??
+        zoneShades['incisal'];
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: DecoratedBox(
@@ -302,13 +321,43 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
                 padding: const EdgeInsets.fromLTRB(10, 10, 4, 10),
                 child: Row(
                   children: [
+                    if (!open) ...[
+                      _CollapsedShadePreview(
+                        shade: summaryShade,
+                        zoneShades: zoneShades,
+                        swatch: widget.swatch,
+                      ),
+                      const SizedBox(width: 10),
+                    ],
                     Expanded(
-                      child: Text(
-                        label,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 13,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            label,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 13,
+                            ),
+                          ),
+                          if (!open && summaryShade != null) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              [
+                                for (final z in kShadeZones)
+                                  if (zoneShades[z] != null)
+                                    '${capitalizeZone(z)[0]} ${zoneShades[z]}',
+                              ].join(' · '),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.muted,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                     if (rejected)
@@ -388,15 +437,13 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
                               Expanded(
                                 child: MiniZoneChip(
                                   label: capitalizeZone(zName),
-                                  shade: () {
-                                    final focusedZone =
-                                        active && focusZone == zName;
-                                    if (focusedZone && pendingShade != null) {
-                                      return pendingShade;
+                                  shade: zoneShades[zName],
+                                  sampleColor: () {
+                                    final code = zoneShades[zName];
+                                    if (code == null || code.isEmpty) {
+                                      return AppColors.border;
                                     }
-                                    return widget.zoneEffective(
-                                      widget.zoneOf(t, zName),
-                                    );
+                                    return widget.swatch(code);
                                   }(),
                                   overridden: widget.zoneOverridden(
                                     widget.zoneOf(t, zName),
@@ -405,7 +452,6 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
                                       focusZone == zName &&
                                       pendingShade != null,
                                   focused: active && focusZone == zName,
-                                  swatch: widget.swatch,
                                   onTap: () {
                                     widget.onSelectTooth(idx, zone: zName);
                                   },
@@ -498,7 +544,7 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
                                     size: 26,
                                   ),
                                 )
-                              : shadeEnamelFill(detected),
+                              : ColoredBox(color: swatch(detected)),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -856,9 +902,9 @@ class MiniZoneChip extends StatelessWidget {
     super.key,
     required this.label,
     required this.shade,
+    required this.sampleColor,
     required this.overridden,
     required this.focused,
-    required this.swatch,
     required this.onTap,
     required this.onOverride,
     this.pending = false,
@@ -866,31 +912,21 @@ class MiniZoneChip extends StatelessWidget {
 
   final String label;
   final String? shade;
+  final Color sampleColor;
   final bool overridden;
   final bool pending;
   final bool focused;
-  final Color Function(String) swatch;
   final VoidCallback onTap;
   final VoidCallback onOverride;
 
   @override
   Widget build(BuildContext context) {
-    final swatchBox = ClipRRect(
-      borderRadius: BorderRadius.circular(4),
-      child: SizedBox(
-        height: 18,
-        width: double.infinity,
-        child: shade == null
-            ? const ColoredBox(color: AppColors.border)
-            : shadeEnamelFill(shade!),
-      ),
-    );
-
     final borderColor = pending
         ? AppColors.warning
         : (overridden
             ? AppColors.warning
             : (focused ? AppColors.dentalBlue : AppColors.border));
+    final hasShade = shade != null && shade!.isNotEmpty;
 
     return Material(
       color: Colors.transparent,
@@ -898,7 +934,7 @@ class MiniZoneChip extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          padding: const EdgeInsets.fromLTRB(6, 8, 6, 6),
           decoration: BoxDecoration(
             color: AppColors.neo,
             borderRadius: BorderRadius.circular(10),
@@ -907,82 +943,151 @@ class MiniZoneChip extends StatelessWidget {
               width: focused || overridden || pending ? 1.5 : 1,
             ),
           ),
-          child: Stack(
-            alignment: Alignment.center,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Opacity(
-                opacity: focused ? 0.35 : 1,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (focused)
-                      ImageFiltered(
-                        imageFilter:
-                            ImageFilter.blur(sigmaX: 2.2, sigmaY: 2.2),
-                        child: swatchBox,
-                      )
-                    else
-                      swatchBox,
-                    const SizedBox(height: 4),
-                    Text(
-                      label,
-                      style: const TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    Text(
-                      shade ?? '—',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        color: (overridden || pending)
-                            ? AppColors.warning
-                            : AppColors.navy,
-                      ),
-                    ),
-                  ],
+              Container(
+                height: 40,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: hasShade ? sampleColor : AppColors.border,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.border),
                 ),
               ),
-              if (focused)
-                Positioned.fill(
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        maxWidth: 72,
-                        maxHeight: 28,
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w600,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+              Text(
+                shade ?? '—',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: (overridden || pending)
+                      ? AppColors.warning
+                      : AppColors.navy,
+                ),
+              ),
+              if (focused) ...[
+                const SizedBox(height: 6),
+                Material(
+                  color: AppColors.navy.withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(7),
+                  child: InkWell(
+                    onTap: onOverride,
+                    borderRadius: BorderRadius.circular(7),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 5,
                       ),
-                      child: Material(
-                        color: AppColors.navy.withValues(alpha: 0.92),
-                        borderRadius: BorderRadius.circular(7),
-                        child: InkWell(
-                          onTap: onOverride,
-                          borderRadius: BorderRadius.circular(7),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 5,
-                            ),
-                            child: Text(
-                              AppLocalizations.of(context).shadeOverride,
-                              textAlign: TextAlign.center,
-                              maxLines: 1,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
+                      child: Text(
+                        AppLocalizations.of(context).shadeOverride,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
                     ),
                   ),
                 ),
+              ],
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _CollapsedShadePreview extends StatelessWidget {
+  const _CollapsedShadePreview({
+    required this.shade,
+    required this.zoneShades,
+    required this.swatch,
+  });
+
+  final String? shade;
+  final Map<String, String?> zoneShades;
+  final Color Function(String) swatch;
+
+  @override
+  Widget build(BuildContext context) {
+    final has = shade != null && shade!.isNotEmpty;
+    final middleColor = has ? swatch(shade!) : AppColors.border;
+    return SizedBox(
+      width: 64,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            height: 36,
+            width: double.infinity,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: middleColor,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Text(
+              has ? shade! : '—',
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: AppColors.navy,
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              for (final z in kShadeZones) ...[
+                if (z != kShadeZones.first) const SizedBox(width: 3),
+                Expanded(
+                  child: Tooltip(
+                    message: zoneShades[z] == null
+                        ? capitalizeZone(z)
+                        : '${capitalizeZone(z)} · ${zoneShades[z]}',
+                    child: Container(
+                      height: 16,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: zoneShades[z] == null
+                            ? AppColors.border
+                            : swatch(zoneShades[z]!),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: Colors.black.withValues(alpha: 0.12),
+                        ),
+                      ),
+                      child: Text(
+                        zoneShades[z] ?? '—',
+                        style: TextStyle(
+                          fontSize: zoneShades[z] != null &&
+                                  zoneShades[z]!.length > 2
+                              ? 6.5
+                              : 8,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.navy,
+                          height: 1,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
       ),
     );
   }

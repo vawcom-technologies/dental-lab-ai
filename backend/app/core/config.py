@@ -58,15 +58,17 @@ class Settings(BaseSettings):
     shade_segment_kaist_device: str = "auto"
     shade_segment_kaist_resize: bool = False
     # Snake canvas band: downscale if longer, upscale if shorter, else keep.
-    # Level-sets are CPU and ~O(pixels); 0 max → 320. Min avoids tiny CNN inputs
-    # without forcing every small crop up to the max (that made 165px → 30s).
-    shade_segment_kaist_max_side: int = 320
-    shade_segment_kaist_min_side: int = 256
-    # Chairside defaults: a little fewer level-set steps (~20–25% faster)
-    # without shrinking the 256–320 work canvas (that would soften outlines).
-    shade_segment_kaist_snake_iters: int = 8
-    shade_segment_kaist_bring_back_iters: int = 48
-    shade_segment_kaist_evolve_iters: int = 22
+    # Level-sets are CPU and ~O(pixels). Chairside defaults lean fast; Railway
+    # CPU needs the smaller canvas or dual-arch blows past the iPad timeout.
+    shade_segment_kaist_max_side: int = 256
+    shade_segment_kaist_min_side: int = 224
+    # Level-set steps (~2× faster than upstream demo defaults).
+    shade_segment_kaist_snake_iters: int = 5
+    shade_segment_kaist_bring_back_iters: int = 28
+    shade_segment_kaist_evolve_iters: int = 14
+    # On CPU (Railway), skip the opposite-orientation retry when the preferred
+    # flip returns 0 teeth — that retry doubles latency. MPS/CUDA still retry.
+    shade_segment_kaist_flip_retry: bool = True
     # Roboflow PLAK (Inference SDK). Prefer ROBOFLOW_API_KEY in .env
     roboflow_api_key: str = ""
     shade_segment_roboflow_api_key: str = ""
@@ -77,7 +79,8 @@ class Settings(BaseSettings):
     shade_segment_conf: float = 0.25
     shade_segment_imgsz: int = 1280  # max side for shade analyze downscale
     # Box-prompt SAM2 on KAIST crowns. Skipped when ultralytics is not installed.
-    shade_segment_sam_refine: bool = True
+    # Off by default — SAM adds seconds and is rarely installed on Railway CPU.
+    shade_segment_sam_refine: bool = False
     shade_segment_sam_weights: str = "sam2_b.pt"
 
     # Chairside interpreter (doctor ↔ patient). Turns are not stored.

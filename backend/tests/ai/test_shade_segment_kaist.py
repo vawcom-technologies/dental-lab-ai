@@ -256,7 +256,7 @@ class TestKaistHelpers:
         from app.core.config import settings
 
         monkeypatch.setattr(settings, "shade_segment_kaist_max_side", 0)
-        assert mod._max_side() == 320
+        assert mod._max_side() == 256
 
     def test_tooth_band_ignores_specular_flash(self):
         from app.ai.shade_segment_kaist import _tooth_band_mask
@@ -402,6 +402,31 @@ class TestKaistHelpers:
         y0, y1, _x0, _x1 = boxes[0]
         assert y0 <= 210
         assert y1 >= 290
+
+    def test_portrait_open_mouth_splits_dual_arch(self):
+        """Portrait iPad open-mouth must dual-split (clinic 19:42 KAIST=0)."""
+        from app.ai.shade import VITA_SHADES
+        from app.ai.shade_segment_kaist import kaist_focus_boxes
+
+        # Matches failing upload aspect (~1075×864) with two tooth rows.
+        h, w = 540, 432
+        img = np.zeros((h, w, 3), dtype=np.uint8)
+        img[:] = (40, 28, 26)
+        enamel = np.array(VITA_SHADES["A2"], dtype=np.uint8)
+        gum = (180, 110, 120)
+        img[40:100, 40:390] = gum
+        img[160:250, 30:400] = enamel
+        img[250:290, 30:400] = (28, 18, 20)
+        img[290:380, 30:400] = enamel
+        img[400:480, 40:390] = gum
+        boxes = kaist_focus_boxes(img)
+        assert len(boxes) == 2
+        top, bot = boxes
+        assert top[1] <= bot[0] + 12
+        assert top[0] <= 180
+        assert top[1] >= 230
+        assert bot[0] <= 310
+        assert bot[1] >= 360
 
     def test_portrait_crop_ignores_lip_below_smile(self):
         from app.ai.shade import VITA_SHADES

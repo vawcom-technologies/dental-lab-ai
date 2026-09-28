@@ -439,6 +439,18 @@ class AppLocalizations {
   String get appointmentsStatus => _t('appointments.status');
   String get appointmentsSaveChanges => _t('appointments.saveChanges');
   String get appointmentsBookSubmit => _t('appointments.bookSubmit');
+  String get appointmentsStartTime => _t('appointments.startTime');
+  String get appointmentsEndAfterStart => _t('appointments.endAfterStart');
+  String appointmentsEndsAt(String time) =>
+      _t('appointments.endsAt').replaceAll('{time}', time);
+  String get appointmentsSaving => _t('appointments.saving');
+  String get appointmentsFiltering => _t('appointments.filtering');
+  String get appointmentsFilterEmpty => _t('appointments.filterEmpty');
+  String get appointmentsFilterEmptyHint => _t('appointments.filterEmptyHint');
+  String get appointmentsBookEmptyHint => _t('appointments.bookEmptyHint');
+  String get appointmentsNoPatientsYet => _t('appointments.noPatientsYet');
+  String appointmentsMinutesShort(int n) =>
+      _t('appointments.minutesShort').replaceAll('{n}', '$n');
 
   // ── Messages ─────────────────────────────────────────────────────────────
   String get messagesSubtitle => _t('messages.subtitle');
@@ -459,6 +471,7 @@ class AppLocalizations {
   String get commonShare => _t('common.share');
   String get commonToday => _t('common.today');
   String get commonTomorrow => _t('common.tomorrow');
+  String get commonInOneWeek => _t('common.inOneWeek');
   String get commonYesterday => _t('common.yesterday');
   String get commonFullscreen => _t('common.fullscreen');
   String get commonExitFullscreen => _t('common.exitFullscreen');
@@ -540,6 +553,13 @@ class AppLocalizations {
   String get patientsDeleteNoteTitle => _t('patients.deleteNoteTitle');
   String get patientsDeleteNoteBody => _t('patients.deleteNoteBody');
   String get patientsNoteHint => _t('patients.noteHint');
+  String get patientsNoteAdded => _t('patients.noteAdded');
+  String get patientsNoteUpdated => _t('patients.noteUpdated');
+  String get patientsNoteDeleted => _t('patients.noteDeleted');
+  String get patientsOnlyAuthorEdit => _t('patients.onlyAuthorEdit');
+  String get patientsOnlyAuthorDelete => _t('patients.onlyAuthorDelete');
+  String get patientsClinicalNotePlaceholder =>
+      _t('patients.clinicalNotePlaceholder');
   String get patientsPendingAccess => _t('patients.pendingAccess');
   String get patientsRevoke => _t('patients.revoke');
   String get patientsRegrant => _t('patients.regrant');
@@ -1410,6 +1430,7 @@ class AppLocalizations {
     'common.share': 'Share',
     'common.today': 'Today',
     'common.tomorrow': 'Tomorrow',
+    'common.inOneWeek': 'In 1 week',
     'common.yesterday': 'Yesterday',
     'common.fullscreen': 'Fullscreen',
     'common.exitFullscreen': 'Exit fullscreen',
@@ -1433,6 +1454,18 @@ class AppLocalizations {
     'appointments.status': 'Status',
     'appointments.saveChanges': 'Save changes',
     'appointments.bookSubmit': 'Book appointment',
+    'appointments.startTime': 'Start time',
+    'appointments.endAfterStart': 'End time must be after start time',
+    'appointments.endsAt': 'Ends at {time}',
+    'appointments.saving': 'Saving appointment…',
+    'appointments.filtering': 'Filtering schedule',
+    'appointments.filterEmpty': 'Nothing matches this filter',
+    'appointments.filterEmptyHint':
+        'Try another status or patient, or book a new visit.',
+    'appointments.bookEmptyHint':
+        'Book a visit to send a confirmation email to the patient.',
+    'appointments.noPatientsYet': 'No patients yet',
+    'appointments.minutesShort': '{n} min',
     'appointments.statusScheduled': 'Scheduled',
     'appointments.statusCompleted': 'Completed',
     'appointments.statusCancelled': 'Cancelled',
@@ -1515,6 +1548,13 @@ class AppLocalizations {
     'patients.deleteNoteTitle': 'Delete note?',
     'patients.deleteNoteBody': 'This clinical note will be permanently removed.',
     'patients.noteHint': 'Add a clinical note…',
+    'patients.noteAdded': 'Note added',
+    'patients.noteUpdated': 'Note updated',
+    'patients.noteDeleted': 'Note deleted',
+    'patients.onlyAuthorEdit': 'Only the author can edit this clinical note.',
+    'patients.onlyAuthorDelete':
+        'Only the author can delete this clinical note.',
+    'patients.clinicalNotePlaceholder': 'Clinical note',
     'patients.pendingAccess': 'Pending access requests',
     'patients.revoke': 'Revoke',
     'patients.regrant': 'Re-grant',
@@ -2199,6 +2239,7 @@ class AppLocalizations {
     'common.share': 'Teilen',
     'common.today': 'Heute',
     'common.tomorrow': 'Morgen',
+    'common.inOneWeek': 'In 1 Woche',
     'common.yesterday': 'Gestern',
     'common.fullscreen': 'Vollbild',
     'common.exitFullscreen': 'Vollbild beenden',
@@ -2222,6 +2263,19 @@ class AppLocalizations {
     'appointments.status': 'Status',
     'appointments.saveChanges': 'Änderungen speichern',
     'appointments.bookSubmit': 'Termin buchen',
+    'appointments.startTime': 'Startzeit',
+    'appointments.endAfterStart':
+        'Endzeit muss nach der Startzeit liegen',
+    'appointments.endsAt': 'Endet um {time}',
+    'appointments.saving': 'Termin wird gespeichert…',
+    'appointments.filtering': 'Terminplan wird gefiltert',
+    'appointments.filterEmpty': 'Keine Treffer für diesen Filter',
+    'appointments.filterEmptyHint':
+        'Anderen Status oder Patienten wählen, oder neuen Termin buchen.',
+    'appointments.bookEmptyHint':
+        'Buchen Sie einen Termin, um eine Bestätigungs-E-Mail an den Patienten zu senden.',
+    'appointments.noPatientsYet': 'Noch keine Patienten',
+    'appointments.minutesShort': '{n} Min.',
     'appointments.statusScheduled': 'Geplant',
     'appointments.statusCompleted': 'Abgeschlossen',
     'appointments.statusCancelled': 'Abgesagt',
@@ -2306,6 +2360,14 @@ class AppLocalizations {
     'patients.deleteNoteTitle': 'Notiz löschen?',
     'patients.deleteNoteBody': 'Diese klinische Notiz wird dauerhaft entfernt.',
     'patients.noteHint': 'Klinische Notiz hinzufügen…',
+    'patients.noteAdded': 'Notiz hinzugefügt',
+    'patients.noteUpdated': 'Notiz aktualisiert',
+    'patients.noteDeleted': 'Notiz gelöscht',
+    'patients.onlyAuthorEdit':
+        'Nur der Autor kann diese klinische Notiz bearbeiten.',
+    'patients.onlyAuthorDelete':
+        'Nur der Autor kann diese klinische Notiz löschen.',
+    'patients.clinicalNotePlaceholder': 'Klinische Notiz',
     'patients.pendingAccess': 'Ausstehende Zugriffsanfragen',
     'patients.revoke': 'Widerrufen',
     'patients.regrant': 'Erneut gewähren',

@@ -330,7 +330,7 @@ class ShadeOverridePane extends StatelessWidget {
                   child: SizedBox(
                     height: wide ? 22 : 18,
                     width: double.infinity,
-                    child: shadeEnamelFill(s),
+                    child: ColoredBox(color: swatch(s)),
                   ),
                 ),
                 const SizedBox(height: 3),
@@ -492,13 +492,13 @@ class SimilarShadeChip extends StatelessWidget {
         child: Column(
           children: [
             Container(
-              height: 28,
+              height: 36,
+              width: double.infinity,
               decoration: BoxDecoration(
+                color: swatch(shade),
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(color: AppColors.border),
               ),
-              clipBehavior: Clip.antiAlias,
-              child: shadeEnamelFill(shade),
             ),
             const SizedBox(height: 5),
             Text(

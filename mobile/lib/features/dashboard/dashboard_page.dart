@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/l10n/date_formats.dart';
 import '../../core/layout/adaptive.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
@@ -153,7 +154,11 @@ class _DashboardPageState extends State<DashboardPage> {
         patientName: _patientName(c),
         dentist: widget.dentistName,
         status: '${c['status']}',
-        updated: _relativeTime(DateTime.tryParse('${c['updated_at'] ?? ''}'), loc),
+        updated: _relativeTime(
+          context,
+          DateTime.tryParse('${c['updated_at'] ?? ''}'),
+          loc,
+        ),
         canEditStatus: me.isNotEmpty && createdBy == me,
       );
     }).toList();
@@ -230,7 +235,11 @@ class _DashboardPageState extends State<DashboardPage> {
     return '${parts.join(' · ')}.';
   }
 
-  static String _relativeTime(DateTime? dt, AppLocalizations loc) {
+  static String _relativeTime(
+    BuildContext context,
+    DateTime? dt,
+    AppLocalizations loc,
+  ) {
     if (dt == null) return '—';
     final local = dt.isUtc ? dt.toLocal() : dt;
     final diff = DateTime.now().difference(local);
@@ -239,14 +248,11 @@ class _DashboardPageState extends State<DashboardPage> {
     if (diff.inHours < 24) return loc.commonHourAgo(diff.inHours);
     if (diff.inDays == 1) return loc.commonYesterday;
     if (diff.inDays < 7) return loc.commonDaysAgo(diff.inDays);
-    return '${local.day}.${local.month.toString().padLeft(2, '0')}.${local.year}';
+    return formatAppDate(context, local, 'MMM d, yyyy');
   }
 
-  static String _clock(DateTime dt) {
-    final local = dt.isUtc ? dt.toLocal() : dt;
-    final h = local.hour.toString().padLeft(2, '0');
-    final m = local.minute.toString().padLeft(2, '0');
-    return '$h:$m';
+  static String _clock(BuildContext context, DateTime dt) {
+    return formatAppTime(context, dt);
   }
 
   @override
@@ -468,7 +474,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                           itemBuilder: (context, i) {
                                             final a = activity[i];
                                             return _Activity(
-                                              time: _clock(a.at),
+                                              time: _clock(context, a.at),
                                               text: a.text,
                                             );
                                           },

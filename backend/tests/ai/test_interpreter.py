@@ -32,11 +32,26 @@ def test_rtl_flags():
 def test_detect_formality_defaults_to_sie():
     assert detect_formality("Bitte den Mund öffnen.", "de", "ar") == "formal"
     assert detect_formality("Please open your mouth.", "en", "de") == "formal"
+    assert detect_formality("Please open your mouth.", "en", "ar") == "formal"
 
 
 def test_detect_formality_keeps_du_and_sie():
     assert detect_formality("Kannst du den Mund öffnen?", "de", "en") == "informal"
     assert detect_formality("Können Sie den Mund öffnen?", "de", "en") == "formal"
+
+
+def test_detect_formality_arabic_anta_vs_hadratuk():
+    assert detect_formality("من فضلك افتح فمك أنت", "ar", "de") == "informal"
+    assert detect_formality("من فضلك افتح فمك حضرتك", "ar", "en") == "formal"
+
+
+def test_output_misses_informal_arabic_when_formal_wanted():
+    from app.ai.interpreter import _output_misses_formality
+
+    assert _output_misses_formality("من فضلك افتح فمك أنت", "ar", "formal")
+    assert not _output_misses_formality("من فضلك افتح فمك حضرتك", "ar", "formal")
+    assert _output_misses_formality("Kannst du bitte den Mund öffnen?", "de", "formal")
+    assert not _output_misses_formality("Können Sie bitte den Mund öffnen?", "de", "formal")
 
 
 def test_same_language_is_identity():

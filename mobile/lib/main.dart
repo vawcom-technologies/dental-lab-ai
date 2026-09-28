@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 import 'core/api/api_client.dart';
 import 'core/auth/session_coordinator.dart';
@@ -12,6 +13,10 @@ import 'shell/app_shell.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Future.wait([
+    initializeDateFormatting('de'),
+    initializeDateFormatting('en'),
+  ]);
   final localeController = LocaleController();
   await localeController.load();
   final api = ApiClient();

@@ -19,6 +19,14 @@ void main() {
       ),
       InterpreterFormality.formal,
     );
+    expect(
+      detectInterpreterFormality(
+        'Please open your mouth.',
+        sourceLang: 'en',
+        targetLang: 'ar',
+      ),
+      InterpreterFormality.formal,
+    );
   });
 
   test('spoken du stays informal and Sie stays formal', () {
@@ -40,6 +48,25 @@ void main() {
     );
   });
 
+  test('Arabic antā vs ḥaḍratuk', () {
+    expect(
+      detectInterpreterFormality(
+        'من فضلك افتح فمك أنت',
+        sourceLang: 'ar',
+        targetLang: 'de',
+      ),
+      InterpreterFormality.informal,
+    );
+    expect(
+      detectInterpreterFormality(
+        'من فضلك افتح فمك حضرتك',
+        sourceLang: 'ar',
+        targetLang: 'en',
+      ),
+      InterpreterFormality.formal,
+    );
+  });
+
   test('Apple-style informal German is retried', () {
     expect(
       translationMissesFormality(
@@ -53,6 +80,25 @@ void main() {
       translationMissesFormality(
         'Können Sie bitte den Mund öffnen?',
         targetLang: 'de',
+        wanted: InterpreterFormality.formal,
+      ),
+      isFalse,
+    );
+  });
+
+  test('Apple-style informal Arabic is retried when formal wanted', () {
+    expect(
+      translationMissesFormality(
+        'من فضلك افتح فمك أنت',
+        targetLang: 'ar',
+        wanted: InterpreterFormality.formal,
+      ),
+      isTrue,
+    );
+    expect(
+      translationMissesFormality(
+        'من فضلك افتح فمك حضرتك',
+        targetLang: 'ar',
         wanted: InterpreterFormality.formal,
       ),
       isFalse,

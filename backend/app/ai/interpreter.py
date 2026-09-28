@@ -183,32 +183,136 @@ def configured_providers() -> dict[str, str]:
     return {"translate": translate, "stt": stt}
 
 
-_INFORMAL_DE = re.compile(
-    r"\b(du|dir|dich|dein|deine|deinen|deinem|deiner|euch|euer|eure)\b",
-    re.IGNORECASE,
-)
-_FORMAL_DE = re.compile(r"\b(Sie|Ihnen|Ihre|Ihren|Ihrem|Ihrer)\b")
+# T–V address markers. Clinic default is formal unless the speaker used informal.
+_FORMALITY_MARKERS: dict[str, tuple[re.Pattern[str], re.Pattern[str]]] = {
+    "de": (
+        re.compile(
+            r"\b(du|dir|dich|dein|deine|deinen|deinem|deiner|euch|euer|eure)\b",
+            re.IGNORECASE,
+        ),
+        re.compile(r"\b(Sie|Ihnen|Ihre|Ihren|Ihrem|Ihrer)\b"),
+    ),
+    "ar": (
+        re.compile(r"(أنت|انت|إليك|اليك|عندك|لكَ|لكِ)"),
+        re.compile(r"(حضرتك|سيادتك|جنابك|سعادتك)"),
+    ),
+    "fr": (
+        re.compile(r"\b(tu|toi|te|ton|ta|tes|t['’])\b", re.IGNORECASE),
+        re.compile(r"\b(vous|votre|vos)\b", re.IGNORECASE),
+    ),
+    "es": (
+        re.compile(r"\b(tú|te|ti|contigo)\b", re.IGNORECASE),
+        re.compile(r"\b(usted|ustedes)\b", re.IGNORECASE),
+    ),
+    "it": (
+        re.compile(r"\b(tu|ti|te|tuo|tua|tuoi|tue)\b", re.IGNORECASE),
+        re.compile(r"\b(Lei|Loro|Sua|Sue|Suoi)\b"),
+    ),
+    "nl": (
+        re.compile(r"\b(jij|je|jou|jouw|jullie)\b", re.IGNORECASE),
+        re.compile(r"\b(u|uw|U)\b"),
+    ),
+    "pt": (
+        re.compile(r"\b(tu|te|ti|teu|tua|teus|tuas)\b", re.IGNORECASE),
+        re.compile(
+            r"\b(você|vocês|o senhor|a senhora|os senhores|as senhoras)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    "tr": (
+        re.compile(r"\b(sen|sana|seni|senin)\b", re.IGNORECASE),
+        re.compile(r"\b(siz|size|sizi|sizin)\b", re.IGNORECASE),
+    ),
+    "pl": (
+        re.compile(r"\b(ty|cię|ciebie|ci|twój|twoja|twoje)\b", re.IGNORECASE),
+        re.compile(r"\b(pan|pani|państwo|pana|panią)\b", re.IGNORECASE),
+    ),
+    "ru": (
+        re.compile(r"\b(ты|тебя|тебе|тобой|твой|твоя|твоё|твои)\b", re.IGNORECASE),
+        re.compile(r"\b(вы|вас|вам|вами|ваш|ваша|ваше|ваши)\b", re.IGNORECASE),
+    ),
+}
+
+_FORMALITY_LANGS = frozenset(_FORMALITY_MARKERS)
+
+_FORMALITY_HINTS: dict[str, tuple[str, str]] = {
+    "de": (
+        "Address the listener with informal German du/dir/dich, never Sie.",
+        "Address the listener with formal German Sie/Ihnen/Ihr, never du/dir/dich.",
+    ),
+    "ar": (
+        "Address the listener with informal Arabic أنت, never حضرتك/سيادتك.",
+        "Address the listener with formal Arabic حضرتك/سيادتك, never أنت.",
+    ),
+    "fr": (
+        "Address the listener with informal French tu/toi, never vous.",
+        "Address the listener with formal French vous/votre, never tu/toi.",
+    ),
+    "es": (
+        "Address the listener with informal Spanish tú, never usted.",
+        "Address the listener with formal Spanish usted, never tú.",
+    ),
+    "it": (
+        "Address the listener with informal Italian tu, never Lei.",
+        "Address the listener with formal Italian Lei, never tu.",
+    ),
+    "nl": (
+        "Address the listener with informal Dutch jij/je, never u.",
+        "Address the listener with formal Dutch u/uw, never jij/je.",
+    ),
+    "pt": (
+        "Address the listener with informal Portuguese tu, never você/o senhor.",
+        "Address the listener with formal Portuguese o senhor/a senhora or você "
+        "polite register, never tu.",
+    ),
+    "tr": (
+        "Address the listener with informal Turkish sen, never siz.",
+        "Address the listener with formal Turkish siz, never sen.",
+    ),
+    "pl": (
+        "Address the listener with informal Polish ty, never pan/pani.",
+        "Address the listener with formal Polish pan/pani, never ty.",
+    ),
+    "ru": (
+        "Address the listener with informal Russian ты, never вы.",
+        "Address the listener with formal Russian вы, never ты.",
+    ),
+}
+
+
+def _formality_hits(text: str, lang: str) -> tuple[bool, bool]:
+    pair = _FORMALITY_MARKERS.get((lang or "").lower())
+    if pair is None:
+        return False, False
+    informal_re, formal_re = pair
+    sample = text or ""
+    return bool(informal_re.search(sample)), bool(formal_re.search(sample))
 
 
 def detect_formality(text: str, source_lang: str, target_lang: str) -> str:
-    """'formal' or 'informal'. Clinic German defaults to Sie unless they said du."""
+    """'formal' or 'informal'. Clinic default is formal; follow spoken T–V cues."""
     src = (source_lang or "").lower()
     dst = (target_lang or "").lower()
-    if src != "de" and dst != "de":
-        return "formal"
-    if _INFORMAL_DE.search(text or ""):
+    informal, formal = _formality_hits(text, src)
+    if informal and not formal:
         return "informal"
-    if _FORMAL_DE.search(text or ""):
+    if formal and not informal:
+        return "formal"
+    if informal and formal:
+        # Mixed: prefer the explicit formal address if present.
+        return "formal"
+    # No cue in the source (e.g. English you) → formal for chairside.
+    if src in _FORMALITY_LANGS or dst in _FORMALITY_LANGS:
         return "formal"
     return "formal"
 
 
 def _output_misses_formality(text: str, target_lang: str, formality: str) -> bool:
-    if (target_lang or "").lower() != "de":
+    lang = (target_lang or "").lower()
+    if lang not in _FORMALITY_LANGS:
         return False
-    informal = bool(_INFORMAL_DE.search(text or ""))
-    formal = bool(_FORMAL_DE.search(text or ""))
-    if formality == "formal" and informal:
+    informal, formal = _formality_hits(text, lang)
+    if formality == "formal" and informal and not formal:
         return True
     if formality == "informal" and formal and not informal:
         return True
@@ -435,16 +539,18 @@ def _openai_translate(
     prompt = (
         f"Translate from {src['name']} to {dst['name']}. "
         "Return only the translation, no quotes or notes. "
-        "Keep medical/dental terms accurate."
+        "Keep medical/dental terms accurate. "
+        "Preserve the speaker's formality of address (formal vs informal you)."
     )
-    if dst["code"] == "de":
+    hint = _FORMALITY_HINTS.get(dst["code"])
+    if hint is not None:
+        prompt += " " + (hint[0] if formality == "informal" else hint[1])
+    elif src["code"] in _FORMALITY_LANGS:
         prompt += (
-            " Address the listener with informal German du/dir/dich, never Sie."
+            " The source used informal address — keep the translation informal."
             if formality == "informal"
-            else " Address the listener with formal German Sie/Ihnen/Ihr, never du/dir/dich."
+            else " The source used formal address — keep the translation formal."
         )
-    elif src["code"] == "de":
-        prompt += " Preserve the source formality (Sie vs du) in the translation."
     with httpx.Client(timeout=_HTTP_TIMEOUT) as client:
         res = client.post(
             "https://api.openai.com/v1/chat/completions",

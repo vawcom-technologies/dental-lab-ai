@@ -174,6 +174,10 @@ class _DobWheelDialogState extends State<_DobWheelDialog> {
                 height: 216,
                 child: CupertinoDatePicker(
                   mode: CupertinoDatePickerMode.date,
+                  dateOrder:
+                      Localizations.localeOf(context).languageCode == 'de'
+                          ? DatePickerDateOrder.dmy
+                          : DatePickerDateOrder.mdy,
                   initialDateTime: _selected,
                   minimumDate: widget.firstDate,
                   maximumDate: widget.lastDate,
@@ -225,7 +229,7 @@ class DentalDatePickerDialog extends StatefulWidget {
     required this.initialDate,
     required this.firstDate,
     required this.lastDate,
-    this.title = 'Select Date',
+    this.title,
     this.showQuickPresets = true,
     this.forDateOfBirth = false,
     this.selectableDayPredicate,
@@ -234,7 +238,7 @@ class DentalDatePickerDialog extends StatefulWidget {
   final DateTime initialDate;
   final DateTime firstDate;
   final DateTime lastDate;
-  final String title;
+  final String? title;
   final bool showQuickPresets;
 
   /// Year-first flow with age readout — used for patient DOB.
@@ -268,7 +272,7 @@ class DentalDatePickerDialog extends StatefulWidget {
     required DateTime initialDate,
     DateTime? firstDate,
     DateTime? lastDate,
-    String title = 'Select Date',
+    String? title,
     bool showQuickPresets = true,
     bool forDateOfBirth = false,
     bool Function(DateTime day)? selectableDayPredicate,
@@ -278,6 +282,8 @@ class DentalDatePickerDialog extends StatefulWidget {
     var initial = dateOnly(initialDate);
     if (initial.isBefore(first)) initial = first;
     if (initial.isAfter(last)) initial = last;
+    final resolvedTitle =
+        title ?? AppLocalizations.of(context).commonSelectDate;
 
     return showCupertinoDialog<DateTime>(
       context: context,
@@ -288,7 +294,7 @@ class DentalDatePickerDialog extends StatefulWidget {
           initialDate: initial,
           firstDate: first,
           lastDate: last,
-          title: title,
+          title: resolvedTitle,
           showQuickPresets: showQuickPresets,
           forDateOfBirth: forDateOfBirth,
           selectableDayPredicate: selectableDayPredicate,
@@ -301,7 +307,7 @@ class DentalDatePickerDialog extends StatefulWidget {
   static Future<DateTime?> showForAppointment({
     required BuildContext context,
     DateTime? initialDate,
-    String title = 'Select Appointment Date',
+    String? title,
     int bookingHorizonDays = 730,
     bool Function(DateTime day)? selectableDayPredicate,
   }) {
@@ -311,7 +317,7 @@ class DentalDatePickerDialog extends StatefulWidget {
       initialDate: initialDate ?? now,
       firstDate: now,
       lastDate: now.add(Duration(days: bookingHorizonDays)),
-      title: title,
+      title: title ?? AppLocalizations.of(context).appointmentsSelectDate,
       showQuickPresets: true,
       selectableDayPredicate: selectableDayPredicate,
     );
@@ -321,13 +327,14 @@ class DentalDatePickerDialog extends StatefulWidget {
   static Future<DateTime?> showForDateOfBirth({
     required BuildContext context,
     DateTime? currentDob,
-    String title = 'Date of Birth',
+    String? title,
   }) {
     final now = today;
     final first = DateTime(1900);
     var initial = dateOnly(currentDob ?? defaultDobAnchor());
     if (initial.isBefore(first)) initial = first;
     if (initial.isAfter(now)) initial = now;
+    final resolvedTitle = title ?? AppLocalizations.of(context).dateOfBirth;
 
     return showCupertinoDialog<DateTime>(
       context: context,
@@ -338,7 +345,7 @@ class DentalDatePickerDialog extends StatefulWidget {
           initialDate: initial,
           firstDate: first,
           lastDate: now,
-          title: title,
+          title: resolvedTitle,
         ),
       ),
     );
@@ -519,7 +526,9 @@ class _DentalDatePickerDialogState extends State<DentalDatePickerDialog> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        widget.title.toUpperCase(),
+                        (widget.title ??
+                                AppLocalizations.of(context).commonSelectDate)
+                            .toUpperCase(),
                         style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
@@ -585,13 +594,13 @@ class _DentalDatePickerDialogState extends State<DentalDatePickerDialog> {
                 child: Row(
                   children: [
                     _PresetChip(
-                      label: 'Today',
+                      label: AppLocalizations.of(context).commonToday,
                       selected: _isSameDay(_selectedDate, _today),
                       onTap: () => _selectPreset(0),
                     ),
                     const SizedBox(width: 8),
                     _PresetChip(
-                      label: 'Tomorrow',
+                      label: AppLocalizations.of(context).commonTomorrow,
                       selected: _isSameDay(
                         _selectedDate,
                         _today.add(const Duration(days: 1)),
@@ -600,7 +609,7 @@ class _DentalDatePickerDialogState extends State<DentalDatePickerDialog> {
                     ),
                     const SizedBox(width: 8),
                     _PresetChip(
-                      label: 'In 1 Week',
+                      label: AppLocalizations.of(context).commonInOneWeek,
                       selected: _isSameDay(
                         _selectedDate,
                         _today.add(const Duration(days: 7)),

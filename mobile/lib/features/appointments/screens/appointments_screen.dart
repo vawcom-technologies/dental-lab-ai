@@ -3,7 +3,6 @@ import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:intl/intl.dart';
 
 import '../../../core/api/api_client.dart';
 import '../../../core/haptics/app_haptics.dart';
@@ -555,7 +554,7 @@ class _PatientFilterButton extends StatelessWidget {
         : (_name(selected).isEmpty ? 'Patient' : _name(selected));
     final subtitle = selected == null
         ? '${patients.length} in clinic'
-        : 'Filtering schedule';
+        : loc.appointmentsFiltering;
 
     return MenuAnchor(
       alignmentOffset: const Offset(0, 6),
@@ -738,7 +737,9 @@ class _AppointmentsEmpty extends StatelessWidget {
               ),
               const SizedBox(height: 18),
               Text(
-                filtered ? 'Nothing matches this filter' : loc.appointmentsEmpty,
+                filtered
+                    ? loc.appointmentsFilterEmpty
+                    : loc.appointmentsEmpty,
                 textAlign: TextAlign.center,
                 style: AppFonts.style(
                   color: AppColors.navy,
@@ -750,8 +751,8 @@ class _AppointmentsEmpty extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 filtered
-                    ? 'Try another status or patient, or book a new visit.'
-                    : 'Book a visit to send a confirmation email to the patient.',
+                    ? loc.appointmentsFilterEmptyHint
+                    : loc.appointmentsBookEmptyHint,
                 textAlign: TextAlign.center,
                 style: AppFonts.style(
                   color: AppColors.muted,
@@ -1320,53 +1321,58 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
     final picked = await showCupertinoModalPopup<DateTime>(
       context: context,
       builder: (ctx) {
-        return Material(
-          color: AppColors.card,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-          child: SafeArea(
-            top: false,
-            child: SizedBox(
-              height: 320,
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
-                    child: Row(
-                      children: [
-                        AppButtons.ghost(
-                          onPressed: () => Navigator.pop(ctx),
-                          label: AppLocalizations.of(ctx).cancel,
-                          compact: true,
-                        ),
-                        const Spacer(),
-                        Text(
-                          'Start time',
-                          style: AppFonts.style(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 16,
-                            color: AppColors.navy,
+        final loc = AppLocalizations.of(ctx);
+        final use24h = Localizations.localeOf(ctx).languageCode == 'de';
+        return Localizations.override(
+          context: ctx,
+          locale: Localizations.localeOf(ctx),
+          child: Material(
+            color: AppColors.card,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+            child: SafeArea(
+              top: false,
+              child: SizedBox(
+                height: 320,
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+                      child: Row(
+                        children: [
+                          AppButtons.ghost(
+                            onPressed: () => Navigator.pop(ctx),
+                            label: loc.cancel,
+                            compact: true,
                           ),
-                        ),
-                        const Spacer(),
-                        AppButtons.primary(
-                          onPressed: () => Navigator.pop(ctx, pending),
-                          label: AppLocalizations.of(context).commonDone,
-                          compact: true,
-                        ),
-                      ],
+                          const Spacer(),
+                          Text(
+                            loc.appointmentsStartTime,
+                            style: AppFonts.style(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 16,
+                              color: AppColors.navy,
+                            ),
+                          ),
+                          const Spacer(),
+                          AppButtons.primary(
+                            onPressed: () => Navigator.pop(ctx, pending),
+                            label: loc.commonDone,
+                            compact: true,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  Expanded(
-                    child: CupertinoDatePicker(
-                      mode: CupertinoDatePickerMode.time,
-                      initialDateTime: pending,
-                      minuteInterval: 5,
-                      use24hFormat:
-                          Localizations.localeOf(context).languageCode == 'de',
-                      onDateTimeChanged: (value) => pending = value,
+                    Expanded(
+                      child: CupertinoDatePicker(
+                        mode: CupertinoDatePickerMode.time,
+                        initialDateTime: pending,
+                        minuteInterval: 5,
+                        use24hFormat: use24h,
+                        onDateTimeChanged: (value) => pending = value,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -1390,11 +1396,17 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
     if (!_formKey.currentState!.validate()) return;
     final patientId = _patientId;
     if (!_isEdit && (patientId == null || patientId.isEmpty)) {
-      AppSnackBars.error(context, 'Select a patient');
+      AppSnackBars.error(
+        context,
+        AppLocalizations.of(context).appointmentsSelectPatient,
+      );
       return;
     }
     if (_end.isBefore(_start) || _end.isAtSameMomentAs(_start)) {
-      AppSnackBars.error(context, 'End time must be after start time');
+      AppSnackBars.error(
+        context,
+        AppLocalizations.of(context).appointmentsEndAfterStart,
+      );
       return;
     }
 
@@ -1638,7 +1650,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                'Ends at $endLabel',
+                                loc.appointmentsEndsAt(endLabel),
                                 style: AppFonts.style(
                                   color: AppColors.muted,
                                   fontSize: 13,
@@ -1696,10 +1708,10 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                                   ImageFilter.blur(sigmaX: 2.5, sigmaY: 2.5),
                               child: ColoredBox(
                                 color: Colors.white.withValues(alpha: 0.45),
-                                child: const Center(
+                                child: Center(
                                   child: ToothLoadingIndicator(
                                     size: 40,
-                                    loadingText: 'Saving appointment…',
+                                    loadingText: loc.appointmentsSaving,
                                   ),
                                 ),
                               ),

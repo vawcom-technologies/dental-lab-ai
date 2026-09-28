@@ -39,8 +39,8 @@ _MIN_MASK_PIXELS = 40
 _MIN_ENAMEL_FRAC = 0.18
 _MAX_AREA_VS_MEDIAN = 2.8
 _MIN_AREA_VS_MEDIAN = 0.16
-_DEFAULT_MAX_SIDE = 320
-_DEFAULT_MIN_SIDE = 256
+_DEFAULT_MAX_SIDE = 256
+_DEFAULT_MIN_SIDE = 224
 _DEFAULT_WEIGHTS = "weights/kaist/CP_teeth_seg.pth"
 _MIN_WEIGHTS_BYTES = 1_000_000_000  # finished CP_teeth_seg.pth is ~1.5 GB
 _KAIST_LOCK = threading.Lock()
@@ -77,7 +77,12 @@ def _max_side() -> int:
     except Exception:
         raw = _DEFAULT_MAX_SIDE
     # 0 used to mean full-res; that made iPad photos miss the 90s timeout.
-    return raw if raw > 0 else _DEFAULT_MAX_SIDE
+    hi = raw if raw > 0 else _DEFAULT_MAX_SIDE
+    # Railway / CPU: snakes are O(pixels). Cap unless the operator set a
+    # smaller ceiling already.
+    if _device() == "cpu" and hi > 256:
+        return 256
+    return hi
 
 
 def _min_side() -> int:
@@ -87,34 +92,49 @@ def _min_side() -> int:
         raw = int(getattr(settings, "shade_segment_kaist_min_side", 0) or 0)
     except Exception:
         raw = _DEFAULT_MIN_SIDE
-    return raw if raw > 0 else _DEFAULT_MIN_SIDE
+    lo = raw if raw > 0 else _DEFAULT_MIN_SIDE
+    if _device() == "cpu":
+        return min(lo, 224)
+    return lo
 
 
 def _snake_iters() -> int:
     try:
         from app.core.config import settings
 
-        return max(1, int(settings.shade_segment_kaist_snake_iters or 8))
+        return max(1, int(settings.shade_segment_kaist_snake_iters or 5))
     except Exception:
-        return 8
+        return 5
 
 
 def _bring_back_iters() -> int:
     try:
         from app.core.config import settings
 
-        return max(20, int(settings.shade_segment_kaist_bring_back_iters or 48))
+        return max(12, int(settings.shade_segment_kaist_bring_back_iters or 28))
     except Exception:
-        return 48
+        return 28
 
 
 def _evolve_iters() -> int:
     try:
         from app.core.config import settings
 
-        return max(10, int(settings.shade_segment_kaist_evolve_iters or 22))
+        return max(8, int(settings.shade_segment_kaist_evolve_iters or 14))
     except Exception:
-        return 22
+        return 14
+
+
+def _flip_retry_enabled() -> bool:
+    """Opposite-orientation retry. Off on CPU — doubles Railway latency."""
+    if _device() == "cpu":
+        return False
+    try:
+        from app.core.config import settings
+
+        return bool(getattr(settings, "shade_segment_kaist_flip_retry", True))
+    except Exception:
+        return True
 
 
 def resolve_vendor_root(path: str | Path | None = None) -> Path:
@@ -548,10 +568,12 @@ def kaist_focus_boxes(
     if roi is None:
         return [full]
     y0, y1, x0, x1 = roi
-    # Extra-oral portraits (face + smile): one mouth crop. Dual-arch split is
-    # for open-mouth intraoral strips. On a face it frames mustache vs beard,
-    # flips the upper half, and misses canines.
-    if h > w or extra_oral_face:
+    # Extra-oral face + smile: one mouth crop. Do NOT gate on portrait
+    # (h > w) — clinic iPad open-mouth shots are often portrait and need
+    # dual-arch framing; a single tall crop makes KAIST return 0 labels.
+    # On a true face photo, extra_oral_face is set above (short smile band
+    # or far lip/beard blob) so we still avoid mustache/beard dual-splits.
+    if extra_oral_face:
         one = _pad_box(y0, y1, x0, x1, h, w, pad_frac=min(pad_frac, 0.22))
         return [one] if _box_large_enough(one) else [full]
     u8 = (band.astype(np.uint8)) * 255
@@ -1116,7 +1138,10 @@ def _segment_kaist_box(
     )
     teeth: list[ToothMask] = []
     used_flip = preferred_flip
-    for flip_ud in (preferred_flip, not preferred_flip):
+    flip_order = (preferred_flip, not preferred_flip)
+    if not _flip_retry_enabled():
+        flip_order = (preferred_flip,)
+    for flip_ud in flip_order:
         t_flip = time.perf_counter()
         labels = _labels_for_work(
             work_rgb,
@@ -1151,9 +1176,10 @@ def _segment_kaist_box(
         )
         if teeth:
             break
-        if not dual:
-            break
-        logger.info("kaist box empty flip=%s — retrying opposite orientation", flip_ud)
+        if len(flip_order) > 1:
+            logger.info(
+                "kaist box empty flip=%s — retrying opposite orientation", flip_ud
+            )
     logger.info(
         "kaist box teeth=%s flip=%s arch=%s",
         len(teeth),

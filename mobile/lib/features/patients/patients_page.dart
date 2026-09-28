@@ -1,6 +1,5 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/auth/app_roles.dart';
@@ -2015,6 +2014,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
   }
 
   Future<void> _addNote() async {
+    final loc = AppLocalizations.of(context);
     final text = _note.text.trim();
     if (text.isEmpty || _adding || widget.controller.mutating) return;
     setState(() => _adding = true);
@@ -2024,7 +2024,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
         content: text,
       );
       _note.clear();
-      widget.onToast('Note added');
+      widget.onToast(loc.patientsNoteAdded);
     } catch (e) {
       widget.onToast(widget.friendlyError(e), error: true);
     } finally {
@@ -2038,7 +2038,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     final me = widget.controller.currentUserId;
     if (me == null || note.authorId != me) {
       widget.onToast(
-        'Only the author can edit this clinical note.',
+        loc.patientsOnlyAuthorEdit,
         error: true,
       );
       return;
@@ -2047,7 +2047,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
       context,
       title: loc.patientsEditNote,
       initial: note.noteContent,
-      placeholder: 'Clinical note',
+      placeholder: loc.patientsClinicalNotePlaceholder,
       confirmLabel: loc.save,
       maxLines: 4,
     );
@@ -2055,7 +2055,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     final trimmed = next.trim();
     try {
       await widget.controller.editNote(noteId: note.id, content: trimmed);
-      widget.onToast('Note updated');
+      widget.onToast(loc.patientsNoteUpdated);
     } catch (e) {
       widget.onToast(widget.friendlyError(e), error: true);
     }
