@@ -29,6 +29,7 @@ class ShadeResampleFromDetectionIn(BaseModel):
     shade_detection_id: str = Field(min_length=1)
     outline: list[list[float]]
     tooth_index: int = 0
+    arch: str | None = None  # "lower" flips the cervical → incisal zone order
 
 
 def _shade_out(result: dict) -> ShadeAnalyzeOut:
@@ -46,6 +47,8 @@ def _shade_out(result: dict) -> ShadeAnalyzeOut:
         segment_tooth_count=result.get("segment_tooth_count"),
         segment_accepted_count=result.get("segment_accepted_count"),
         gum=result.get("gum"),
+        lines=result.get("lines"),
+        lip_suggestions=result.get("lip_suggestions"),
     )
 
 
@@ -123,6 +126,7 @@ async def shade_resample_outline(
     file: UploadFile = File(...),
     outline_json: str = Form(...),
     tooth_index: int = Form(0),
+    arch: str | None = Form(None),
 ):
     """Re-match zones after the dentist edits a tooth outline polygon."""
     try:
@@ -138,6 +142,7 @@ async def shade_resample_outline(
             data,
             outline,
             tooth_index=int(tooth_index),
+            arch=arch,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -158,6 +163,7 @@ async def shade_resample_outline_from_detection(
             data,
             payload.outline,
             tooth_index=int(payload.tooth_index),
+            arch=payload.arch,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

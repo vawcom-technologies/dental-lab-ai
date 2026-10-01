@@ -13,6 +13,14 @@ import '../../core/l10n/app_localizations.dart';
 
 /// Claims drag on a vertex handle or mid-edge curve grip.
 class OutlineEditDragRecognizer extends PanGestureRecognizer {
+  OutlineEditDragRecognizer() {
+    // Pick the handle where the finger landed, and start moving after ~8 px.
+    // Default pan slop (~36 px) made handles feel stuck, and the grab was
+    // resolved at the slop point — often a neighbouring handle.
+    dragStartBehavior = DragStartBehavior.down;
+    gestureSettings = const DeviceGestureSettings(touchSlop: 4);
+  }
+
   /// 'v' = vertex index, 'e' = edge index.
   ({String kind, int index})? Function(Offset local)? hitAt;
 
@@ -30,7 +38,6 @@ class ShadePhotoPane extends StatelessWidget {
     required this.editOutlineMode,
     required this.teeth,
     required this.selectedToothIndex,
-    this.isolatedToothIndex,
     required this.analysisImageSize,
     required this.focusZone,
     required this.editOutline,
@@ -50,6 +57,11 @@ class ShadePhotoPane extends StatelessWidget {
     required this.onEdgeDoubleTap,
     required this.onUndo,
     required this.onRedo,
+    this.guideLines = const {},
+    this.symmetryView = false,
+    this.onToggleSymmetry,
+    this.focusSelected = false,
+    this.onToggleFocus,
   });
 
   final Uint8List? previewBytes;
@@ -57,9 +69,14 @@ class ShadePhotoPane extends StatelessWidget {
   final bool editOutlineMode;
   final List<Map<String, dynamic>> teeth;
   final int? selectedToothIndex;
-  final int? isolatedToothIndex;
   final Size analysisImageSize;
   final String focusZone;
+  final Map<String, List<List<double>>> guideLines;
+  final bool symmetryView;
+  final VoidCallback? onToggleSymmetry;
+  /// Photo shows only the selected tooth; null [onToggleFocus] = disabled.
+  final bool focusSelected;
+  final VoidCallback? onToggleFocus;
   final List<List<double>>? editOutline;
   final List<double>? editBulges;
   final int? activeHandleIndex;
@@ -177,22 +194,6 @@ class ShadePhotoPane extends StatelessWidget {
                                 Positioned.fill(
                                   child: Builder(
                                     builder: (context) {
-                                      int? handleAt(Offset local) {
-                                        final outline = editOutline;
-                                        if (outline == null) return null;
-                                        final scale = photoTransformController
-                                            .value
-                                            .getMaxScaleOnAxis()
-                                            .clamp(1.0, 4.0);
-                                        return hitTestOutlineHandle(
-                                          local: local,
-                                          box: box,
-                                          imageSize: imgSize,
-                                          outline: outline,
-                                          radius: 32 / scale,
-                                        );
-                                      }
-
                                       ({String kind, int index})? hitAt(
                                         Offset local,
                                       ) {
@@ -202,30 +203,24 @@ class ShadePhotoPane extends StatelessWidget {
                                             .value
                                             .getMaxScaleOnAxis()
                                             .clamp(1.0, 4.0);
-                                        final hi = handleAt(local);
-                                        if (hi != null) {
-                                          return (kind: 'v', index: hi);
+                                        if (hitTestGuideHandle(
+                                              local: local,
+                                              box: box,
+                                              imageSize: imgSize,
+                                              guides: guideLines,
+                                              radius: 28 / scale,
+                                            ) !=
+                                            null) {
+                                          return (kind: 'g', index: 0);
                                         }
-                                        final ei = hitTestOutlineEdge(
-                                          local: local,
-                                          box: box,
-                                          imageSize: imgSize,
-                                          outline: outline,
-                                          maxDist: 22 / scale,
-                                        );
-                                        if (ei != null) {
-                                          return (kind: 'e', index: ei);
-                                        }
-                                        if (hitTestOutlineBody(
+                                        return hitTestOutlineEditTarget(
                                           local: local,
                                           box: box,
                                           imageSize: imgSize,
                                           outline: outline,
                                           bulges: editBulges,
-                                        )) {
-                                          return (kind: 'b', index: 0);
-                                        }
-                                        return null;
+                                          radius: 28 / scale,
+                                        );
                                       }
 
                                       final paint = RepaintBoundary(
@@ -238,10 +233,11 @@ class ShadePhotoPane extends StatelessWidget {
                                             teeth: teeth,
                                             selectedToothIndex:
                                                 selectedToothIndex,
-                                            isolatedToothIndex:
-                                                isolatedToothIndex,
                                             imageSize: imgSize,
                                             focusZone: focusZone,
+                                            guideLines: guideLines,
+                                            symmetryView: symmetryView,
+                                            focusSelected: focusSelected,
                                             editMode: editOutlineMode,
                                             editOutline: editOutline,
                                             editBulges: editBulges,
@@ -296,8 +292,10 @@ class ShadePhotoPane extends StatelessWidget {
                                                   DoubleTapGestureRecognizer>(
                                             DoubleTapGestureRecognizer.new,
                                             (r) => r.onDoubleTapDown = (d) {
-                                              if (hitAt(d.localPosition) ==
-                                                  null) {
+                                              // Double-tap adds outline points;
+                                              // guides (midline/lips) don't.
+                                              final h = hitAt(d.localPosition);
+                                              if (h == null || h.kind == 'g') {
                                                 return;
                                               }
                                               onEdgeDoubleTap(
@@ -341,10 +339,32 @@ class ShadePhotoPane extends StatelessWidget {
                 Container(
                   color: Colors.black45,
                   child: Center(
-                    child: ToothLoadingIndicator(
-                      size: 48,
-                      color: Colors.white,
-                      loadingText: AppLocalizations.of(context).shadeAnalyzing,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const ToothLoadingIndicator(
+                            size: 48,
+                            color: Colors.white,
+                            compact: true,
+                          ),
+                          const SizedBox(height: 14),
+                          RotatingLoadingText(
+                            messages:
+                                AppLocalizations.of(context).shadeWaitTips,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              height: 1.25,
+                              shadows: [
+                                Shadow(blurRadius: 6, color: Colors.black54),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -356,7 +376,7 @@ class ShadePhotoPane extends StatelessWidget {
                   child: Text(
                     editOutlineMode
                         ? 'Hold inside the outline and drag to move it · corners reshape · mid-edge curves · Apply.'
-                        : 'Pinch to zoom · Tap to select · Press & hold for photo actions · Triple-tap to focus a tooth.',
+                        : 'Pinch to zoom · Tap to select · Press & hold for photo actions.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.85),
@@ -383,6 +403,34 @@ class ShadePhotoPane extends StatelessWidget {
                     ),
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.dentalBlue,
+                    ),
+                  ),
+                ),
+              if (teeth.isNotEmpty && !busy && !editOutlineMode)
+                Positioned(
+                  top: 10,
+                  left: 10,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.45),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _ViewToggle(
+                          on: symmetryView,
+                          tooltip: AppLocalizations.of(context).shadeSymmetry,
+                          icon: Icons.vertical_split_outlined,
+                          onPressed: onToggleSymmetry,
+                        ),
+                        _ViewToggle(
+                          on: focusSelected,
+                          tooltip: AppLocalizations.of(context).shadeFocusTooth,
+                          icon: Icons.center_focus_strong_outlined,
+                          onPressed: onToggleFocus,
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -423,4 +471,33 @@ class ShadePhotoPane extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Photo view toggle (symmetry / selected tooth): blue when on.
+class _ViewToggle extends StatelessWidget {
+  const _ViewToggle({
+    required this.on,
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final bool on;
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        icon: Icon(icon),
+        color: Colors.white,
+        disabledColor: Colors.white38,
+        style: on
+            ? IconButton.styleFrom(
+                backgroundColor: AppColors.dentalBlue.withValues(alpha: 0.85),
+              )
+            : null,
+      );
 }

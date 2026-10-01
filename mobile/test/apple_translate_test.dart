@@ -72,4 +72,23 @@ void main() {
       throwsA(isA<AppleTranslateUnsupported>()),
     );
   });
+
+  test('other Apple platform failures also fall back as unsupported', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(AppleTranslate.channel, (call) async {
+      throw PlatformException(
+        code: 'apple',
+        message: 'Translation models unavailable',
+      );
+    });
+
+    expect(
+      () => AppleTranslate.translate(
+        text: 'Bitte warten',
+        sourceLang: 'de',
+        targetLang: 'ar',
+      ),
+      throwsA(isA<AppleTranslateUnsupported>()),
+    );
+  });
 }

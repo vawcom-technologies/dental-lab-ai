@@ -17,8 +17,8 @@ import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/touchable.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'apple_translate.dart';
-import 'interpreter_formality.dart';
 import 'interpreter_languages.dart';
+import 'interpreter_phrases.dart';
 
 class InterpreterTurn {
   const InterpreterTurn({
@@ -27,6 +27,7 @@ class InterpreterTurn {
     required this.translated,
     required this.sourceLang,
     required this.targetLang,
+    this.toneChecked = true,
   });
 
   final bool fromDoctor;
@@ -34,6 +35,10 @@ class InterpreterTurn {
   final String translated;
   final String sourceLang;
   final String targetLang;
+
+  /// False when an offline Apple draft was used where the LLM should have
+  /// checked politeness.
+  final bool toneChecked;
 }
 
 /// Chairside doctor ↔ patient interpreter (voice + text). Not app UI language.
@@ -74,7 +79,11 @@ class _InterpreterPageState extends State<InterpreterPage> {
   bool _listeningDoctor = false;
   bool _listeningPatient = false;
   bool _warnedNoVoice = false;
-  String _partial = '';
+  // Live STT text lives in a notifier so partial results repaint only the text
+  // area, not both blurred panes (that rebuild was the main source of lag).
+  final _partialText = ValueNotifier<String>('');
+  String get _partial => _partialText.value;
+  set _partial(String v) => _partialText.value = v;
   String _speechStatus = '';
   String? _speechError;
   double _peakSoundLevel = -120;
@@ -86,6 +95,10 @@ class _InterpreterPageState extends State<InterpreterPage> {
   Completer<void>? _speechIdle;
   List<LocaleName> _speechLocales = const [];
   final List<InterpreterTurn> _turns = [];
+  // Doctor phrases persist across visits (per doctor language); patient
+  // phrases only live for the current visit + patient language.
+  PhraseCounts _doctorPhrases = PhraseCounts();
+  final PhraseCounts _patientPhrases = PhraseCounts();
   SharedPreferences? _prefs;
 
   @override
@@ -112,6 +125,7 @@ class _InterpreterPageState extends State<InterpreterPage> {
     widget.patientSession.removeListener(_onPatientSession);
     _doctorInput.dispose();
     _patientInput.dispose();
+    _partialText.dispose();
     _doctorFocus.dispose();
     _patientFocus.dispose();
     unawaited(_speech.stop());
@@ -137,13 +151,14 @@ class _InterpreterPageState extends State<InterpreterPage> {
     _prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     final appLang = LocaleScope.maybeOf(context)?.code ?? 'de';
-    _doctorLang = _prefs?.getString(_kDoctorLang) ??
-        (appLang == 'en' ? 'en' : 'de');
+    _doctorLang =
+        _prefs?.getString(_kDoctorLang) ?? (appLang == 'en' ? 'en' : 'de');
     if (_doctorLang != 'de' && _doctorLang != 'en') {
       _doctorLang = 'de';
     }
     _patientLang = _prefs?.getString(_kPatientLang) ?? 'ar';
     _autoSpeak = _prefs?.getBool(_kAutoSpeak) ?? true;
+    _loadDoctorPhrases();
     if (mounted) setState(() {});
     await _loadPatientLanguage();
     await _loadCatalog();
@@ -302,7 +317,10 @@ class _InterpreterPageState extends State<InterpreterPage> {
     if (stored == null || stored.isEmpty) return;
     if (stored == _patientLang) return;
     if (!mounted) return;
-    setState(() => _patientLang = stored);
+    setState(() {
+      _patientLang = stored;
+      _resetConversation();
+    });
   }
 
   Future<void> _persistLangs() async {
@@ -332,27 +350,38 @@ class _InterpreterPageState extends State<InterpreterPage> {
     return null;
   }
 
+  String get _phrasesKey => 'interpreter.phrases.doctor.$_doctorLang';
+
+  void _loadDoctorPhrases() {
+    _doctorPhrases = PhraseCounts.fromJson(_prefs?.getString(_phrasesKey));
+  }
+
+  /// A language change starts a fresh conversation: old-language turns and
+  /// patient phrases would otherwise leak into the new language's panes.
+  void _resetConversation() {
+    unawaited(_tts.stop());
+    _turns.clear();
+    _patientPhrases.clear();
+    _loadDoctorPhrases();
+  }
+
   Future<void> _setDoctorLang(String code) async {
-    if (code == _patientLang) {
-      setState(() {
-        _patientLang = _doctorLang;
-        _doctorLang = code;
-      });
-    } else {
-      setState(() => _doctorLang = code);
-    }
+    if (code == _doctorLang) return;
+    setState(() {
+      if (code == _patientLang) _patientLang = _doctorLang;
+      _doctorLang = code;
+      _resetConversation();
+    });
     await _persistLangs();
   }
 
   Future<void> _setPatientLang(String code) async {
-    if (code == _doctorLang) {
-      setState(() {
-        _doctorLang = _patientLang;
-        _patientLang = code;
-      });
-    } else {
-      setState(() => _patientLang = code);
-    }
+    if (code == _patientLang) return;
+    setState(() {
+      if (code == _doctorLang) _doctorLang = _patientLang;
+      _patientLang = code;
+      _resetConversation();
+    });
     await _persistLangs();
   }
 
@@ -362,8 +391,78 @@ class _InterpreterPageState extends State<InterpreterPage> {
       final tmp = _doctorLang;
       _doctorLang = _patientLang;
       _patientLang = tmp;
+      _resetConversation();
     });
     await _persistLangs();
+  }
+
+  /// Put a phrase in the box for the user to send as-is or edit first.
+  void _fillInput(bool fromDoctor, String text) {
+    final controller = fromDoctor ? _doctorInput : _patientInput;
+    controller.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    (fromDoctor ? _doctorFocus : _patientFocus).requestFocus();
+  }
+
+  void _forgetDoctorPhrase(String text) {
+    setState(() => _doctorPhrases.remove(text));
+    unawaited(_prefs?.setString(_phrasesKey, _doctorPhrases.toJson()));
+  }
+
+  Future<void> _showHistory(bool fromDoctor, AppLocalizations loc) async {
+    final said = [
+      for (final t in _turns.reversed)
+        if (t.fromDoctor == fromDoctor) t.original,
+    ];
+    if (said.isEmpty) return;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(ctx).height * 0.6,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                child: Text(
+                  loc.interpreterHistory,
+                  style: AppFonts.style(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.navy,
+                  ),
+                ),
+              ),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: said.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (_, i) => ListTile(
+                    title: Text(
+                      said[i],
+                      textDirection: (fromDoctor ? _doctor : _patient).rtl
+                          ? TextDirection.rtl
+                          : TextDirection.ltr,
+                    ),
+                    onTap: () => Navigator.of(ctx).pop(said[i]),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (picked != null && mounted) _fillInput(fromDoctor, picked);
   }
 
   Future<void> _clearTurns() async {
@@ -401,45 +500,51 @@ class _InterpreterPageState extends State<InterpreterPage> {
       final source = fromDoctor ? _doctorLang : _patientLang;
       final target = fromDoctor ? _patientLang : _doctorLang;
       final original = text.trim();
-      final wanted = detectInterpreterFormality(
-        original,
-        sourceLang: source,
-        targetLang: target,
-      );
       var translated = '';
+      var toneChecked = true;
+      Object? backendError;
       if (source == target) {
         translated = original;
-      } else {
+      } else if (targetNeedsRegister(target)) {
+        // Politeness matters in this target language: one LLM call translates
+        // and keeps the register. Apple has no formality control.
         try {
-          translated = (await AppleTranslate.translate(
-                text: original,
-                sourceLang: source,
-                targetLang: target,
-              ))
-                  ?.trim() ??
-              '';
-        } on AppleTranslateUnsupported {
-          translated = '';
-        }
-        if (translated.isEmpty ||
-            translationMissesFormality(
-              translated,
-              targetLang: target,
-              wanted: wanted,
-            )) {
           translated = await _backendTranslate(
             original,
             sourceLang: source,
             targetLang: target,
-            formality: wanted.name,
+            formality: 'formal',
+            timeout: const Duration(seconds: 15),
           );
+        } catch (e) {
+          backendError = e;
+          // Offline / service down: an installed Apple pack is better than
+          // nothing, but its tone is unchecked. Never prompt a download here.
+          translated = await _appleIfInstalled(original, source, target) ?? '';
+          toneChecked = false;
+        }
+      } else {
+        // Register-neutral target: Apple on-device is free, fast and offline.
+        translated = await _appleOrAsk(original, source, target) ?? '';
+        if (translated.isEmpty) {
+          try {
+            translated = await _backendTranslate(
+              original,
+              sourceLang: source,
+              targetLang: target,
+              formality: 'formal',
+            );
+          } catch (e) {
+            backendError = e;
+          }
         }
       }
       if (!mounted) return;
       if (translated.isEmpty) {
-        throw Exception(
-          AppLocalizations.of(context).interpreterAppleTranslateFailed,
-        );
+        throw backendError ??
+            Exception(
+              AppLocalizations.of(context).interpreterAppleTranslateFailed,
+            );
       }
       final turn = InterpreterTurn(
         fromDoctor: fromDoctor,
@@ -447,12 +552,17 @@ class _InterpreterPageState extends State<InterpreterPage> {
         translated: translated,
         sourceLang: source,
         targetLang: target,
+        toneChecked: toneChecked,
       );
       if (!mounted) return;
       setState(() {
         _turns.add(turn);
         _busy = false;
+        (fromDoctor ? _doctorPhrases : _patientPhrases).add(original);
       });
+      if (fromDoctor) {
+        unawaited(_prefs?.setString(_phrasesKey, _doctorPhrases.toJson()));
+      }
       AppHaptics.success();
       if (_autoSpeak && turn.translated.isNotEmpty) {
         await _speak(
@@ -461,10 +571,108 @@ class _InterpreterPageState extends State<InterpreterPage> {
           announceIfSilent: true,
         );
       }
+    } on _TurnAborted catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      _fillInput(fromDoctor, text.trim());
+      final msg = e.message;
+      if (msg != null) AppSnackBars.error(context, msg);
     } catch (e) {
       if (!mounted) return;
       setState(() => _busy = false);
-      AppSnackBars.error(context, friendlyError(e, AppLocalizations.of(context)));
+      AppSnackBars.error(
+        context,
+        friendlyError(e, AppLocalizations.of(context)),
+      );
+    }
+  }
+
+  Future<String?> _appleTranslate(
+    String text,
+    String source,
+    String target,
+  ) async {
+    final out = (await AppleTranslate.translate(
+      text: text,
+      sourceLang: source,
+      targetLang: target,
+    ))?.trim();
+    return (out == null || out.isEmpty) ? null : out;
+  }
+
+  Future<String?> _appleIfInstalled(
+    String text,
+    String source,
+    String target,
+  ) async {
+    try {
+      final status = await AppleTranslate.status(
+        sourceLang: source,
+        targetLang: target,
+      );
+      if (status != AppleLanguageStatus.installed) return null;
+      return await _appleTranslate(text, source, target);
+    } on AppleTranslateUnsupported {
+      return null;
+    } on AppleTranslateNotInstalled {
+      return null;
+    }
+  }
+
+  /// Apple translation, asking before any language-pack download.
+  /// Returns null when the caller should use the backend instead; throws
+  /// [_TurnAborted] if the user cancels or the download does not finish.
+  Future<String?> _appleOrAsk(String text, String source, String target) async {
+    try {
+      return await _appleTranslate(text, source, target);
+    } on AppleTranslateUnsupported {
+      return null;
+    } on AppleTranslateNotInstalled {
+      // Fall through to the install prompt.
+    }
+    final loc = AppLocalizations.of(context);
+    final targetRow = InterpreterLanguage.byCode(_languages, target);
+    final choice = await showDialog<_PackChoice>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(loc.interpreterPackTitle(targetRow?.name ?? target)),
+        content: Text(loc.interpreterPackBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, _PackChoice.cancel),
+            child: Text(loc.cancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, _PackChoice.online),
+            child: Text(loc.interpreterPackOnline),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, _PackChoice.download),
+            child: Text(loc.interpreterPackDownload),
+          ),
+        ],
+      ),
+    );
+    switch (choice) {
+      case _PackChoice.online:
+        return null;
+      case _PackChoice.download:
+        if (await AppleTranslate.prepare(
+          sourceLang: source,
+          targetLang: target,
+        )) {
+          try {
+            return await _appleTranslate(text, source, target);
+          } on AppleTranslateUnsupported {
+            return null;
+          } on AppleTranslateNotInstalled {
+            // Pack still missing — report below.
+          }
+        }
+        throw _TurnAborted(mounted ? loc.interpreterPackFailed : null);
+      case _PackChoice.cancel:
+      case null:
+        throw const _TurnAborted(null);
     }
   }
 
@@ -473,6 +681,7 @@ class _InterpreterPageState extends State<InterpreterPage> {
     required String sourceLang,
     required String targetLang,
     String? formality,
+    Duration timeout = const Duration(seconds: 45),
   }) async {
     final raw = await widget.api
         .interpreterTurn(
@@ -481,7 +690,7 @@ class _InterpreterPageState extends State<InterpreterPage> {
           targetLang: targetLang,
           formality: formality,
         )
-        .timeout(const Duration(seconds: 45));
+        .timeout(timeout);
     return '${raw['translated'] ?? ''}'.trim();
   }
 
@@ -493,8 +702,8 @@ class _InterpreterPageState extends State<InterpreterPage> {
     final spoken = text.trim();
     if (spoken.isEmpty) return;
     final row = InterpreterLanguage.byCode(_languages, lang);
-    final locales = row?.ttsLocales ??
-        <String>[lang.replaceAll('_', '-'), lang];
+    final locales =
+        row?.ttsLocales ?? <String>[lang.replaceAll('_', '-'), lang];
     try {
       await _tts.stop();
       await _ensureTtsPlayback();
@@ -580,11 +789,7 @@ class _InterpreterPageState extends State<InterpreterPage> {
       if (ok == true || ok == 1 || ok == '1') return true;
       final langs = await _tts.getLanguages;
       if (langs is List) {
-        return matchSpeechLocale(
-              locale,
-              langs.map((e) => '$e'),
-            ) !=
-            null;
+        return matchSpeechLocale(locale, langs.map((e) => '$e')) != null;
       }
     } catch (_) {}
     return false;
@@ -621,7 +826,7 @@ class _InterpreterPageState extends State<InterpreterPage> {
       onResult: (result) {
         final words = result.recognizedWords.trim();
         if (words.isEmpty || !mounted) return;
-        setState(() => _partial = words);
+        _partial = words;
       },
       onSoundLevelChange: (level) {
         if (level > _peakSoundLevel) _peakSoundLevel = level;
@@ -740,7 +945,10 @@ class _InterpreterPageState extends State<InterpreterPage> {
     debugPrint(
       'interpreter stt empty peak=$_peakSoundLevel status=$_speechStatus err=$_speechError',
     );
-    AppSnackBars.info(context, loc.interpreterNothingHeardLang(lang.nativeName));
+    AppSnackBars.info(
+      context,
+      loc.interpreterNothingHeardLang(lang.nativeName),
+    );
   }
 
   Future<void> _pickLanguage({required bool doctor}) async {
@@ -749,7 +957,9 @@ class _InterpreterPageState extends State<InterpreterPage> {
       context: context,
       builder: (ctx) => _LanguagePickerDialog(
         languages: _languages,
-        title: doctor ? loc.interpreterDoctorLanguage : loc.interpreterPatientLanguage,
+        title: doctor
+            ? loc.interpreterDoctorLanguage
+            : loc.interpreterPatientLanguage,
         selectedCode: doctor ? _doctorLang : _patientLang,
       ),
     );
@@ -805,7 +1015,8 @@ class _InterpreterPageState extends State<InterpreterPage> {
                 selected: selected,
                 onSelect: widget.patientSession.select,
                 onAdd: widget.patientSession.requestNavigateToNewPatient,
-                onRefresh: () => widget.patientSession.refresh(keepSelection: true),
+                onRefresh: () =>
+                    widget.patientSession.refresh(keepSelection: true),
                 emptyHint: loc.interpreterPatientOptional,
               ),
             ],
@@ -843,16 +1054,15 @@ class _InterpreterPageState extends State<InterpreterPage> {
     );
   }
 
-  Widget _buildPane({
-    required bool fromDoctor,
-    required AppLocalizations loc,
-  }) {
+  Widget _buildPane({required bool fromDoctor, required AppLocalizations loc}) {
     final lang = fromDoctor ? _doctor : _patient;
     final last = fromDoctor ? _lastForDoctor : _lastForPatient;
     final listening = fromDoctor ? _listeningDoctor : _listeningPatient;
     final controller = fromDoctor ? _doctorInput : _patientInput;
     final canHold = _canHold(fromDoctor);
     final headline = last?.translated.trim() ?? '';
+    final pills = (fromDoctor ? _doctorPhrases : _patientPhrases).repeated();
+    final hasHistory = _turns.any((t) => t.fromDoctor == fromDoctor);
     final original = last?.original.trim() ?? '';
     final hint = fromDoctor
         ? loc.interpreterDoctorHint
@@ -861,95 +1071,117 @@ class _InterpreterPageState extends State<InterpreterPage> {
         ? loc.interpreterListening
         : (canHold ? loc.interpreterHoldToTalk : loc.interpreterTypeInstead);
 
-    return GlassSurface(
-      borderRadius: AppRadii.border,
-      blur: 18,
-      tint: Colors.white.withValues(alpha: 0.62),
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Icon(
-                fromDoctor
-                    ? Icons.medical_services_outlined
-                    : Icons.accessibility_new_rounded,
-                size: 18,
-                color: fromDoctor ? AppColors.navy : AppColors.dentalBlue,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
+    return RepaintBoundary(
+      child: GlassSurface(
+        borderRadius: AppRadii.border,
+        blur: 18,
+        tint: Colors.white.withValues(alpha: 0.62),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(
                   fromDoctor
-                      ? '${loc.interpreterDoctor} · ${lang.nativeName}'
-                      : '${loc.interpreterPatient} · ${lang.nativeName}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppFonts.style(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.navy,
+                      ? Icons.medical_services_outlined
+                      : Icons.accessibility_new_rounded,
+                  size: 18,
+                  color: fromDoctor ? AppColors.navy : AppColors.dentalBlue,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    fromDoctor
+                        ? '${loc.interpreterDoctor} · ${lang.nativeName}'
+                        : '${loc.interpreterPatient} · ${lang.nativeName}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppFonts.style(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.navy,
+                    ),
                   ),
                 ),
-              ),
-              if (_busy)
-                const Padding(
-                  padding: EdgeInsets.only(right: 6),
-                  child: SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                if (_busy)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 6),
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
                   ),
-                ),
-              if (headline.isNotEmpty)
                 AppButtons.icon(
-                  tooltip: loc.interpreterSpeak,
-                  onPressed: () => _speak(
-                    headline,
-                    lang: lang.code,
-                    announceIfSilent: true,
-                  ),
-                  icon: Icons.volume_up_outlined,
-                  color: AppColors.dentalBlue,
+                  tooltip: loc.interpreterHistory,
+                  onPressed: hasHistory
+                      ? () => _showHistory(fromDoctor, loc)
+                      : null,
+                  icon: Icons.history_rounded,
+                  color: AppColors.navy,
                 ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
-              decoration: BoxDecoration(
-                color: AppColors.inset.withValues(alpha: 0.65),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () {
-                        if (_busy || listening) return;
-                        (fromDoctor ? _doctorFocus : _patientFocus)
-                            .requestFocus();
-                      },
-                      child: SingleChildScrollView(
-                      child: Directionality(
-                        textDirection: lang.rtl
-                            ? TextDirection.rtl
-                            : TextDirection.ltr,
-                        child: listening && _partial.isNotEmpty
-                            ? Text(
-                                _partial,
-                                style: AppFonts.style(
-                                  fontSize: 26,
-                                  fontWeight: FontWeight.w600,
-                                  height: 1.25,
-                                  color: AppColors.navy,
-                                ),
-                              )
-                            : headline.isEmpty
+                if (headline.isNotEmpty)
+                  AppButtons.icon(
+                    tooltip: loc.interpreterSpeak,
+                    onPressed: () => _speak(
+                      headline,
+                      lang: lang.code,
+                      announceIfSilent: true,
+                    ),
+                    icon: Icons.volume_up_outlined,
+                    color: AppColors.dentalBlue,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+                decoration: BoxDecoration(
+                  color: AppColors.inset.withValues(alpha: 0.65),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () {
+                          if (_busy || listening) return;
+                          (fromDoctor ? _doctorFocus : _patientFocus)
+                              .requestFocus();
+                        },
+                        child: SingleChildScrollView(
+                          child: Directionality(
+                            textDirection: lang.rtl
+                                ? TextDirection.rtl
+                                : TextDirection.ltr,
+                            child: listening
+                                ? ValueListenableBuilder<String>(
+                                    valueListenable: _partialText,
+                                    builder: (_, partial, _) => partial.isEmpty
+                                        ? Text(
+                                            hint,
+                                            textDirection: TextDirection.ltr,
+                                            style: AppFonts.style(
+                                              fontSize: 16,
+                                              height: 1.4,
+                                              color: AppColors.muted,
+                                            ),
+                                          )
+                                        : Text(
+                                            partial,
+                                            style: AppFonts.style(
+                                              fontSize: 26,
+                                              fontWeight: FontWeight.w600,
+                                              height: 1.25,
+                                              color: AppColors.navy,
+                                            ),
+                                          ),
+                                  )
+                                : headline.isEmpty
                                 ? Text(
                                     hint,
                                     textDirection: TextDirection.ltr,
@@ -972,6 +1204,18 @@ class _InterpreterPageState extends State<InterpreterPage> {
                                           color: AppColors.navy,
                                         ),
                                       ),
+                                      if (last != null &&
+                                          !last.toneChecked) ...[
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          loc.interpreterToneUnchecked,
+                                          textDirection: TextDirection.ltr,
+                                          style: AppFonts.style(
+                                            fontSize: 12,
+                                            color: AppColors.danger,
+                                          ),
+                                        ),
+                                      ],
                                       if (original.isNotEmpty) ...[
                                         const SizedBox(height: 10),
                                         Text(
@@ -985,219 +1229,219 @@ class _InterpreterPageState extends State<InterpreterPage> {
                                       ],
                                     ],
                                   ),
+                          ),
+                        ),
                       ),
+                    ),
+                    if (pills.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 44,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: pills.length,
+                          separatorBuilder: (_, _) => const SizedBox(width: 8),
+                          itemBuilder: (context, index) {
+                            final phrase = pills[index];
+                            return GestureDetector(
+                              onLongPress: fromDoctor && !_busy
+                                  ? () => _forgetDoctorPhrase(phrase)
+                                  : null,
+                              child: Touchable(
+                                onTap: _busy || listening
+                                    ? null
+                                    : () => _fillInput(fromDoctor, phrase),
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 220,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 8,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.navy.withValues(
+                                      alpha: 0.08,
+                                    ),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    phrase,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    textDirection: lang.rtl
+                                        ? TextDirection.rtl
+                                        : TextDirection.ltr,
+                                    style: AppFonts.style(
+                                      fontSize: 12,
+                                      color: AppColors.navy,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    key: ValueKey(
+                      fromDoctor
+                          ? 'interpreter-doctor-field'
+                          : 'interpreter-patient-field',
+                    ),
+                    controller: controller,
+                    focusNode: fromDoctor ? _doctorFocus : _patientFocus,
+                    enabled: !_busy && !listening,
+                    minLines: 1,
+                    maxLines: 3,
+                    textDirection: lang.rtl
+                        ? TextDirection.rtl
+                        : TextDirection.ltr,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _submitText(fromDoctor: fromDoctor),
+                    style: AppFonts.style(fontSize: 15, color: AppColors.navy),
+                    decoration: InputDecoration(
+                      hintText: loc.interpreterTypeHint,
+                      hintStyle: AppFonts.style(color: AppColors.muted),
+                      filled: true,
+                      fillColor: Colors.white.withValues(alpha: 0.8),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: AppColors.border.withValues(alpha: 0.8),
+                        ),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: AppColors.border.withValues(alpha: 0.8),
+                        ),
                       ),
                     ),
                   ),
-                  if (_turns.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      height: 52,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: _turns.length,
-                        separatorBuilder: (_, _) => const SizedBox(width: 8),
-                        itemBuilder: (context, index) {
-                          final turn = _turns[index];
-                          final mine = turn.fromDoctor == fromDoctor;
-                          final label = mine ? turn.original : turn.translated;
-                          return Touchable(
-                            onTap: _busy
-                                ? null
-                                : () {
-                                    if (mine) {
-                                      unawaited(
-                                        _speak(
-                                          turn.translated,
-                                          lang: turn.targetLang,
-                                          announceIfSilent: true,
-                                        ),
-                                      );
-                                    } else {
-                                      unawaited(
-                                        _speak(
-                                          label,
-                                          lang: lang.code,
-                                          announceIfSilent: true,
-                                        ),
-                                      );
-                                    }
-                                  },
-                            borderRadius: BorderRadius.circular(12),
-                            child: Container(
-                            constraints: const BoxConstraints(maxWidth: 220),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color: mine
-                                  ? AppColors.navy.withValues(alpha: 0.08)
-                                  : AppColors.dentalBlue.withValues(alpha: 0.10),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              label,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppFonts.style(
-                                fontSize: 12,
-                                color: AppColors.navy,
-                              ),
-                            ),
-                            ),
-                          );
-                        },
+                ),
+                const SizedBox(width: 8),
+                AppButtons.primary(
+                  key: ValueKey(
+                    fromDoctor
+                        ? 'interpreter-doctor-send'
+                        : 'interpreter-patient-send',
+                  ),
+                  compact: true,
+                  busy: _busy && !listening,
+                  onPressed: _busy
+                      ? null
+                      : () => _submitText(fromDoctor: fromDoctor),
+                  icon: Icons.send_rounded,
+                  label: loc.interpreterSend,
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Listener(
+              behavior: HitTestBehavior.opaque,
+              onPointerDown: (event) {
+                if (_holdPointer != null) return;
+                if (_busy && !listening) return;
+                if (!listening && !canHold) return;
+                _holdPointer = event.pointer;
+                _pointerDownAt = DateTime.now();
+                if (listening) {
+                  _pressToStop = true;
+                  return;
+                }
+                _pressToStop = false;
+                final epoch = ++_holdEpoch;
+                unawaited(_startHold(fromDoctor, epoch));
+              },
+              onPointerUp: (event) {
+                if (_holdPointer != event.pointer) return;
+                _holdPointer = null;
+                if (_pressToStop) {
+                  _pressToStop = false;
+                  unawaited(_stopHold(fromDoctor));
+                  return;
+                }
+                final down = _pointerDownAt;
+                final held = down == null
+                    ? Duration.zero
+                    : DateTime.now().difference(down);
+                // Finger-up after a real hold stops. A tap leaves Apple Speech
+                // running until the next tap (the permission sheet also cancels
+                // the pointer and must not abort listen).
+                if (held >= const Duration(milliseconds: 450)) {
+                  unawaited(_stopHold(fromDoctor));
+                }
+              },
+              onPointerCancel: (event) {
+                if (_holdPointer != event.pointer) return;
+                _holdPointer = null;
+                _pressToStop = false;
+              },
+              child: AnimatedContainer(
+                duration: AppMotion.fast,
+                height: 52,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: listening
+                      ? AppColors.danger
+                      : (canHold ? AppColors.navy : AppColors.inset),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      listening ? Icons.mic_rounded : Icons.mic_none_rounded,
+                      color: canHold || listening
+                          ? Colors.white
+                          : AppColors.muted,
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        holdLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppFonts.style(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                          color: canHold || listening
+                              ? Colors.white
+                              : AppColors.muted,
+                        ),
                       ),
                     ),
                   ],
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  key: ValueKey(
-                    fromDoctor
-                        ? 'interpreter-doctor-field'
-                        : 'interpreter-patient-field',
-                  ),
-                  controller: controller,
-                  focusNode: fromDoctor ? _doctorFocus : _patientFocus,
-                  enabled: !_busy && !listening,
-                  minLines: 1,
-                  maxLines: 3,
-                  textDirection:
-                      lang.rtl ? TextDirection.rtl : TextDirection.ltr,
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (_) => _submitText(fromDoctor: fromDoctor),
-                  style: AppFonts.style(fontSize: 15, color: AppColors.navy),
-                  decoration: InputDecoration(
-                    hintText: loc.interpreterTypeHint,
-                    hintStyle: AppFonts.style(color: AppColors.muted),
-                    filled: true,
-                    fillColor: Colors.white.withValues(alpha: 0.8),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 12,
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide(
-                        color: AppColors.border.withValues(alpha: 0.8),
-                      ),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide(
-                        color: AppColors.border.withValues(alpha: 0.8),
-                      ),
-                    ),
-                  ),
                 ),
               ),
-              const SizedBox(width: 8),
-              AppButtons.primary(
-                key: ValueKey(
-                  fromDoctor
-                      ? 'interpreter-doctor-send'
-                      : 'interpreter-patient-send',
-                ),
-                compact: true,
-                busy: _busy && !listening,
-                onPressed:
-                    _busy ? null : () => _submitText(fromDoctor: fromDoctor),
-                icon: Icons.send_rounded,
-                label: loc.interpreterSend,
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Listener(
-            behavior: HitTestBehavior.opaque,
-            onPointerDown: (event) {
-              if (_holdPointer != null) return;
-              if (_busy && !listening) return;
-              if (!listening && !canHold) return;
-              _holdPointer = event.pointer;
-              _pointerDownAt = DateTime.now();
-              if (listening) {
-                _pressToStop = true;
-                return;
-              }
-              _pressToStop = false;
-              final epoch = ++_holdEpoch;
-              unawaited(_startHold(fromDoctor, epoch));
-            },
-            onPointerUp: (event) {
-              if (_holdPointer != event.pointer) return;
-              _holdPointer = null;
-              if (_pressToStop) {
-                _pressToStop = false;
-                unawaited(_stopHold(fromDoctor));
-                return;
-              }
-              final down = _pointerDownAt;
-              final held = down == null
-                  ? Duration.zero
-                  : DateTime.now().difference(down);
-              // Finger-up after a real hold stops. A tap leaves Apple Speech
-              // running until the next tap (the permission sheet also cancels
-              // the pointer and must not abort listen).
-              if (held >= const Duration(milliseconds: 450)) {
-                unawaited(_stopHold(fromDoctor));
-              }
-            },
-            onPointerCancel: (event) {
-              if (_holdPointer != event.pointer) return;
-              _holdPointer = null;
-              _pressToStop = false;
-            },
-            child: AnimatedContainer(
-              duration: AppMotion.fast,
-              height: 52,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: listening
-                    ? AppColors.danger
-                    : (canHold ? AppColors.navy : AppColors.inset),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    listening ? Icons.mic_rounded : Icons.mic_none_rounded,
-                    color: canHold || listening
-                        ? Colors.white
-                        : AppColors.muted,
-                  ),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      holdLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppFonts.style(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15,
-                        color: canHold || listening
-                            ? Colors.white
-                            : AppColors.muted,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
+}
+
+enum _PackChoice { download, online, cancel }
+
+class _TurnAborted implements Exception {
+  const _TurnAborted(this.message);
+  final String? message;
 }
 
 class _LanguageBar extends StatelessWidget {
@@ -1335,8 +1579,8 @@ class _LanguagePickerDialogState extends State<_LanguagePickerDialog> {
     final rest = <InterpreterLanguage>[];
     for (final lang in widget.languages) {
       if (q.isNotEmpty) {
-        final hay =
-            '${lang.name} ${lang.nativeName} ${lang.code}'.toLowerCase();
+        final hay = '${lang.name} ${lang.nativeName} ${lang.code}'
+            .toLowerCase();
         if (!hay.contains(q)) continue;
       }
       if (lang.clinic) {

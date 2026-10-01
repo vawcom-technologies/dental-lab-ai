@@ -632,7 +632,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     await _loadSmilePreviews();
   }
 
-  Future<void> _loadSmilePreviews() async {
+  Future<void> _loadSmilePreviews({bool forceRefresh = false}) async {
     final patient = _patient;
     if (patient == null) {
       if (mounted) setState(() => _smileItems = []);
@@ -641,7 +641,10 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     final pid = _pid(patient);
     if (pid.isEmpty) return;
     try {
-      final rows = await widget.api.listSmilePreviews(pid);
+      final rows = await widget.api.listSmilePreviews(
+        pid,
+        forceRefresh: forceRefresh,
+      );
       if (!mounted) return;
       setState(() => _smileItems = rows);
     } catch (e) {
@@ -657,7 +660,8 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     final id = widget.patientSession.takePendingSmilePreviewId();
     if (id == null || id.isEmpty || _patient == null) return;
 
-    await _loadSmilePreviews();
+    // Fresh list: the camera copy doesn't evict this patient's cached GET.
+    await _loadSmilePreviews(forceRefresh: true);
     if (!mounted) return;
 
     Map<String, dynamic>? item;

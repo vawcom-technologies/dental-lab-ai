@@ -240,6 +240,51 @@ String toothDisplayLabel(Map tooth) {
   return 'Tooth ${idx + 1}';
 }
 
+/// FDI from a (possibly user-moved) [midline] `[[x, top], [x, bottom]]`:
+/// image-left of it is the patient's right (Q1 / Q4), numbered outward.
+/// Re-sorts [teeth] in FDI order and rewrites `tooth_index` to match.
+void renumberTeethFromMidline(
+  List<Map<String, dynamic>> teeth,
+  List<List<double>> midline,
+) {
+  final a = midline.first;
+  final b = midline.last;
+  double midXAt(double y) {
+    final dy = b[1] - a[1];
+    if (dy.abs() < 1e-6) return a[0];
+    return a[0] + (b[0] - a[0]) * ((y - a[1]) / dy).clamp(0.0, 1.0);
+  }
+
+  for (final lower in [false, true]) {
+    final right = <(Map<String, dynamic>, double)>[];
+    final left = <(Map<String, dynamic>, double)>[];
+    for (final t in teeth) {
+      if ((t['arch'] == 'lower') != lower) continue;
+      final box = (t['geometry'] as Map?)?['bbox'];
+      if (box is! Map) continue;
+      final cx = ((box['x'] as num) + (box['w'] as num) / 2).toDouble();
+      final cy = ((box['y'] as num) + (box['h'] as num) / 2).toDouble();
+      (cx < midXAt(cy) ? right : left).add((t, cx));
+    }
+    right.sort((p, q) => q.$2.compareTo(p.$2));
+    left.sort((p, q) => p.$2.compareTo(q.$2));
+    for (final (side, quadrant) in [
+      (right, lower ? 4 : 1),
+      (left, lower ? 3 : 2),
+    ]) {
+      for (var i = 0; i < side.length; i++) {
+        final t = side[i].$1;
+        t['fdi'] = quadrant * 10 + (i + 1).clamp(1, 8);
+        t['label'] = toothDisplayLabel(t);
+      }
+    }
+  }
+  teeth.sort((p, q) => fdiSortKey(p).compareTo(fdiSortKey(q)));
+  for (var i = 0; i < teeth.length; i++) {
+    teeth[i]['tooth_index'] = i;
+  }
+}
+
 /// Quadrant 1 → 2 → 4 → 3, front (x1) → back (x8) inside each quadrant.
 int fdiSortKey(Map tooth) {
   final fdi = toothFdi(tooth);

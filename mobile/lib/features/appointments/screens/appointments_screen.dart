@@ -551,9 +551,9 @@ class _PatientFilterButton extends StatelessWidget {
     final selected = this.selected;
     final label = selected == null
         ? loc.appointmentsAllPatients
-        : (_name(selected).isEmpty ? 'Patient' : _name(selected));
+        : (_name(selected).isEmpty ? loc.reportsPatientFallback : _name(selected));
     final subtitle = selected == null
-        ? '${patients.length} in clinic'
+        ? loc.appointmentsInClinic(patients.length)
         : loc.appointmentsFiltering;
 
     return MenuAnchor(
@@ -600,7 +600,7 @@ class _PatientFilterButton extends StatelessWidget {
             child: SizedBox(
               width: 180,
               child: Text(
-                name.isEmpty ? 'Patient' : name,
+                name.isEmpty ? loc.reportsPatientFallback : name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -880,10 +880,10 @@ class _AppointmentRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final style = AppointmentStatusStyle.of(appointment.status);
-    final statusLabel =
-        AppLocalizations.of(context).appointmentStatusLabel(appointment.status);
+    final loc = AppLocalizations.of(context);
+    final statusLabel = loc.appointmentStatusLabel(appointment.status);
     final name = appointment.patientName.isEmpty
-        ? 'Patient'
+        ? loc.reportsPatientFallback
         : appointment.patientName;
     final notes = appointment.description.trim();
 
@@ -1022,7 +1022,7 @@ class _AppointmentDetailPane extends StatelessWidget {
     final loc = AppLocalizations.of(context);
     final statusLabel = loc.appointmentStatusLabel(appointment.status);
     final name = appointment.patientName.isEmpty
-        ? 'Patient'
+        ? loc.reportsPatientFallback
         : appointment.patientName;
     final notes = appointment.description.trim();
     final mins = appointment.duration.inMinutes;
@@ -1283,7 +1283,9 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
   String _patientMenuLabel(Map<String, dynamic> row) {
     final name =
         '${row['first_name'] ?? ''} ${row['last_name'] ?? ''}'.trim();
-    return name.isEmpty ? 'Patient' : name;
+    return name.isEmpty
+        ? AppLocalizations.of(context).reportsPatientFallback
+        : name;
   }
 
   Future<void> _pickDate() async {
@@ -1511,7 +1513,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
     }
     final patientLabel = _isEdit
         ? (widget.existing!.patientName.isEmpty
-            ? 'Patient'
+            ? loc.reportsPatientFallback
             : widget.existing!.patientName)
         : (selectedPatient == null
             ? loc.appointmentsSelectPatient
@@ -1790,7 +1792,8 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                             child: Padding(
                               padding: const EdgeInsets.all(24),
                               child: Text(
-                                'No patients yet',
+                                AppLocalizations.of(context)
+                                    .appointmentsNoPatientsYet,
                                 style: AppFonts.style(
                                   color: AppColors.muted,
                                   fontSize: 15,

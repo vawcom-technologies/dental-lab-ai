@@ -366,6 +366,33 @@ void main() {
     expect(ok.triangles![4], closeTo(0.0, 1e-6));
   });
 
+  test('parseObjGeometry keeps full-res vertex RGB', () {
+    final obj = Uint8List.fromList(
+      'v 1 0 0 255 0 0\nv 0 1 0 0 255 0\nv 0 0 1 0 0 255\nf 1 2 3\n'
+          .codeUnits,
+    );
+    final g = parseObjGeometry(obj);
+    expect(g.error, isNull);
+    expect(g.vertexCount, 3);
+    expect(g.positions.length, 9);
+    expect(g.colors, isNotNull);
+    expect(g.colors![0], closeTo(1.0, 1e-6));
+    expect(g.colors![1], closeTo(0.0, 1e-6));
+    expect(g.colors![4], closeTo(1.0, 1e-6));
+    expect(g.indices, isNotNull);
+    expect(g.indices!.length, 3);
+  });
+
+  test('parseObjGeometry uncolored OBJ has no color attribute', () {
+    final obj = Uint8List.fromList(
+      'v 1 0 0\nv 0 1 0\nv 0 0 1\nf 1 2 3\n'.codeUnits,
+    );
+    final g = parseObjGeometry(obj);
+    expect(g.error, isNull);
+    expect(g.colors, isNull);
+    expect(g.indices!.length, 3);
+  });
+
   List<List<double>> torus({bool gap = false, bool narrowGap = false}) {
     final pts = <List<double>>[];
     for (var iu = 0; iu < 80; iu++) {

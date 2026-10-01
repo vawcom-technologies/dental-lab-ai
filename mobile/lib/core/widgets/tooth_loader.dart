@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -138,6 +139,81 @@ class _ToothLoadingIndicatorState extends State<ToothLoadingIndicator>
 
         return column;
       },
+    );
+  }
+}
+
+/// Cycles [messages] on a timer — used as a “speed buffer” during long AI waits.
+class RotatingLoadingText extends StatefulWidget {
+  const RotatingLoadingText({
+    super.key,
+    required this.messages,
+    this.interval = const Duration(milliseconds: 2400),
+    this.style,
+    this.textAlign = TextAlign.center,
+  });
+
+  final List<String> messages;
+  final Duration interval;
+  final TextStyle? style;
+  final TextAlign textAlign;
+
+  @override
+  State<RotatingLoadingText> createState() => _RotatingLoadingTextState();
+}
+
+class _RotatingLoadingTextState extends State<RotatingLoadingText> {
+  int _index = 0;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _arm();
+  }
+
+  @override
+  void didUpdateWidget(covariant RotatingLoadingText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.messages != widget.messages ||
+        oldWidget.interval != widget.interval) {
+      _index = 0;
+      _arm();
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _arm() {
+    _timer?.cancel();
+    if (widget.messages.length < 2) return;
+    _timer = Timer.periodic(widget.interval, (_) {
+      if (!mounted) return;
+      setState(() => _index = (_index + 1) % widget.messages.length);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final msgs = widget.messages;
+    if (msgs.isEmpty) return const SizedBox.shrink();
+    final text = msgs[_index.clamp(0, msgs.length - 1)];
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 280),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeIn,
+      child: Text(
+        text,
+        key: ValueKey<String>(text),
+        textAlign: widget.textAlign,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: widget.style,
+      ),
     );
   }
 }

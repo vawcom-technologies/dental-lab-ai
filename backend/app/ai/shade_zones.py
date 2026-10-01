@@ -23,7 +23,8 @@ _SHADOW_L_STAR = 38.0
 _INNER_CROP = 0.11
 _LAB_MAD_K = 2.5
 _MIN_AXIS_PIXELS = 12
-_PCA_ELONGATION_MIN = 1.15  # else fall back to minAreaRect
+_PCA_ELONGATION_MIN = 1.15  # rounder crowns have no reliable tilt → vertical
+_MAX_TILT_TAN = 0.70  # ~35° from vertical; steeper axes are blob artifacts
 
 
 @dataclass(frozen=True)
@@ -49,15 +50,13 @@ def tooth_long_axis(mask: np.ndarray) -> ToothAxis:
     direction = eigvecs[:, order].copy()
     elongation = float(eigvals[order] / max(float(eigvals[1 - order]), 1e-12))
 
-    if elongation < _PCA_ELONGATION_MIN:
-        direction = _min_area_rect_direction(mask, centroid)
-
-    # Prefer cervical→incisal (image vertical). Wide gum+tooth blobs otherwise
-    # pick a horizontal long axis and draw zone lines the wrong way.
-    if abs(float(direction[1])) > abs(float(direction[0])) * 1.1:
-        other = eigvecs[:, 1 - order]
-        if abs(float(other[0])) >= abs(float(direction[0])):
-            direction = other.copy()
+    # Frontal photos: crowns stand near-vertical. A round crown's PCA axis (or
+    # a steep one) is noise and split the 3 zones diagonally — use vertical.
+    if (
+        elongation < _PCA_ELONGATION_MIN
+        or abs(float(direction[1])) > abs(float(direction[0])) * _MAX_TILT_TAN
+    ):
+        direction = np.array([1.0, 0.0], dtype=np.float64)
 
     # ASSUMPTION: +row is toward incisal (image bottom).
     if direction[0] < 0:
@@ -70,32 +69,11 @@ def tooth_long_axis(mask: np.ndarray) -> ToothAxis:
     return ToothAxis(centroid_yx=centroid, direction_yx=direction)
 
 
-def _min_area_rect_direction(mask: np.ndarray, centroid: np.ndarray) -> np.ndarray:
-    """Fallback long-axis direction from cv2.minAreaRect."""
-    import cv2
-
-    u8 = (mask.astype(np.uint8)) * 255
-    contours, _ = cv2.findContours(u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
-        return np.array([1.0, 0.0], dtype=np.float64)
-    cnt = max(contours, key=cv2.contourArea)
-    if cv2.contourArea(cnt) < 4:
-        return np.array([1.0, 0.0], dtype=np.float64)
-    (_cx, _cy), (rw, rh), angle_deg = cv2.minAreaRect(cnt)
-    # OpenCV angle: long side orientation in image x/y; convert to (y, x) unit vector.
-    if rw < rh:
-        angle_deg += 90.0
-    theta = np.deg2rad(angle_deg)
-    # Image x increases right, y down. Direction along long side:
-    dx, dy = np.cos(theta), np.sin(theta)
-    direction = np.array([dy, dx], dtype=np.float64)
-    # Prefer the orientation closer to vertical tooth axis when ambiguous
-    _ = centroid  # API symmetry with PCA path
-    return direction
-
-
-def split_tooth_zones(mask: np.ndarray) -> dict[str, np.ndarray]:
+def split_tooth_zones(mask: np.ndarray, *, lower: bool = False) -> dict[str, np.ndarray]:
     """Split a tooth mask into 3 equal-length zones along its own long axis.
+
+    [lower] teeth have the gingiva below and the incisal edge on top, so the
+    cervical → incisal order runs up the image instead of down.
 
     Zones are disjoint and their union equals the input mask (no gaps/overlaps).
     """
@@ -105,6 +83,8 @@ def split_tooth_zones(mask: np.ndarray) -> dict[str, np.ndarray]:
     ys, xs = np.nonzero(mask)
     pts = np.column_stack([ys.astype(np.float64), xs.astype(np.float64)])
     proj = (pts - axis.centroid_yx) @ axis.direction_yx
+    if lower:
+        proj = -proj
     lo = float(proj.min())
     hi = float(proj.max())
     span = hi - lo

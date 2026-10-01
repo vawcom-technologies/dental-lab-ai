@@ -32,32 +32,45 @@ enum AppleNativeTranslate {
     switch call.method {
     case "speechWarm":
       Self.speechWarm(call: call, result: result)
-    case "translate":
+      return
+    case "translate", "status", "prepare":
       break
     default:
       result(FlutterMethodNotImplemented)
       return
     }
-    guard call.method == "translate" else { return }
     guard let args = call.arguments as? [String: Any],
-      let text = (args["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-      !text.isEmpty,
       let source = args["source"] as? String,
       let target = args["target"] as? String
     else {
+      result(FlutterError(code: "args", message: "Missing languages.", details: nil))
+      return
+    }
+    let text = (args["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if call.method == "translate" && text.isEmpty {
       result(FlutterError(code: "args", message: "Missing text to translate.", details: nil))
       return
     }
-    if #available(iOS 18.0, *) {
-      DispatchQueue.main.async {
-        Self.translateIfSupported(
-          text: text,
-          source: source,
-          target: target,
-          result: result
-        )
+    // Apple Translation ML models are not available in the Simulator.
+    #if targetEnvironment(simulator)
+      if call.method == "status" {
+        result("unsupported")
+        return
       }
-    } else {
+      result(
+        FlutterError(
+          code: "unsupported",
+          message: "Apple Translate is not available in the iOS Simulator.",
+          details: nil
+        )
+      )
+      return
+    #endif
+    guard #available(iOS 18.0, *) else {
+      if call.method == "status" {
+        result("unsupported")
+        return
+      }
       result(
         FlutterError(
           code: "unsupported",
@@ -65,7 +78,64 @@ enum AppleNativeTranslate {
           details: nil
         )
       )
+      return
     }
+    DispatchQueue.main.async {
+      switch call.method {
+      case "status":
+        Self.reportStatus(source: source, target: target, result: result)
+      case "prepare":
+        Self.prepare(source: source, target: target, result: result)
+      default:
+        Self.translateIfSupported(text: text, source: source, target: target, result: result)
+      }
+    }
+  }
+
+  /// "installed" | "supported" (pack not downloaded yet) | "unsupported".
+  @available(iOS 18.0, *)
+  private static func reportStatus(
+    source: String,
+    target: String,
+    result: @escaping FlutterResult
+  ) {
+    #if canImport(Translation)
+      Task { @MainActor in
+        let status = await LanguageAvailability().status(
+          from: Locale.Language(identifier: Self.bcp47(source)),
+          to: Locale.Language(identifier: Self.bcp47(target))
+        )
+        switch status {
+        case .installed: result("installed")
+        case .supported: result("supported")
+        default: result("unsupported")
+        }
+      }
+    #else
+      result("unsupported")
+    #endif
+  }
+
+  /// Shows Apple's own download sheet for the pair. Resolves "ok" once the
+  /// packs are installed; errors with code "declined" if the user backs out.
+  @available(iOS 18.0, *)
+  private static func prepare(
+    source: String,
+    target: String,
+    result: @escaping FlutterResult
+  ) {
+    #if canImport(Translation)
+      Self.present(
+        text: nil,
+        source: Locale.Language(identifier: Self.bcp47(source)),
+        target: Locale.Language(identifier: Self.bcp47(target)),
+        result: result
+      )
+    #else
+      result(
+        FlutterError(code: "unsupported", message: "No Translation framework.", details: nil)
+      )
+    #endif
   }
 
   /// Kick Apple Speech for a locale. Returns immediately; never gates listen.
@@ -96,7 +166,20 @@ enum AppleNativeTranslate {
         let src = Locale.Language(identifier: Self.bcp47(source))
         let dst = Locale.Language(identifier: Self.bcp47(target))
         let status = await LanguageAvailability().status(from: src, to: dst)
-        if status == .unsupported {
+        switch status {
+        case .installed:
+          Self.present(text: text, source: src, target: dst, result: result)
+        case .supported:
+          // Pack not downloaded: let Dart ask the user instead of iOS
+          // silently stalling on its own download sheet.
+          result(
+            FlutterError(
+              code: "notInstalled",
+              message: "Language pack is not downloaded.",
+              details: nil
+            )
+          )
+        default:
           result(
             FlutterError(
               code: "unsupported",
@@ -104,9 +187,7 @@ enum AppleNativeTranslate {
               details: nil
             )
           )
-          return
         }
-        Self.present(text: text, source: src, target: dst, result: result)
       }
     #else
       result(
@@ -121,7 +202,7 @@ enum AppleNativeTranslate {
 
   @available(iOS 18.0, *)
   private static func present(
-    text: String,
+    text: String?,
     source: Locale.Language,
     target: Locale.Language,
     result: @escaping FlutterResult
@@ -157,7 +238,7 @@ enum AppleNativeTranslate {
             case .failure(let error):
               finish(
                 FlutterError(
-                  code: "apple",
+                  code: text == nil ? "declined" : "apple",
                   message: error.localizedDescription,
                   details: nil
                 )
@@ -223,7 +304,7 @@ private final class TranslateHostBox {
 #if canImport(Translation)
   @available(iOS 18.0, *)
   struct AppleTranslateHost: View {
-    let text: String
+    let text: String?  // nil = only download the language packs
     let source: Locale.Language
     let target: Locale.Language
     let onFinish: (Result<String, Error>) -> Void
@@ -234,6 +315,11 @@ private final class TranslateHostBox {
         .accessibilityHidden(true)
         .translationTask(configuration) { session in
           do {
+            guard let text else {
+              try await session.prepareTranslation()
+              onFinish(.success("ok"))
+              return
+            }
             let response = try await session.translate(text)
             let translated = response.targetText.trimmingCharacters(
               in: .whitespacesAndNewlines

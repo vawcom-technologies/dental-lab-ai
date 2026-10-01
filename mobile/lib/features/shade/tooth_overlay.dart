@@ -22,6 +22,106 @@ Offset normToLocal(List point, Rect dest) {
   return Offset(dest.left + x * dest.width, dest.top + y * dest.height);
 }
 
+/// Backend `lines` → {"upper_incisal": [[x, y], ...], "lower_incisal": ...}.
+Map<String, List<List<double>>> parseGuideLines(Object? raw) {
+  if (raw is! Map) return const {};
+  final out = <String, List<List<double>>>{};
+  for (final e in raw.entries) {
+    final pts = e.value;
+    if (pts is! List) continue;
+    final line = [
+      for (final p in pts)
+        if (p is List && p.length >= 2)
+          [(p[0] as num).toDouble(), (p[1] as num).toDouble()],
+    ];
+    if (line.length >= 2) out['${e.key}'] = line;
+  }
+  return out;
+}
+
+/// Symmetry-view lip lines from the lip outline: [top] runs across the lips
+/// (4% past each corner) at the upper lip's highest point; [bottomY] is the
+/// lower lip's lowest point (drawn full width). Null when that lip is absent.
+({List<List<double>>? top, double? bottomY}) lipSymmetryLines(
+  Map<String, List<List<double>>> guides,
+) {
+  final upper = guides['upper_lip'] ?? const <List<double>>[];
+  final lower = guides['lower_lip'] ?? const <List<double>>[];
+  final lips = [...upper, ...lower];
+  if (lips.isEmpty) return (top: null, bottomY: null);
+  final xs = [for (final p in lips) p[0]];
+  final x0 = xs.reduce((a, b) => a < b ? a : b);
+  final x1 = xs.reduce((a, b) => a > b ? a : b);
+  final pad = 0.04 * (x1 - x0);
+  final topY = upper.isEmpty
+      ? null
+      : upper.map((p) => p[1]).reduce((a, b) => a < b ? a : b);
+  return (
+    top: topY == null
+        ? null
+        : [
+            [x0 - pad, topY],
+            [x1 + pad, topY],
+          ],
+    bottomY: lower.isEmpty
+        ? null
+        : lower.map((p) => p[1]).reduce((a, b) => a > b ? a : b),
+  );
+}
+
+/// Guides the user can drag in Adjust edges.
+const kEditableGuides = {'midline', 'upper_lip', 'lower_lip'};
+
+/// Guide point under [local] — (key, point index), or null.
+/// Index -1 = the midline's body (drag slides the whole line).
+({String key, int index})? hitTestGuideHandle({
+  required Offset local,
+  required Size box,
+  required Size imageSize,
+  required Map<String, List<List<double>>> guides,
+  double radius = 28,
+}) {
+  final dest = containRect(box, imageSize);
+  ({String key, int index})? best;
+  var bestDist = radius;
+  for (final e in guides.entries) {
+    if (!kEditableGuides.contains(e.key)) continue;
+    for (var i = 0; i < e.value.length; i++) {
+      final d = (normToLocal(e.value[i], dest) - local).distance;
+      if (d <= bestDist) {
+        bestDist = d;
+        best = (key: e.key, index: i);
+      }
+    }
+  }
+  final mid = guides['midline'];
+  if (best == null && mid != null && mid.length >= 2) {
+    final a = normToLocal(mid.first, dest);
+    final b = normToLocal(mid.last, dest);
+    if (_distToSegment(local, a, b) <= radius * 0.6) {
+      return (key: 'midline', index: -1);
+    }
+  }
+  return best;
+}
+
+/// Smooth open curve through [pts] (Catmull–Rom as cubic Béziers).
+Path smoothOpenPath(List<Offset> pts) {
+  final path = Path();
+  if (pts.isEmpty) return path;
+  path.moveTo(pts.first.dx, pts.first.dy);
+  for (var i = 0; i + 1 < pts.length; i++) {
+    final p0 = pts[i == 0 ? 0 : i - 1];
+    final p1 = pts[i];
+    final p2 = pts[i + 1];
+    final p3 = pts[i + 2 < pts.length ? i + 2 : i + 1];
+    final c1 = p1 + (p2 - p0) / 6;
+    final c2 = p2 - (p3 - p1) / 6;
+    path.cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, p2.dx, p2.dy);
+  }
+  return path;
+}
+
 List<double> localToNorm(Offset local, Rect dest) {
   if (dest.width <= 0 || dest.height <= 0) return [0, 0];
   final x = ((local.dx - dest.left) / dest.width).clamp(0.0, 1.0);
@@ -255,20 +355,46 @@ int? hitTestOutlineEdge({
   return best;
 }
 
-/// True when [local] is inside the curved outline (not on a handle).
-bool hitTestOutlineBody({
+/// Edit target under [local]: the nearest visible dot wins — a corner ('v')
+/// or an edge-curve dot ('e') — so dense outlines don't steal the grab.
+/// Inside the outline with no dot nearby drags the whole outline ('b').
+({String kind, int index})? hitTestOutlineEditTarget({
   required Offset local,
   required Size box,
   required Size imageSize,
   required List<List<double>> outline,
   List<double>? bulges,
+  double radius = 28,
 }) {
-  if (outline.length < 3) return false;
   final dest = containRect(box, imageSize);
-  return curvedPathFromNorm(outline, dest, bulges: bulges).contains(local);
+  final n = outline.length;
+  ({String kind, int index})? best;
+  var bestDist = radius;
+  for (var i = 0; i < n; i++) {
+    final a = normToLocal(outline[i], dest);
+    final b = normToLocal(outline[(i + 1) % n], dest);
+    final dv = (a - local).distance;
+    if (dv <= bestDist) {
+      bestDist = dv;
+      best = (kind: 'v', index: i);
+    }
+    // Edge dots are drawn smaller; a slight handicap lets corners win ties.
+    final mid = Offset((a.dx + b.dx) * 0.5, (a.dy + b.dy) * 0.5);
+    final de = (mid - local).distance * 1.15;
+    if (de < bestDist) {
+      bestDist = de;
+      best = (kind: 'e', index: i);
+    }
+  }
+  if (best != null) return best;
+  if (n >= 3 &&
+      curvedPathFromNorm(outline, dest, bulges: bulges).contains(local)) {
+    return (kind: 'b', index: 0);
+  }
+  return null;
 }
 
-/// Simplify a dense outline to ~8–12 control points for edge editing.
+/// Simplify a dense outline to ~6–8 control points for edge editing.
 ///
 /// Keep in sync with backend `EDIT_HANDLES_MAX` / `EDIT_HANDLES_MIN`.
 /// Douglas–Peucker style reduction, then midpoints on longest edges if too few.
@@ -383,7 +509,7 @@ List<List<double>>? toothEditHandles(Map<dynamic, dynamic> tooth) {
   }
   final raw = geo['outline'];
   if (raw is! List || raw.length < 3) return null;
-  final simplified = simplifyOutlineForEdit(raw, maxPoints: 12, minPoints: 8);
+  final simplified = simplifyOutlineForEdit(raw, maxPoints: 8, minPoints: 6);
   return simplified.length >= 3 ? simplified : null;
 }
 
@@ -605,7 +731,6 @@ class ToothOverlayPainter extends CustomPainter {
     required this.selectedToothIndex,
     required this.imageSize,
     required this.focusZone,
-    this.isolatedToothIndex,
     this.editMode = false,
     this.editOutline,
     this.editBulges,
@@ -613,12 +738,13 @@ class ToothOverlayPainter extends CustomPainter {
     this.activeEdgeIndex,
     this.transformationController,
     this.paintSelectedOnlyWhileDragging = false,
+    this.guideLines = const {},
+    this.symmetryView = false,
+    this.focusSelected = false,
   });
 
   final List<Map<String, dynamic>> teeth;
   final int? selectedToothIndex;
-  /// When set, non-focused teeth are drawn dimmer (still tappable).
-  final int? isolatedToothIndex;
   final Size imageSize;
   final String focusZone;
   final bool editMode;
@@ -629,6 +755,14 @@ class ToothOverlayPainter extends CustomPainter {
   final TransformationController? transformationController;
   /// Loupe: skip other teeth while a handle/edge is active (cheaper frames).
   final bool paintSelectedOnlyWhileDragging;
+  /// Guides from [parseGuideLines]: bite line(s) (`upper_incisal` +
+  /// `lower_incisal`, or one `occlusal`), `midline`, and user-placed
+  /// `upper_lip` / `lower_lip`.
+  final Map<String, List<List<double>>> guideLines;
+  /// Symmetry view: only the midline + the lip top / bottom lines.
+  final bool symmetryView;
+  /// Focus view: only the selected tooth's mapping, nothing else.
+  final bool focusSelected;
 
   /// Clinical overlay — matches aesthetic analysis plates (box / axis / ticks).
   static const _boxColor = Color(0xFFA48CC8);
@@ -636,6 +770,11 @@ class ToothOverlayPainter extends CustomPainter {
   static const _tickColor = Color(0xFF6DB56A);
   static const _contourColor = Color(0xFFE8F4F8);
   static const _midlineColor = Color(0xFFF0F0F0);
+  static const _upperIncisalColor = Color(0xFFFF8A65);
+  static const _lowerIncisalColor = Color(0xFF64B5F6);
+  /// Closed bite: one shared line where the arches meet.
+  static const _occlusalColor = Color(0xFF4DB6AC);
+  static const _lipColor = Color(0xFFF06292);
 
   /// Cached paths for teeth that don't move during a drag.
   Size? _staticCacheSize;
@@ -645,7 +784,6 @@ class ToothOverlayPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (teeth.isEmpty || imageSize.width <= 0) return;
     final dest = containRect(size, imageSize);
-    final isolateIdx = isolatedToothIndex;
     final dragging = editMode &&
         (activeHandleIndex != null || activeEdgeIndex != null);
 
@@ -655,22 +793,28 @@ class ToothOverlayPainter extends CustomPainter {
     }
 
     if (dragging) {
-      _ensureStaticCache(size, dest, isolateIdx);
+      _ensureStaticCache(size, dest);
       for (final c in _staticCache!) {
         if (c.selected) continue;
         _paintCachedTooth(canvas, c);
       }
+      _paintGuideLines(canvas, dest);
       _paintSelectedEdit(canvas, dest);
       return;
     }
 
     _staticCache = null;
     _staticCacheSize = null;
+    if (symmetryView && !editMode) {
+      _paintSymmetry(canvas, dest);
+      return;
+    }
+    final focusOnly = focusSelected && !editMode;
     for (final t in teeth) {
       final idx = (t['tooth_index'] as num?)?.toInt();
       if (idx == null) continue;
-      if (isolateIdx != null && idx != isolateIdx) continue;
       final selected = idx == selectedToothIndex;
+      if (focusOnly && !selected) continue;
       final rejected = t['rejected'] == true;
       final geo = t['geometry'];
       if (geo is! Map) continue;
@@ -735,23 +879,106 @@ class ToothOverlayPainter extends CustomPainter {
       }
     }
 
-    if (!editMode && isolateIdx == null) {
-      _paintArchMidline(canvas, dest);
-    }
+    if (!focusOnly) _paintGuideLines(canvas, dest);
 
     if (editMode && editOutline != null) {
       _paintEditHandles(canvas, dest);
     }
+    if (editMode) _paintGuideHandles(canvas, dest);
   }
 
-  void _ensureStaticCache(Size size, Rect dest, int? isolateIdx) {
+  void _paintGuideLines(Canvas canvas, Rect dest) {
+    for (final e in guideLines.entries) {
+      final color = switch (e.key) {
+        'lower_incisal' => _lowerIncisalColor,
+        'occlusal' => _occlusalColor,
+        'midline' => _midlineColor,
+        'upper_lip' || 'lower_lip' => _lipColor,
+        _ => _upperIncisalColor,
+      };
+      final pts = [for (final p in e.value) normToLocal(p, dest)];
+      final lip = e.key.endsWith('_lip');
+      canvas.drawPath(
+        lip ? smoothOpenPath(pts) : (Path()..addPolygon(pts, false)),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = e.key == 'midline' ? 1.2 : (lip ? 2.0 : 1.6)
+          ..strokeCap = StrokeCap.round
+          ..color = color.withValues(alpha: 0.9),
+      );
+    }
+  }
+
+  /// Midline, lip outline, and horizontal lines at the top of the upper lip
+  /// (arrowed, across the lips) and the bottom of the lower lip (full width).
+  void _paintSymmetry(Canvas canvas, Rect dest) {
+    for (final key in ['upper_lip', 'lower_lip']) {
+      final lip = guideLines[key];
+      if (lip == null || lip.length < 2) continue;
+      canvas.drawPath(
+        smoothOpenPath([for (final p in lip) normToLocal(p, dest)]),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0
+          ..strokeCap = StrokeCap.round
+          ..color = _lipColor.withValues(alpha: 0.9),
+      );
+    }
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4
+      ..strokeCap = StrokeCap.round
+      ..color = _midlineColor.withValues(alpha: 0.9);
+    final mid = guideLines['midline'];
+    if (mid != null && mid.length >= 2) {
+      canvas.drawLine(
+        normToLocal(mid.first, dest),
+        normToLocal(mid.last, dest),
+        paint,
+      );
+    }
+    final lines = lipSymmetryLines(guideLines);
+    final top = lines.top;
+    if (top != null) {
+      final a = normToLocal(top.first, dest);
+      final b = normToLocal(top.last, dest);
+      canvas.drawLine(a, b, paint);
+      const head = 7.0;
+      for (final (tip, dir) in [(a, 1.0), (b, -1.0)]) {
+        canvas.drawLine(tip, tip + Offset(dir * head, -head * 0.6), paint);
+        canvas.drawLine(tip, tip + Offset(dir * head, head * 0.6), paint);
+      }
+    }
+    final bottom = lines.bottomY;
+    if (bottom != null) {
+      final y = normToLocal([0, bottom], dest).dy;
+      canvas.drawLine(Offset(dest.left, y), Offset(dest.right, y), paint);
+    }
+  }
+
+  /// Adjust edges: drag dots on the midline ends and lip points.
+  void _paintGuideHandles(Canvas canvas, Rect dest) {
+    final scale =
+        transformationController?.value.getMaxScaleOnAxis().clamp(1.0, 4.0) ??
+            1.0;
+    for (final e in guideLines.entries) {
+      if (!kEditableGuides.contains(e.key)) continue;
+      final color = e.key == 'midline' ? _midlineColor : _lipColor;
+      for (final p in e.value) {
+        final o = normToLocal(p, dest);
+        canvas.drawCircle(o, 6.5 / scale, Paint()..color = Colors.black38);
+        canvas.drawCircle(o, 5 / scale, Paint()..color = color);
+      }
+    }
+  }
+
+  void _ensureStaticCache(Size size, Rect dest) {
     if (_staticCache != null && _staticCacheSize == size) return;
     _staticCacheSize = size;
     final out = <_CachedToothStroke>[];
     for (final t in teeth) {
       final idx = (t['tooth_index'] as num?)?.toInt();
       if (idx == null) continue;
-      if (isolateIdx != null && idx != isolateIdx) continue;
       final selected = idx == selectedToothIndex;
       if (selected) continue;
       final rejected = t['rejected'] == true;
@@ -936,42 +1163,6 @@ class ToothOverlayPainter extends CustomPainter {
     return (normToLocal(a, dest), normToLocal(b, dest));
   }
 
-  void _paintArchMidline(Canvas canvas, Rect dest) {
-    final centers = <({double x, double top, double bottom})>[];
-    for (final t in teeth) {
-      if (t['rejected'] == true) continue;
-      final geo = t['geometry'];
-      if (geo is! Map) continue;
-      final box = _bboxRect(geo['bbox'], dest);
-      if (box == null) continue;
-      centers.add((
-        x: box.center.dx,
-        top: box.top,
-        bottom: box.bottom,
-      ));
-    }
-    if (centers.length < 2) return;
-    centers.sort((a, b) => a.x.compareTo(b.x));
-    var i = 0;
-    final midX = dest.left + dest.width * 0.5;
-    while (i + 1 < centers.length && centers[i + 1].x < midX) {
-      i++;
-    }
-    if (i + 1 >= centers.length) i = centers.length - 2;
-    final a = centers[i];
-    final b = centers[i + 1];
-    final x = (a.x + b.x) * 0.5;
-    final top = (a.top < b.top ? a.top : b.top) - 6;
-    final bot = (a.bottom > b.bottom ? a.bottom : b.bottom) + 8;
-    canvas.drawLine(
-      Offset(x, top),
-      Offset(x, bot),
-      Paint()
-        ..color = _midlineColor.withValues(alpha: 0.85)
-        ..strokeWidth = 1.05,
-    );
-  }
-
   void _paintSelectedEdit(Canvas canvas, Rect dest) {
     if (editOutline == null || editOutline!.length < 3) return;
     final path =
@@ -1072,9 +1263,11 @@ class ToothOverlayPainter extends CustomPainter {
   bool shouldRepaint(covariant ToothOverlayPainter oldDelegate) {
     if (editMode || oldDelegate.editMode) return true;
     return oldDelegate.selectedToothIndex != selectedToothIndex ||
-        oldDelegate.isolatedToothIndex != isolatedToothIndex ||
         oldDelegate.focusZone != focusZone ||
         oldDelegate.teeth != teeth ||
+        oldDelegate.guideLines != guideLines ||
+        oldDelegate.symmetryView != symmetryView ||
+        oldDelegate.focusSelected != focusSelected ||
         oldDelegate.imageSize != imageSize;
   }
 }

@@ -273,6 +273,10 @@ class ShadeAnalyzeOut(BaseModel):
     segment_tooth_count: int | None = None
     segment_accepted_count: int | None = None
     gum: dict | None = None
+    # Normalized incisal curves: {"upper_incisal": [[x, y], ...], "lower_incisal": ...}
+    lines: dict | None = None
+    # Starting points for the user-placed inner lip lines (Lips tool).
+    lip_suggestions: dict | None = None
 
 
 class ScanValidateOut(BaseModel):

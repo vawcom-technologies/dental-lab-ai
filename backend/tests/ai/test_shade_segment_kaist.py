@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import threading
-import time
 from unittest.mock import patch
 
 import numpy as np
@@ -28,35 +26,7 @@ class TestKaistNumpyShims:
 
 
 class TestKaistHelpers:
-    def test_snap_does_not_grow_along_enamel_band(self):
-        from app.ai.shade_segment_kaist import _snap_mask_to_enamel
 
-        enamel = np.zeros((40, 80), dtype=bool)
-        enamel[10:30, 5:75] = True
-        mask = np.zeros((40, 80), dtype=bool)
-        mask[12:28, 40:55] = True
-        out = _snap_mask_to_enamel(mask, enamel)
-        assert int(out[:, :35].sum()) == 0
-        assert int(out[12:28, 40:55].sum()) > 50
-
-    def test_select_masks_keeps_both_arches_on_one_crop(self):
-        """Single smile crop used to keep top-8 (6 lower + 2 upper centrals)."""
-        from app.ai.shade_segment_kaist import _select_kaist_crop_masks
-
-        h, w = 160, 400
-        labels = np.zeros((h, w), dtype=np.int32)
-        lid = 1
-        for x0 in (20, 70, 120, 180, 230, 280):
-            labels[20:70, x0 : x0 + 40] = lid
-            lid += 1
-        for x0 in (20, 70, 120, 180, 230, 280):
-            labels[95:145, x0 : x0 + 40] = lid
-            lid += 1
-        masks = _select_kaist_crop_masks(labels)
-        assert len(masks) >= 10
-        cys = [float(np.nonzero(m)[0].mean()) for m in masks]
-        assert sum(cy < 80 for cy in cys) >= 4
-        assert sum(cy >= 80 for cy in cys) >= 4
 
     def test_labels_to_masks_pastes_into_full_image(self):
         labels = np.zeros((40, 60), dtype=np.int32)
@@ -87,45 +57,6 @@ class TestKaistHelpers:
         assert 0.85 < area_ratio < 1.15
         assert not np.array_equal(out > 0, nearest > 0)
 
-    def test_display_outline_keeps_crown_before_enamel_snap(self):
-        labels = np.zeros((40, 60), dtype=np.int32)
-        labels[8:32, 10:28] = 1
-        crop = np.zeros((40, 60, 3), dtype=np.uint8)
-        box = (0, 40, 0, 60)
-
-        def shrink(mask, enamel):
-            out = mask.copy()
-            out[:14, :] = False
-            return out
-
-        with (
-            patch(
-                "app.ai.shade_segment_kaist._snap_mask_to_enamel",
-                side_effect=shrink,
-            ),
-            patch(
-                "app.ai.shade_segment_kaist._kaist_crown_keep_mask",
-                return_value=np.ones((40, 60), dtype=bool),
-            ),
-        ):
-            teeth = _labels_to_tooth_masks(
-                labels, full_h=40, full_w=60, box=box, crop_rgb=crop
-            )
-        assert len(teeth) == 1
-        assert teeth[0].display_outline is not None
-        assert len(teeth[0].display_outline) >= 96
-        assert min(p[1] for p in teeth[0].display_outline) < 0.25
-        assert not teeth[0].mask[:14, 10:28].any()
-
-    def test_labels_to_masks_keeps_arch_tag(self):
-        labels = np.zeros((20, 30), dtype=np.int32)
-        labels[2:18, 5:25] = 1
-        box = (40, 60, 10, 40)
-        teeth = _labels_to_tooth_masks(
-            labels, full_h=100, full_w=80, box=box, arch="lower"
-        )
-        assert len(teeth) == 1
-        assert teeth[0].arch == "lower"
 
     def test_paste_scales_small_mask_to_crop_box(self):
         """Regression: downscaled labels must fill the full mouth crop box."""
@@ -139,117 +70,24 @@ class TestKaistHelpers:
         assert int(full[100:180, 200:320].sum()) > 500
         assert full[100:180, 200:320].mean() > 0.3
 
+    def test_resize_for_work_clamps_long_side(self):
+        from app.ai.shade_segment_kaist import _resize_for_work
+
+        big = _resize_for_work(np.zeros((535, 775, 3), np.uint8), 320, 256)
+        tiny = _resize_for_work(np.zeros((165, 138, 3), np.uint8), 320, 256)
+        mid = np.zeros((200, 300, 3), np.uint8)
+        assert max(big.shape[:2]) == 320
+        assert max(tiny.shape[:2]) == 256
+        assert _resize_for_work(mid, 320, 256) is mid
+        strip = _resize_for_work(np.zeros((600, 2400, 3), np.uint8), 320, 256)
+        assert strip.shape[0] == 112 and strip.shape[1] <= 800  # not 320×80
+
     def test_mouth_crop_fallback_on_blank(self):
         img = np.zeros((200, 300, 3), dtype=np.uint8)
         crop, box = mouth_crop_rgb(img)
         assert crop.shape == img.shape
         assert box == (0, 200, 0, 300)
 
-    def test_resize_for_work_downscales_large(self):
-        from app.ai.shade_segment_kaist import _resize_for_work
-
-        img = np.zeros((535, 775, 3), dtype=np.uint8)
-        work, scale = _resize_for_work(img, max_side=320, min_side=256)
-        assert max(work.shape[:2]) == 320
-        assert scale < 1.0
-
-    def test_resize_for_work_upscales_tiny_to_min_only(self):
-        from app.ai.shade_segment_kaist import _resize_for_work
-
-        img = np.zeros((165, 138, 3), dtype=np.uint8)
-        work, scale = _resize_for_work(img, max_side=320, min_side=256)
-        assert max(work.shape[:2]) == 256
-        assert scale > 1.0
-        assert max(work.shape[:2]) < 320
-
-    def test_resize_for_work_keeps_mid_size(self):
-        from app.ai.shade_segment_kaist import _resize_for_work
-
-        img = np.zeros((200, 280, 3), dtype=np.uint8)
-        work, scale = _resize_for_work(img, max_side=320, min_side=256)
-        assert work.shape[:2] == (200, 280)
-        assert scale == 1.0
-
-    def test_resize_for_work_keeps_clinic_smile_native(self):
-        """278×480 used to become 185×320; remap drifted the outlines."""
-        from app.ai.shade_segment_kaist import _resize_for_work
-
-        img = np.zeros((278, 480, 3), dtype=np.uint8)
-        work, scale = _resize_for_work(img, max_side=320, min_side=256)
-        assert work.shape[:2] == (278, 480)
-        assert scale == 1.0
-
-    def test_resize_wide_arch_keeps_crown_height(self):
-        """Production log: 124×480 maxillary strip → 83×320 (no upper teeth)."""
-        from app.ai.shade_segment_kaist import _resize_for_work
-
-        img = np.zeros((124, 480, 3), dtype=np.uint8)
-        work, _scale = _resize_for_work(img, max_side=320, min_side=256)
-        assert work.shape[0] >= 150
-        assert work.shape[0] > 83
-
-    def test_resize_wide_mouth_crop_keeps_crown_height(self):
-        """Clinic 19:59: 324×918 smile band must not become 113×320."""
-        from app.ai.shade_segment_kaist import _resize_for_work
-
-        img = np.zeros((324, 918, 3), dtype=np.uint8)
-        work, _scale = _resize_for_work(img, max_side=320, min_side=256)
-        assert work.shape[0] >= 240
-        assert work.shape[0] > 113
-        assert max(work.shape[:2]) <= 800
-
-    def test_dual_arch_boxes_run_on_two_threads(self):
-        from app.ai.shade_segment import ToothMask
-        from app.ai.shade_segment_kaist import (
-            KaistSegmentStatus,
-            detect_teeth_kaist,
-        )
-        from app.ai import shade_segment_kaist as mod
-
-        barrier = threading.Barrier(2)
-        seen: list[int] = []
-
-        def fake_box(*_a, **kwargs):
-            seen.append(kwargs["box_i"])
-            barrier.wait(timeout=2)
-            mask = np.zeros((200, 120), dtype=bool)
-            mask[10:40, 20:50] = True
-            return [
-                ToothMask(
-                    tooth_index=0,
-                    mask=mask,
-                    confidence=0.9,
-                    rejected=False,
-                )
-            ]
-
-        status = KaistSegmentStatus(
-            available=True,
-            vendor_root=".",
-            weights="x",
-            device="cpu",
-            resize=False,
-            max_side=320,
-            min_side=256,
-            snake_iters=10,
-            bring_back_iters=60,
-            evolve_iters=30,
-        )
-        img = np.zeros((200, 120, 3), dtype=np.uint8)
-        with (
-            patch.object(mod, "kaist_segment_status", return_value=status),
-            patch.object(
-                mod,
-                "kaist_focus_boxes",
-                return_value=[(0, 90, 0, 120), (90, 180, 0, 120)],
-            ),
-            patch.object(mod, "_segment_kaist_box", side_effect=fake_box),
-        ):
-            t0 = time.perf_counter()
-            detect_teeth_kaist(img)
-            elapsed = time.perf_counter() - t0
-        assert sorted(seen) == [0, 1]
-        assert elapsed < 1.5
 
     def test_max_side_zero_clamps_to_default(self, monkeypatch):
         from app.ai import shade_segment_kaist as mod
@@ -257,259 +95,6 @@ class TestKaistHelpers:
 
         monkeypatch.setattr(settings, "shade_segment_kaist_max_side", 0)
         assert mod._max_side() == 256
-
-    def test_tooth_band_ignores_specular_flash(self):
-        from app.ai.shade_segment_kaist import _tooth_band_mask
-
-        img = np.zeros((80, 120, 3), dtype=np.uint8)
-        img[:] = (40, 28, 26)
-        img[25:55, 20:100] = (200, 185, 145)
-        img[30:40, 50:70] = (255, 255, 255)
-        band = _tooth_band_mask(img)
-        assert int(band[25:55, 20:100].sum()) > 400
-        assert int(band[30:40, 50:70].sum()) < int(band[25:55, 20:100].sum()) * 0.5
-
-    def test_tooth_band_keeps_flash_lit_upper_enamel(self):
-        """Maxillary crowns at L>232 must stay in the band (clinic intraoral)."""
-        from app.ai.shade_segment import _lab_channels
-        from app.ai.shade_segment_kaist import _tooth_band_mask
-
-        img = np.zeros((80, 120, 3), dtype=np.uint8)
-        img[:] = (40, 28, 26)
-        img[20:60, 15:105] = (248, 236, 214)
-        L, _a, _b = _lab_channels(img)
-        assert float(L[40, 60]) > 232
-        band = _tooth_band_mask(img)
-        assert int(band[20:60, 15:105].sum()) > 800
-
-    def test_focus_boxes_split_dual_arch(self):
-        from app.ai.shade_segment_kaist import kaist_focus_boxes
-
-        img = np.zeros((200, 240, 3), dtype=np.uint8)
-        img[:] = (40, 28, 26)
-        img[30:80, 30:210] = (205, 188, 150)
-        img[120:170, 30:210] = (205, 188, 150)
-        boxes = kaist_focus_boxes(img)
-        assert len(boxes) == 2
-        assert boxes[0][1] <= boxes[1][0] + 8
-
-    def test_focus_boxes_thin_gap_does_not_swallow_other_arch(self):
-        """Clinic open-mouth: ~4–8 px dark strip. Symmetric pad used to
-        include the lower smile in the 'upper' crop."""
-        from app.ai.shade_segment_kaist import kaist_focus_boxes
-
-        img = np.zeros((300, 400, 3), dtype=np.uint8)
-        img[:] = (40, 28, 26)
-        img[70:188, 20:380] = (205, 188, 150)
-        img[188:208, 20:380] = (28, 18, 20)
-        img[208:255, 20:380] = (205, 188, 150)
-        boxes = kaist_focus_boxes(img)
-        assert len(boxes) == 2
-        top, bot = boxes
-        assert top[1] <= 210
-        assert bot[0] >= 190
-        assert top[1] <= bot[0] + 10
-        # Upper crop must cover the maxillary row, not only a sliver.
-        assert top[0] <= 80
-        assert top[1] >= 180
-
-    def test_focus_boxes_split_flash_lit_upper_arch(self):
-        """Washed-out maxillary + darker mandibular must still be two crops."""
-        from app.ai.shade_segment import _lab_channels
-        from app.ai.shade_segment_kaist import kaist_focus_boxes
-
-        img = np.zeros((300, 400, 3), dtype=np.uint8)
-        img[:] = (40, 28, 26)
-        img[20:60, 20:380] = (180, 110, 120)
-        img[60:125, 20:380] = (248, 236, 214)
-        img[125:175, 20:380] = (28, 18, 20)
-        img[175:230, 20:380] = (200, 175, 130)
-        img[230:270, 20:380] = (180, 110, 120)
-        L, _a, _b = _lab_channels(img)
-        assert float(L[90, 200]) > 232
-        boxes = kaist_focus_boxes(img)
-        assert len(boxes) == 2
-        top, bot = boxes
-        assert top[1] <= 185
-        assert bot[0] >= 155
-        assert top[0] <= 70
-        assert top[1] >= 115
-
-    def test_focus_boxes_keep_dark_laterals_on_mouth_band(self):
-        """Clinic 328×764: enamel ROI missed 22/23 and cropped them out."""
-        from app.ai.shade_segment_kaist import kaist_focus_boxes
-
-        h, w = 328, 764
-        img = np.zeros((h, w, 3), dtype=np.uint8)
-        img[:] = (40, 28, 26)
-        gum = (180, 110, 120)
-        bright = (230, 210, 175)
-        dim = (175, 155, 120)
-        img[16:48, :] = gum
-        img[h - 36 : h - 8, :] = gum
-        img[55:140, 240:360] = bright
-        img[55:140, 370:490] = bright
-        img[70:135, 40:120] = dim
-        img[70:135, 640:730] = dim
-        img[148:182, :] = (28, 18, 20)
-        img[190:270, 240:360] = bright
-        img[190:270, 370:490] = bright
-        img[200:265, 40:120] = dim
-        img[200:265, 640:730] = dim
-        boxes = kaist_focus_boxes(img)
-        assert len(boxes) == 2
-        for _y0, _y1, x0, x1 in boxes:
-            assert x0 == 0
-            assert x1 == w
-
-    def test_landscape_extraoral_smile_is_one_mouth_crop(self):
-        """Landscape face photos used to dual-split and paint cheeks/background."""
-        from app.ai.shade import VITA_SHADES
-        from app.ai.shade_segment_kaist import kaist_focus_boxes
-
-        h, w = 360, 640
-        img = np.zeros((h, w, 3), dtype=np.uint8)
-        img[:] = (40, 28, 26)
-        enamel = np.array(VITA_SHADES["A2"], dtype=np.uint8)
-        gum = (180, 110, 120)
-        img[40:90, 80:560] = gum
-        img[150:195, 90:550] = enamel
-        img[198:230, 100:540] = enamel
-        img[250:310, 70:570] = gum
-        boxes = kaist_focus_boxes(img)
-        assert len(boxes) == 1
-        y0, y1, _x0, _x1 = boxes[0]
-        assert y0 <= 160
-        assert y1 >= 220
-        assert y1 - y0 < int(0.55 * h)
-
-    def test_portrait_extraoral_smile_is_one_mouth_crop(self):
-        """Face photos must not dual-split into mustache + beard (clinic 8:36)."""
-        from app.ai.shade import VITA_SHADES
-        from app.ai.shade_segment_kaist import kaist_focus_boxes
-
-        h, w = 480, 360
-        img = np.zeros((h, w, 3), dtype=np.uint8)
-        img[:] = (40, 28, 26)
-        enamel = np.array(VITA_SHADES["A2"], dtype=np.uint8)
-        gum = (180, 110, 120)
-        img[40:120, 80:280] = gum
-        img[200:255, 70:290] = enamel
-        img[258:305, 80:280] = enamel
-        img[320:400, 60:300] = gum
-        boxes = kaist_focus_boxes(img)
-        assert len(boxes) == 1
-        y0, y1, _x0, _x1 = boxes[0]
-        assert y0 <= 210
-        assert y1 >= 290
-
-    def test_portrait_open_mouth_splits_dual_arch(self):
-        """Portrait iPad open-mouth must dual-split (clinic 19:42 KAIST=0)."""
-        from app.ai.shade import VITA_SHADES
-        from app.ai.shade_segment_kaist import kaist_focus_boxes
-
-        # Matches failing upload aspect (~1075×864) with two tooth rows.
-        h, w = 540, 432
-        img = np.zeros((h, w, 3), dtype=np.uint8)
-        img[:] = (40, 28, 26)
-        enamel = np.array(VITA_SHADES["A2"], dtype=np.uint8)
-        gum = (180, 110, 120)
-        img[40:100, 40:390] = gum
-        img[160:250, 30:400] = enamel
-        img[250:290, 30:400] = (28, 18, 20)
-        img[290:380, 30:400] = enamel
-        img[400:480, 40:390] = gum
-        boxes = kaist_focus_boxes(img)
-        assert len(boxes) == 2
-        top, bot = boxes
-        assert top[1] <= bot[0] + 12
-        assert top[0] <= 180
-        assert top[1] >= 230
-        assert bot[0] <= 310
-        assert bot[1] >= 360
-
-    def test_portrait_crop_ignores_lip_below_smile(self):
-        from app.ai.shade import VITA_SHADES
-        from app.ai.shade_segment_kaist import kaist_focus_boxes
-
-        h, w = 500, 360
-        img = np.zeros((h, w, 3), dtype=np.uint8)
-        img[:] = (40, 28, 26)
-        enamel = np.array(VITA_SHADES["A2"], dtype=np.uint8)
-        img[180:250, 60:300] = enamel
-        img[380:450, 80:280] = enamel  # lip / beard highlight
-        boxes = kaist_focus_boxes(img)
-        assert len(boxes) == 1
-        _y0, y1, _x0, _x1 = boxes[0]
-        assert y1 < 360
-
-    def test_labels_drop_gingiva_keep_crowns(self):
-        from app.ai.shade import VITA_SHADES
-        from app.ai.shade_segment_kaist import _labels_to_tooth_masks
-
-        h, w = 80, 200
-        crop = np.zeros((h, w, 3), dtype=np.uint8)
-        crop[:] = (180, 110, 120)
-        enamel = np.array(VITA_SHADES["A2"], dtype=np.uint8)
-        labels = np.zeros((h, w), dtype=np.int32)
-        for i, x0 in enumerate((20, 70, 120), start=1):
-            crop[25:70, x0 : x0 + 40] = enamel
-            labels[25:70, x0 : x0 + 40] = i
-        labels[2:18, 30:170] = 9
-        teeth = _labels_to_tooth_masks(
-            labels, full_h=h, full_w=w, box=(0, h, 0, w), crop_rgb=crop
-        )
-        accepted = [t for t in teeth if not t.rejected]
-        assert len(accepted) == 3
-        assert all(float(np.nonzero(t.mask)[0].mean()) > 20 for t in accepted)
-
-    def test_merge_vertical_halves_of_one_crown(self):
-        from app.ai.shade_segment import _merge_split_crown_slices
-
-        h, w = 80, 200
-        left = np.zeros((h, w), dtype=bool)
-        right = np.zeros((h, w), dtype=bool)
-        left[10:70, 80:102] = True
-        right[10:70, 102:124] = True
-        out = _merge_split_crown_slices([left, right])
-        assert len(out) == 1
-        assert int(out[0].sum()) == int(left.sum()) + int(right.sum())
-
-    def test_does_not_merge_two_full_adjacent_teeth(self):
-        from app.ai.shade_segment import _merge_split_crown_slices
-
-        h, w = 80, 240
-        a = np.zeros((h, w), dtype=bool)
-        b = np.zeros((h, w), dtype=bool)
-        a[15:65, 40:90] = True
-        b[15:65, 92:142] = True
-        out = _merge_split_crown_slices([a, b])
-        assert len(out) == 2
-
-    def test_merges_touching_central_fragments_among_full_teeth(self):
-        """Classical gap-fill often returns 11 as two touching slices."""
-        from app.ai.shade_segment import _merge_split_crown_slices
-
-        h, w = 160, 460
-        masks = []
-        # 13, 12, 11-left, 11-right, 21, 22 — same proportions as the clinic photo.
-        for x0, tw in ((20, 58), (90, 73), (175, 47), (222, 71), (310, 73), (395, 58)):
-            m = np.zeros((h, w), dtype=bool)
-            m[30:130, x0 : x0 + tw] = True
-            masks.append(m)
-        out = _merge_split_crown_slices(masks)
-        assert len(out) == 5
-        cxs = sorted(float(np.nonzero(m)[1].mean()) for m in out)
-        assert any(185 < cx < 250 for cx in cxs)
-
-    def test_prepare_work_compresses_flash(self):
-        from app.ai.shade_segment_kaist import prepare_kaist_work_rgb
-
-        img = np.zeros((40, 40, 3), dtype=np.uint8)
-        img[:] = (180, 160, 140)
-        img[10:20, 10:20] = (255, 255, 255)
-        out = prepare_kaist_work_rgb(img)
-        assert out[15, 15].max() < 250
 
 
 class TestKaistRouting:
@@ -604,261 +189,6 @@ class TestKaistRouting:
         assert meta.get("segment_fallback") is True
         mock_detect.assert_called_once()
 
-    def test_complete_missing_arch_fills_upper_from_classical(self):
-        """KAIST-only lower row on an open-mouth photo must get maxillary fill."""
-        from app.ai.shade import VITA_SHADES
-        from app.ai.shade_segment import _complete_missing_kaist_arch, _mask_centroid_y
-
-        h, w = 480, 640
-        img = np.zeros((h, w, 3), dtype=np.uint8)
-        img[:] = (25, 18, 16)
-        gum = np.array([180, 110, 120], dtype=np.uint8)
-        enamel = np.array(VITA_SHADES["A2"], dtype=np.uint8)
-        img[int(h * 0.18) : int(h * 0.28), int(w * 0.15) : int(w * 0.85)] = gum
-        for x0 in (170, 240, 310, 380):
-            img[int(h * 0.28) : int(h * 0.42), x0 : x0 + 55] = enamel
-        img[int(h * 0.72) : int(h * 0.82), int(w * 0.15) : int(w * 0.85)] = gum
-        for x0 in (175, 245, 315, 385):
-            img[int(h * 0.58) : int(h * 0.72), x0 : x0 + 55] = enamel
-
-        lower: list[ToothMask] = []
-        for i, x0 in enumerate((175, 245, 315, 385)):
-            mask = np.zeros((h, w), dtype=bool)
-            mask[int(h * 0.58) : int(h * 0.72), x0 : x0 + 55] = True
-            lower.append(
-                ToothMask(
-                    tooth_index=i,
-                    mask=mask,
-                    confidence=0.9,
-                    rejected=False,
-                    arch="lower",
-                )
-            )
-        out = _complete_missing_kaist_arch(img, lower, None)
-        assert len(out) > len(lower)
-        assert any((_mask_centroid_y(t) or 0) < 0.5 * h for t in out)
-
-    @patch("app.ai.shade_segment_kaist.kaist_available", return_value=True)
-    @patch("app.ai.shade_segment_kaist.detect_teeth_kaist")
-    def test_kaist_lower_only_open_mouth_gets_upper_fdi(
-        self, mock_detect, _mock_avail
-    ):
-        """Screenshot regression: mandibular KAIST boxes labeled 13/12/11/21."""
-        from app.ai.shade import VITA_SHADES
-
-        h, w = 480, 640
-        img = np.zeros((h, w, 3), dtype=np.uint8)
-        img[:] = (25, 18, 16)
-        gum = np.array([180, 110, 120], dtype=np.uint8)
-        enamel = np.array(VITA_SHADES["A2"], dtype=np.uint8)
-        img[int(h * 0.18) : int(h * 0.28), int(w * 0.15) : int(w * 0.85)] = gum
-        for x0 in (170, 240, 310, 380):
-            img[int(h * 0.28) : int(h * 0.42), x0 : x0 + 55] = enamel
-        img[int(h * 0.72) : int(h * 0.82), int(w * 0.15) : int(w * 0.85)] = gum
-        kaist_only = []
-        for i, x0 in enumerate((175, 245, 315, 385)):
-            img[int(h * 0.58) : int(h * 0.72), x0 : x0 + 55] = enamel
-            mask = np.zeros((h, w), dtype=bool)
-            mask[int(h * 0.58) : int(h * 0.72), x0 : x0 + 55] = True
-            kaist_only.append(
-                ToothMask(
-                    tooth_index=i,
-                    mask=mask,
-                    confidence=0.9,
-                    rejected=False,
-                    arch="lower",
-                )
-            )
-        mock_detect.return_value = kaist_only
-        teeth = [t for t in detect_teeth(img, backend="kaist") if not t.rejected]
-        fdis = {t.fdi for t in teeth}
-        assert {11, 21} & fdis
-        assert {41, 31} & fdis
-
-    def test_fill_short_arch_adds_missing_laterals(self):
-        """Clinic smile: 11/21 found, 12/22 still present in enamel."""
-        from app.ai.shade import VITA_SHADES
-        from app.ai.shade_segment import ToothMask, _fill_short_arch_from_enamel
-
-        h, w = 240, 480
-        img = np.zeros((h, w, 3), dtype=np.uint8)
-        img[:] = (40, 28, 26)
-        enamel = np.array(VITA_SHADES["A2"], dtype=np.uint8)
-        # 13 12 11 21 22 23
-        xs = (40, 100, 160, 230, 290, 350)
-        for x0 in xs:
-            img[40:100, x0 : x0 + 48] = enamel
-        known = []
-        for i, x0 in enumerate((160, 230)):
-            mask = np.zeros((h, w), dtype=bool)
-            mask[40:100, x0 : x0 + 48] = True
-            known.append(
-                ToothMask(
-                    tooth_index=i,
-                    mask=mask,
-                    confidence=0.9,
-                    rejected=False,
-                    arch="upper",
-                )
-            )
-        out = _fill_short_arch_from_enamel(img, known)
-        assert len(out) >= 4
-        cxs = sorted(float(np.nonzero(t.mask)[1].mean()) for t in out)
-        assert any(cx < 140 for cx in cxs)
-        assert any(cx > 280 for cx in cxs)
-
-    def test_add_uncovered_fills_missing_central_gap(self):
-        """Flash-lit 11 sits between a detected 12 and 21 — must be inserted."""
-        from app.ai.shade import VITA_SHADES
-        from app.ai.shade_segment import _add_uncovered_classical_teeth
-
-        h, w = 480, 640
-        img = np.zeros((h, w, 3), dtype=np.uint8)
-        img[:] = (25, 18, 16)
-        gum = np.array([180, 110, 120], dtype=np.uint8)
-        enamel = np.array(VITA_SHADES["A2"], dtype=np.uint8)
-        img[int(h * 0.18) : int(h * 0.28), int(w * 0.15) : int(w * 0.85)] = gum
-        upper_xs = (170, 240, 310, 380)
-        for x0 in upper_xs:
-            img[int(h * 0.28) : int(h * 0.42), x0 : x0 + 55] = enamel
-        img[int(h * 0.72) : int(h * 0.82), int(w * 0.15) : int(w * 0.85)] = gum
-        for x0 in (175, 245, 315, 385):
-            img[int(h * 0.58) : int(h * 0.72), x0 : x0 + 55] = enamel
-
-        kaist: list[ToothMask] = []
-        # Skip the upper-right central at x=240 (clinic screenshot).
-        for i, x0 in enumerate((170, 310, 380)):
-            mask = np.zeros((h, w), dtype=bool)
-            mask[int(h * 0.28) : int(h * 0.42), x0 : x0 + 55] = True
-            kaist.append(
-                ToothMask(
-                    tooth_index=i,
-                    mask=mask,
-                    confidence=0.9,
-                    rejected=False,
-                    arch="upper",
-                )
-            )
-        for i, x0 in enumerate((175, 245, 315, 385)):
-            mask = np.zeros((h, w), dtype=bool)
-            mask[int(h * 0.58) : int(h * 0.72), x0 : x0 + 55] = True
-            kaist.append(
-                ToothMask(
-                    tooth_index=10 + i,
-                    mask=mask,
-                    confidence=0.9,
-                    rejected=False,
-                    arch="lower",
-                )
-            )
-        out = _add_uncovered_classical_teeth(img, kaist, None)
-        assert len(out) > len(kaist)
-        gap_cx = 240 + 27.5
-        gap_teeth = [
-            t
-            for t in out
-            if abs(float(np.nonzero(t.mask)[1].mean()) - gap_cx) < 30
-            and float(np.nonzero(t.mask)[0].mean()) < 0.5 * h
-        ]
-        assert gap_teeth
-
-    @patch("app.ai.shade_segment_kaist.kaist_available", return_value=True)
-    @patch("app.ai.shade_segment_kaist.detect_teeth_kaist")
-    def test_kaist_missing_central_gets_11_not_neighbor(
-        self, mock_detect, _mock_avail
-    ):
-        from app.ai.shade import VITA_SHADES
-
-        h, w = 480, 640
-        img = np.zeros((h, w, 3), dtype=np.uint8)
-        img[:] = (25, 18, 16)
-        gum = np.array([180, 110, 120], dtype=np.uint8)
-        enamel = np.array(VITA_SHADES["A2"], dtype=np.uint8)
-        img[int(h * 0.18) : int(h * 0.28), int(w * 0.15) : int(w * 0.85)] = gum
-        for x0 in (170, 240, 310, 380):
-            img[int(h * 0.28) : int(h * 0.42), x0 : x0 + 55] = enamel
-        img[int(h * 0.72) : int(h * 0.82), int(w * 0.15) : int(w * 0.85)] = gum
-        for x0 in (175, 245, 315, 385):
-            img[int(h * 0.58) : int(h * 0.72), x0 : x0 + 55] = enamel
-
-        kaist: list[ToothMask] = []
-        for i, x0 in enumerate((170, 310, 380)):
-            mask = np.zeros((h, w), dtype=bool)
-            mask[int(h * 0.28) : int(h * 0.42), x0 : x0 + 55] = True
-            kaist.append(
-                ToothMask(
-                    tooth_index=i,
-                    mask=mask,
-                    confidence=0.9,
-                    rejected=False,
-                    arch="upper",
-                )
-            )
-        for i, x0 in enumerate((175, 245, 315, 385)):
-            mask = np.zeros((h, w), dtype=bool)
-            mask[int(h * 0.58) : int(h * 0.72), x0 : x0 + 55] = True
-            kaist.append(
-                ToothMask(
-                    tooth_index=10 + i,
-                    mask=mask,
-                    confidence=0.9,
-                    rejected=False,
-                    arch="lower",
-                )
-            )
-        mock_detect.return_value = kaist
-        teeth = [t for t in detect_teeth(img, backend="kaist") if not t.rejected]
-        t11 = next(t for t in teeth if t.fdi == 11)
-        t12 = next(t for t in teeth if t.fdi == 12)
-        assert abs(float(np.nonzero(t11.mask)[1].mean()) - 267.5) < 30
-        assert float(np.nonzero(t12.mask)[1].mean()) < float(
-            np.nonzero(t11.mask)[1].mean()
-        )
-
-    @patch("app.ai.shade_segment_kaist.kaist_available", return_value=True)
-    @patch("app.ai.shade_segment_kaist.detect_teeth_kaist")
-    def test_kaist_missing_arch_runs_classical_once(self, mock_detect, _mock_avail):
-        from app.ai.shade import VITA_SHADES
-        from app.ai import shade_segment as seg
-
-        h, w = 480, 640
-        img = np.zeros((h, w, 3), dtype=np.uint8)
-        img[:] = (25, 18, 16)
-        gum = np.array([180, 110, 120], dtype=np.uint8)
-        enamel = np.array(VITA_SHADES["A2"], dtype=np.uint8)
-        img[int(h * 0.18) : int(h * 0.28), int(w * 0.15) : int(w * 0.85)] = gum
-        for x0 in (170, 240, 310, 380):
-            img[int(h * 0.28) : int(h * 0.42), x0 : x0 + 55] = enamel
-        img[int(h * 0.72) : int(h * 0.82), int(w * 0.15) : int(w * 0.85)] = gum
-        kaist_only = []
-        for i, x0 in enumerate((175, 245, 315, 385)):
-            img[int(h * 0.58) : int(h * 0.72), x0 : x0 + 55] = enamel
-            mask = np.zeros((h, w), dtype=bool)
-            mask[int(h * 0.58) : int(h * 0.72), x0 : x0 + 55] = True
-            kaist_only.append(
-                ToothMask(
-                    tooth_index=i,
-                    mask=mask,
-                    confidence=0.9,
-                    rejected=False,
-                    arch="lower",
-                )
-            )
-        mock_detect.return_value = kaist_only
-        calls = {"n": 0}
-        real = seg._detect_teeth_classical
-
-        def counted(*args, **kwargs):
-            calls["n"] += 1
-            return real(*args, **kwargs)
-
-        with patch.object(seg, "_detect_teeth_classical", side_effect=counted):
-            teeth = [t for t in detect_teeth(img, backend="kaist") if not t.rejected]
-        assert calls["n"] == 1
-        fdis = {t.fdi for t in teeth}
-        assert {11, 21} & fdis
-        assert {41, 31} & fdis
-
 
 class TestKaistWarmup:
     def test_warmup_skips_when_unavailable(self):
@@ -881,3 +211,24 @@ class TestKaistWarmup:
             "app.ai.shade_segment_kaist.kaist_segment_status", return_value=fake
         ):
             assert warmup_kaist_weights().startswith("skipped")
+
+
+def test_split_merged_crowns_cuts_double_width_tooth_at_contact():
+    from app.ai.shade_segment import _split_merged_crowns
+
+    def tooth(x0, x1, y0=20, y1=80):
+        m = np.zeros((100, 400), dtype=bool)
+        m[y0:y1, x0:x1] = True
+        return ToothMask(tooth_index=0, mask=m, confidence=0.9, rejected=False)
+
+    merged = tooth(150, 250)
+    merged.mask[20:45, 196:204] = False  # interproximal notch at x≈200
+    row = [tooth(40, 90), tooth(95, 145), merged, tooth(255, 305)]
+    upper = tooth(150, 250, 0, 15)  # other arch: wide but no same-row peers
+    out = _split_merged_crowns(row + [upper])
+    assert len(out) == 6
+    pieces = [t for t in out if t.mask[50, 150:250].any() and t.mask[:, :150].sum() == 0
+              and t.mask[:, 251:].sum() == 0 and t.mask[:16].sum() == 0]
+    assert len(pieces) == 2
+    cut = min(np.nonzero(p.mask)[1].max() for p in pieces)
+    assert 194 <= cut <= 206

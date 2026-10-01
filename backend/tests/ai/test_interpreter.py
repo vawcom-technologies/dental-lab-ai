@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
+
+from app.ai import interpreter
 from app.ai.interpreter import (
     LANGUAGES,
-    detect_formality,
+    InterpreterError,
     language_or_raise,
     translate_text,
 )
@@ -29,31 +32,6 @@ def test_rtl_flags():
     assert "de" not in rtl
 
 
-def test_detect_formality_defaults_to_sie():
-    assert detect_formality("Bitte den Mund öffnen.", "de", "ar") == "formal"
-    assert detect_formality("Please open your mouth.", "en", "de") == "formal"
-    assert detect_formality("Please open your mouth.", "en", "ar") == "formal"
-
-
-def test_detect_formality_keeps_du_and_sie():
-    assert detect_formality("Kannst du den Mund öffnen?", "de", "en") == "informal"
-    assert detect_formality("Können Sie den Mund öffnen?", "de", "en") == "formal"
-
-
-def test_detect_formality_arabic_anta_vs_hadratuk():
-    assert detect_formality("من فضلك افتح فمك أنت", "ar", "de") == "informal"
-    assert detect_formality("من فضلك افتح فمك حضرتك", "ar", "en") == "formal"
-
-
-def test_output_misses_informal_arabic_when_formal_wanted():
-    from app.ai.interpreter import _output_misses_formality
-
-    assert _output_misses_formality("من فضلك افتح فمك أنت", "ar", "formal")
-    assert not _output_misses_formality("من فضلك افتح فمك حضرتك", "ar", "formal")
-    assert _output_misses_formality("Kannst du bitte den Mund öffnen?", "de", "formal")
-    assert not _output_misses_formality("Können Sie bitte den Mund öffnen?", "de", "formal")
-
-
 def test_same_language_is_identity():
     out = translate_text("Bitte den Mund öffnen.", source_lang="de", target_lang="de")
     assert out["translated"] == "Bitte den Mund öffnen."
@@ -68,19 +46,49 @@ def test_unknown_language_raises():
         assert "Unsupported" in str(exc)
 
 
-def test_live_gtx_german_to_arabic():
-    """Network smoke — skip if the public translator is unreachable."""
-    try:
-        out = translate_text(
-            "Bitte den Mund öffnen.",
-            source_lang="de",
-            target_lang="ar",
-        )
-    except Exception as exc:  # pragma: no cover
-        import pytest
+class _Resp:
+    status_code = 200
 
-        pytest.skip(f"translator unavailable: {exc}")
-    assert out["provider"] in {"deepl", "google", "openai", "gtx"}
-    assert out["translated"]
-    assert out["translated"] != "Bitte den Mund öffnen."
-    assert any("\u0600" <= ch <= "\u06FF" for ch in out["translated"])
+    def __init__(self, content):
+        self._content = content
+
+    def json(self):
+        return {"choices": [{"message": {"content": self._content}}]}
+
+
+def _fake_llm(monkeypatch, content='"Können Sie bitte den Mund öffnen?"'):
+    seen = {}
+
+    class _Client:
+        def post(self, url, headers=None, json=None):
+            seen["url"], seen["body"] = url, json
+            return _Resp(content)
+
+    monkeypatch.setattr(interpreter, "_client", _Client())
+    monkeypatch.setattr(interpreter.settings, "interpreter_llm_api_key", "k")
+    return seen
+
+
+def test_llm_turn_is_formal_by_default_and_unquoted(monkeypatch):
+    seen = _fake_llm(monkeypatch)
+    out = translate_text("Open wide please.", source_lang="en", target_lang="de")
+    assert out["provider"] == "llm"
+    assert out["formality"] == "formal"
+    assert out["translated"] == "Können Sie bitte den Mund öffnen?"
+    system = seen["body"]["messages"][0]["content"]
+    assert "formal" in system and "never mix registers" in system
+    assert seen["body"]["messages"][1]["content"] == "Open wide please."
+
+
+def test_explicit_informal_changes_the_prompt(monkeypatch):
+    seen = _fake_llm(monkeypatch)
+    translate_text("Hi", source_lang="en", target_lang="de", formality="informal")
+    assert "informal" in seen["body"]["messages"][0]["content"]
+
+
+def test_missing_key_is_a_clear_503(monkeypatch):
+    monkeypatch.setattr(interpreter.settings, "interpreter_llm_api_key", "")
+    monkeypatch.setattr(interpreter.settings, "openai_api_key", "")
+    with pytest.raises(InterpreterError) as err:
+        translate_text("Hi", source_lang="en", target_lang="de")
+    assert err.value.status_code == 503

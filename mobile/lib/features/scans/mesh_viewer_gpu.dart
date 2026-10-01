@@ -13,7 +13,12 @@ import 'mesh_viewer_chrome.dart';
 /// Native three_js host. Booted only after [LayoutBuilder] size is known.
 ///
 /// Dots = [three.Points] + [three.PointsMaterial].
-/// Solid = [three.Mesh] + opaque [three.MeshPhongMaterial] (indexed triangles).
+/// Native iPad GPU mesh viewer (three_js + ANGLE).
+///
+/// Solid = [three.Mesh]:
+/// - Vertex-colored PLY/OBJ → [three.MeshBasicMaterial] (accurate scanner RGB)
+/// - Uncolored STL/PLY/OBJ → [three.MeshPhongMaterial] (lit white/gray)
+/// Dots = [three.Points] + [three.PointsMaterial].
 /// Tab toggles only flip scene-graph membership — geometry is parsed once.
 class GpuMeshViewerHost extends StatefulWidget {
   const GpuMeshViewerHost({
@@ -283,19 +288,28 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
       return _weldFaceSoup(g);
     }
     if (lower.endsWith('.obj')) {
-      final group = await three.OBJLoader().fromBytes(bytes);
-      three.BufferGeometry? found;
-      group.traverse((child) {
-        if (child is three.Mesh) {
-          if (found == null && child.geometry != null) {
-            found = child.geometry;
-          }
-          child.material?.dispose();
-        }
-      });
-      if (found == null) throw Exception('OBJ has no mesh geometry');
-      final g = found!;
-      return g.getIndex() == null ? _weldFaceSoup(g) : g;
+      final parsed = parseObjGeometry(bytes);
+      if (parsed.error != null) throw Exception(parsed.error);
+      if (parsed.positions.isEmpty) {
+        throw Exception('OBJ has no vertices');
+      }
+      final g = three.BufferGeometry();
+      g.setAttribute(
+        three.Attribute.position,
+        three.Float32BufferAttribute(parsed.positions, 3),
+      );
+      if (parsed.colors != null && parsed.colors!.isNotEmpty) {
+        g.setAttribute(
+          three.Attribute.color,
+          three.Float32BufferAttribute(parsed.colors!, 3),
+        );
+      }
+      final idx = parsed.indices;
+      if (idx != null && idx.isNotEmpty) {
+        g.setIndex(idx);
+        g.computeVertexNormals();
+      }
+      return g;
     }
 
     // Indexed PLY: segregate position / color / face index, then smooth normals.
@@ -427,19 +441,35 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
     _hasVertexColors = hasColor;
 
     if (hasFaces) {
-      final mat = three.MeshPhongMaterial({
-        three.MaterialProperty.color: 0xffffff,
-        three.MaterialProperty.vertexColors: hasColor,
-        three.MaterialProperty.side: three.DoubleSide,
-        three.MaterialProperty.shininess: 12,
-        three.MaterialProperty.specular: 0x1a1a1a,
-        three.MaterialProperty.flatShading: false,
-        three.MaterialProperty.wireframe: false,
-        three.MaterialProperty.transparent: false,
-        three.MaterialProperty.opacity: 1.0,
-        three.MaterialProperty.depthTest: true,
-        three.MaterialProperty.depthWrite: true,
-      });
+      // Colored scans: unlit so scanner RGB is not washed by Phong lights.
+      // Uncolored STL/PLY: keep Phong for readable shape.
+      final three.Material mat;
+      if (hasColor) {
+        mat = three.MeshBasicMaterial({
+          three.MaterialProperty.color: 0xffffff,
+          three.MaterialProperty.vertexColors: true,
+          three.MaterialProperty.side: three.DoubleSide,
+          three.MaterialProperty.wireframe: false,
+          three.MaterialProperty.transparent: false,
+          three.MaterialProperty.opacity: 1.0,
+          three.MaterialProperty.depthTest: true,
+          three.MaterialProperty.depthWrite: true,
+        });
+      } else {
+        mat = three.MeshPhongMaterial({
+          three.MaterialProperty.color: 0xffffff,
+          three.MaterialProperty.vertexColors: false,
+          three.MaterialProperty.side: three.DoubleSide,
+          three.MaterialProperty.shininess: 12,
+          three.MaterialProperty.specular: 0x1a1a1a,
+          three.MaterialProperty.flatShading: false,
+          three.MaterialProperty.wireframe: false,
+          three.MaterialProperty.transparent: false,
+          three.MaterialProperty.opacity: 1.0,
+          three.MaterialProperty.depthTest: true,
+          three.MaterialProperty.depthWrite: true,
+        });
+      }
       _mesh = three.Mesh(geometry, mat);
     } else {
       _mesh = null;

@@ -109,7 +109,7 @@ class AppLocalizations {
   String get settingsAutoSyncSub => _t('settings.autoSyncSub');
   String get settingsSyncNow => _t('settings.syncNow');
   String get settingsSyncing => _t('settings.syncing');
-  
+
   String get settingsClearCache => _t('settings.clearCache');
   String get settingsClearing => _t('settings.clearing');
   String get settingsClearCacheTitle => _t('settings.clearCacheTitle');
@@ -133,11 +133,11 @@ class AppLocalizations {
   String get settingsAutoShadeSub => _t('settings.autoShadeSub');
   String get settingsAutoQuality => _t('settings.autoQuality');
   String get settingsAutoQualitySub => _t('settings.autoQualitySub');
-  
+
   String get settingsAutoScanBody => _t('settings.autoScanBody');
   String get settingsAutoScanBodySub => _t('settings.autoScanBodySub');
   String get settingsAboutTitle => _t('settings.aboutTitle');
-  
+
   String get settingsAboutSub => _t('settings.aboutSub');
   String get settingsVersion => _t('settings.version');
   String get settingsApi => _t('settings.api');
@@ -145,8 +145,7 @@ class AppLocalizations {
   String get settingsPrivacyNote => _t('settings.privacyNote');
   String get settingsOfflineError => _t('settings.offlineError');
   String get settingsQueueEmpty => _t('settings.queueEmpty');
-  String settingsSynced(int n) =>
-      _t('settings.synced').replaceAll('{n}', '$n');
+  String settingsSynced(int n) => _t('settings.synced').replaceAll('{n}', '$n');
   String settingsCleared(int n) =>
       _t('settings.cleared').replaceAll('{n}', '$n');
   String get settingsLoadError => _t('settings.loadError');
@@ -183,7 +182,8 @@ class AppLocalizations {
   String get lastLogin => _t('profile.lastLogin');
   String get profileSaved => _t('profile.saved');
   String get passwordUpdated => _t('profile.passwordUpdated');
-  String get changePasswordSuccessBody => _t('profile.changePasswordSuccessBody');
+  String get changePasswordSuccessBody =>
+      _t('profile.changePasswordSuccessBody');
   String get errNameEmailRequired => _t('profile.errNameEmail');
   String get errEnterPasswords => _t('profile.errEnterPasswords');
   String get errNewPasswordShort => _t('profile.errNewPasswordShort');
@@ -250,9 +250,9 @@ class AppLocalizations {
       _t('labs.deleteBody').replaceAll('{name}', name);
   String get labsSoftDelete => _t('labs.softDelete');
   String get labsHardDelete => _t('labs.hardDelete');
-  String labsCount(int shown, int total) => _t('labs.count')
-      .replaceAll('{shown}', '$shown')
-      .replaceAll('{total}', '$total');
+  String labsCount(int shown, int total) => _t(
+    'labs.count',
+  ).replaceAll('{shown}', '$shown').replaceAll('{total}', '$total');
   String get labsLoading => _t('labs.loading');
   String get labsOpeningChat => _t('labs.openingChat');
   String get labsVerifyBeforeMessage => _t('labs.verifyBeforeMessage');
@@ -449,6 +449,9 @@ class AppLocalizations {
   String get appointmentsFilterEmptyHint => _t('appointments.filterEmptyHint');
   String get appointmentsBookEmptyHint => _t('appointments.bookEmptyHint');
   String get appointmentsNoPatientsYet => _t('appointments.noPatientsYet');
+  String appointmentsInClinic(int n) => n == 1
+      ? _t('appointments.inClinicOne')
+      : _t('appointments.inClinic').replaceAll('{n}', '$n');
   String appointmentsMinutesShort(int n) =>
       _t('appointments.minutesShort').replaceAll('{n}', '$n');
 
@@ -494,6 +497,9 @@ class AppLocalizations {
   String get shadeReset => _t('shade.reset');
   String get shadeApply => _t('shade.apply');
   String get shadeAdjustEdges => _t('shade.adjustEdges');
+  String get shadeLips => _t('shade.lips');
+  String get shadeSymmetry => _t('shade.symmetry');
+  String get shadeFocusTooth => _t('shade.focusTooth');
   String get shadeDelete => _t('shade.delete');
   String get shadeAddTooth => _t('shade.addTooth');
   String get shadeUpload => _t('shade.upload');
@@ -514,10 +520,9 @@ class AppLocalizations {
   String get patientsHardDeleteOptionSub => _t('patients.hardDeleteOptionSub');
   String get patientsTypeDeleteConfirm => _t('patients.typeDeleteConfirm');
   String get patientsOpening => _t('patients.opening');
-  String patientsShownTotal(int shown, int total) => _t('patients.shownTotal')
-      .replaceAll('{shown}', '$shown')
-      .replaceAll('{total}', '$total');
-
+  String patientsShownTotal(int shown, int total) => _t(
+    'patients.shownTotal',
+  ).replaceAll('{shown}', '$shown').replaceAll('{total}', '$total');
 
   // ── Bulk pass (loaders / chrome leftovers) ───────────────────────────────
   String get commonRequest => _t('common.request');
@@ -548,7 +553,8 @@ class AppLocalizations {
   String get patientsLoadingAccess => _t('patients.loadingAccess');
   String get patientsLoadingNotes => _t('patients.loadingNotes');
   String get patientsLoadingStaff => _t('patients.loadingStaff');
-  String get patientsLoadingAccessRequests => _t('patients.loadingAccessRequests');
+  String get patientsLoadingAccessRequests =>
+      _t('patients.loadingAccessRequests');
   String get patientsEditNote => _t('patients.editNote');
   String get patientsDeleteNoteTitle => _t('patients.deleteNoteTitle');
   String get patientsDeleteNoteBody => _t('patients.deleteNoteBody');
@@ -574,9 +580,19 @@ class AppLocalizations {
   String get scansUploadingScan => _t('scans.uploadingScan');
   String get shadeLoading => _t('shade.loading');
   String get shadeDetecting => _t('shade.detecting');
+
+  /// Alternating tips shown while shade upload + AI suggest run.
+  List<String> get shadeWaitTips => [
+    _t('shade.waitTip1'),
+    _t('shade.waitTip2'),
+    _t('shade.waitTip3'),
+    _t('shade.waitTip4'),
+    _t('shade.waitTip5'),
+  ];
   String get shadeUploadDetect => _t('shade.uploadDetect');
   String get shadeRemoveSave => _t('shade.removeSave');
-  String shadeDeleteFromSession(String shade) => _t('shade.deleteFromSession').replaceAll('{shade}', shade);
+  String shadeDeleteFromSession(String shade) =>
+      _t('shade.deleteFromSession').replaceAll('{shade}', shade);
   String get shadeSimilarShades => _t('shade.similarShades');
   String get shadeBestOverall => _t('shade.bestOverall');
   String get shadeAcrossAllTeeth => _t('shade.acrossAllTeeth');
@@ -626,13 +642,15 @@ class AppLocalizations {
   String get scanBodyConfidence => _t('scanBody.confidence');
   String get scanBodyDiameterHint => _t('scanBody.diameterHint');
   String get cameraDeletePhotoTitle => _t('camera.deletePhotoTitle');
-  String cameraDeletePhotoBody(String angle, String name) =>
-      _t('camera.deletePhotoBody').replaceAll('{angle}', angle).replaceAll('{name}', name);
+  String cameraDeletePhotoBody(String angle, String name) => _t(
+    'camera.deletePhotoBody',
+  ).replaceAll('{angle}', angle).replaceAll('{name}', name);
   String get cameraRenamePhoto => _t('camera.renamePhoto');
   String get cameraChoosePatient => _t('camera.choosePatient');
   String get cameraChoosePatientBody => _t('camera.choosePatientBody');
   String get cameraNoPhotosYet => _t('camera.noPhotosYet');
-  String cameraNoAnglePhotos(String angle) => _t('camera.noAnglePhotos').replaceAll('{angle}', angle);
+  String cameraNoAnglePhotos(String angle) =>
+      _t('camera.noAnglePhotos').replaceAll('{angle}', angle);
   String get cameraTakePhoto => _t('camera.takePhoto');
   String get cameraGallery => _t('camera.gallery');
   String get cameraPreparing => _t('camera.preparing');
@@ -645,7 +663,8 @@ class AppLocalizations {
   String get cameraRetryCamera => _t('camera.retryCamera');
   String get cameraSwitchCamera => _t('camera.switchCamera');
   String get cameraResetOverlay => _t('camera.resetOverlay');
-  String get messagesLoadingConversations => _t('messages.loadingConversations');
+  String get messagesLoadingConversations =>
+      _t('messages.loadingConversations');
   String get messagesLoadingChat => _t('messages.loadingChat');
   String get messagesLoadingContacts => _t('messages.loadingContacts');
   String get messagesPhotoLibrary => _t('messages.photoLibrary');
@@ -688,20 +707,18 @@ class AppLocalizations {
   String dashUnreadMessages(int n) => n == 1
       ? _t('dash.unreadMessagesOne')
       : _t('dash.unreadMessages').replaceAll('{n}', '$n');
-  String dashPatientsAndCasesOnFile(int patients, int cases) =>
-      _t('dash.patientsAndCasesOnFile')
-          .replaceAll('{patients}', '$patients')
-          .replaceAll('{cases}', '$cases');
+  String dashPatientsAndCasesOnFile(int patients, int cases) => _t(
+    'dash.patientsAndCasesOnFile',
+  ).replaceAll('{patients}', '$patients').replaceAll('{cases}', '$cases');
   String dashAcrossCompleted(int n) =>
       _t('dash.acrossCompleted').replaceAll('{n}', '$n');
   String dashInProgressInReview(int inProgress, int inReview) =>
       _t('dash.inProgressInReview')
           .replaceAll('{inProgress}', '$inProgress')
           .replaceAll('{inReview}', '$inReview');
-  String dashActivityCompleted(String label, String patient) =>
-      _t('dash.activityCompleted')
-          .replaceAll('{label}', label)
-          .replaceAll('{patient}', patient);
+  String dashActivityCompleted(String label, String patient) => _t(
+    'dash.activityCompleted',
+  ).replaceAll('{label}', label).replaceAll('{patient}', patient);
   String dashActivityRejected(String patient) =>
       _t('dash.activityRejected').replaceAll('{patient}', patient);
   String dashActivityInReview(String patient) =>
@@ -717,8 +734,7 @@ class AppLocalizations {
   String commonHourAgo(int n) => n == 1
       ? _t('common.hourAgo')
       : _t('common.hoursAgo').replaceAll('{n}', '$n');
-  String commonDaysAgo(int n) =>
-      _t('common.daysAgo').replaceAll('{n}', '$n');
+  String commonDaysAgo(int n) => _t('common.daysAgo').replaceAll('{n}', '$n');
 
   // ── Patients share / access ──────────────────────────────────────────────
   String patientsShareTitle(String patient) =>
@@ -863,8 +879,9 @@ class AppLocalizations {
 
     Match? m;
 
-    m = RegExp(r"^Access approved for (.+)\. You can open this patient record\.$")
-        .firstMatch(msg);
+    m = RegExp(
+      r"^Access approved for (.+)\. You can open this patient record\.$",
+    ).firstMatch(msg);
     if (m != null) {
       return fill('notifications.msgAccessApproved', {'name': m[1]!});
     }
@@ -879,8 +896,9 @@ class AppLocalizations {
     if (m != null) {
       return fill('notifications.msgAccessDeclined', {'name': m[1]!});
     }
-    m = RegExp(r"^You declined (.+)'s request to access (.+)\.$")
-        .firstMatch(msg);
+    m = RegExp(
+      r"^You declined (.+)'s request to access (.+)\.$",
+    ).firstMatch(msg);
     if (m != null) {
       return fill('notifications.msgYouDeclinedAccess', {
         'who': m[1]!,
@@ -930,10 +948,7 @@ class AppLocalizations {
     }
     m = RegExp(r"^(.+) booked an appointment for (.+)\.$").firstMatch(msg);
     if (m != null) {
-      return fill('notifications.msgBookedAppt', {
-        'who': m[1]!,
-        'name': m[2]!,
-      });
+      return fill('notifications.msgBookedAppt', {'who': m[1]!, 'name': m[2]!});
     }
     m = RegExp(r"^You cancelled an appointment for (.+)\.$").firstMatch(msg);
     if (m != null) {
@@ -967,24 +982,15 @@ class AppLocalizations {
     }
     m = RegExp(r"^(.+) saved a shade photo for (.+)\.$").firstMatch(msg);
     if (m != null) {
-      return fill('notifications.msgSavedShade', {
-        'who': m[1]!,
-        'name': m[2]!,
-      });
+      return fill('notifications.msgSavedShade', {'who': m[1]!, 'name': m[2]!});
     }
     m = RegExp(r"^(.+) saved a smile preview for (.+)\.$").firstMatch(msg);
     if (m != null) {
-      return fill('notifications.msgSavedSmile', {
-        'who': m[1]!,
-        'name': m[2]!,
-      });
+      return fill('notifications.msgSavedSmile', {'who': m[1]!, 'name': m[2]!});
     }
     m = RegExp(r"^(.+) added a file for (.+)\.$").firstMatch(msg);
     if (m != null) {
-      return fill('notifications.msgAddedFile', {
-        'who': m[1]!,
-        'name': m[2]!,
-      });
+      return fill('notifications.msgAddedFile', {'who': m[1]!, 'name': m[2]!});
     }
 
     m = RegExp(r"^Scan quality issue for ([^.]+)\.(.*)$").firstMatch(msg);
@@ -1002,18 +1008,16 @@ class AppLocalizations {
     if (m != null) {
       return fill('notifications.msgNewScan', {'name': m[1]!});
     }
-    m = RegExp(r"^New patient on file: (.+) \(awaiting scan\)\.$")
-        .firstMatch(msg);
+    m = RegExp(
+      r"^New patient on file: (.+) \(awaiting scan\)\.$",
+    ).firstMatch(msg);
     if (m != null) {
       return fill('notifications.msgNewPatient', {'name': m[1]!});
     }
 
     // Non-EN: type + patient fallback when body is still English/unknown.
     final name = (patientName ?? '').trim();
-    if (code != 'en' &&
-        name.isNotEmpty &&
-        type != null &&
-        type.isNotEmpty) {
+    if (code != 'en' && name.isNotEmpty && type != null && type.isNotEmpty) {
       switch (type) {
         case 'scan_quality':
           return fill('notifications.fallbackScanQuality', {'name': name});
@@ -1076,6 +1080,14 @@ class AppLocalizations {
   String get interpreterSpeak => _t('interpreter.speak');
   String get interpreterSwap => _t('interpreter.swap');
   String get interpreterClear => _t('interpreter.clear');
+  String get interpreterHistory => _t('interpreter.history');
+  String interpreterPackTitle(String lang) =>
+      _t('interpreter.packTitle').replaceAll('{lang}', lang);
+  String get interpreterToneUnchecked => _t('interpreter.toneUnchecked');
+  String get interpreterPackBody => _t('interpreter.packBody');
+  String get interpreterPackDownload => _t('interpreter.packDownload');
+  String get interpreterPackOnline => _t('interpreter.packOnline');
+  String get interpreterPackFailed => _t('interpreter.packFailed');
   String get interpreterAutoSpeak => _t('interpreter.autoSpeak');
   String get interpreterTtsFailed => _t('interpreter.ttsFailed');
   String get interpreterNothingHeard => _t('interpreter.nothingHeard');
@@ -1149,7 +1161,8 @@ class AppLocalizations {
     'auth.createProfile': 'Create a profile',
     'auth.useDemo': 'Use demo dentist account',
     'auth.hero':
-        'Chairside scan validation, shade AI, and lab collaboration — designed for iPad.',    'auth.registerSubtitle':
+        'Chairside scan validation, shade AI, and lab collaboration — designed for iPad.',
+    'auth.registerSubtitle':
         'Register a dentist or laboratory account for Elite Dent',
     'auth.fullName': 'Full name *',
     'auth.clinic': 'Clinic name *',
@@ -1184,11 +1197,11 @@ class AppLocalizations {
     'settings.connection': 'Connection',
     'settings.pending': 'Pending',
     'settings.autoSync': 'Auto-sync when online',
-    
+
     'settings.autoSyncSub': 'Flush queued uploads when the network returns',
     'settings.syncNow': 'Sync now',
     'settings.syncing': 'Syncing…',
-    
+
     'settings.clearCache': 'Clear cache',
     'settings.clearing': 'Clearing…',
     'settings.clearCacheTitle': 'Clear encrypted cache?',
@@ -1237,14 +1250,14 @@ class AppLocalizations {
     'settings.deleteConfirmToken': 'DELETE',
     'settings.continue': 'Continue',
     'settings.confirmWithPassword': 'Confirm with password',
-    'settings.enterPasswordToFinish':
-        'Enter your account password to finish.',
+    'settings.enterPasswordToFinish': 'Enter your account password to finish.',
     'settings.passwordRequired': 'Password is required.',
     'settings.deletingAccount': 'Deleting account…',
     'settings.loading': 'Loading settings…',
     'settings.accountFallback': 'Account',
     'profile.title': 'Profile',
-    'profile.subtitle': 'Your account details — not limited to demo credentials',
+    'profile.subtitle':
+        'Your account details — not limited to demo credentials',
     'profile.signOut': 'Sign out',
     'profile.saveProfile': 'Save profile',
     'profile.saving': 'Saving…',
@@ -1340,8 +1353,7 @@ class AppLocalizations {
     'features.notifications': 'Notifications',
     'features.reports': 'Reports',
     'features.selectPatient': 'Select patient',
-    'reports.subtitle':
-        'Clinic performance, case pipeline, and AI coverage',
+    'reports.subtitle': 'Clinic performance, case pipeline, and AI coverage',
     'reports.loading': 'Building clinic report…',
     'reports.period7': '7 days',
     'reports.period30': '30 days',
@@ -1465,6 +1477,8 @@ class AppLocalizations {
     'appointments.bookEmptyHint':
         'Book a visit to send a confirmation email to the patient.',
     'appointments.noPatientsYet': 'No patients yet',
+    'appointments.inClinicOne': '1 patient in clinic',
+    'appointments.inClinic': '{n} patients in clinic',
     'appointments.minutesShort': '{n} min',
     'appointments.statusScheduled': 'Scheduled',
     'appointments.statusCompleted': 'Completed',
@@ -1482,8 +1496,7 @@ class AppLocalizations {
     'messages.noConversations': 'No conversations yet.',
     'messages.noMatch': 'No conversations match your search.',
     'messages.newTitle': 'New Message',
-    'scans.subtitle':
-        'Upload PLY / STL / OBJ · preview Dots / Solid on device',
+    'scans.subtitle': 'Upload PLY / STL / OBJ · preview Dots / Solid on device',
     'scans.upload': 'Upload scan',
     'scans.uploading': 'Uploading…',
     'scans.delete': 'Delete scan',
@@ -1496,6 +1509,9 @@ class AppLocalizations {
     'shade.reset': 'Reset',
     'shade.apply': 'Apply',
     'shade.adjustEdges': 'Adjust edges',
+    'shade.lips': 'Lips',
+    'shade.symmetry': 'Symmetry lines',
+    'shade.focusTooth': 'Selected tooth only',
     'shade.delete': 'Delete',
     'shade.addTooth': 'Add tooth',
     'shade.upload': 'Upload',
@@ -1546,7 +1562,8 @@ class AppLocalizations {
     'patients.loadingAccessRequests': 'Loading access requests…',
     'patients.editNote': 'Edit note',
     'patients.deleteNoteTitle': 'Delete note?',
-    'patients.deleteNoteBody': 'This clinical note will be permanently removed.',
+    'patients.deleteNoteBody':
+        'This clinical note will be permanently removed.',
     'patients.noteHint': 'Add a clinical note…',
     'patients.noteAdded': 'Note added',
     'patients.noteUpdated': 'Note updated',
@@ -1569,6 +1586,11 @@ class AppLocalizations {
     'scans.uploadingScan': 'Uploading scan…',
     'shade.loading': 'Loading shade detection…',
     'shade.detecting': 'Detecting…',
+    'shade.waitTip1': 'Mapping teeth and contacts…',
+    'shade.waitTip2': 'Matching enamel to VITA shades…',
+    'shade.waitTip3': 'You can switch tabs — detection keeps running…',
+    'shade.waitTip4': 'Checking smile band and gingiva…',
+    'shade.waitTip5': 'Refining outlines — almost there…',
     'shade.uploadDetect': 'Upload & detect',
     'shade.removeSave': 'Remove save?',
     'shade.deleteFromSession': 'Delete {shade} from this session.',
@@ -1621,10 +1643,12 @@ class AppLocalizations {
     'scanBody.confidence': 'Confidence',
     'scanBody.diameterHint': 'e.g. 4.1',
     'camera.deletePhotoTitle': 'Delete photo?',
-    'camera.deletePhotoBody': 'Remove this {angle} photo from {name}\'s record.',
+    'camera.deletePhotoBody':
+        'Remove this {angle} photo from {name}\'s record.',
     'camera.renamePhoto': 'Rename photo',
     'camera.choosePatient': 'Choose a patient',
-    'camera.choosePatientBody': 'Select a patient in the header to capture chairside photos.',
+    'camera.choosePatientBody':
+        'Select a patient in the header to capture chairside photos.',
     'camera.noPhotosYet': 'No photos yet',
     'camera.noAnglePhotos': 'No {angle} photos',
     'camera.takePhoto': 'Take photo',
@@ -1654,7 +1678,8 @@ class AppLocalizations {
     'media.deleteItem': 'Delete item?',
     'media.uploadBody': 'Upload and save this item to the patient record?',
     'media.uploadConfirm': 'Upload',
-    'media.deleteBody': 'Are you sure you want to delete this item? This action cannot be undone.',
+    'media.deleteBody':
+        'Are you sure you want to delete this item? This action cannot be undone.',
     'common.useThisDate': 'Use this date',
     'common.selectDate': 'Select Date',
     'common.prevMonth': 'Previous month',
@@ -1678,10 +1703,10 @@ class AppLocalizations {
     'dash.patientsAndCasesOnFile':
         '{patients} patients · {cases} cases on file.',
     'dash.acrossCompleted': 'Across {n} completed',
-    'dash.inProgressInReview': '{inProgress} in progress · {inReview} in review',
+    'dash.inProgressInReview':
+        '{inProgress} in progress · {inReview} in review',
     'dash.activityCompleted': 'Case {label} marked complete — {patient}',
-    'dash.activityRejected':
-        'Scan rejected for {patient} — rescan required',
+    'dash.activityRejected': 'Scan rejected for {patient} — rescan required',
     'dash.activityInReview': 'Case for {patient} moved to lab review',
     'dash.activityInProgress': 'Case for {patient} is in progress',
     'dash.activityPending': 'Case opened for {patient} — awaiting scan',
@@ -1714,8 +1739,7 @@ class AppLocalizations {
     'patients.onlyOwnerManage':
         'Only the patient owner can view and manage full staff access permissions.',
     'patients.waitingOwnerReview': 'Waiting for owner review',
-    'camera.subtitle':
-        'Frontal, left, and right photos · up to 12 per patient',
+    'camera.subtitle': 'Frontal, left, and right photos · up to 12 per patient',
     'camera.angle': 'Angle',
     'camera.frontal': 'Frontal',
     'camera.left': 'Left',
@@ -1805,8 +1829,7 @@ class AppLocalizations {
         'You cancelled an appointment for {name}.',
     'notifications.msgCancelledAppt':
         '{who} cancelled an appointment for {name}.',
-    'notifications.msgYouUpdatedAppt':
-        'You updated an appointment for {name}.',
+    'notifications.msgYouUpdatedAppt': 'You updated an appointment for {name}.',
     'notifications.msgUpdatedAppt': '{who} updated an appointment for {name}.',
     'notifications.msgUploadedScan': '{who} uploaded a 3D scan for {name}.',
     'notifications.msgSavedShade': '{who} saved a shade photo for {name}.',
@@ -1860,12 +1883,22 @@ class AppLocalizations {
     'interpreter.allowSpeech':
         'Allow Speech Recognition and Microphone for Elite Dent, then tap Hold to talk again.',
     'interpreter.appleTranslateFailed':
-        'Apple Translate could not run. Use iPadOS 18 or later and allow the language download when iPad asks.',
+        'Translation failed. On the Simulator, Apple Translate is unavailable — the app uses the server instead (start the backend on port 8000). On a real iPad, use iPadOS 18+ and allow language downloads when asked.',
     'interpreter.typeHint': 'Type a sentence…',
     'interpreter.send': 'Send',
     'interpreter.speak': 'Speak aloud',
     'interpreter.swap': 'Swap languages',
     'interpreter.clear': 'Clear this visit',
+    'interpreter.history': 'Everything said this visit',
+    'interpreter.packTitle': 'Download {lang} for translation?',
+    'interpreter.toneUnchecked':
+        'Offline translation — politeness not checked.',
+    'interpreter.packBody':
+        'Apple translates on this device. The language pack downloads once and then works offline.',
+    'interpreter.packDownload': 'Download',
+    'interpreter.packOnline': 'Use online instead',
+    'interpreter.packFailed':
+        'The language pack was not downloaded. Try again or use online translation.',
     'interpreter.autoSpeak': 'Read translations aloud',
     'interpreter.ttsFailed':
         'Could not play speech. Unmute the iPad (not silent) and tap Speak aloud.',
@@ -2000,12 +2033,12 @@ class AppLocalizations {
         'Benachrichtigungseinstellungen für dieses Gerät',
     'settings.notifyMaster': 'Benachrichtigungen aktivieren',
     'settings.notifyMasterSub':
-    
         'Hinweise zu Labornachrichten, Fallstatus und Scanqualität erhalten',
     'settings.notifyMessages': 'Labornachrichten',
     'settings.notifyMessagesSub': 'Neuer Chat vom Labor zu einem Fall',
     'settings.notifyCase': 'Fallstatus-Änderungen',
-    'settings.notifyCaseSub': 'Ausstehend, in Prüfung, abgeschlossen, abgelehnt',
+    'settings.notifyCaseSub':
+        'Ausstehend, in Prüfung, abgeschlossen, abgelehnt',
     'settings.notifyScan': 'Scan-Qualitätswarnungen',
     'settings.notifyScanSub': 'Körnig / verzerrt — erneuten Scan anfordern',
     'settings.languageTitle': 'Sprache & Region',
@@ -2079,8 +2112,7 @@ class AppLocalizations {
     'dash.goodAfternoon': 'Guten Tag, Dr. {name}',
     'dash.goodEvening': 'Guten Abend, Dr. {name}',
     'dash.loading': 'Klinikdaten werden geladen…',
-    'dash.noCases':
-        'Noch keine offenen Fälle — legen Sie einen Patienten an.',
+    'dash.noCases': 'Noch keine offenen Fälle — legen Sie einen Patienten an.',
     'dash.completedCases': 'Abgeschlossene Fälle',
     'dash.avgProcessing': 'Ø Bearbeitungszeit',
     'dash.pendingScans': 'Ausstehende Scans',
@@ -2149,8 +2181,7 @@ class AppLocalizations {
     'features.notifications': 'Benachrichtigungen',
     'features.reports': 'Berichte',
     'features.selectPatient': 'Patient wählen',
-    'reports.subtitle':
-        'Praxisleistung, Fall-Pipeline und KI-Abdeckung',
+    'reports.subtitle': 'Praxisleistung, Fall-Pipeline und KI-Abdeckung',
     'reports.loading': 'Klinikbericht wird erstellt…',
     'reports.period7': '7 Tage',
     'reports.period30': '30 Tage',
@@ -2264,8 +2295,7 @@ class AppLocalizations {
     'appointments.saveChanges': 'Änderungen speichern',
     'appointments.bookSubmit': 'Termin buchen',
     'appointments.startTime': 'Startzeit',
-    'appointments.endAfterStart':
-        'Endzeit muss nach der Startzeit liegen',
+    'appointments.endAfterStart': 'Endzeit muss nach der Startzeit liegen',
     'appointments.endsAt': 'Endet um {time}',
     'appointments.saving': 'Termin wird gespeichert…',
     'appointments.filtering': 'Terminplan wird gefiltert',
@@ -2275,6 +2305,8 @@ class AppLocalizations {
     'appointments.bookEmptyHint':
         'Buchen Sie einen Termin, um eine Bestätigungs-E-Mail an den Patienten zu senden.',
     'appointments.noPatientsYet': 'Noch keine Patienten',
+    'appointments.inClinicOne': '1 Patient in der Praxis',
+    'appointments.inClinic': '{n} Patienten in der Praxis',
     'appointments.minutesShort': '{n} Min.',
     'appointments.statusScheduled': 'Geplant',
     'appointments.statusCompleted': 'Abgeschlossen',
@@ -2285,8 +2317,7 @@ class AppLocalizations {
     'messages.newChat': 'Neuer Chat',
     'messages.startChat': 'Chat starten',
     'messages.empty': 'Noch keine Nachrichten — schreiben Sie hallo.',
-    'messages.selectConversation':
-        'Wählen Sie eine Unterhaltung zum Schreiben',
+    'messages.selectConversation': 'Wählen Sie eine Unterhaltung zum Schreiben',
     'messages.attach': 'Anhängen',
     'messages.active': 'Aktiv',
     'messages.reconnecting': 'Verbinde erneut…',
@@ -2307,6 +2338,9 @@ class AppLocalizations {
     'shade.reset': 'Zurücksetzen',
     'shade.apply': 'Übernehmen',
     'shade.adjustEdges': 'Ränder anpassen',
+    'shade.lips': 'Lippen',
+    'shade.symmetry': 'Symmetrielinien',
+    'shade.focusTooth': 'Nur ausgewählter Zahn',
     'shade.delete': 'Löschen',
     'shade.addTooth': 'Zahn hinzufügen',
     'shade.upload': 'Hochladen',
@@ -2382,6 +2416,12 @@ class AppLocalizations {
     'scans.uploadingScan': 'Scan wird hochgeladen…',
     'shade.loading': 'Farbbestimmung wird geladen…',
     'shade.detecting': 'Wird erkannt…',
+    'shade.waitTip1': 'Zähne und Kontakte werden erfasst…',
+    'shade.waitTip2': 'Schmelz wird mit VITA-Farben abgeglichen…',
+    'shade.waitTip3':
+        'Sie können den Tab wechseln — die Erkennung läuft weiter…',
+    'shade.waitTip4': 'Smile-Band und Zahnfleisch werden geprüft…',
+    'shade.waitTip5': 'Umrisse werden verfeinert — gleich fertig…',
     'shade.uploadDetect': 'Hochladen & erkennen',
     'shade.removeSave': 'Speicherung entfernen?',
     'shade.deleteFromSession': '{shade} aus dieser Sitzung löschen.',
@@ -2434,10 +2474,12 @@ class AppLocalizations {
     'scanBody.confidence': 'Konfidenz',
     'scanBody.diameterHint': 'z. B. 4.1',
     'camera.deletePhotoTitle': 'Foto löschen?',
-    'camera.deletePhotoBody': 'Dieses {angle}-Foto aus dem Datensatz von {name} entfernen.',
+    'camera.deletePhotoBody':
+        'Dieses {angle}-Foto aus dem Datensatz von {name} entfernen.',
     'camera.renamePhoto': 'Foto umbenennen',
     'camera.choosePatient': 'Patient auswählen',
-    'camera.choosePatientBody': 'Wählen Sie oben einen Patienten, um Stuhlseitenfotos aufzunehmen.',
+    'camera.choosePatientBody':
+        'Wählen Sie oben einen Patienten, um Stuhlseitenfotos aufzunehmen.',
     'camera.noPhotosYet': 'Noch keine Fotos',
     'camera.noAnglePhotos': 'Keine {angle}-Fotos',
     'camera.takePhoto': 'Foto aufnehmen',
@@ -2465,9 +2507,11 @@ class AppLocalizations {
     'messages.filterLaboratories': 'Labore',
     'media.uploadItem': 'Element hochladen?',
     'media.deleteItem': 'Element löschen?',
-    'media.uploadBody': 'Dieses Element hochladen und im Patientendatensatz speichern?',
+    'media.uploadBody':
+        'Dieses Element hochladen und im Patientendatensatz speichern?',
     'media.uploadConfirm': 'Hochladen',
-    'media.deleteBody': 'Möchten Sie dieses Element wirklich löschen? Dies kann nicht rückgängig gemacht werden.',
+    'media.deleteBody':
+        'Möchten Sie dieses Element wirklich löschen? Dies kann nicht rückgängig gemacht werden.',
     'common.useThisDate': 'Dieses Datum verwenden',
     'common.selectDate': 'Datum auswählen',
     'common.prevMonth': 'Vorheriger Monat',
@@ -2481,7 +2525,8 @@ class AppLocalizations {
     'shade.gumShades': 'Zahnfleischfarben',
     'shade.overrideTeeth': 'Zähne',
     'shade.overrideGum': 'Zahnfleisch',
-    'auth.passwordUpdatedRelogin': 'Passwort aktualisiert. Bitte erneut anmelden.',
+    'auth.passwordUpdatedRelogin':
+        'Passwort aktualisiert. Bitte erneut anmelden.',
     'dash.patientsOnFile': '{n} Patienten in der Akte',
     'dash.patientsOnFileOne': '1 Patient in der Akte',
     'dash.needsAttention': '{n} Fälle benötigen Aufmerksamkeit',
@@ -2500,8 +2545,7 @@ class AppLocalizations {
     'dash.activityInReview':
         'Fall für {patient} zur Laborprüfung weitergeleitet',
     'dash.activityInProgress': 'Fall für {patient} ist in Bearbeitung',
-    'dash.activityPending':
-        'Fall für {patient} eröffnet — warte auf Scan',
+    'dash.activityPending': 'Fall für {patient} eröffnet — warte auf Scan',
     'dash.activityUpdated': 'Fall für {patient} aktualisiert',
     'common.justNow': 'Gerade eben',
     'common.minAgo': 'vor {n} Min.',
@@ -2597,7 +2641,8 @@ class AppLocalizations {
     'smile.selectShapeHint':
         'Form aus der Bibliothek wählen → ziehen / zoomen / drehen',
     'smile.originalPhoto': 'Originalfoto',
-    'notifications.markedAllRead': 'Alle Benachrichtigungen als gelesen markiert',
+    'notifications.markedAllRead':
+        'Alle Benachrichtigungen als gelesen markiert',
     'notifications.now': 'jetzt',
     'notifications.minsShort': '{n}m',
     'notifications.hoursShort': '{n}h',
@@ -2607,8 +2652,7 @@ class AppLocalizations {
         'Zugriff für {name} genehmigt. Sie können diesen Patienten öffnen.',
     'notifications.msgYouApprovedAccess':
         'Sie haben den Zugriff von {who} auf {name} genehmigt.',
-    'notifications.msgAccessDeclined':
-        'Zugriff auf {name} wurde abgelehnt.',
+    'notifications.msgAccessDeclined': 'Zugriff auf {name} wurde abgelehnt.',
     'notifications.msgYouDeclinedAccess':
         'Sie haben die Zugriffsanfrage von {who} für {name} abgelehnt.',
     'notifications.msgGrantedAccess':
@@ -2619,14 +2663,12 @@ class AppLocalizations {
         '{who} hat Zugriff auf {name} angefordert.',
     'notifications.msgYouRequestedAccess':
         'Sie haben Zugriff auf {name} angefordert.',
-    'notifications.msgAccessRevoked':
-        'Ihr Zugriff auf {name} wurde entzogen.',
+    'notifications.msgAccessRevoked': 'Ihr Zugriff auf {name} wurde entzogen.',
     'notifications.msgYouRevokedAccess':
         'Sie haben den Zugriff von {who} auf {name} entzogen.',
     'notifications.msgYouBookedAppt':
         'Sie haben einen Termin für {name} gebucht.',
-    'notifications.msgBookedAppt':
-        '{who} hat einen Termin für {name} gebucht.',
+    'notifications.msgBookedAppt': '{who} hat einen Termin für {name} gebucht.',
     'notifications.msgYouCancelledAppt':
         'Sie haben einen Termin für {name} storniert.',
     'notifications.msgCancelledAppt':
@@ -2675,8 +2717,7 @@ class AppLocalizations {
     'scans.needMeshFile': 'Bitte eine PLY-, STL- oder OBJ-Datei wählen.',
     'scans.couldNotReadFile':
         'Datei konnte nicht gelesen werden. Bitte einen anderen Scan wählen.',
-    'scans.uploadPreviewHint':
-        'PLY / STL / OBJ hochladen für die Vorschau',
+    'scans.uploadPreviewHint': 'PLY / STL / OBJ hochladen für die Vorschau',
     'scans.emptyHintUpload':
         'Noch keine Patienten — fügen Sie einen hinzu, um Scans hochzuladen.',
     'interpreter.subtitle':
@@ -2695,12 +2736,22 @@ class AppLocalizations {
     'interpreter.allowSpeech':
         'Bitte Spracheingabe und Mikrofon für Elite Dent erlauben, dann erneut Halten zum Sprechen tippen.',
     'interpreter.appleTranslateFailed':
-        'Apple Übersetzen nicht möglich. iPadOS 18 oder neuer verwenden und den Sprachdownload erlauben, wenn das iPad fragt.',
+        'Übersetzung fehlgeschlagen. Im Simulator ist Apple Übersetzen nicht verfügbar — die App nutzt den Server (Backend auf Port 8000 starten). Auf dem iPad: iPadOS 18+ und Sprachdownload erlauben.',
     'interpreter.typeHint': 'Satz eingeben…',
     'interpreter.send': 'Senden',
     'interpreter.speak': 'Vorlesen',
     'interpreter.swap': 'Sprachen tauschen',
     'interpreter.clear': 'Diesen Besuch löschen',
+    'interpreter.history': 'Alles, was in diesem Besuch gesagt wurde',
+    'interpreter.packTitle': '{lang} für die Übersetzung laden?',
+    'interpreter.toneUnchecked':
+        'Offline-Übersetzung — Höflichkeit nicht geprüft.',
+    'interpreter.packBody':
+        'Apple übersetzt auf diesem Gerät. Das Sprachpaket wird einmal geladen und funktioniert danach offline.',
+    'interpreter.packDownload': 'Laden',
+    'interpreter.packOnline': 'Stattdessen online',
+    'interpreter.packFailed':
+        'Das Sprachpaket wurde nicht geladen. Erneut versuchen oder Online-Übersetzung nutzen.',
     'interpreter.autoSpeak': 'Übersetzungen vorlesen',
     'interpreter.ttsFailed':
         'Sprache nicht abspielbar. iPad laut schalten (nicht lautlos) und Vorlesen tippen.',

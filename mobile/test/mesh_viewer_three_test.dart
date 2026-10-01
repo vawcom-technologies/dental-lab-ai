@@ -59,19 +59,37 @@ void main() {
     expect(geom.getAttribute(three.Attribute.normal), isNotNull);
   });
 
-  test('Solid MeshPhongMaterial is opaque filled triangles with vertexColors', () {
-    final mat = three.MeshPhongMaterial({
+  test('colored Solid uses MeshBasicMaterial with vertexColors', () {
+    final mat = three.MeshBasicMaterial({
       three.MaterialProperty.color: 0xffffff,
       three.MaterialProperty.vertexColors: true,
       three.MaterialProperty.side: three.DoubleSide,
-        three.MaterialProperty.shininess: 12,
-      three.MaterialProperty.flatShading: false,
       three.MaterialProperty.wireframe: false,
       three.MaterialProperty.transparent: false,
       three.MaterialProperty.opacity: 1.0,
       three.MaterialProperty.depthWrite: true,
     });
     expect(mat.vertexColors, isTrue);
+    expect(mat.wireframe, isFalse);
+    expect(mat.transparent, isFalse);
+    expect(mat.opacity, 1.0);
+    expect(mat.depthWrite, isTrue);
+    mat.dispose();
+  });
+
+  test('uncolored Solid uses MeshPhongMaterial without vertexColors', () {
+    final mat = three.MeshPhongMaterial({
+      three.MaterialProperty.color: 0xffffff,
+      three.MaterialProperty.vertexColors: false,
+      three.MaterialProperty.side: three.DoubleSide,
+      three.MaterialProperty.shininess: 12,
+      three.MaterialProperty.flatShading: false,
+      three.MaterialProperty.wireframe: false,
+      three.MaterialProperty.transparent: false,
+      three.MaterialProperty.opacity: 1.0,
+      three.MaterialProperty.depthWrite: true,
+    });
+    expect(mat.vertexColors, isFalse);
     expect(mat.flatShading, isFalse);
     expect(mat.shininess, 12);
     expect(mat.wireframe, isFalse);

@@ -132,6 +132,57 @@ def test_display_outline_is_moderate_for_rounded_mask():
     assert EDIT_HANDLES_MIN <= len(geo["edit_handles"]) <= EDIT_HANDLES_MAX
 
 
+def test_display_fairing_reduces_stair_step_turn_energy():
+    """Pixel stairs should soften; analysis mask bytes stay unchanged."""
+    from app.ai.shade_geometry import fair_mask_for_display, normalized_display_outline
+
+    h, w = 80, 60
+    mask = np.zeros((h, w), dtype=bool)
+    # Blocky "crown" with intentional stair edges.
+    mask[10:70, 15:45] = True
+    for i in range(12):
+        mask[20 + i, 45 + (i % 3)] = True
+        mask[20 + i, 14 - (i % 3)] = True
+    before = mask.copy()
+    faired = fair_mask_for_display(mask)
+    assert np.array_equal(mask, before)
+    assert int(faired.sum()) >= int(0.55 * int(mask.sum()))
+
+    raw = normalized_display_outline(mask)
+    assert raw is not None and len(raw) >= 96
+
+    def turn_energy(ring: list[list[float]]) -> float:
+        n = len(ring)
+        e = 0.0
+        for i in range(n):
+            a = np.asarray(ring[i], dtype=np.float64)
+            b = np.asarray(ring[(i + 1) % n], dtype=np.float64)
+            c = np.asarray(ring[(i + 2) % n], dtype=np.float64)
+            v1 = b - a
+            v2 = c - b
+            n1 = float(np.linalg.norm(v1))
+            n2 = float(np.linalg.norm(v2))
+            if n1 < 1e-12 or n2 < 1e-12:
+                continue
+            cross = abs(v1[0] * v2[1] - v1[1] * v2[0]) / (n1 * n2)
+            e += cross
+        return e
+
+    # Compare faired ring vs contour taken from the raw mask without fairing.
+    import cv2
+    from app.ai.shade_geometry import (
+        DISPLAY_OUTLINE_MAX,
+        _even_sample_closed,
+        _poly_norm,
+    )
+
+    u8 = (mask.astype(np.uint8)) * 255
+    contours, _ = cv2.findContours(u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    cnt = max(contours, key=cv2.contourArea)
+    jagged = _even_sample_closed(_poly_norm(cnt, w, h), DISPLAY_OUTLINE_MAX)
+    assert turn_energy(raw) < turn_energy(jagged)
+
+
 def test_anatomical_handles_cover_extremes():
     h, w = 200, 120
     yy, xx = np.ogrid[:h, :w]
@@ -170,3 +221,42 @@ def test_clinical_overlay_marks_match_reference_layout():
     assert (bbox["x"] + bbox["w"]) * w >= float(xs.max()) + 1
     assert bbox["y"] * h <= float(ys.min()) - 1
     assert (bbox["y"] + bbox["h"]) * h >= float(ys.max()) + 1
+
+
+def test_display_outline_smooths_kaist_stairs_without_shrinking():
+    """A 4 px-stair disc (KAIST upscaled 4×) comes out smooth, same size."""
+    from app.ai.shade_geometry import normalized_display_outline
+
+    def zigzag(ring):  # total turning / 2π: 1.0 = smooth convex loop
+        v = np.diff(np.vstack([ring, ring[:1]]), axis=0)
+        a = np.arctan2(v[:, 1], v[:, 0])
+        return float(np.abs(np.angle(np.exp(1j * (np.roll(a, -1) - a)))).sum() / (2 * np.pi))
+
+    yy, xx = np.mgrid[:200, :200]
+    coarse = ((yy // 4 * 4 - 100) ** 2 + (xx // 4 * 4 - 100) ** 2) <= 70**2
+    ring = np.asarray(normalized_display_outline(coarse, px_scale=4)) * 200
+    r = np.hypot(ring[:, 0] - 100, ring[:, 1] - 100)
+    assert abs(float(r.mean()) - 70) < 1.0  # no shrink
+    assert zigzag(ring) < 2.0  # raw 4 px stairs: ~8
+
+
+def test_smoothing_is_even_for_small_and_large_kaist_teeth():
+    """Same KAIST stairs on a small and a 3× larger tooth → equally smooth."""
+    import cv2
+
+    from app.ai.shade_geometry import normalized_display_outline
+
+    def zigzag(ring):
+        v = np.diff(np.vstack([ring, ring[:1]]), axis=0)
+        a = np.arctan2(v[:, 1], v[:, 0])
+        return float(np.abs(np.angle(np.exp(1j * (np.roll(a, -1) - a)))).sum() / (2 * np.pi))
+
+    def kaist_tooth(work_w, scale):
+        work = np.zeros((work_w * 2, work_w * 2), np.uint8)
+        cv2.ellipse(work, (work_w, work_w), (work_w // 2, int(work_w * 0.7)), 0, 0, 360, 1, -1)
+        big = cv2.resize(work, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
+        return normalized_display_outline(big.astype(bool), px_scale=scale)
+
+    small = zigzag(np.asarray(kaist_tooth(20, 4)))  # 20 KAIST px wide
+    large = zigzag(np.asarray(kaist_tooth(60, 4)))  # 60 KAIST px wide
+    assert small < 1.6 and large < 1.6

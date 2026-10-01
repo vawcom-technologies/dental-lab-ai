@@ -4,9 +4,8 @@ Runs the upstream 4-step pipeline (pseudoER → initContour → snake → TEM) o
 mouth crop so outlines match their demo quality. Full-face uploads are cropped
 via classical enamel ROI first.
 
-Work image long side is clamped into [min_side, max_side] (defaults 256–320).
-Tiny crops upscale only to the floor (not the ceiling — that wasted ~2× snake
-time). Large crops downscale. Mid-size crops stay native. Labels map back.
+Work image long side is clamped into [min_side, max_side] (.env 256–320).
+The level-set steps are tuned for that scale; labels map back to the crop.
 
 # ASSUMPTION: Vendor checkout at backend/vendor/individual_tooth_segmentation
 # ASSUMPTION: Weights at SHADE_SEGMENT_KAIST_WEIGHTS (~1.5 GB .pth)
@@ -22,7 +21,6 @@ import sys
 import tempfile
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -33,14 +31,13 @@ from app.ai.shade_segment import ToothMask, _sanity_check_instances, mask_confid
 
 logger = logging.getLogger(__name__)
 
-_MAX_TEETH = 12  # both arches on one extra-oral crop
-_MAX_TEETH_PER_ARCH = 8  # keep halves for merge; shade window trims to 6
+_MAX_TEETH = 16  # both arches on one mouth crop
 _MIN_MASK_PIXELS = 40
-_MIN_ENAMEL_FRAC = 0.18
-_MAX_AREA_VS_MEDIAN = 2.8
-_MIN_AREA_VS_MEDIAN = 0.16
 _DEFAULT_MAX_SIDE = 256
 _DEFAULT_MIN_SIDE = 224
+# Wide-strip guard for the work image (see _resize_for_work).
+_MIN_WORK_SHORT = 112
+_MAX_WORK_LONG = 800
 _DEFAULT_WEIGHTS = "weights/kaist/CP_teeth_seg.pth"
 _MIN_WEIGHTS_BYTES = 1_000_000_000  # finished CP_teeth_seg.pth is ~1.5 GB
 _KAIST_LOCK = threading.Lock()
@@ -123,18 +120,6 @@ def _evolve_iters() -> int:
         return max(8, int(settings.shade_segment_kaist_evolve_iters or 14))
     except Exception:
         return 14
-
-
-def _flip_retry_enabled() -> bool:
-    """Opposite-orientation retry. Off on CPU — doubles Railway latency."""
-    if _device() == "cpu":
-        return False
-    try:
-        from app.core.config import settings
-
-        return bool(getattr(settings, "shade_segment_kaist_flip_retry", True))
-    except Exception:
-        return True
 
 
 def resolve_vendor_root(path: str | Path | None = None) -> Path:
@@ -310,317 +295,6 @@ def warmup_kaist_weights() -> str:
     return "ok"
 
 
-def _tooth_band_mask(image_rgb: np.ndarray) -> np.ndarray:
-    """Crown pixels for KAIST framing — drop pink gingiva and tiny flash glints.
-
-    Intraoral flash often pushes maxillary enamel to L≈235–248. A hard L≤232
-    cap erased those crowns, so focus boxes framed only the darker lower row
-    and KAIST numbered mandibular teeth as 11/21.
-    """
-    import cv2
-
-    from app.ai.shade_segment import _lab_channels
-
-    L, a, b = _lab_channels(image_rgb)
-    body = (
-        (L >= 68.0)
-        & (L <= 250.0)
-        & (a < 9.0)
-        & (a > -16.0)
-        & (b > -6.0)
-        & (b < 52.0)
-    )
-    u8 = body.astype(np.uint8) * 255
-    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    u8 = cv2.morphologyEx(u8, cv2.MORPH_OPEN, k, iterations=1)
-    u8 = cv2.morphologyEx(u8, cv2.MORPH_CLOSE, k, iterations=1)
-    n, labels, stats, _ = cv2.connectedComponentsWithStats(u8, connectivity=8)
-    if n <= 1:
-        return u8 > 0
-    kept = np.zeros(u8.shape, dtype=bool)
-    for i in range(1, n):
-        area = int(stats[i, cv2.CC_STAT_AREA])
-        if area < 40:
-            continue
-        cc = labels == i
-        # Isolated specular blobs, not washed-out crown bodies.
-        if area < 400 and float(L[cc].mean()) > 240.0:
-            continue
-        kept |= cc
-    return kept if int(kept.sum()) >= 80 else (u8 > 0)
-
-
-def _pad_box(
-    y0: int,
-    y1: int,
-    x0: int,
-    x1: int,
-    h: int,
-    w: int,
-    *,
-    pad_frac: float,
-) -> tuple[int, int, int, int]:
-    ph = max(8, int(pad_frac * max(1, y1 - y0)))
-    pw = max(8, int(0.7 * pad_frac * max(1, x1 - x0)))
-    return (
-        max(0, y0 - ph),
-        min(h, y1 + ph),
-        max(0, x0 - pw),
-        min(w, x1 + pw),
-    )
-
-
-def _pad_arch_box(
-    y0: int,
-    y1: int,
-    x0: int,
-    x1: int,
-    h: int,
-    w: int,
-    *,
-    pad_frac: float,
-    toward: str,
-) -> tuple[int, int, int, int]:
-    """Pad an arch crop toward gingiva, not across the occlusal gap.
-
-    Symmetric pad on a 4–8 px intraoral gap swallows the other row, and KAIST
-    (trained on one smile) then segments only the brighter lower arch.
-    """
-    ph = max(8, int(pad_frac * max(1, y1 - y0)))
-    pw = max(8, int(0.7 * pad_frac * max(1, x1 - x0)))
-    into_gap = min(6, max(2, int(0.04 * max(1, y1 - y0))))
-    if toward == "up":
-        y0 = max(0, y0 - ph)
-        y1 = min(h, y1 + into_gap)
-    else:
-        y0 = max(0, y0 - into_gap)
-        y1 = min(h, y1 + ph)
-    return y0, y1, max(0, x0 - pw), min(w, x1 + pw)
-
-
-def _box_large_enough(box: tuple[int, int, int, int]) -> bool:
-    y0, y1, x0, x1 = box
-    return (y1 - y0) >= 64 and (x1 - x0) >= 64
-
-
-def _snap_boxes_to_frame_width(
-    boxes: list[tuple[int, int, int, int]],
-    h: int,
-    w: int,
-) -> list[tuple[int, int, int, int]]:
-    """Keep laterals that sit outside the bright-enamel ROI.
-
-    Wide mouth-band intraoral crops already *are* the mouth (clinic 328×764).
-    Extra-oral portraits must keep the enamel x-crop — full-frame dual boxes
-    swallowed mustache/beard and KAIST numbered 4 teeth on a face photo.
-    """
-    if not boxes:
-        return boxes
-    if w < int(1.55 * max(h, 1)):
-        return boxes
-    return [(y0, y1, 0, w) for y0, y1, _x0, _x1 in boxes]
-
-
-def _luma_valley_gap(
-    image_rgb: np.ndarray,
-    y0: int,
-    y1: int,
-    x0: int,
-    x1: int,
-) -> tuple[int, int] | None:
-    """Fallback split when enamel morphology bridges a thin dark occlusal strip."""
-    from app.ai.shade_segment import _lab_channels
-
-    L, _a, _b = _lab_channels(image_rgb)
-    sl = L[y0:y1, x0:x1]
-    bh = sl.shape[0]
-    if bh < 64:
-        return None
-    row = np.median(sl, axis=1)
-    k = max(3, (bh // 18) | 1)
-    sm = np.convolve(row, np.ones(k) / k, mode="same")
-    margin = max(10, int(0.22 * bh))
-    if bh - 2 * margin < 8:
-        return None
-    yi = margin + int(np.argmin(sm[margin : bh - margin]))
-    above = float(sm[max(0, yi - max(12, bh // 8)) : yi].max()) if yi else 0.0
-    below = float(sm[yi + 1 : min(bh, yi + max(12, bh // 8))].max())
-    valley = float(sm[yi])
-    if above - valley < 14.0 or below - valley < 14.0:
-        return None
-    lo = yi
-    hi = yi
-    while lo > margin and sm[lo - 1] <= valley + 6.0:
-        lo -= 1
-    while hi + 1 < bh - margin and sm[hi + 1] <= valley + 6.0:
-        hi += 1
-    return int(lo), int(hi)
-
-
-def _enamel_band_runs(
-    row: np.ndarray, peak_v: float
-) -> list[tuple[int, int]]:
-    """Contiguous enamel-density rows (smile / arch bands)."""
-    if peak_v < 80 or row.size < 4:
-        return []
-    thr = 0.18 * peak_v
-    runs: list[tuple[int, int]] = []
-    start: int | None = None
-    for i, v in enumerate(row):
-        if v >= thr:
-            if start is None:
-                start = i
-        elif start is not None:
-            runs.append((start, i))
-            start = None
-    if start is not None:
-        runs.append((start, int(row.size)))
-    mass = float(row.sum()) or 1.0
-    kept: list[tuple[int, int]] = []
-    for a, b in runs:
-        if (b - a) >= 4 and float(row[a:b].sum()) >= 0.10 * mass:
-            kept.append((a, b))
-    merged: list[tuple[int, int]] = []
-    gap_merge = max(6, int(0.03 * row.size))
-    for a, b in kept:
-        if merged and a - merged[-1][1] <= gap_merge:
-            merged[-1] = (merged[-1][0], b)
-        else:
-            merged.append((a, b))
-    return merged
-
-
-def _clip_enamel_to_smile_band(enamel: np.ndarray) -> np.ndarray:
-    """Keep the dense tooth row; drop lip gloss / beard highlights below.
-
-    Extra-oral `_dental_roi_from_enamel` unions any CC ≥25% of the largest, so
-    a wet lower lip pulls the box through the beard (clinic portrait 1024×768).
-    """
-    row = enamel.astype(np.float64).sum(axis=1)
-    peak_v = float(row.max()) if row.size else 0.0
-    if peak_v < 80:
-        return enamel
-    peak = int(np.argmax(row))
-    thr = 0.22 * peak_v
-    y0 = peak
-    y1 = peak
-    h = int(enamel.shape[0])
-    while y0 > 0 and row[y0 - 1] >= thr:
-        y0 -= 1
-    while y1 + 1 < h and row[y1 + 1] >= thr:
-        y1 += 1
-    pad = max(8, int(0.15 * (y1 - y0 + 1)))
-    y0 = max(0, y0 - pad)
-    y1 = min(h, y1 + 1 + pad)
-    out = np.zeros_like(enamel)
-    out[y0:y1] = enamel[y0:y1]
-    return out
-
-
-def kaist_focus_boxes(
-    image_rgb: np.ndarray,
-    *,
-    pad_frac: float = 0.40,
-) -> list[tuple[int, int, int, int]]:
-    """1–2 padded boxes around tooth row(s). Dual-arch intraoral → two crops.
-
-    KAIST was trained on extra-oral single-smile photos. Open-mouth both-arch
-    shots return empty unless each row is framed like a smile.
-    """
-    from app.ai.shade_segment import _dental_roi_from_enamel, _find_occlusal_gap
-
-    h, w = image_rgb.shape[:2]
-    full = (0, h, 0, w)
-    band = _tooth_band_mask(image_rgb)
-    try:
-        from app.ai.shade_segment import _adaptive_enamel_mask
-
-        # Bright maxillary enamel can be thin in the conservative band; union
-        # so open-mouth shots still split instead of framing only the lower row.
-        enamel = _adaptive_enamel_mask(image_rgb)
-        if int(enamel.sum()) >= 80:
-            band = band | enamel
-    except Exception:
-        logger.exception("kaist enamel union failed — using tooth band only")
-    if int(band.sum()) < 80:
-        return [full]
-    # Portrait *and* landscape extra-oral smiles: teeth are a short band on
-    # the face. Skipping this on landscape (w >= h) let KAIST paint cheeks,
-    # beard, and background. Tight intraoral frames already fill most of
-    # the height, so the clip is a no-op there.
-    row = band.astype(np.float64).sum(axis=1)
-    peak = float(row.max()) if row.size else 0.0
-    extra_oral_face = False
-    if peak >= 80:
-        runs = _enamel_band_runs(row, peak)
-        if len(runs) == 1:
-            span = runs[0][1] - runs[0][0]
-            extra_oral_face = span < int(0.45 * h)
-            if span < int(0.58 * h):
-                band = _clip_enamel_to_smile_band(band)
-        elif len(runs) >= 2:
-            gap = runs[1][0] - runs[0][1]
-            # Far second blob is lip/beard on a face, not a second arch.
-            if gap > int(0.22 * h):
-                band = _clip_enamel_to_smile_band(band)
-                extra_oral_face = True
-    roi = _dental_roi_from_enamel(band)
-    if roi is None:
-        return [full]
-    y0, y1, x0, x1 = roi
-    # Extra-oral face + smile: one mouth crop. Do NOT gate on portrait
-    # (h > w) — clinic iPad open-mouth shots are often portrait and need
-    # dual-arch framing; a single tall crop makes KAIST return 0 labels.
-    # On a true face photo, extra_oral_face is set above (short smile band
-    # or far lip/beard blob) so we still avoid mustache/beard dual-splits.
-    if extra_oral_face:
-        one = _pad_box(y0, y1, x0, x1, h, w, pad_frac=min(pad_frac, 0.22))
-        return [one] if _box_large_enough(one) else [full]
-    u8 = (band.astype(np.uint8)) * 255
-    gap = _find_occlusal_gap(u8[y0:y1, x0:x1])
-    if gap is None:
-        gap = _luma_valley_gap(image_rgb, y0, y1, x0, x1)
-    if gap is not None:
-        ga, gb = gap
-        top = _pad_arch_box(
-            y0, y0 + ga, x0, x1, h, w, pad_frac=pad_frac, toward="up"
-        )
-        bot = _pad_arch_box(
-            y0 + gb, y1, x0, x1, h, w, pad_frac=pad_frac, toward="down"
-        )
-        if (
-            _box_large_enough(top)
-            and _box_large_enough(bot)
-            and int(band[top[0] : top[1], top[2] : top[3]].sum()) >= 80
-            and int(band[bot[0] : bot[1], bot[2] : bot[3]].sum()) >= 80
-        ):
-            return _snap_boxes_to_frame_width([top, bot], h, w)
-    one = _pad_box(y0, y1, x0, x1, h, w, pad_frac=pad_frac)
-    boxes = [one] if _box_large_enough(one) else [full]
-    return _snap_boxes_to_frame_width(boxes, h, w)
-
-
-def prepare_kaist_work_rgb(image_rgb: np.ndarray) -> np.ndarray:
-    """Tone-map flash and calm inflamed a* for the CNN only (masks stay on original)."""
-    import cv2
-
-    u8 = np.clip(image_rgb, 0, 255).astype(np.uint8)
-    lab = cv2.cvtColor(u8, cv2.COLOR_RGB2LAB).astype(np.float32)
-    L = lab[:, :, 0]
-    a = lab[:, :, 1]
-    p90 = float(np.percentile(L, 90))
-    p99 = float(np.percentile(L, 99))
-    if p99 > p90 + 4.0:
-        hi = L > p90
-        L = np.where(hi, p90 + (L - p90) * 0.35, L)
-    # OpenCV a* is 128-centered. Inflamed gingiva sits ~148+.
-    hot = a > 146.0
-    a = np.where(hot, 146.0 + (a - 146.0) * 0.40, a)
-    lab[:, :, 0] = np.clip(L, 0, 255)
-    lab[:, :, 1] = np.clip(a, 0, 255)
-    return cv2.cvtColor(lab.astype(np.uint8), cv2.COLOR_LAB2RGB)
-
-
 def mouth_crop_rgb(
     image_rgb: np.ndarray,
     *,
@@ -678,167 +352,29 @@ def _paste_mask(
     return out
 
 
-def _kaist_crown_keep_mask(crop_rgb: np.ndarray) -> np.ndarray:
-    """Pixels that look like enamel — used to drop gingiva/lip KAIST blobs."""
-    from app.ai.shade_segment import _adaptive_enamel_mask
-
-    band = _tooth_band_mask(crop_rgb)
-    try:
-        enamel = _adaptive_enamel_mask(crop_rgb)
-    except Exception:
-        enamel = band
-    if int(enamel.sum()) >= 80:
-        return band | enamel
-    return band
-
-
-def _select_kaist_crop_masks(
-    labels: np.ndarray,
-    *,
-    crop_rgb: np.ndarray | None = None,
-) -> list[np.ndarray]:
-    """Keep crown-sized enamel instances; drop gum/lip/merged blobs."""
-    uniq = [int(v) for v in np.unique(labels) if int(v) > 0]
-    raw: list[tuple[float, float, int, float, np.ndarray]] = []
-    keep_map = None
-    if crop_rgb is not None and crop_rgb.size and crop_rgb.shape[:2] == labels.shape[:2]:
-        keep_map = _kaist_crown_keep_mask(crop_rgb)
-        if int(keep_map.sum()) < 80:
-            keep_map = None
-
-    for lid in uniq:
-        m = labels == lid
-        area = int(m.sum())
-        if area < _MIN_MASK_PIXELS:
-            continue
-        ys, xs = np.nonzero(m)
-        enamel_frac = 1.0
-        if keep_map is not None:
-            enamel_frac = float(np.count_nonzero(m & keep_map)) / float(max(1, area))
-        raw.append((float(xs.mean()), enamel_frac, area, float(ys.mean()), m))
-
-    if not raw:
-        return []
-
-    scored = raw
-    if keep_map is not None:
-        enamel_hits = [s for s in scored if s[1] >= _MIN_ENAMEL_FRAC]
-        if len(enamel_hits) >= 2:
-            scored = enamel_hits
-
-    # One extra-oral crop holds both arches. A global top-8 by area kept
-    # 6 lower + 2 upper centrals and dropped 12/22 (clinic 20:08).
-    kept: list[tuple[float, float, int, float, np.ndarray]] = []
-    for row in _cluster_scored_by_cy(scored, int(labels.shape[0])):
-        row_s = list(row)
-        if len(row_s) >= 3:
-            areas = np.array([s[2] for s in row_s], dtype=np.float64)
-            med_a = float(np.median(areas))
-            sized = [
-                s
-                for s in row_s
-                if (_MIN_AREA_VS_MEDIAN * med_a) <= s[2] <= (_MAX_AREA_VS_MEDIAN * med_a)
-            ]
-            if len(sized) >= 2:
-                row_s = sized
-        row_s.sort(key=lambda t: t[1] * (t[2] ** 0.5), reverse=True)
-        kept.extend(row_s[:_MAX_TEETH_PER_ARCH])
-    kept.sort(key=lambda t: t[0])
-    return [s[4] for s in kept]
-
-
-def _cluster_scored_by_cy(
-    scored: list[tuple[float, float, int, float, np.ndarray]],
-    crop_h: int,
-) -> list[list[tuple[float, float, int, float, np.ndarray]]]:
-    """Split KAIST instances into upper/lower rows on a single smile crop."""
-    if len(scored) < 4 or crop_h < 8:
-        return [scored]
-    cys = [s[3] for s in scored]
-    span = float(max(cys) - min(cys))
-    if span < 0.18 * crop_h:
-        return [scored]
-    mid = 0.5 * (min(cys) + max(cys))
-    upper = [s for s in scored if s[3] < mid]
-    lower = [s for s in scored if s[3] >= mid]
-    if not upper or not lower:
-        return [scored]
-    sep = min(s[3] for s in lower) - max(s[3] for s in upper)
-    if sep < 0.06 * crop_h:
-        return [scored]
-    return [upper, lower]
-
-
-def _outline_norm_from_crop(
-    mask: np.ndarray,
-    box: tuple[int, int, int, int],
-    full_h: int,
-    full_w: int,
-) -> tuple[tuple[float, float], ...] | None:
-    """Normalized crown ring from the pre-snap crop mask."""
-    import cv2
-
-    from app.ai.shade_geometry import (
-        DISPLAY_OUTLINE_MAX,
-        DISPLAY_OUTLINE_MIN,
-        _even_sample_closed,
-    )
-
-    if full_h < 2 or full_w < 2 or int(np.asarray(mask).sum()) < 8:
-        return None
-    u8 = (np.asarray(mask).astype(np.uint8)) * 255
-    contours, _ = cv2.findContours(u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    if not contours:
-        return None
-    cnt = max(contours, key=cv2.contourArea)
-    if cv2.contourArea(cnt) < 8 or len(cnt) < 3:
-        return None
-    y0, _y1, x0, _x1 = box
-    pts: list[list[float]] = []
-    for p in cnt.reshape(-1, 2):
-        pts.append(
-            [
-                round((float(p[0]) + x0) / float(full_w), 5),
-                round((float(p[1]) + y0) / float(full_h), 5),
-            ]
-        )
-    if len(pts) < 3:
-        return None
-    if len(pts) > DISPLAY_OUTLINE_MAX:
-        pts = _even_sample_closed(pts, DISPLAY_OUTLINE_MAX)
-    elif len(pts) < DISPLAY_OUTLINE_MIN:
-        pts = _even_sample_closed(pts, DISPLAY_OUTLINE_MIN)
-    return tuple((float(p[0]), float(p[1])) for p in pts)
-
-
 def _labels_to_tooth_masks(
     labels: np.ndarray,
     *,
     full_h: int,
     full_w: int,
     box: tuple[int, int, int, int],
-    arch: str | None = None,
-    crop_rgb: np.ndarray | None = None,
+    px_scale: float = 1.0,
 ) -> list[ToothMask]:
-    teeth: list[ToothMask] = []
-    crop_masks = _select_kaist_crop_masks(labels, crop_rgb=crop_rgb)
+    """One ToothMask per KAIST label, left→right. Raw crowns — no enamel snap."""
+    scored: list[tuple[float, np.ndarray]] = []
+    for lid in np.unique(labels):
+        if int(lid) <= 0:
+            continue
+        m = labels == lid
+        if int(m.sum()) < _MIN_MASK_PIXELS:
+            continue
+        scored.append((float(np.nonzero(m)[1].mean()), m))
+    scored.sort(key=lambda t: t[0])
+
     band_h = max(1, box[1] - box[0])
-    enamel = None
-    if crop_rgb is not None and crop_rgb.size:
-        enamel = _kaist_crown_keep_mask(crop_rgb)
-        if int(enamel.sum()) < 80:
-            enamel = None
-    for i, crop_m in enumerate(crop_masks[:_MAX_TEETH]):
-        display_outline = None
-        analysis = crop_m
-        if enamel is not None:
-            snapped = _snap_mask_to_enamel(crop_m, enamel)
-            if int(np.count_nonzero(snapped != crop_m)) > 0:
-                display_outline = _outline_norm_from_crop(
-                    crop_m, box, full_h, full_w
-                )
-            analysis = snapped
-        full = _paste_mask(analysis, (full_h, full_w), box)
+    teeth: list[ToothMask] = []
+    for i, (_cx, crop_m) in enumerate(scored[:_MAX_TEETH]):
+        full = _paste_mask(crop_m, (full_h, full_w), box)
         if int(full.sum()) < _MIN_MASK_PIXELS:
             continue
         teeth.append(
@@ -847,106 +383,45 @@ def _labels_to_tooth_masks(
                 mask=full,
                 confidence=mask_confidence(full, band_h),
                 rejected=False,
-                reject_reason=None,
-                arch=arch,
-                display_outline=display_outline,
+                px_scale=px_scale,
             )
         )
     return _sanity_check_instances(teeth)
-
-
-def _largest_cc(mask: np.ndarray) -> np.ndarray:
-    import cv2
-
-    n, labels, stats, _ = cv2.connectedComponentsWithStats(
-        mask.astype(np.uint8), 8
-    )
-    if n <= 2:
-        return mask
-    best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-    return labels == best
-
-
-def _snap_mask_to_enamel(mask: np.ndarray, enamel: np.ndarray) -> np.ndarray:
-    """Shrink a drifted KAIST blob onto enamel. Do not grow along the band
-    — that turned 13 into a tadpole on the clinic 20:24 crop."""
-    import cv2
-
-    if mask.shape[:2] != enamel.shape[:2]:
-        return mask
-    snapped = mask & enamel
-    if int(snapped.sum()) < max(_MIN_MASK_PIXELS, int(0.35 * int(mask.sum()))):
-        snapped = mask
-    snapped = _largest_cc(snapped)
-    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    opened = cv2.morphologyEx(snapped.astype(np.uint8), cv2.MORPH_OPEN, k) > 0
-    if int(opened.sum()) >= max(_MIN_MASK_PIXELS, int(0.45 * int(snapped.sum()))):
-        snapped = _largest_cc(opened)
-    return snapped
 
 
 def _resize_for_work(
     crop_rgb: np.ndarray,
     max_side: int,
     min_side: int = _DEFAULT_MIN_SIDE,
-) -> tuple[np.ndarray, float]:
-    """Clamp work size; return (work, scale) with scale mapping work→crop.
+) -> np.ndarray:
+    """Clamp the long side into [min_side, max_side].
 
-    Wide arch strips (upper/lower intraoral) must not be scaled by width
-    alone — that crushed a 124×480 maxillary crop to 83×320 and KAIST
-    returned no upper teeth.
+    KAIST's level-set steps use fixed pixel widths and iteration budgets, so
+    the crop must stay near the scale it was tuned for. Keeping 500–640 px
+    crops native left contours stuck inside the crowns and ran ~4× slower.
     """
+    import cv2
+
     hi = max(32, int(max_side))
     lo = max(32, min(int(min_side), hi))
     ch, cw = crop_rgb.shape[:2]
-    if ch <= 0 or cw <= 0:
-        return crop_rgb, 1.0
-
-    aspect = cw / float(ch)
     long = max(ch, cw)
-    # Clinic 278×480 smile: downscale to 185×320 then remap made outlines drift.
-    native_keep = max(hi, 640)
-    # Wide smile / arch strips: scale by HEIGHT so crowns stay ~min_side tall.
-    # Scaling by the long side crushed a 324×918 mouth crop to 113×320 — KAIST
-    # then returned 7 blocky blobs that missed the enamel outline (clinic 19:59).
-    if aspect >= 1.75:
-        if long <= native_keep and ch >= 160:
-            return crop_rgb, 1.0
-        max_w = max(int(hi * 2.5), 800)
-        scale = 1.0
-        if ch < lo:
-            scale = lo / float(ch)
-        elif ch > hi:
-            scale = hi / float(ch)
-        if cw * scale > max_w:
-            scale = max_w / float(cw)
-        return _scale_rgb(crop_rgb, scale)
-
-    if lo <= long <= native_keep:
-        return crop_rgb, 1.0
-    if long > native_keep:
-        return _scale_rgb(crop_rgb, hi / float(long))
-    if long < lo:
-        return _scale_rgb(crop_rgb, lo / float(long))
-    return crop_rgb, 1.0
-
-
-def _scale_rgb(crop_rgb: np.ndarray, scale: float) -> tuple[np.ndarray, float]:
-    if abs(scale - 1.0) < 0.02:
-        return crop_rgb, 1.0
-    import cv2
-
-    ch, cw = crop_rgb.shape[:2]
-    nw = max(1, int(round(cw * scale)))
-    # Lock aspect to the crop so label remap is isotropic.
-    nh = max(1, int(round(nw * ch / float(cw))))
-    interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
-    work = cv2.resize(
+    short = min(ch, cw)
+    if long <= 0:
+        return crop_rgb
+    scale = 1.0 if lo <= long <= hi else (hi if long > hi else lo) / long
+    # Wide strips (camera "Upper/Lower teeth" crops are ~4:1): sizing by the
+    # long side left them ~50 px tall and KAIST found 1 tooth in 16. Keep the
+    # short side at a floor instead, width capped. Normal photos stay above it.
+    if short * scale < _MIN_WORK_SHORT:
+        scale = min(_MIN_WORK_SHORT / short, _MAX_WORK_LONG / long)
+    if abs(scale - 1.0) < 1e-6:
+        return crop_rgb
+    return cv2.resize(
         crop_rgb,
-        (nw, nh),
-        interpolation=interp,
+        (max(1, round(cw * scale)), max(1, round(ch * scale))),
+        interpolation=cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR,
     )
-    return work, scale
 
 
 def _upscale_labels(labels: np.ndarray, out_hw: tuple[int, int]) -> np.ndarray:
@@ -1062,133 +537,6 @@ def _run_upstream_pipeline(
         return np.asarray(labels)
 
 
-def _labels_for_work(
-    work_rgb: np.ndarray,
-    crop_hw: tuple[int, int],
-    *,
-    status: KaistSegmentStatus,
-    flip_ud: bool,
-) -> np.ndarray | None:
-    """Run KAIST on a work image; return labels in crop coords, or None."""
-    cnn = np.ascontiguousarray(work_rgb[::-1]) if flip_ud else work_rgb
-    try:
-        labels = _run_upstream_pipeline(
-            cnn,
-            vendor=Path(status.vendor_root),
-            weights=Path(status.weights),
-            device=status.device,
-            resize=status.resize,
-            snake_iters=status.snake_iters,
-            bring_back_iters=status.bring_back_iters,
-            evolve_iters=status.evolve_iters,
-        )
-    except Exception:
-        logger.exception("kaist pipeline failed flip=%s", flip_ud)
-        return None
-    labels = np.asarray(labels)
-    if flip_ud:
-        labels = np.ascontiguousarray(labels[::-1])
-    if labels.shape[:2] != work_rgb.shape[:2]:
-        logger.warning(
-            "kaist label size %s != work %s — resizing to work then crop",
-            labels.shape[:2],
-            work_rgb.shape[:2],
-        )
-        labels = _upscale_labels(labels, work_rgb.shape[:2])
-    if labels.shape[:2] != crop_hw:
-        logger.info(
-            "kaist mapping labels %s → crop %s",
-            labels.shape[:2],
-            crop_hw,
-        )
-        labels = _upscale_labels(labels, crop_hw)
-    return labels
-
-
-def _segment_kaist_box(
-    arr: np.ndarray,
-    box: tuple[int, int, int, int],
-    *,
-    status: KaistSegmentStatus,
-    dual: bool,
-    box_i: int,
-    h: int,
-    w: int,
-) -> list[ToothMask]:
-    """Same per-arch pipeline as before (iters, canvas, flip retry)."""
-    y0, y1, x0, x1 = box
-    crop_rgb = arr[y0:y1, x0:x1].copy()
-    work_src = prepare_kaist_work_rgb(crop_rgb)
-    work_rgb, scale = _resize_for_work(
-        work_src, status.max_side, status.min_side
-    )
-    preferred_flip = dual and box_i == 0  # upper intraoral: gingiva at top; KAIST expects extra-oral
-    arch = ("upper" if box_i == 0 else "lower") if dual else None
-    logger.info(
-        "kaist segment box=%s crop=%s work=%s scale=%.3f flip=%s snake=%s bring=%s evolve=%s device=%s",
-        box,
-        crop_rgb.shape[:2],
-        work_rgb.shape[:2],
-        scale,
-        preferred_flip,
-        status.snake_iters,
-        status.bring_back_iters,
-        status.evolve_iters,
-        status.device,
-    )
-    teeth: list[ToothMask] = []
-    used_flip = preferred_flip
-    flip_order = (preferred_flip, not preferred_flip)
-    if not _flip_retry_enabled():
-        flip_order = (preferred_flip,)
-    for flip_ud in flip_order:
-        t_flip = time.perf_counter()
-        labels = _labels_for_work(
-            work_rgb,
-            crop_rgb.shape[:2],
-            status=status,
-            flip_ud=flip_ud,
-        )
-        flip_ms = (time.perf_counter() - t_flip) * 1000
-        if labels is None:
-            logger.info(
-                "kaist box=%s flip=%s ms=%.0f failed",
-                box,
-                flip_ud,
-                flip_ms,
-            )
-            continue
-        teeth = _labels_to_tooth_masks(
-            labels,
-            full_h=h,
-            full_w=w,
-            box=box,
-            arch=arch,
-            crop_rgb=crop_rgb,
-        )
-        used_flip = flip_ud
-        logger.info(
-            "kaist box=%s flip=%s ms=%.0f teeth=%s",
-            box,
-            flip_ud,
-            flip_ms,
-            len(teeth),
-        )
-        if teeth:
-            break
-        if len(flip_order) > 1:
-            logger.info(
-                "kaist box empty flip=%s — retrying opposite orientation", flip_ud
-            )
-    logger.info(
-        "kaist box teeth=%s flip=%s arch=%s",
-        len(teeth),
-        used_flip,
-        arch,
-    )
-    return teeth
-
-
 def detect_teeth_kaist(
     image_rgb: np.ndarray,
     *,
@@ -1196,7 +544,7 @@ def detect_teeth_kaist(
     vendor: str | Path | None = None,
     weights: str | Path | None = None,
 ) -> list[ToothMask]:
-    """Segment per-tooth masks via KAIST pipeline. Empty list on hard failure."""
+    """Segment per-tooth masks via KAIST on one mouth crop. Empty list on failure."""
     arr = np.asarray(image_rgb)
     if arr.ndim != 3 or arr.shape[2] != 3:
         raise ValueError("image_rgb must be HxWx3")
@@ -1208,53 +556,36 @@ def detect_teeth_kaist(
 
     started = time.perf_counter()
     h, w = arr.shape[:2]
-    if crop:
-        boxes = kaist_focus_boxes(arr)
-    else:
-        boxes = [(0, h, 0, w)]
-
-    gathered: list[ToothMask] = []
-    dual = len(boxes) == 2
-
-    def run_box(box_i: int) -> list[ToothMask]:
-        return _segment_kaist_box(
-            arr,
-            boxes[box_i],
-            status=status,
-            dual=dual,
-            box_i=box_i,
-            h=h,
-            w=w,
+    crop_rgb, box = mouth_crop_rgb(arr) if crop else (arr, (0, h, 0, w))
+    work_rgb = _resize_for_work(crop_rgb, status.max_side, status.min_side)
+    try:
+        labels = _run_upstream_pipeline(
+            work_rgb,
+            vendor=Path(status.vendor_root),
+            weights=Path(status.weights),
+            device=status.device,
+            resize=status.resize,
+            snake_iters=status.snake_iters,
+            bring_back_iters=status.bring_back_iters,
+            evolve_iters=status.evolve_iters,
         )
-
-    if dual:
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            parts = list(pool.map(run_box, (0, 1)))
-        gathered = [t for part in parts for t in part]
-    else:
-        gathered = run_box(0)
-
-    if not gathered and crop and boxes != [(0, h, 0, w)]:
-        logger.info("kaist focus crops empty — retrying full frame")
-        return detect_teeth_kaist(arr, crop=False, vendor=vendor, weights=weights)
-
-    # Re-index after merging upper/lower runs
-    for i, t in enumerate(gathered):
-        gathered[i] = ToothMask(
-            tooth_index=i,
-            mask=t.mask,
-            confidence=t.confidence,
-            rejected=t.rejected,
-            reject_reason=t.reject_reason,
-            arch=t.arch,
-            arch_index=t.arch_index,
-            display_outline=t.display_outline,
-        )
+    except Exception:
+        logger.exception("kaist pipeline failed")
+        return []
+    # Contour-scaled back to the crop so edges stay smooth, not stair-stepped.
+    labels = _upscale_labels(np.asarray(labels), crop_rgb.shape[:2])
+    teeth = _labels_to_tooth_masks(
+        labels,
+        full_h=h,
+        full_w=w,
+        box=box,
+        px_scale=crop_rgb.shape[1] / max(1, work_rgb.shape[1]),
+    )
     logger.info(
-        "kaist done teeth=%s accepted=%s boxes=%s ms=%.0f",
-        len(gathered),
-        sum(1 for t in gathered if not t.rejected),
-        len(boxes),
+        "kaist done crop=%s work=%s teeth=%s ms=%.0f",
+        crop_rgb.shape[:2],
+        work_rgb.shape[:2],
+        len(teeth),
         (time.perf_counter() - started) * 1000,
     )
-    return gathered
+    return teeth

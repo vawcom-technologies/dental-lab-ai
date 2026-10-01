@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../../core/l10n/app_localizations.dart';
@@ -17,7 +18,8 @@ class PickedMeshFile {
 /// Pick a PLY / STL / OBJ.
 ///
 /// Real iPad uses the system Files sheet (iCloud, USB, On My iPad).
-/// The iOS Simulator cannot open Mac Downloads, so it lists `debug_scans`.
+/// The iOS Simulator cannot open Mac Downloads, so it lists `debug_scans`
+/// / `references/scans`. Web must load bytes in-memory (`withData: true`).
 Future<PickedMeshFile?> pickMeshFile(BuildContext context) async {
   if (host.isIosSimulator) {
     try {
@@ -34,7 +36,8 @@ Future<PickedMeshFile?> pickMeshFile(BuildContext context) async {
       type: host.useIosFilesPicker ? FileType.any : FileType.custom,
       allowedExtensions:
           host.useIosFilesPicker ? null : const ['ply', 'stl', 'obj'],
-      withData: false,
+      // Web has no filesystem path — bytes must be inlined or read fails.
+      withData: kIsWeb,
       allowMultiple: false,
     );
     if (result == null || result.files.isEmpty) return null;

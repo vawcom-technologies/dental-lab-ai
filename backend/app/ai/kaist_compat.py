@@ -195,15 +195,14 @@ def patch_kaist_vendor(
     patch_torch_numpy_bridge()
     import skfmm
     from src.reinitial import Reinitial
+    from src.reinst import ThreeRegions
     from src.teethSeg import InitContour, PseudoER, Snake
 
     if not getattr(Reinitial, "_dental_lab_patched", False):
-        _orig = Reinitial.getSDF
 
+        # Always fast-marching: upstream's iterative Sussman reinit (fmm=False,
+        # Snake + rein_w5) was ~half of KAIST wall time; masks match at IoU ≥0.98.
         def getSDF(self, img):  # noqa: N802
-            if not self.fmm:
-                return _orig(self, img)
-
             x = np.asarray(img)
             if self.dim_stack == 0 and x.ndim == 3:
                 x = x.transpose((1, 2, 0))
@@ -229,6 +228,35 @@ def patch_kaist_vendor(
 
         Reinitial.getSDF = getSDF
         Reinitial._dental_lab_patched = True
+
+    if not getattr(ThreeRegions, "_dental_lab_patched", False):
+        import cv2
+
+        eps = np.finfo(float).eps
+
+        # Same 25×25 window sums as upstream, via boxFilter instead of a
+        # 25×25 ones-kernel filter2D (identical output, several× faster).
+        def calParams(self):  # noqa: N802
+            def box(x):
+                return cv2.boxFilter(
+                    x.astype(np.float64), -1, (25, 25), normalize=False
+                )
+
+            band = np.abs(self.phi) < 2
+            eximg = np.expand_dims(self.img, -1)
+            img_i = eximg * np.expand_dims(self.reg2_i, 2)
+            img_o = eximg * np.expand_dims(self.reg2_o, 2)
+            den_i = box(self.reg2_i) * 3 + eps
+            den_o = box(self.reg2_o) * 3 + eps
+            self.mu3_i = box(img_i.sum(axis=2)) * band / den_i
+            self.mu3_o = box(img_o.sum(axis=2)) * band / den_o
+            sq_i = box((img_i**2).sum(axis=2)) * band / den_i
+            sq_o = box((img_o**2).sum(axis=2)) * band / den_o
+            self.var3_i = np.abs(sq_i - self.mu3_i**2)
+            self.var3_o = np.abs(sq_o - self.mu3_o**2)
+
+        ThreeRegions.calParams = calParams
+        ThreeRegions._dental_lab_patched = True
 
     _silence_kaist_io()
 

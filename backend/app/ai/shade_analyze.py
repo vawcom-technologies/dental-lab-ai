@@ -40,6 +40,9 @@ from app.ai.shade import (
 from app.ai.shade_geometry import (
     EDIT_HANDLES_MAX,
     EDIT_HANDLES_MIN,
+    incisal_lines,
+    lip_suggestions,
+    midline_from_rows,
     mask_from_normalized_outline,
     simplify_normalized_outline,
     tooth_display_geometry,
@@ -220,8 +223,20 @@ def analyze_shade_from_rgb(image_rgb: np.ndarray) -> dict[str, Any]:
         "image_height": h,
         "note": note,
         "gum": gum,
+        "lines": _guide_lines(tooth_results),
+        # Start positions for the Lips tool; the app draws nothing until asked.
+        "lip_suggestions": lip_suggestions(arr, tooth_results),
         **segment_meta,
     }
+
+
+def _guide_lines(rows: list[dict[str, Any]]) -> dict[str, list[list[float]]]:
+    """Bite line(s) plus the midline the app lets the user drag."""
+    lines = incisal_lines(rows)
+    midline = midline_from_rows(rows)
+    if midline:
+        lines["midline"] = midline
+    return lines
 
 
 def analyze_tooth_from_outline_bytes(
@@ -229,6 +244,7 @@ def analyze_tooth_from_outline_bytes(
     outline: list[list[float]],
     *,
     tooth_index: int = 0,
+    arch: str | None = None,
 ) -> dict[str, Any]:
     """Re-analyze one tooth from a dentist-edited normalized outline.
 
@@ -236,7 +252,7 @@ def analyze_tooth_from_outline_bytes(
     and refresh zone Lab / VITA matches without re-segmenting the whole arch.
     """
     return analyze_tooth_from_outline_rgb(
-        _load_rgb_from_bytes(data), outline, tooth_index=tooth_index
+        _load_rgb_from_bytes(data), outline, tooth_index=tooth_index, arch=arch
     )
 
 
@@ -245,6 +261,7 @@ def analyze_tooth_from_outline_rgb(
     outline: list[list[float]],
     *,
     tooth_index: int = 0,
+    arch: str | None = None,
 ) -> dict[str, Any]:
     arr = np.asarray(image_rgb)
     if arr.ndim != 3 or arr.shape[2] != 3:
@@ -268,6 +285,7 @@ def analyze_tooth_from_outline_rgb(
         confidence=mask_confidence(mask, h),
         rejected=False,
         reject_reason=None,
+        arch=arch,
     )
     row = _analyze_tooth(arr, tooth)
     row["tooth_index"] = tooth_index
@@ -290,8 +308,8 @@ def _geometry_for_tooth(
     tooth: ToothMask,
     zone_masks: dict[str, np.ndarray] | None = None,
 ) -> dict[str, Any] | None:
-    """Outline follows the pre-snap crown; shade zones stay on `tooth.mask`."""
-    geo = tooth_display_geometry(tooth.mask, zone_masks)
+    """Outline is display-faired; shade zones stay on `tooth.mask`."""
+    geo = tooth_display_geometry(tooth.mask, zone_masks, px_scale=tooth.px_scale)
     outline = tooth.display_outline
     if geo is None or not outline or len(outline) < 3:
         return geo
@@ -350,7 +368,7 @@ def _analyze_tooth(image_rgb: np.ndarray, tooth: ToothMask) -> dict[str, Any]:
         return base
 
     try:
-        zone_masks = split_tooth_zones(tooth.mask)
+        zone_masks = split_tooth_zones(tooth.mask, lower=tooth.arch == "lower")
     except ValueError:
         base["rejected"] = True
         base["reject_reason"] = tooth.reject_reason or "incomplete"

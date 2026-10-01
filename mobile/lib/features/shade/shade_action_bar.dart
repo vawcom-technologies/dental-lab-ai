@@ -46,6 +46,8 @@ class ShadeActionBar extends StatelessWidget {
     required this.onCancel,
     required this.onReset,
     required this.onApply,
+    required this.lipsOn,
+    required this.onToggleLips,
     required this.onAdjustEdges,
     required this.onDelete,
     required this.onAddTooth,
@@ -59,6 +61,9 @@ class ShadeActionBar extends StatelessWidget {
   final VoidCallback onCancel;
   final VoidCallback onReset;
   final VoidCallback onApply;
+  /// Lip outline is user-placed; the toggle adds/removes it in Adjust edges.
+  final bool lipsOn;
+  final VoidCallback onToggleLips;
   final VoidCallback onAdjustEdges;
   final VoidCallback onDelete;
   final VoidCallback onAddTooth;
@@ -108,6 +113,23 @@ class ShadeActionBar extends StatelessWidget {
                 fontSize: fontSize,
               ),
               child: label(loc.shadeReset),
+            ),
+          ),
+          SizedBox(width: gap),
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: onToggleLips,
+              icon: Icon(
+                lipsOn ? Icons.check_circle : Icons.add_circle_outline,
+                size: iconSize,
+              ),
+              label: label(loc.shadeLips),
+              style: compactActionOutlined(
+                fg: lipsOn ? const Color(0xFFD81B60) : AppColors.navy,
+                side: lipsOn ? const Color(0xFFD81B60) : AppColors.border,
+                minH: minH,
+                fontSize: fontSize,
+              ),
             ),
           ),
           SizedBox(width: gap),

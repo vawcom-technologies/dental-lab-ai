@@ -66,9 +66,6 @@ class Settings(BaseSettings):
     shade_segment_kaist_snake_iters: int = 5
     shade_segment_kaist_bring_back_iters: int = 28
     shade_segment_kaist_evolve_iters: int = 14
-    # On CPU (Railway), skip the opposite-orientation retry when the preferred
-    # flip returns 0 teeth — that retry doubles latency. MPS/CUDA still retry.
-    shade_segment_kaist_flip_retry: bool = True
     # Roboflow PLAK (Inference SDK). Prefer ROBOFLOW_API_KEY in .env
     roboflow_api_key: str = ""
     shade_segment_roboflow_api_key: str = ""
@@ -84,12 +81,12 @@ class Settings(BaseSettings):
     shade_segment_sam_weights: str = "sam2_b.pt"
 
     # Chairside interpreter (doctor ↔ patient). Turns are not stored.
-    # Prefer DeepL (EU). Google Cloud / OpenAI are fallbacks. GTX is last-resort
-    # so local demo works without keys — disable in production if undesired.
-    deepl_api_key: str = ""
+    # One LLM, any OpenAI-compatible endpoint (OpenAI, Gemini's /v1beta/openai, ...).
+    # Key falls back to OPENAI_API_KEY. OPENAI_API_KEY also enables Whisper STT.
     openai_api_key: str = ""
-    google_translate_api_key: str = ""
-    interpreter_allow_gtx_fallback: bool = True
+    interpreter_llm_api_key: str = ""
+    interpreter_llm_base_url: str = "https://api.openai.com/v1"
+    interpreter_llm_model: str = "gpt-4o-mini"
 
 
 settings = Settings()

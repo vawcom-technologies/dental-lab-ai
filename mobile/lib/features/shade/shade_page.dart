@@ -68,20 +68,51 @@ class _ShadePageState extends State<ShadePage> {
   String? _shadeDetectionId;
   /// Case-level gingiva match from the last analyze pass (not a VITA tooth shade).
   Map<String, dynamic>? _gum;
+  /// Upper/lower incisal guide curves from the last analyze pass.
+  Map<String, List<List<double>>> _guideLines = const {};
+  /// Backend's suggested lip start points — used when Lips is toggled on.
+  Map<String, List<List<double>>> _lipSuggestions = const {};
+  /// Photo shows only the midline, lip outline and lip top/bottom lines.
+  bool _symmetryView = false;
+
+  /// Symmetry view uses placed lips, else the detected suggestion — shown
+  /// only, never added to the saved guides (Lips in Adjust edges does that).
+  Map<String, List<List<double>>> get _viewGuides {
+    if (!_symmetryView || _editOutlineMode || _lipsOn) return _guideLines;
+    return {..._guideLines, ..._lipSuggestions};
+  }
+
+  /// Photo shows only the selected tooth (other teeth + guides hidden).
+  bool _focusView = false;
+
+  void _toggleFocusView() {
+    setState(() {
+      _focusView = !_focusView;
+      if (_focusView) _symmetryView = false; // contradictory views
+    });
+  }
+
+  void _toggleSymmetryView() {
+    setState(() {
+      _symmetryView = !_symmetryView;
+      if (_symmetryView) _focusView = false;
+      if (_symmetryView && !_lipsOn && _lipSuggestions.isEmpty) {
+        _saveStatus = 'No lip border found in this photo — showing the '
+            'midline only. Add lips in Adjust edges to place them.';
+      }
+    });
+  }
 
   // Per-tooth / per-zone analysis (added onto existing UI)
   List<Map<String, dynamic>> _teeth = [];
-  /// Full AI detection set — kept across isolate so other teeth stay tappable.
+  /// Full AI detection set — restore source for undo / re-select.
   List<Map<String, dynamic>> _teethMemory = [];
   /// Snapshots taken just before a tooth delete — overlay Undo restores them.
   final List<
       ({
         List<Map<String, dynamic>> teeth,
         int? selected,
-        int? isolated,
       })> _teethUndo = [];
-  /// Triple-tap focus: Result pane shows this tooth; overlay keeps all.
-  int? _isolatedToothIndex;
   int? _selectedToothIndex;
   String _focusZone = 'middle';
   Size _analysisImageSize = Size.zero;
@@ -105,6 +136,13 @@ class _ShadePageState extends State<ShadePage> {
   int? _activeHandleIndex;
   int? _activeEdgeIndex;
   bool _movingOutline = false;
+  /// Corner position minus finger position at grab — no jump under the finger.
+  Offset _grabOffset = Offset.zero;
+  /// Guide being dragged in Adjust edges (midline end / lip point;
+  /// index -1 = the whole midline).
+  ({String key, int index})? _activeGuide;
+  /// Guides when Adjust edges opened — Cancel / Reset restore them.
+  Map<String, List<List<double>>>? _guideLinesBackup;
   Offset? _bodyDragLast;
   /// Loupe follows this without setState — Image.memory stays mounted.
   final _magnifierFocal = ValueNotifier<Offset?>(null);
@@ -140,19 +178,10 @@ class _ShadePageState extends State<ShadePage> {
     _teethMemory = _cloneTeeth(_teeth);
   }
 
-  /// Result list: all teeth after detect; only the focused one after triple-tap.
-  List<Map<String, dynamic>> get _teethForResultPane {
-    final iso = _isolatedToothIndex;
-    if (iso == null) return _teeth;
-    return _teeth
-        .where((t) => (t['tooth_index'] as num?)?.toInt() == iso)
-        .toList();
-  }
-
   bool _hasToothIndex(int index) =>
       _teeth.any((t) => (t['tooth_index'] as num?)?.toInt() == index);
 
-  /// Bring back the full detection set from memory (e.g. after isolate).
+  /// Bring back the full detection set from memory (e.g. after a delete).
   void _ensureTeethFromMemory({int? preferIndex}) {
     if (_teethMemory.isEmpty) return;
     final needRestore = preferIndex != null
@@ -227,7 +256,6 @@ class _ShadePageState extends State<ShadePage> {
       'teeth_memory': cloneShadeMaps(
         _teethMemory.isEmpty ? _teeth : _teethMemory,
       ),
-      'isolated_tooth_index': _isolatedToothIndex,
       'selected_tooth_index': _selectedToothIndex,
       'focus_zone': _focusZone,
       'analysis_image_width': _analysisImageSize.width,
@@ -242,6 +270,8 @@ class _ShadePageState extends State<ShadePage> {
       'pending_gum_shade': _pendingGumShade,
       'overall_shade_pick': _overallShadePick,
       'gum': _gum == null ? null : Map<String, dynamic>.from(_gum!),
+      'lines': _guideLines,
+      'lip_suggestions': _lipSuggestions,
     };
   }
 
@@ -316,7 +346,6 @@ class _ShadePageState extends State<ShadePage> {
     _teethMemory = memRaw is List
         ? _parseTeeth(memRaw)
         : _cloneTeeth(_teeth);
-    _isolatedToothIndex = (ws['isolated_tooth_index'] as num?)?.toInt();
     _selectedToothIndex = (ws['selected_tooth_index'] as num?)?.toInt();
     _focusZone = ws['focus_zone'] as String? ?? 'middle';
     final iw = (ws['analysis_image_width'] as num?)?.toDouble() ?? 0;
@@ -344,6 +373,8 @@ class _ShadePageState extends State<ShadePage> {
     _pendingGumShade = ws['pending_gum_shade'] as String?;
     _overallShadePick = ws['overall_shade_pick'] == true;
     _gum = _parseGum(ws['gum']);
+    _guideLines = parseGuideLines(ws['lines']);
+    _lipSuggestions = parseGuideLines(ws['lip_suggestions']);
     _exitOutlineEdit(clearStatus: false);
     _photoTransformController.value = Matrix4.identity();
   }
@@ -399,7 +430,6 @@ class _ShadePageState extends State<ShadePage> {
         _previewImageSize = Size.zero;
         _teeth = [];
         _teethMemory = [];
-        _isolatedToothIndex = null;
         _selectedToothIndex = null;
         _detected = '—';
         _selected = entry['shade'] as String? ?? '—';
@@ -411,6 +441,10 @@ class _ShadePageState extends State<ShadePage> {
         _pendingGumShade = null;
         _overallShadePick = false;
         _gum = _parseGum(entry['gum'] ?? entry['analysis']);
+        _guideLines = const {};
+        _lipSuggestions = const {};
+        _symmetryView = false;
+        _focusView = false;
         _exitOutlineEdit(clearStatus: false);
         _photoTransformController.value = Matrix4.identity();
       }
@@ -631,10 +665,6 @@ class _ShadePageState extends State<ShadePage> {
     final same = !switchingTooth && nextZone == _focusZone;
     setState(() {
       _selectedToothIndex = index;
-      // If already in triple-tap focus mode, move focus with the selection.
-      if (_isolatedToothIndex != null) {
-        _isolatedToothIndex = index;
-      }
       _focusZone = nextZone;
       _overrideTab = 0;
       if (!same) {
@@ -648,69 +678,14 @@ class _ShadePageState extends State<ShadePage> {
     if (switchingTooth) AppHaptics.selection();
   }
 
-  // Triple-tap tracking on the photo overlay (same tooth within window).
-  int? _toothTapIndex;
-  int _toothTapCount = 0;
-  DateTime? _toothTapAt;
-
-  /// Single tap selects (restores full set from memory); triple-tap isolates focus.
+  /// Tap selects a tooth; the full mapping stays on the photo and in Result.
+  /// Adjust edges is the focused one-tooth view.
   void _onToothTap(int index) {
     if (_editOutlineMode || _busy) return;
-    final now = DateTime.now();
-    if (_toothTapIndex == index &&
-        _toothTapAt != null &&
-        now.difference(_toothTapAt!) < const Duration(milliseconds: 500)) {
-      _toothTapCount += 1;
-    } else {
-      _toothTapCount = 1;
-    }
-    _toothTapIndex = index;
-    _toothTapAt = now;
-
-    if (_toothTapCount >= 3) {
-      _toothTapCount = 0;
-      _isolateTooth(index);
-      return;
-    }
-
-    setState(() {
-      _ensureTeethFromMemory(preferIndex: index);
-      // Stay in isolate focus mode but move it to the newly tapped tooth.
-      if (_isolatedToothIndex != null) {
-        _isolatedToothIndex = index;
-      }
-    });
+    setState(() => _ensureTeethFromMemory(preferIndex: index));
     _selectTooth(index);
   }
 
-  /// Focus Result details on [index]; keep every detected tooth in memory/overlay.
-  void _isolateTooth(int index) {
-    if (_editOutlineMode || _busy) return;
-    setState(() {
-      if (_teethMemory.isEmpty) _rememberTeeth();
-      _ensureTeethFromMemory(preferIndex: index);
-    });
-    if (!_hasToothIndex(index)) return;
-
-    final label = _toothLabelFor(index);
-
-    setState(() {
-      _isolatedToothIndex = index;
-      _selectedToothIndex = index;
-      _focusZone = 'middle';
-      _pendingShade = null;
-      _overallShadePick = false;
-      _syncUiFromSelection(resetSelectedToDetected: true);
-      _saveStatus =
-          'Focused on $label — tap another tooth to switch (all kept in memory).';
-      _upsertSessionEntry(onlyIfExists: true);
-    });
-    AppHaptics.success();
-    _toast(
-      '$label focused — tap any other tooth to move there',
-      bg: AppColors.navy,
-    );
-  }
 
 
   void _toast(String msg, {Color? bg}) {
@@ -826,7 +801,6 @@ class _ShadePageState extends State<ShadePage> {
     _teethUndo.add((
       teeth: _cloneTeeth(_teeth),
       selected: _selectedToothIndex,
-      isolated: _isolatedToothIndex,
     ));
     final remaining = <Map<String, dynamic>>[];
     for (final t in _teeth) {
@@ -842,15 +816,8 @@ class _ShadePageState extends State<ShadePage> {
     setState(() {
       _teeth = remaining;
       _rememberTeeth();
-      if (_isolatedToothIndex == idx) {
-        _isolatedToothIndex = remaining.isEmpty ? null : 0;
-      } else if (_isolatedToothIndex != null) {
-        // Indices were renumbered — drop isolate focus to avoid stale id.
-        _isolatedToothIndex = _selectedToothIndex;
-      }
       if (remaining.isEmpty) {
         _selectedToothIndex = null;
-        _isolatedToothIndex = null;
         _detected = '—';
         _confidence = 0;
         _topMatches = [];
@@ -860,7 +827,6 @@ class _ShadePageState extends State<ShadePage> {
         // Prefer the neighbor that was to the right, else the new last.
         final next = idx.clamp(0, remaining.length - 1);
         _selectedToothIndex = next;
-        if (_isolatedToothIndex != null) _isolatedToothIndex = next;
         _syncUiFromSelection();
         _saveStatus =
             'Removed tooth. ${remaining.length} remaining — tap Undo to restore.';
@@ -877,7 +843,6 @@ class _ShadePageState extends State<ShadePage> {
       _teeth = _cloneTeeth(snap.teeth);
       _rememberTeeth();
       _selectedToothIndex = snap.selected;
-      _isolatedToothIndex = snap.isolated;
       _syncUiFromSelection();
       _saveStatus = 'Restored deleted tooth.';
       _upsertSessionEntry(onlyIfExists: true);
@@ -927,11 +892,6 @@ class _ShadePageState extends State<ShadePage> {
       setState(() => _error = 'Upload a photo before adding a tooth.');
       return;
     }
-    if (_teeth.length >= 12) {
-      setState(() => _error = 'Maximum of 12 teeth on this analysis.');
-      return;
-    }
-
     final reference = _selectedTooth ?? (_teeth.isNotEmpty ? _teeth.last : null);
     final refHandles = reference == null ? null : toothEditHandles(reference);
     final refBox = reference == null ? null : toothGeometryBBox(reference);
@@ -1045,7 +1005,7 @@ class _ShadePageState extends State<ShadePage> {
     } else {
       final raw = geo['outline'];
       if (raw is! List || raw.length < 3) return;
-      verts = simplifyOutlineForEdit(raw, maxPoints: 12, minPoints: 8);
+      verts = simplifyOutlineForEdit(raw, maxPoints: 8, minPoints: 6);
     }
     if (verts.length < 3) return;
     final stored = geo['edge_bulges'];
@@ -1062,6 +1022,8 @@ class _ShadePageState extends State<ShadePage> {
       _editOutlineBackup = OutlineEditHistory.cloneVerts(verts);
       _editBulges = bulges;
       _editBulgesBackup = OutlineEditHistory.cloneBulges(bulges);
+      _guideLines = _cloneGuides(_guideLines);
+      _guideLinesBackup = _cloneGuides(_guideLines);
       _activeHandleIndex = null;
       _activeEdgeIndex = null;
       _movingOutline = false;
@@ -1070,12 +1032,102 @@ class _ShadePageState extends State<ShadePage> {
       _outlineBeforeDrag = null;
       _outlineHistory.clear();
       _saveStatus =
-          'Drag inside to move · drag corners · hold mid-edge to curve · Apply.';
+          'Drag inside to move · drag corners · hold mid-edge to curve · '
+          'drag the midline · Apply.';
     });
   }
 
+  Map<String, List<List<double>>> _cloneGuides(
+    Map<String, List<List<double>>> g,
+  ) =>
+      {for (final e in g.entries) e.key: OutlineEditHistory.cloneVerts(e.value)};
+
+  /// Put midline + lips back as they were when Adjust edges opened.
+  void _restoreGuides() {
+    final bak = _guideLinesBackup;
+    if (bak == null) return;
+    _guideLines = _cloneGuides(bak);
+    _renumberFromMidline();
+  }
+
   void _cancelOutlineEdit() {
-    setState(() => _exitOutlineEdit());
+    setState(() {
+      _restoreGuides();
+      _exitOutlineEdit();
+    });
+  }
+
+  bool get _lipsOn =>
+      _guideLines.containsKey('upper_lip') || _guideLines.containsKey('lower_lip');
+
+  /// Outer lip lines (lip against skin): backend-suggested, user-adjusted.
+  void _toggleLips() {
+    setState(() {
+      final next = {..._guideLines};
+      if (_lipsOn) {
+        next.remove('upper_lip');
+        next.remove('lower_lip');
+      } else {
+        // Detected outer lip edges (lip vs skin) when available; photos
+        // detected before that fall back to just outside the crowns.
+        List<List<double>>? start(String key, {required bool upper}) {
+          final s = _lipSuggestions[key];
+          return s != null && s.length >= 2
+              ? OutlineEditHistory.cloneVerts(s)
+              : _defaultLip(upper: upper);
+        }
+
+        final up = start('upper_lip', upper: true);
+        final lo = start('lower_lip', upper: false);
+        if (up != null) next['upper_lip'] = up;
+        if (lo != null) next['lower_lip'] = lo;
+      }
+      _guideLines = next;
+      _saveStatus = _lipsOn
+          ? 'Drag the pink points onto the edge where each lip meets the skin.'
+          : 'Lip outline removed.';
+    });
+  }
+
+  /// 5 points just outside the crowns: above the upper row for the upper lip,
+  /// below the lower row (or the upper row if no lower teeth) for the lower.
+  List<List<double>>? _defaultLip({required bool upper}) {
+    List<List<double>> pointsOf({required bool lowerArch}) => [
+          for (final t in _teeth)
+            if (t['rejected'] != true && (t['arch'] == 'lower') == lowerArch)
+              for (final p in ((t['geometry'] as Map?)?['outline'] as List?) ??
+                  const [])
+                if (p is List && p.length >= 2)
+                  [(p[0] as num).toDouble(), (p[1] as num).toDouble()],
+        ];
+    var pts = pointsOf(lowerArch: !upper);
+    if (pts.isEmpty && !upper) pts = pointsOf(lowerArch: false);
+    if (pts.length < 3) return null;
+    final x0 = pts.map((p) => p[0]).reduce((a, b) => a < b ? a : b);
+    final x1 = pts.map((p) => p[0]).reduce((a, b) => a > b ? a : b);
+    final band = (x1 - x0) / 8;
+    final out = <List<double>>[];
+    for (var k = 0; k < 5; k++) {
+      final x = x0 + (x1 - x0) * k / 4;
+      final near = [for (final p in pts) if ((p[0] - x).abs() <= band) p[1]];
+      final ys = near.isEmpty ? [for (final p in pts) p[1]] : near;
+      final y = upper
+          ? ys.reduce((a, b) => a < b ? a : b) - 0.015
+          : ys.reduce((a, b) => a > b ? a : b) + 0.015;
+      out.add([x, y.clamp(0.0, 1.0)]);
+    }
+    return out;
+  }
+
+  void _renumberFromMidline() {
+    final mid = _guideLines['midline'];
+    if (mid == null || mid.length < 2 || _teeth.isEmpty) return;
+    final selected = _selectedTooth;
+    renumberTeethFromMidline(_teeth, mid);
+    if (selected != null) {
+      _selectedToothIndex = (selected['tooth_index'] as num?)?.toInt();
+    }
+    _rememberTeeth();
   }
 
   void _resetOutlineEdit() {
@@ -1085,6 +1137,7 @@ class _ShadePageState extends State<ShadePage> {
     setState(() {
       _editOutline = OutlineEditHistory.cloneVerts(bak);
       _editBulges = OutlineEditHistory.cloneBulges(bakB);
+      _restoreGuides();
       _activeHandleIndex = null;
       _activeEdgeIndex = null;
       _movingOutline = false;
@@ -1121,6 +1174,8 @@ class _ShadePageState extends State<ShadePage> {
     _editOutlineBackup = null;
     _editBulges = null;
     _editBulgesBackup = null;
+    _guideLinesBackup = null;
+    _activeGuide = null;
     _activeHandleIndex = null;
     _activeEdgeIndex = null;
     _movingOutline = false;
@@ -1139,7 +1194,6 @@ class _ShadePageState extends State<ShadePage> {
       _teeth = [];
       _teethMemory = [];
       _teethUndo.clear();
-      _isolatedToothIndex = null;
       _selectedToothIndex = null;
       _analysisImageSize = Size.zero;
       _detected = '—';
@@ -1153,6 +1207,10 @@ class _ShadePageState extends State<ShadePage> {
       _overrideTab = 0;
       _overallShadePick = false;
       _gum = null;
+      _guideLines = const {};
+      _lipSuggestions = const {};
+      _symmetryView = false;
+      _focusView = false;
       _exitOutlineEdit(clearStatus: false);
       _photoTransformController.value = Matrix4.identity();
       _error = null;
@@ -1162,6 +1220,15 @@ class _ShadePageState extends State<ShadePage> {
   }
 
   void _endOutlineDrag() {
+    final guide = _activeGuide;
+    if (guide != null) {
+      setState(() {
+        _activeGuide = null;
+        _bodyDragLast = null;
+        if (guide.key == 'midline') _renumberFromMidline();
+      });
+      return;
+    }
     _commitOutlineDrag();
     setState(() {
       _activeHandleIndex = null;
@@ -1211,6 +1278,22 @@ class _ShadePageState extends State<ShadePage> {
       return;
     }
 
+    final bak = _editOutlineBackup;
+    final bakB = _editBulgesBackup;
+    if (bak != null &&
+        bakB != null &&
+        OutlineEditHistory.same(
+          OutlineEditHistory.snapOf(bak, bakB),
+          OutlineEditHistory.snapOf(outline, bulges),
+        )) {
+      // Only the midline / lips moved — no need to re-match tooth shades.
+      setState(() {
+        _exitOutlineEdit(clearStatus: false);
+        _saveStatus = 'Midline and lip guides updated.';
+      });
+      return;
+    }
+
     // Densify Bezier bulges so backend fillPoly keeps mid-edge bends.
     final sampled = sampleCurvedOutline(outline, bulges, samplesPerEdge: 8);
 
@@ -1225,6 +1308,7 @@ class _ShadePageState extends State<ShadePage> {
         filename: _previewFilename,
         outline: sampled,
         toothIndex: idx,
+        arch: _selectedTooth?['arch'] as String?,
       );
       final toothRaw = result['tooth'];
       if (toothRaw is! Map) {
@@ -1472,7 +1556,7 @@ class _ShadePageState extends State<ShadePage> {
     await _loadShadeDetections();
   }
 
-  Future<void> _loadShadeDetections() async {
+  Future<void> _loadShadeDetections({bool forceRefresh = false}) async {
     final patient = _patient;
     if (patient == null) {
       if (mounted) {
@@ -1483,7 +1567,10 @@ class _ShadePageState extends State<ShadePage> {
     final pid = _pid(patient);
     if (pid.isEmpty) return;
     try {
-      final rows = await widget.api.listShadeDetections(pid);
+      final rows = await widget.api.listShadeDetections(
+        pid,
+        forceRefresh: forceRefresh,
+      );
       if (!mounted) return;
       setState(() => _allShadeItems = rows);
     } catch (e) {
@@ -1499,8 +1586,10 @@ class _ShadePageState extends State<ShadePage> {
     final id = widget.patientSession.takePendingShadeDetectionId();
     if (id == null || id.isEmpty || _patient == null) return;
 
-    // Ensure the copied row is present (list may be stale after camera copy).
-    await _loadShadeDetections();
+    // Bypass the 5-min GET cache: the camera copy POSTs under
+    // /api/patient-photos, which doesn't evict this patient's shade list, so a
+    // cached list (no recent upload) lacks the new row.
+    await _loadShadeDetections(forceRefresh: true);
     if (!mounted) return;
 
     Map<String, dynamic>? item;
@@ -1548,7 +1637,6 @@ class _ShadePageState extends State<ShadePage> {
         _exitOutlineEdit(clearStatus: false);
         _teeth = [];
         _rememberTeeth();
-        _isolatedToothIndex = null;
         _selectedToothIndex = null;
         _finalShade = null;
         _detected = '—';
@@ -1556,6 +1644,10 @@ class _ShadePageState extends State<ShadePage> {
         _topMatches = [];
         _overallTopMatches = [];
         _gum = null;
+        _guideLines = const {};
+        _lipSuggestions = const {};
+        _symmetryView = false;
+        _focusView = false;
         _pendingGumShade = null;
       });
       if (runAi) {
@@ -1604,7 +1696,6 @@ class _ShadePageState extends State<ShadePage> {
       _teeth = teeth;
       _rememberTeeth();
       _teethUndo.clear();
-      _isolatedToothIndex = null;
       _selectedToothIndex = (first?['tooth_index'] as num?)?.toInt();
       _focusZone = 'middle';
       final iw = (result['image_width'] as num?)?.toDouble() ?? 0;
@@ -1612,6 +1703,10 @@ class _ShadePageState extends State<ShadePage> {
       _analysisImageSize = (iw > 0 && ih > 0) ? Size(iw, ih) : Size.zero;
       _finalShade = null;
       _gum = _parseGum(result['gum']);
+      _guideLines = parseGuideLines(result['lines']);
+      _lipSuggestions = parseGuideLines(result['lip_suggestions']);
+      _symmetryView = false;
+      _focusView = false;
       _pendingGumShade = null;
       _overrideTab = 0;
       _syncUiFromSelection();
@@ -1668,13 +1763,13 @@ class _ShadePageState extends State<ShadePage> {
 
       setState(() {
         _busy = true;
+        _saveStatus = detecting;
         _setPreviewJpeg(data, width: baked.width, height: baked.height);
         _previewFilename = name;
         _photoTransformController.value = Matrix4.identity();
         _exitOutlineEdit(clearStatus: false);
         _teeth = [];
         _rememberTeeth();
-        _isolatedToothIndex = null;
         _selectedToothIndex = null;
         _finalShade = null;
         _detected = '—';
@@ -1682,36 +1777,37 @@ class _ShadePageState extends State<ShadePage> {
         _topMatches = [];
         _overallTopMatches = [];
         _gum = null;
+        _guideLines = const {};
+        _lipSuggestions = const {};
+        _symmetryView = false;
+        _focusView = false;
         _pendingGumShade = null;
       });
-      final uploaded = await runWithToothLoadingDialog(
-        context,
-        message: detecting,
-        action: () async {
-          final upload = widget.api.uploadShadeDetection(
-            patientId: pid,
-            bytes: data,
-            filename: name,
-          );
-          final suggest = widget.api.suggestShade(data, name);
-          final row = await upload;
-          final result = await suggest;
-          return (row: row, result: result);
-        },
+      // Inline photo overlay only — no modal dialog, so sidebar / other tabs
+      // stay usable while upload + suggest continue on this kept-alive page.
+      final upload = widget.api.uploadShadeDetection(
+        patientId: pid,
+        bytes: data,
+        filename: name,
       );
+      final suggest = widget.api.suggestShade(data, name);
+      final row = await upload;
+      final result = await suggest;
       if (!mounted) return;
 
       setState(() {
-        _allShadeItems = [uploaded.row, ..._allShadeItems];
-        _shadeDetectionId = '${uploaded.row['id'] ?? ''}'.trim();
+        _allShadeItems = [row, ..._allShadeItems];
+        _shadeDetectionId = '${row['id'] ?? ''}'.trim();
+        _saveStatus = null;
       });
 
-      _applySuggestResult(uploaded.result);
+      _applySuggestResult(result);
       if (mounted) setState(() => _busy = false);
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _busy = false;
+        _saveStatus = null;
         _error = e.toString().replaceFirst('Exception: ', '');
       });
     } finally {
@@ -1954,32 +2050,39 @@ class _ShadePageState extends State<ShadePage> {
     final imgSize = _overlayImageSize == Size.zero ? box : _overlayImageSize;
     final scale =
         _photoTransformController.value.getMaxScaleOnAxis().clamp(1.0, 4.0);
-    final hi = hitTestOutlineHandle(
+    final guide = hitTestGuideHandle(
+      local: local,
+      box: box,
+      imageSize: imgSize,
+      guides: _guideLines,
+      radius: 28 / scale,
+    );
+    if (guide != null) {
+      final pts = _guideLines[guide.key]!;
+      _grabOffset = guide.index < 0
+          ? Offset.zero
+          : normToLocal(pts[guide.index], containRect(box, imgSize)) - local;
+      setState(() {
+        _activeGuide = guide;
+        _bodyDragLast = local;
+      });
+      return;
+    }
+    final hit = hitTestOutlineEditTarget(
       local: local,
       box: box,
       imageSize: imgSize,
       outline: outline,
-      radius: 32 / scale,
+      bulges: bulges,
+      radius: 28 / scale,
     );
-    final ei = hi == null
-        ? hitTestOutlineEdge(
-            local: local,
-            box: box,
-            imageSize: imgSize,
-            outline: outline,
-            maxDist: 22 / scale,
-          )
-        : null;
-    final moving = hi == null &&
-        ei == null &&
-        hitTestOutlineBody(
-          local: local,
-          box: box,
-          imageSize: imgSize,
-          outline: outline,
-          bulges: bulges,
-        );
-    if (hi == null && ei == null && !moving) return;
+    if (hit == null) return;
+    final hi = hit.kind == 'v' ? hit.index : null;
+    final ei = hit.kind == 'e' ? hit.index : null;
+    final moving = hit.kind == 'b';
+    _grabOffset = hi == null
+        ? Offset.zero
+        : normToLocal(outline[hi], containRect(box, imgSize)) - local;
     setState(() {
       _activeHandleIndex = hi;
       _activeEdgeIndex = ei;
@@ -1997,6 +2100,25 @@ class _ShadePageState extends State<ShadePage> {
     if (outline == null || bulges == null) return;
     final imgSize = _overlayImageSize == Size.zero ? box : _overlayImageSize;
     final dest = containRect(box, imgSize);
+    final guide = _activeGuide;
+    if (guide != null) {
+      final pts = _guideLines[guide.key];
+      if (pts == null) return;
+      if (guide.index < 0) {
+        final last = _bodyDragLast;
+        if (last == null) return;
+        final dx = localToNorm(local, dest)[0] - localToNorm(last, dest)[0];
+        for (final p in pts) {
+          p[0] = (p[0] + dx).clamp(0.0, 1.0);
+        }
+        _bodyDragLast = local;
+      } else {
+        final n = localToNorm(local + _grabOffset, dest);
+        pts[guide.index] = [n[0].clamp(0.0, 1.0), n[1].clamp(0.0, 1.0)];
+      }
+      _dragTick.value++;
+      return;
+    }
     final hi = _activeHandleIndex;
     final ei = _activeEdgeIndex;
     if (_movingOutline) {
@@ -2016,7 +2138,7 @@ class _ShadePageState extends State<ShadePage> {
       return;
     }
     if (hi != null) {
-      final norm = localToNorm(local, dest);
+      final norm = localToNorm(local + _grabOffset, dest);
       outline[hi] = [norm[0], norm[1]];
     } else if (ei != null && ei < outline.length) {
       final a = normToLocal(outline[ei], dest);
@@ -2213,9 +2335,17 @@ class _ShadePageState extends State<ShadePage> {
                                   editOutlineMode: _editOutlineMode,
                                   teeth: _teeth,
                                   selectedToothIndex: _selectedToothIndex,
-                                  isolatedToothIndex: _isolatedToothIndex,
                                   analysisImageSize: _overlayImageSize,
                                   focusZone: _focusZone,
+                                  guideLines: _viewGuides,
+                                  symmetryView: _symmetryView,
+                                  onToggleSymmetry: _toggleSymmetryView,
+                                  focusSelected: _focusView,
+                                  // Never disable while on — that would strand it.
+                                  onToggleFocus:
+                                      _selectedToothIndex == null && !_focusView
+                                          ? null
+                                          : _toggleFocusView,
                                   editOutline: _editOutline,
                                   editBulges: _editBulges,
                                   activeHandleIndex: _activeHandleIndex,
@@ -2237,7 +2367,7 @@ class _ShadePageState extends State<ShadePage> {
                                   onRedo: _redoOutlineEdit,
                                 ),
                                 result: ShadeResultPane(
-                                  teeth: _teethForResultPane,
+                                  teeth: _teeth,
                                   selectedToothIndex: _selectedToothIndex,
                                   focusZone: _focusZone,
                                   pendingShade: _pendingShade,
@@ -2323,6 +2453,8 @@ class _ShadePageState extends State<ShadePage> {
                                             onCancel: _cancelOutlineEdit,
                                             onReset: _resetOutlineEdit,
                                             onApply: _applyOutlineEdit,
+                                            lipsOn: _lipsOn,
+                                            onToggleLips: _toggleLips,
                                             onAdjustEdges: _startOutlineEdit,
                                             onDelete: _deleteSelectedTooth,
                                             onAddTooth: _addTooth,

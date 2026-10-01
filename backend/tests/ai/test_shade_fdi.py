@@ -104,3 +104,22 @@ class TestFdiFrontToBack:
             _teeth_from_centers(h, w, 280, [90, 160, 230, 410, 480, 550])
         )
         assert [t.fdi for t in out] == [11, 12, 13, 21, 22, 23]
+
+
+def test_lower_midline_follows_upper_central_contact():
+    """Photo centre (x=600) is nearer the wrong lower contact (570 vs 640);
+    the upper 11|21 contact (x≈632) must decide the lower midline."""
+    import numpy as np
+
+    from app.ai.shade_segment import ToothMask, _assign_fdi_and_reorder
+
+    def tooth(x0, x1, y0, y1, arch):
+        m = np.zeros((400, 1200), dtype=bool)
+        m[y0:y1, x0:x1] = True
+        return ToothMask(0, m, 0.9, False, arch=arch)
+
+    upper = [tooth(x, x + 95, 50, 180, "upper") for x in (435, 535, 635)]
+    lower = [tooth(x, x + 50, 220, 330, "lower") for x in (455, 515, 575, 655, 715)]
+    out = _assign_fdi_and_reorder(upper + lower)
+    by_x = {int(np.nonzero(t.mask)[1].min()): t.fdi for t in out if t.arch == "lower"}
+    assert by_x[575] == 41 and by_x[655] == 31

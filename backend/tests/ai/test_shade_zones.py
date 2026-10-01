@@ -154,3 +154,18 @@ class TestOverrideImmutability:
             assert state.override_shade == "A3.5"
             assert state.effective_shade == "A3.5"
             assert state.detected_shade == shade
+
+
+def test_lower_tooth_zones_run_upward_and_round_crowns_split_level():
+    mask = np.zeros((90, 90), dtype=bool)
+    yy, xx = np.ogrid[:90, :90]
+    mask[(yy - 45) ** 2 + (xx - 45) ** 2 <= 30**2] = True  # round crown
+    up = split_tooth_zones(mask)
+    low = split_tooth_zones(mask, lower=True)
+    cy = lambda m: float(np.nonzero(m)[0].mean())  # noqa: E731
+    assert cy(up["cervical"]) < cy(up["incisal"])  # upper: gingiva on top
+    assert cy(low["cervical"]) > cy(low["incisal"])  # lower: gingiva below
+    # Level thirds, not a diagonal cut: each zone spans a narrow row band.
+    for z in up.values():
+        rows = np.nonzero(z)[0]
+        assert rows.max() - rows.min() <= 22

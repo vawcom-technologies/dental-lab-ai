@@ -826,7 +826,94 @@ _Parsed _stlAscii(Uint8List data, int maxPoints, int maxTris) {
   );
 }
 
-_Parsed _obj(Uint8List data, int maxPoints, int maxTris) {
+/// Full-resolution OBJ for the native GPU viewer.
+/// Supports `v x y z` and optional vertex RGB (`v x y z r g b`).
+/// Ignores `vt` / `vn` / MTL / textures (no invent, no extra downloads).
+({
+  Float32List positions,
+  Float32List? colors,
+  Uint32List? indices,
+  int vertexCount,
+  String? error,
+}) parseObjGeometry(Uint8List data) {
+  final raw = _parseObjRaw(data);
+  if (raw.error != null) {
+    return (
+      positions: Float32List(0),
+      colors: null,
+      indices: null,
+      vertexCount: 0,
+      error: raw.error,
+    );
+  }
+  final all = raw.verts;
+  if (all.isEmpty) {
+    return (
+      positions: Float32List(0),
+      colors: null,
+      indices: null,
+      vertexCount: 0,
+      error: 'OBJ has no vertices',
+    );
+  }
+
+  final positions = Float32List(all.length * 3);
+  final allColored = all.every((v) => v.length >= 6);
+  final colors = allColored ? Float32List(all.length * 3) : null;
+  for (var i = 0; i < all.length; i++) {
+    final v = all[i];
+    final o = i * 3;
+    positions[o] = v[0];
+    positions[o + 1] = v[1];
+    positions[o + 2] = v[2];
+    if (colors != null) {
+      colors[o] = v[3];
+      colors[o + 1] = v[4];
+      colors[o + 2] = v[5];
+    }
+  }
+
+  Uint32List? indices;
+  if (raw.faces.isNotEmpty) {
+    final idx = <int>[];
+    for (final f in raw.faces) {
+      if (f[0] < 0 ||
+          f[1] < 0 ||
+          f[2] < 0 ||
+          f[0] >= all.length ||
+          f[1] >= all.length ||
+          f[2] >= all.length) {
+        continue;
+      }
+      idx.add(f[0]);
+      idx.add(f[1]);
+      idx.add(f[2]);
+    }
+    if (idx.isNotEmpty) {
+      indices = Uint32List.fromList(idx);
+    }
+  }
+
+  final finished = _finishPlyMesh(
+    positions: positions,
+    colors: colors,
+    indices: indices,
+    vertexCount: all.length,
+  );
+  return (
+    positions: finished.positions,
+    colors: finished.colors,
+    indices: finished.indices,
+    vertexCount: finished.vertexCount,
+    error: finished.error,
+  );
+}
+
+({
+  List<List<double>> verts,
+  List<List<int>> faces,
+  String? error,
+}) _parseObjRaw(Uint8List data) {
   // Dental OBJ exports are often CRLF; stray \r breaks tryParse on the last token.
   var text = String.fromCharCodes(data);
   if (text.isNotEmpty && text.codeUnitAt(0) == 0xfeff) {
@@ -883,13 +970,23 @@ _Parsed _obj(Uint8List data, int maxPoints, int maxTris) {
   }
 
   if (all.isEmpty) {
+    return (verts: const [], faces: const [], error: 'OBJ has no vertices');
+  }
+  return (verts: all, faces: faces, error: null);
+}
+
+_Parsed _obj(Uint8List data, int maxPoints, int maxTris) {
+  final raw = _parseObjRaw(data);
+  if (raw.error != null) {
     return (
       verts: const [],
       tris: const [],
       total: 0,
-      error: 'OBJ has no vertices',
+      error: raw.error,
     );
   }
+  final all = raw.verts;
+  final faces = raw.faces;
 
   final tris = <List<double>>[];
   final step = faces.length > maxTris ? math.max(1, faces.length ~/ maxTris) : 1;

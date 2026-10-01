@@ -23,6 +23,9 @@ bool get isIosSimulator {
   if (Platform.environment['SIMULATOR_UDID']?.isNotEmpty == true) {
     return true;
   }
+  // Flutter often omits SIMULATOR_* from the Dart isolate.
+  final home = Platform.environment['HOME'] ?? '';
+  if (home.contains('CoreSimulator')) return true;
   try {
     return Platform.resolvedExecutable.contains('CoreSimulator');
   } catch (_) {
@@ -66,33 +69,44 @@ Future<Uint8List?> readPathBytes(String path) async {
   return null;
 }
 
-const _projectMeshDirs = [
-  '/Users/app/Projects/dental-lab-ai/mobile/debug_scans',
-  '/Users/app/Projects/dental-lab-ai/references/scans',
-];
-
 String _basename(String path) {
   final sep = path.lastIndexOf(Platform.pathSeparator);
   return sep < 0 ? path : path.substring(sep + 1);
 }
 
+/// Mac folders the Simulator can read for chairside mesh testing.
 Future<List<String>> hostMeshSearchDirs() async {
   final home = Platform.environment['SIMULATOR_HOST_HOME'] ??
       Platform.environment['HOME'] ??
       '';
+  final hostHome = Platform.environment['SIMULATOR_HOST_HOME'] ?? '';
+  final homes = <String>{
+    if (hostHome.isNotEmpty) hostHome,
+    if (home.isNotEmpty && !home.contains('CoreSimulator')) home,
+    // Common checkout layouts on this Mac.
+    '/Users/mishi',
+    if (home.startsWith('/Users/')) home.split('/').take(3).join('/'),
+  };
+
   final dirs = <String>[
-    ..._projectMeshDirs,
-    if (home.isNotEmpty) ...[
-      '$home/Projects/dental-lab-ai/mobile/debug_scans',
-      '$home/Projects/dental-lab-ai/references/scans',
+    for (final h in homes) ...[
+      '$h/dental-lab-ai/mobile/debug_scans',
+      '$h/dental-lab-ai/references/scans',
+      '$h/Projects/dental-lab-ai/mobile/debug_scans',
+      '$h/Projects/dental-lab-ai/references/scans',
     ],
+    '/Users/mishi/dental-lab-ai/mobile/debug_scans',
+    '/Users/mishi/dental-lab-ai/references/scans',
+    '/Users/app/Projects/dental-lab-ai/mobile/debug_scans',
+    '/Users/app/Projects/dental-lab-ai/references/scans',
   ];
   try {
     dirs.insert(0, (await getApplicationDocumentsDirectory()).path);
   } catch (_) {}
+  final seen = <String>{};
   return [
     for (final path in dirs)
-      if (path.isNotEmpty) path,
+      if (path.isNotEmpty && seen.add(path)) path,
   ];
 }
 
@@ -104,8 +118,10 @@ Future<void> seedHostMeshFiles() async {
   } catch (_) {
     return;
   }
-  for (final srcPath in _projectMeshDirs) {
+  for (final srcPath in await hostMeshSearchDirs()) {
     try {
+      // Don't copy from the destination docs folder into itself.
+      if (srcPath == docs.path) continue;
       final src = Directory(srcPath);
       if (!await src.exists()) continue;
       await for (final entity in src.list(followLinks: false)) {

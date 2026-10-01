@@ -1053,6 +1053,7 @@ class ApiClient {
     required String filename,
     required List<List<double>> outline,
     required int toothIndex,
+    String? arch,
   }) async {
     final name = filename.trim().isEmpty ? 'tooth.jpg' : filename;
     final req = http.MultipartRequest(
@@ -1065,6 +1066,8 @@ class ApiClient {
     );
     req.fields['outline_json'] = jsonEncode(outline);
     req.fields['tooth_index'] = '$toothIndex';
+    // Lower teeth: zones run cervical → incisal upward on the photo.
+    if (arch != null) req.fields['arch'] = arch;
     final streamed = await _http.send(req).timeout(_shadeAnalyzeTimeout);
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
@@ -1639,7 +1642,7 @@ class ApiClient {
             'text': text,
             'source_lang': sourceLang,
             'target_lang': targetLang,
-            ?formality: formality,
+            if (formality != null) 'formality': formality,
           }),
         )
         .timeout(const Duration(seconds: 45));
