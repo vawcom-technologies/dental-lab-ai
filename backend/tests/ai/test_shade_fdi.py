@@ -123,3 +123,24 @@ def test_lower_midline_follows_upper_central_contact():
     out = _assign_fdi_and_reorder(upper + lower)
     by_x = {int(np.nonzero(t.mask)[1].min()): t.fdi for t in out if t.arch == "lower"}
     assert by_x[575] == 41 and by_x[655] == 31
+
+
+def test_closed_bite_long_upper_centrals_stay_upper():
+    """Screenshot regression: upper centrals as low as side lower teeth → 41/31."""
+    import numpy as np
+
+    from app.ai.shade_segment import ToothMask, _assign_arch_metadata
+
+    def tooth(x0, x1, y0, y1):
+        m = np.zeros((400, 420), dtype=bool)
+        m[y0:y1, x0:x1] = True
+        return ToothMask(0, m, 0.9, False)
+
+    upper = [tooth(40, 90, 110, 200), tooth(95, 140, 105, 205), tooth(145, 205, 100, 290),
+             tooth(210, 270, 100, 290), tooth(275, 320, 105, 205), tooth(325, 375, 110, 200)]
+    lower_sides = [tooth(60, 100, 200, 230), tooth(100, 140, 200, 230),
+                   tooth(280, 320, 200, 230), tooth(320, 360, 200, 230)]
+    out = _assign_arch_metadata(upper + lower_sides)
+    by_x = {int(np.nonzero(t.mask)[1].min()): (t.arch, t.fdi) for t in out}
+    assert by_x[145] == ("upper", 11) and by_x[210] == ("upper", 21)
+    assert all(by_x[x][0] == "lower" for x in (60, 100, 280, 320))

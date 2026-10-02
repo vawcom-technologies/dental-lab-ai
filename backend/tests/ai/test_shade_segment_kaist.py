@@ -94,7 +94,7 @@ class TestKaistHelpers:
         from app.core.config import settings
 
         monkeypatch.setattr(settings, "shade_segment_kaist_max_side", 0)
-        assert mod._max_side() == 256
+        assert mod._max_side() == 320  # same on CPU (Railway) as on the Mac
 
 
 class TestKaistRouting:

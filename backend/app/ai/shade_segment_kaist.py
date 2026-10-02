@@ -33,8 +33,8 @@ logger = logging.getLogger(__name__)
 
 _MAX_TEETH = 16  # both arches on one mouth crop
 _MIN_MASK_PIXELS = 40
-_DEFAULT_MAX_SIDE = 256
-_DEFAULT_MIN_SIDE = 224
+_DEFAULT_MAX_SIDE = 320
+_DEFAULT_MIN_SIDE = 256
 # Wide-strip guard for the work image (see _resize_for_work).
 _MIN_WORK_SHORT = 112
 _MAX_WORK_LONG = 800
@@ -76,12 +76,10 @@ def _max_side() -> int:
     except Exception:
         raw = _DEFAULT_MAX_SIDE
     # 0 used to mean full-res; that made iPad photos miss the 90s timeout.
-    hi = raw if raw > 0 else _DEFAULT_MAX_SIDE
-    # Railway / CPU: snakes are O(pixels). Cap unless the operator set a
-    # smaller ceiling already.
-    if _device() == "cpu" and hi > 256:
-        return 256
-    return hi
+    # Same size on CPU (Railway) as on the Mac: a 256 px CPU cap made KAIST
+    # merge upper + lower crowns. With thread pools capped (app/main.py) 320
+    # runs in ~3–5 s on Railway.
+    return raw if raw > 0 else _DEFAULT_MAX_SIDE
 
 
 def _min_side() -> int:
@@ -91,10 +89,7 @@ def _min_side() -> int:
         raw = int(getattr(settings, "shade_segment_kaist_min_side", 0) or 0)
     except Exception:
         raw = _DEFAULT_MIN_SIDE
-    lo = raw if raw > 0 else _DEFAULT_MIN_SIDE
-    if _device() == "cpu":
-        return min(lo, 224)
-    return lo
+    return raw if raw > 0 else _DEFAULT_MIN_SIDE
 
 
 def _snake_iters() -> int:

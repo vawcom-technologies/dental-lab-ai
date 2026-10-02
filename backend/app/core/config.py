@@ -60,8 +60,8 @@ class Settings(BaseSettings):
     # Snake canvas band: downscale if longer, upscale if shorter, else keep.
     # Level-sets are CPU and ~O(pixels). Chairside defaults lean fast; Railway
     # CPU needs the smaller canvas or dual-arch blows past the iPad timeout.
-    shade_segment_kaist_max_side: int = 256
-    shade_segment_kaist_min_side: int = 224
+    shade_segment_kaist_max_side: int = 320
+    shade_segment_kaist_min_side: int = 256
     # Level-set steps (~2× faster than upstream demo defaults).
     shade_segment_kaist_snake_iters: int = 5
     shade_segment_kaist_bring_back_iters: int = 28

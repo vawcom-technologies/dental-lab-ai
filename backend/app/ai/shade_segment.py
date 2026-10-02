@@ -507,10 +507,16 @@ def _fdi_sort_key(tooth: ToothMask) -> tuple[int, int]:
 
 
 def _infer_arch_split_y(geoms: list[dict]) -> float | None:
-    """Y coordinate (image space) separating upper and lower arch centroids."""
+    """Y separating upper and lower arch by each crown's TOP edge.
+
+    Centroids failed on closed-bite smiles: long upper centrals sit as low as
+    the small, half-hidden lower teeth beside them and were numbered 41/31.
+    Tops don't: upper crowns start at the gum line, lower ones below the upper
+    incisal edge — about a crown length apart.
+    """
     if len(geoms) < 4:
         return None
-    cys = sorted(float(g["cy"]) for g in geoms)
+    cys = sorted(float(g["y0"]) for g in geoms)
     med_h = float(np.median([g["h"] for g in geoms]))
     best_gap = 0.0
     split: float | None = None
@@ -564,7 +570,7 @@ def _assign_arch_metadata(teeth: list[ToothMask]) -> list[ToothMask]:
             single = sorted(geoms, key=lambda g: g["cx"])
     else:
         for g in geoms:
-            (upper if g["cy"] < split_y else lower).append(g)
+            (upper if g["y0"] < split_y else lower).append(g)
         upper.sort(key=lambda g: g["cx"])
         lower.sort(key=lambda g: g["cx"])
 
