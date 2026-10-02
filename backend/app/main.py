@@ -2,6 +2,21 @@
 
 from __future__ import annotations
 
+import os
+
+# Must run before NumPy / Torch / OpenCV load. On Railway the container sees
+# the host's many cores but gets ~1–2, so default thread pools oversubscribe
+# and thrash. Shade analysis is effectively single-core (1 thread 2.4 s vs
+# 8 threads 2.3 s on an M2), so a cap costs nothing. Env can still override.
+for _var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
+    os.environ.setdefault(_var, "2")
+try:  # OpenCV keeps its own pool and ignores the env vars above.
+    import cv2
+
+    cv2.setNumThreads(int(os.environ["OMP_NUM_THREADS"]))
+except ImportError:
+    pass
+
 import asyncio
 import logging
 from contextlib import asynccontextmanager
