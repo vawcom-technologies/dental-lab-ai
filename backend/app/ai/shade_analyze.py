@@ -136,12 +136,11 @@ def _maybe_downscale_rgb(arr: np.ndarray) -> np.ndarray:
 def analyze_shade_from_bytes(data: bytes) -> dict[str, Any]:
     started = time.perf_counter()
     rgb = _load_rgb_from_bytes(data)
-    logger.info(
-        "shade_analyze decode_ms=%.0f bytes=%s",
-        (time.perf_counter() - started) * 1000,
-        len(data),
-    )
-    return analyze_shade_from_rgb(rgb)
+    decode_ms = (time.perf_counter() - started) * 1000
+    logger.info("shade_analyze decode_ms=%.0f bytes=%s", decode_ms, len(data))
+    result = analyze_shade_from_rgb(rgb)
+    result["timings_ms"] = {"decode": round(decode_ms), **result["timings_ms"]}
+    return result
 
 
 def analyze_shade_from_rgb(image_rgb: np.ndarray) -> dict[str, Any]:
@@ -215,6 +214,21 @@ def analyze_shade_from_rgb(image_rgb: np.ndarray) -> dict[str, Any]:
         gum_ms,
         len(tooth_results),
     )
+    t4 = time.perf_counter()
+    lines = _guide_lines(tooth_results)
+    # Start positions for the Lips tool; the app draws nothing until asked.
+    lips = lip_suggestions(arr, tooth_results)
+    from app.ai.shade_segment_kaist import last_step_ms
+
+    timings = {
+        "downscale": round(downscale_ms),
+        "segment": round(segment_ms),
+        "zones": round(zones_ms),
+        "gum": round(gum_ms),
+        "guides": round((time.perf_counter() - t4) * 1000),
+        # KAIST stages (last run): cnn, init_contour, snake, tem.
+        **{f"kaist_{k}": v for k, v in last_step_ms.items()},
+    }
     return {
         "teeth": tooth_results,
         "tooth_count": len(tooth_results),
@@ -223,9 +237,9 @@ def analyze_shade_from_rgb(image_rgb: np.ndarray) -> dict[str, Any]:
         "image_height": h,
         "note": note,
         "gum": gum,
-        "lines": _guide_lines(tooth_results),
-        # Start positions for the Lips tool; the app draws nothing until asked.
-        "lip_suggestions": lip_suggestions(arr, tooth_results),
+        "lines": lines,
+        "lip_suggestions": lips,
+        "timings_ms": timings,
         **segment_meta,
     }
 

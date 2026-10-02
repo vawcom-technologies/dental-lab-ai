@@ -41,6 +41,8 @@ _MAX_WORK_LONG = 800
 _DEFAULT_WEIGHTS = "weights/kaist/CP_teeth_seg.pth"
 _MIN_WEIGHTS_BYTES = 1_000_000_000  # finished CP_teeth_seg.pth is ~1.5 GB
 _KAIST_LOCK = threading.Lock()
+# Per-step ms of the latest KAIST run (diagnostics; returned in timings_ms).
+last_step_ms: dict[str, float] = {}
 _VENDOR_REL = Path("vendor/individual_tooth_segmentation")
 _WEIGHTS_URL = (
     "https://parter.kaist.ac.kr/colee/work/segmentation22/CP_teeth_seg.pth"
@@ -525,11 +527,17 @@ def _run_upstream_pipeline(
         sts = mts.SaveTools(str(dir_img))
         ts = TeethSeg(str(dir_img), img_id, sts, config)
         # MPS/CNN is not safe to run twice at once. Snakes are CPU per TeethSeg.
+        steps: dict[str, float] = {}
+        t = time.perf_counter()
         with _KAIST_LOCK:
             ts.pseudoER()
-        ts.initContour()
-        ts.snake()
-        ts.tem()
+        steps["cnn"] = (time.perf_counter() - t) * 1000
+        for name, step in (("init_contour", ts.initContour), ("snake", ts.snake), ("tem", ts.tem)):
+            t = time.perf_counter()
+            step()
+            steps[name] = (time.perf_counter() - t) * 1000
+        last_step_ms.clear()
+        last_step_ms.update({k: round(v) for k, v in steps.items()})
 
         labels = ts._dt.get("res")
         if labels is None:

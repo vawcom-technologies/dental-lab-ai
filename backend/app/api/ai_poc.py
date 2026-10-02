@@ -49,6 +49,7 @@ def _shade_out(result: dict) -> ShadeAnalyzeOut:
         gum=result.get("gum"),
         lines=result.get("lines"),
         lip_suggestions=result.get("lip_suggestions"),
+        timings_ms=result.get("timings_ms"),
     )
 
 
@@ -91,7 +92,32 @@ async def shade_segment_status():
         "max_side": st.max_side,
         "min_side": st.min_side,
         "backend_setting": settings.shade_segment_backend,
+        "runtime": _cpu_runtime(),
     }
+
+
+def _cpu_runtime() -> dict:
+    """What CPU the process really gets (container quota vs visible cores)."""
+    import os
+
+    out: dict = {"os_cpu_count": os.cpu_count()}
+    try:
+        out["affinity_cpus"] = len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        pass
+    try:  # cgroup v2 quota, e.g. "150000 100000" = 1.5 cores
+        out["cgroup_cpu_max"] = open("/sys/fs/cgroup/cpu.max").read().strip()
+    except OSError:
+        pass
+    try:
+        import torch
+
+        out["torch_threads"] = torch.get_num_threads()
+    except Exception:
+        pass
+    for var in ("OMP_NUM_THREADS",):
+        out[var] = os.environ.get(var)
+    return out
 
 
 @router.post("/shade/suggest", response_model=ShadeAnalyzeOut)

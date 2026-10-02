@@ -277,6 +277,8 @@ class ShadeAnalyzeOut(BaseModel):
     lines: dict | None = None
     # Starting points for the user-placed inner lip lines (Lips tool).
     lip_suggestions: dict | None = None
+    # Per-step server time in ms (diagnostics: where analysis time goes).
+    timings_ms: dict | None = None
 
 
 class ScanValidateOut(BaseModel):
