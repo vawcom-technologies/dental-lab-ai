@@ -14,6 +14,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/touchable.dart';
 import '../../core/widgets/ui_kit.dart';
+import 'crop_photo_page.dart';
 import 'live_camera_capture.dart';
 
 /// Chairside camera — frontal / left / right, max 12 photos per patient.
@@ -351,14 +352,25 @@ class _CameraPageState extends State<CameraPage> {
       if (galleryFile == null) return;
     }
 
+    final picked = galleryFile;
+    if (picked != null) {
+      bytes = bakeExifOrientation(
+        Uint8List.fromList(await picked.readAsBytes()),
+      );
+      filename = _clinicalPhotoName(angle: _angle, extension: '.jpg');
+    }
+    if (!mounted) return;
+    // Let the user crop before anything is uploaded; cancel discards the shot.
+    final cropped = await Navigator.of(context).push<Uint8List>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => CropPhotoPage(bytes: bytes!),
+      ),
+    );
+    if (cropped == null) return;
+    bytes = cropped;
+
     await _runBusy('Saving photo…', () async {
-      final picked = galleryFile;
-      if (picked != null) {
-        bytes = bakeExifOrientation(
-          Uint8List.fromList(await picked.readAsBytes()),
-        );
-        filename = _clinicalPhotoName(angle: _angle, extension: '.jpg');
-      }
       await widget.api.uploadPatientPhoto(
         patientId: pid,
         angle: _angle,

@@ -88,6 +88,7 @@ def detect_teeth(
     *,
     backend: SegmentBackend | None = None,
     meta_out: dict | None = None,
+    pad_context: bool = False,
 ) -> list[ToothMask]:
     """Detect tooth instances — ROI and thresholds derived from the image.
 
@@ -107,7 +108,7 @@ def detect_teeth(
     model_id: str | None = None
 
     if resolved in ("kaist", "auto"):
-        teeth_or_none = _try_detect_teeth_kaist(image_rgb)
+        teeth_or_none = _try_detect_teeth_kaist(image_rgb, pad_context=pad_context)
         if teeth_or_none is not None:
             used = "kaist"
             model_id = "kaist/individual_tooth_segmentation"
@@ -208,7 +209,9 @@ def _fill_segment_meta(
     )
 
 
-def _try_detect_teeth_kaist(image_rgb: np.ndarray) -> list[ToothMask] | None:
+def _try_detect_teeth_kaist(
+    image_rgb: np.ndarray, *, pad_context: bool = False
+) -> list[ToothMask] | None:
     """Run KAIST. None = use classical (unavailable / crash / empty)."""
     from app.ai.shade_segment_kaist import detect_teeth_kaist, kaist_available
 
@@ -216,7 +219,7 @@ def _try_detect_teeth_kaist(image_rgb: np.ndarray) -> list[ToothMask] | None:
         logger.warning("shade_segment kaist unavailable (vendor/weights/deps)")
         return None
     try:
-        teeth = detect_teeth_kaist(image_rgb)
+        teeth = detect_teeth_kaist(image_rgb, pad_context=pad_context)
         if not teeth:
             logger.warning(
                 "shade_segment kaist returned 0 teeth — falling back to classical"

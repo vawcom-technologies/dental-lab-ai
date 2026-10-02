@@ -87,3 +87,17 @@ def test_no_lip_suggestion_without_skin_border():
     img[130:175, 110:290] = (240, 236, 222)
     rows = [_box_row("upper", x / 400, (x + 55) / 400, 130 / 300, 175 / 300) for x in (110, 172, 234)]
     assert lip_suggestions(img, rows) == {}
+
+
+def test_tight_crop_keeps_the_visible_lip():
+    """Chin cut off: lower lip runs off the frame → keep only the upper lip."""
+    from app.ai.shade_geometry import lip_suggestions
+
+    img = np.zeros((300, 400, 3), np.uint8)
+    img[:] = (230, 185, 165)  # skin
+    yy, xx = np.ogrid[:300, :400]
+    img[((xx - 200) / 150.0) ** 2 + ((yy - 150) / 80.0) ** 2 <= 1] = (175, 85, 90)
+    img[130:175, 110:290] = (240, 236, 222)
+    crop = np.ascontiguousarray(img[:200])  # lower lip border (y≈230) cut off
+    rows = [_box_row("upper", x / 400, (x + 55) / 400, 130 / 200, 175 / 200) for x in (110, 172, 234)]
+    assert set(lip_suggestions(crop, rows)) == {"upper_lip"}

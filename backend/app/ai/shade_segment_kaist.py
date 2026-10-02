@@ -540,17 +540,85 @@ def _run_upstream_pipeline(
         return np.asarray(labels)
 
 
+_CONTEXT_PAD_FRAC = 0.25
+
+
+def _pad_context(arr: np.ndarray) -> tuple[np.ndarray, int, int]:
+    import cv2
+
+    h, w = arr.shape[:2]
+    py, px = int(h * _CONTEXT_PAD_FRAC), int(w * _CONTEXT_PAD_FRAC)
+    edge = np.concatenate([arr[0], arr[-1], arr[:, 0], arr[:, -1]])
+    colour = tuple(int(v) for v in np.median(edge, axis=0))
+    return (
+        cv2.copyMakeBorder(arr, py, py, px, px, cv2.BORDER_CONSTANT, value=colour),
+        py,
+        px,
+    )
+
+
+def _detect_best_of_variants(arr: np.ndarray, **kw: Any) -> list[ToothMask]:
+    """Camera photos only: keep the KAIST run that finds the most usable teeth.
+
+    Camera crops are tight, so one KAIST pass is fragile (the ROI step can trim
+    crowns; a 25 % border helps some photos and hurts others; JPEG noise alone
+    can swing the count). Plain is always a candidate, so this is never worse
+    than a direct upload by tooth count. ponytail: picks by count — swap in a
+    per-arch plausibility score if it mis-picks. Costs up to 3 KAIST runs.
+    """
+    from dataclasses import replace
+
+    h, w = arr.shape[:2]
+
+    def plain() -> list[ToothMask]:
+        return detect_teeth_kaist(arr, **kw)
+
+    def no_roi() -> list[ToothMask]:
+        return detect_teeth_kaist(arr, **{**kw, "crop": False})
+
+    def padded() -> list[ToothMask]:
+        big, py, px = _pad_context(arr)
+        out: list[ToothMask] = []
+        for t in detect_teeth_kaist(big, **kw):
+            m = t.mask[py : py + h, px : px + w]
+            if int(m.sum()) >= _MIN_MASK_PIXELS:
+                out.append(replace(t, mask=m.copy(), tooth_index=len(out)))
+        return out
+
+    best: list[ToothMask] = []
+    best_n = -1
+    for name, run in (("plain", plain), ("padded", padded), ("no_roi", no_roi)):
+        try:
+            teeth = run()
+        except Exception:
+            logger.exception("kaist camera variant %s failed", name)
+            continue
+        n = sum(1 for t in teeth if not t.rejected)
+        logger.info("kaist camera variant=%s usable_teeth=%s", name, n)
+        if n > best_n:
+            best, best_n = teeth, n
+    return best
+
+
 def detect_teeth_kaist(
     image_rgb: np.ndarray,
     *,
     crop: bool = True,
     vendor: str | Path | None = None,
     weights: str | Path | None = None,
+    pad_context: bool = False,
 ) -> list[ToothMask]:
-    """Segment per-tooth masks via KAIST on one mouth crop. Empty list on failure."""
+    """Segment per-tooth masks via KAIST on one mouth crop. Empty list on failure.
+
+    pad_context: camera-sourced photos only (see [_detect_best_of_variants]).
+    """
     arr = np.asarray(image_rgb)
     if arr.ndim != 3 or arr.shape[2] != 3:
         raise ValueError("image_rgb must be HxWx3")
+    if pad_context:
+        return _detect_best_of_variants(
+            arr, crop=crop, vendor=vendor, weights=weights
+        )
 
     status = kaist_segment_status(vendor=vendor, weights=weights)
     if not status.available:

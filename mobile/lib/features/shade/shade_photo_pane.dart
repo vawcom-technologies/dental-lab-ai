@@ -62,6 +62,8 @@ class ShadePhotoPane extends StatelessWidget {
     this.onToggleSymmetry,
     this.focusSelected = false,
     this.onToggleFocus,
+    this.fullscreen = false,
+    this.onToggleFullscreen,
   });
 
   final Uint8List? previewBytes;
@@ -77,6 +79,9 @@ class ShadePhotoPane extends StatelessWidget {
   /// Photo shows only the selected tooth; null [onToggleFocus] = disabled.
   final bool focusSelected;
   final VoidCallback? onToggleFocus;
+  /// Shown full screen (expand ↔ exit icon); null toggle = no photo yet.
+  final bool fullscreen;
+  final VoidCallback? onToggleFullscreen;
   final List<List<double>>? editOutline;
   final List<double>? editBulges;
   final int? activeHandleIndex;
@@ -429,6 +434,16 @@ class ShadePhotoPane extends StatelessWidget {
                           tooltip: AppLocalizations.of(context).shadeFocusTooth,
                           icon: Icons.center_focus_strong_outlined,
                           onPressed: onToggleFocus,
+                        ),
+                        _ViewToggle(
+                          on: false,
+                          tooltip: fullscreen
+                              ? AppLocalizations.of(context).commonExitFullscreen
+                              : AppLocalizations.of(context).commonFullscreen,
+                          icon: fullscreen
+                              ? Icons.fullscreen_exit
+                              : Icons.fullscreen,
+                          onPressed: onToggleFullscreen,
                         ),
                       ],
                     ),

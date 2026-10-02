@@ -445,6 +445,7 @@ class _ShadePageState extends State<ShadePage> {
         _lipSuggestions = const {};
         _symmetryView = false;
         _focusView = false;
+        if (_fullscreenPortal.isShowing) _fullscreenPortal.hide();
         _exitOutlineEdit(clearStatus: false);
         _photoTransformController.value = Matrix4.identity();
       }
@@ -1211,6 +1212,7 @@ class _ShadePageState extends State<ShadePage> {
       _lipSuggestions = const {};
       _symmetryView = false;
       _focusView = false;
+      if (_fullscreenPortal.isShowing) _fullscreenPortal.hide();
       _exitOutlineEdit(clearStatus: false);
       _photoTransformController.value = Matrix4.identity();
       _error = null;
@@ -1429,6 +1431,8 @@ class _ShadePageState extends State<ShadePage> {
   @override
   void didUpdateWidget(covariant ShadePage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // Leaving the tab (e.g. a handoff) must not leave full screen over it.
+    if (!widget.active && _fullscreenPortal.isShowing) _fullscreenPortal.hide();
     if (widget.active && !oldWidget.active) {
       _onPageActivated();
     }
@@ -1648,6 +1652,7 @@ class _ShadePageState extends State<ShadePage> {
         _lipSuggestions = const {};
         _symmetryView = false;
         _focusView = false;
+        if (_fullscreenPortal.isShowing) _fullscreenPortal.hide();
         _pendingGumShade = null;
       });
       if (runAi) {
@@ -1673,9 +1678,11 @@ class _ShadePageState extends State<ShadePage> {
   /// Same mapping pipeline as gallery Upload & detect (`POST /api/ai/shade/suggest`).
   /// [data] must already be a prepared shade JPEG (caller ran [prepareShadeJpeg]).
   Future<void> _applySuggestFromBytes(Uint8List data, String name) async {
+    // Only caller is the camera handoff (runAi) — direct uploads use suggestShade inline.
     final result = await widget.api.suggestShade(
       data,
       shadeJpegFilename(name),
+      fromCamera: true,
     );
     if (!mounted) return;
     _applySuggestResult(result);
@@ -1707,6 +1714,7 @@ class _ShadePageState extends State<ShadePage> {
       _lipSuggestions = parseGuideLines(result['lip_suggestions']);
       _symmetryView = false;
       _focusView = false;
+      if (_fullscreenPortal.isShowing) _fullscreenPortal.hide();
       _pendingGumShade = null;
       _overrideTab = 0;
       _syncUiFromSelection();
@@ -1781,6 +1789,7 @@ class _ShadePageState extends State<ShadePage> {
         _lipSuggestions = const {};
         _symmetryView = false;
         _focusView = false;
+        if (_fullscreenPortal.isShowing) _fullscreenPortal.hide();
         _pendingGumShade = null;
       });
       // Inline photo overlay only — no modal dialog, so sidebar / other tabs
@@ -2210,6 +2219,83 @@ class _ShadePageState extends State<ShadePage> {
   }
 
 
+  /// Full-screen photo (drawn by [OverlayPortal] over the whole app).
+  final _fullscreenPortal = OverlayPortalController();
+
+  void _toggleFullscreen() {
+    _photoTransformController.value = Matrix4.identity(); // panes differ in size
+    setState(() => _fullscreenPortal.toggle());
+  }
+
+  /// One builder for the in-page and full-screen panes so they never drift.
+  Widget _photoPane({bool fullscreen = false}) {
+    return ShadePhotoPane(
+      previewBytes: _previewBytes,
+      busy: _busy,
+      editOutlineMode: _editOutlineMode,
+      teeth: _teeth,
+      selectedToothIndex: _selectedToothIndex,
+      analysisImageSize: _overlayImageSize,
+      focusZone: _focusZone,
+      guideLines: _viewGuides,
+      symmetryView: _symmetryView,
+      onToggleSymmetry: _toggleSymmetryView,
+      focusSelected: _focusView,
+      // Never disable while on — that would strand it.
+      onToggleFocus:
+      _selectedToothIndex == null && !_focusView
+      ? null
+      : _toggleFocusView,
+      editOutline: _editOutline,
+      editBulges: _editBulges,
+      activeHandleIndex: _activeHandleIndex,
+      activeEdgeIndex: _activeEdgeIndex,
+      photoTransformController:
+      _photoTransformController,
+      dragTick: _dragTick,
+      canUndo: _canUndo,
+      canRedo: _editOutlineMode &&
+      _outlineHistory.canRedo,
+      onUpload: _runAiFromGallery,
+      onClearPhoto: _clearUploadedPhoto,
+      onSelectTooth: _onToothTap,
+      onHandleDragStart: _onHandleDragStart,
+      onHandleDragUpdate: _onHandleDragUpdate,
+      onHandleDragEnd: _endOutlineDrag,
+      onEdgeDoubleTap: _onEdgeDoubleTap,
+      onUndo: _undoFromOverlay,
+      onRedo: _redoOutlineEdit,
+      
+      fullscreen: fullscreen,
+      // Full screen's exit stays enabled even if the photo is cleared there.
+      onToggleFullscreen:
+          fullscreen || _previewBytes != null ? _toggleFullscreen : null,
+    );
+  }
+
+  Widget _buildFullscreenPhoto() {
+    return Positioned.fill(
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0, end: 1),
+        duration: AppMotion.normal,
+        curve: AppMotion.spring,
+        builder: (context, t, child) => Opacity(
+          opacity: t,
+          child: Transform.scale(scale: 0.97 + 0.03 * t, child: child),
+        ),
+        child: ColoredBox(
+          color: const Color(0xFF0F1724),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: _photoPane(fullscreen: true),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     _error = AppSnackBars.drain(context, _error);
@@ -2222,7 +2308,7 @@ class _ShadePageState extends State<ShadePage> {
     final sessionCollapsed =
         _sessionCollapsed || ((portrait || phone) && !_sessionPinnedOpen);
 
-    return Padding(
+    final page = Padding(
       padding: AppBreakpoints.pagePadding(
         context,
         portrait: const EdgeInsets.fromLTRB(16, 16, 16, 16),
@@ -2329,43 +2415,7 @@ class _ShadePageState extends State<ShadePage> {
                                       child: _ShadePhotoResultSplit(
                                     editing: editing,
                                     stacked: stackPhotoResult,
-                                    photo: ShadePhotoPane(
-                                  previewBytes: _previewBytes,
-                                  busy: _busy,
-                                  editOutlineMode: _editOutlineMode,
-                                  teeth: _teeth,
-                                  selectedToothIndex: _selectedToothIndex,
-                                  analysisImageSize: _overlayImageSize,
-                                  focusZone: _focusZone,
-                                  guideLines: _viewGuides,
-                                  symmetryView: _symmetryView,
-                                  onToggleSymmetry: _toggleSymmetryView,
-                                  focusSelected: _focusView,
-                                  // Never disable while on — that would strand it.
-                                  onToggleFocus:
-                                      _selectedToothIndex == null && !_focusView
-                                          ? null
-                                          : _toggleFocusView,
-                                  editOutline: _editOutline,
-                                  editBulges: _editBulges,
-                                  activeHandleIndex: _activeHandleIndex,
-                                  activeEdgeIndex: _activeEdgeIndex,
-                                  photoTransformController:
-                                      _photoTransformController,
-                                  dragTick: _dragTick,
-                                  canUndo: _canUndo,
-                                  canRedo: _editOutlineMode &&
-                                      _outlineHistory.canRedo,
-                                  onUpload: _runAiFromGallery,
-                                  onClearPhoto: _clearUploadedPhoto,
-                                  onSelectTooth: _onToothTap,
-                                  onHandleDragStart: _onHandleDragStart,
-                                  onHandleDragUpdate: _onHandleDragUpdate,
-                                  onHandleDragEnd: _endOutlineDrag,
-                                  onEdgeDoubleTap: _onEdgeDoubleTap,
-                                  onUndo: _undoFromOverlay,
-                                  onRedo: _redoOutlineEdit,
-                                ),
+                                    photo: _photoPane(),
                                 result: ShadeResultPane(
                                   teeth: _teeth,
                                   selectedToothIndex: _selectedToothIndex,
@@ -2530,6 +2580,13 @@ class _ShadePageState extends State<ShadePage> {
           ),
         ],
       ),
+    );
+    // Full screen draws the same pane over the whole app (sidebar too), built
+    // here so taps, toggles and zoom keep using this page's state.
+    return OverlayPortal(
+      controller: _fullscreenPortal,
+      overlayChildBuilder: (_) => _buildFullscreenPhoto(),
+      child: page,
     );
   }
 }

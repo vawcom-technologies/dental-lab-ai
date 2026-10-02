@@ -53,9 +53,11 @@ def _shade_out(result: dict) -> ShadeAnalyzeOut:
     )
 
 
-async def _analyze_bytes(data: bytes) -> dict:
+async def _analyze_bytes(data: bytes, *, from_camera: bool = False) -> dict:
     started = time.perf_counter()
-    result = await asyncio.to_thread(analyze_shade_from_bytes, data)
+    result = await asyncio.to_thread(
+        analyze_shade_from_bytes, data, from_camera=from_camera
+    )
     logger.info(
         "shade analyze done bytes=%s ms=%.0f teeth=%s backend=%s fallback=%s model=%s",
         len(data),
@@ -121,12 +123,15 @@ def _cpu_runtime() -> dict:
 
 
 @router.post("/shade/suggest", response_model=ShadeAnalyzeOut)
-async def shade_suggest(file: UploadFile = File(...)):
+async def shade_suggest(
+    file: UploadFile = File(...),
+    from_camera: bool = Form(False),
+):
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="Empty file")
     try:
-        result = await _analyze_bytes(data)
+        result = await _analyze_bytes(data, from_camera=from_camera)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _shade_out(result)

@@ -133,17 +133,21 @@ def _maybe_downscale_rgb(arr: np.ndarray) -> np.ndarray:
     )
 
 
-def analyze_shade_from_bytes(data: bytes) -> dict[str, Any]:
+def analyze_shade_from_bytes(
+    data: bytes, *, from_camera: bool = False
+) -> dict[str, Any]:
     started = time.perf_counter()
     rgb = _load_rgb_from_bytes(data)
     decode_ms = (time.perf_counter() - started) * 1000
     logger.info("shade_analyze decode_ms=%.0f bytes=%s", decode_ms, len(data))
-    result = analyze_shade_from_rgb(rgb)
+    result = analyze_shade_from_rgb(rgb, from_camera=from_camera)
     result["timings_ms"] = {"decode": round(decode_ms), **result["timings_ms"]}
     return result
 
 
-def analyze_shade_from_rgb(image_rgb: np.ndarray) -> dict[str, Any]:
+def analyze_shade_from_rgb(
+    image_rgb: np.ndarray, *, from_camera: bool = False
+) -> dict[str, Any]:
     """Run full per-tooth / per-zone shade analysis on an RGB array."""
     arr = np.asarray(image_rgb)
     if arr.ndim != 3 or arr.shape[2] != 3:
@@ -154,7 +158,7 @@ def analyze_shade_from_rgb(image_rgb: np.ndarray) -> dict[str, Any]:
     downscale_ms = (time.perf_counter() - t0) * 1000
     segment_meta: dict[str, Any] = {}
     t1 = time.perf_counter()
-    teeth = detect_teeth(arr, meta_out=segment_meta)
+    teeth = detect_teeth(arr, meta_out=segment_meta, pad_context=from_camera)
     segment_ms = (time.perf_counter() - t1) * 1000
     # Only surface usable masks — fragments must not appear as T1..Tn in the UI.
     teeth = [t for t in teeth if not t.rejected]

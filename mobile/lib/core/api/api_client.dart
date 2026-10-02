@@ -1012,13 +1012,19 @@ class ApiClient {
 
   static const _shadeAnalyzeTimeout = Duration(seconds: 90);
 
-  Future<Map<String, dynamic>> suggestShade(List<int> bytes, String filename) async {
+  /// [fromCamera]: tight camera crops — server pads context before KAIST.
+  Future<Map<String, dynamic>> suggestShade(
+    List<int> bytes,
+    String filename, {
+    bool fromCamera = false,
+  }) async {
     final name = filename.trim().isEmpty ? 'tooth.jpg' : filename;
     final req = http.MultipartRequest(
       'POST',
       Uri.parse('$baseUrl/api/ai/shade/suggest'),
     );
     req.headers.addAll(_authHeaders);
+    if (fromCamera) req.fields['from_camera'] = 'true';
     req.files.add(
       http.MultipartFile.fromBytes(
         'file',

@@ -214,9 +214,9 @@ def lip_suggestions(
 
     Gums and lips share a colour, but gums never touch skin — so this traces
     the outside of the red/dark mouth region joined to the teeth, corner to
-    corner. Threshold is per photo (Otsu), so pink skin is handled. If the
-    region reaches the top/bottom of the photo (no skin border: retracted or
-    very tight shots) → {} so nothing is auto-applied.
+    corner. Threshold is per photo (Otsu), so pink skin is handled. Each lip
+    is returned only if its border is found with skin beyond it, so a tight
+    crop keeps the visible lip and retracted shots get nothing.
     """
     import cv2
 
@@ -296,18 +296,45 @@ def lip_suggestions(
             expected = 0.5 * (line[i - 1][1] + line[i + 1][1])
             if (line[i][1] - expected) * inward > _LIP_DENT_FRAC * span:
                 line[i][1] = expected
-    # Lips are only "found" if skin borders them. Retracted shots / frames
-    # without skin let the region fill the search window (or photo) — skip.
-    if min(p[1] for p in upper) * h <= y0 + 2 or max(p[1] for p in lower) * h >= y1 - 3:
-        return {}
-    # Both lips meet at the mouth corners.
-    for i in (0, points - 1):
-        upper[i][1] = lower[i][1] = 0.5 * (upper[i][1] + lower[i][1])
+    # Judge each lip on its own: tight / camera crops often cut off the nose
+    # or chin side, and all-or-nothing then dropped a clearly visible lip.
+    # A lip counts only if its border stays inside the search window AND skin
+    # lies just beyond it — retracted shots have mucosa there, never skin.
+    found_up = min(p[1] for p in upper) * h > y0 + 2 and _skin_beyond(lab, upper, h, w, -1)
+    found_lo = max(p[1] for p in lower) * h < y1 - 3 and _skin_beyond(lab, lower, h, w, 1)
+    if found_up and found_lo:  # both lips meet at the mouth corners
+        for i in (0, points - 1):
+            upper[i][1] = lower[i][1] = 0.5 * (upper[i][1] + lower[i][1])
 
     def norm(line: list[list[float]]) -> list[list[float]]:
         return [[round(float(x), 5), round(float(np.clip(y, 0, 1)), 5)] for x, y in line]
 
-    return {"upper_lip": norm(upper), "lower_lip": norm(lower)}
+    out: dict[str, list[list[float]]] = {}
+    if found_up:
+        out["upper_lip"] = norm(upper)
+    if found_lo:
+        out["lower_lip"] = norm(lower)
+    return out
+
+
+# Skin just outside a lip border (OpenCV Lab, L 0–255, a* 128-centred).
+# Measured: skin L 164–226 / a* +10…+23; retracted mucosa L 100–141 / a* +31…+50.
+_SKIN_MIN_L = 150.0
+_SKIN_MAX_A = 27.0
+
+
+def _skin_beyond(
+    lab: np.ndarray, line: list[list[float]], h: int, w: int, outward: int
+) -> bool:
+    """Is the band just outside the middle of a lip line skin-coloured?"""
+    mid = line[len(line) // 3 : len(line) - len(line) // 3] or line
+    xs = [int(np.clip(p[0] * w, 0, w - 1)) for p in mid]
+    # 8–16 px out (at 400 px wide): soft lip edges stay lip-coloured nearer in.
+    ys = [int(np.clip(p[1] * h + outward * k, 0, h - 1)) for p in mid for k in (8, 12, 16)]
+    band = lab[np.ix_(sorted(set(ys)), range(min(xs), max(xs) + 1))].reshape(-1, 3)
+    if band.size == 0:
+        return False
+    return float(band[:, 0].mean()) > _SKIN_MIN_L and float(band[:, 1].mean()) - 128 < _SKIN_MAX_A
 
 
 def tooth_display_geometry(
