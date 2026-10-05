@@ -9,6 +9,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse
 
+from app.services.file_urls import client_file_url
 from app.core.security import AuthUser, get_current_user
 from app.core.supabase_client import get_supabase_admin
 from app.schemas_patients import (
@@ -1680,7 +1681,7 @@ def _photo_public(row: dict[str, Any]) -> dict[str, Any]:
         "patient_id": str(row.get("patient_id") or ""),
         "angle": row.get("angle") or "other",
         "filename": row.get("filename") or "photo.jpg",
-        "file_url": row.get("file_url") or "",
+        "file_url": client_file_url("photos", row),
         "byte_size": int(row.get("byte_size") or 0),
         "taken_at": row.get("created_at"),
     }

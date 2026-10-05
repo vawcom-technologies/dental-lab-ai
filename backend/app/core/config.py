@@ -8,6 +8,10 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_anon_key: str = ""
     supabase_service_role_key: str = ""
+    # Comma list of patient file kinds served only through GET /api/files/...
+    # (photos,scans,shades,smiles). Empty = stored public URLs, as before.
+    # Flip a kind on, then make its R2 bucket private; remove it to roll back.
+    private_file_kinds: str = ""
     # Where Supabase sends users after they click the password-reset email link
     password_reset_redirect_url: str = ""
 
