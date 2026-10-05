@@ -3,7 +3,7 @@
 /// - **Native (App Store iPad):** [mesh_viewer_io.dart] → three_js GPU Mesh/Points
 /// - **Web:** [mesh_viewer_html.dart] → CustomPaint [CpuMeshViewer]
 ///
-/// Supports PLY / STL / OBJ with **Dots** and **Solid** modes.
+/// Supports PLY / STL / OBJ with **Solid** and **Colored** modes.
 library;
 
 export 'mesh_viewer_cpu.dart' show CpuMeshViewer;

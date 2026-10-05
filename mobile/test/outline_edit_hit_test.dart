@@ -108,4 +108,30 @@ void main() {
     expect(none.top, isNull);
     expect(none.bottomY, isNull);
   });
+
+  test('symmetry midline reaches nose tip and chin, clamped to the photo', () {
+    final guides = {
+      'upper_lip': [
+        [0.2, 0.40],
+        [0.8, 0.40],
+      ],
+      'lower_lip': [
+        [0.2, 0.60],
+        [0.8, 0.60],
+      ],
+    };
+    final mid = [
+      [0.5, 0.42],
+      [0.5, 0.58],
+    ];
+    // Square photo: mouth 0.6 wide → nose 0.42 above lip top, chin 0.45 below.
+    final face = extendMidlineToFace(mid, guides, 1.0);
+    expect(face.first[1], closeTo(0.0, 1e-9)); // 0.40 − 0.42 clamps to the photo
+    expect(face.last[1], 1.0); // 0.60 + 0.45 clamps to the photo
+    // No lips → untouched.
+    expect(extendMidlineToFace(mid, {}, 1.0), mid);
+    // Wide photo: same lips span fewer photo-heights → shorter extension.
+    final wide = extendMidlineToFace(mid, guides, 2.0);
+    expect(wide.first[1], closeTo(0.40 - 0.7 * 0.3, 1e-9));
+  });
 }

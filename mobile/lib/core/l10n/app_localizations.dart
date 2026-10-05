@@ -1496,7 +1496,7 @@ class AppLocalizations {
     'messages.noConversations': 'No conversations yet.',
     'messages.noMatch': 'No conversations match your search.',
     'messages.newTitle': 'New Message',
-    'scans.subtitle': 'Upload PLY / STL / OBJ · preview Dots / Solid on device',
+    'scans.subtitle': 'Upload PLY / STL / OBJ · preview Solid / Colored on device',
     'scans.upload': 'Upload scan',
     'scans.uploading': 'Uploading…',
     'scans.delete': 'Delete scan',

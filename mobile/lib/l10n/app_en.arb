@@ -404,7 +404,7 @@
   "scans.noneSelected": "No scan selected",
   "scans.rescanNow": "Rescan now — before patient leaves",
   "scans.selectPatient": "Select a patient",
-  "scans.subtitle": "Upload PLY / STL / OBJ · preview Dots / Solid on device",
+  "scans.subtitle": "Upload PLY / STL / OBJ · preview Solid / Colored on device",
   "scans.upload": "Upload scan",
   "scans.uploading": "Uploading…",
   "scans.uploadingScan": "Uploading scan…",

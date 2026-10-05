@@ -12,13 +12,12 @@ import 'mesh_viewer_chrome.dart';
 
 /// Native three_js host. Booted only after [LayoutBuilder] size is known.
 ///
-/// Dots = [three.Points] + [three.PointsMaterial].
 /// Native iPad GPU mesh viewer (three_js + ANGLE).
 ///
-/// Solid = [three.Mesh]:
-/// - Vertex-colored PLY/OBJ → [three.MeshBasicMaterial] (accurate scanner RGB)
-/// - Uncolored STL/PLY/OBJ → [three.MeshPhongMaterial] (lit white/gray)
-/// Dots = [three.Points] + [three.PointsMaterial].
+/// Solid   = [three.Mesh] + [three.MeshPhongMaterial] (lit white/gray).
+/// Colored = [three.Mesh] + [three.MeshBasicMaterial] with scanner vertex RGB;
+///           files without color reuse the Solid mesh (identical look).
+/// Files with no faces (pure point clouds) render as [three.Points] on both tabs.
 /// Tab toggles only flip scene-graph membership — geometry is parsed once.
 class GpuMeshViewerHost extends StatefulWidget {
   const GpuMeshViewerHost({
@@ -49,11 +48,12 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
   three.DirectionalLight? _keyLight;
   three.BufferGeometry? _geometry;
   three.Mesh? _mesh;
+  three.Mesh? _colorMesh;
   three.Points? _points;
   bool _hasVertexColors = false;
   int _loadedTris = 0;
 
-  bool _solid = true;
+  bool _colored = true;
   bool _canSolid = false;
   bool _sceneReady = false;
   bool _meshLoading = false;
@@ -258,7 +258,6 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
       if (!identical(_loadToken, token) || !mounted) return;
       setState(() {
         _canSolid = hasFaces;
-        if (!hasFaces) _solid = false;
         _loadedVerts = nVerts;
         _meshLoading = false;
         _meshError = null;
@@ -432,7 +431,7 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
   bool _geometryHasFaces(three.BufferGeometry g) =>
       (g.getIndex()?.count ?? 0) >= 3;
 
-  /// Mesh for Solid, Points only when Dots is selected — never both in scene.
+  /// Solid/Colored meshes; Points only when the file has no faces.
   void _installObjects(
     three.BufferGeometry geometry, {
     required bool hasFaces,
@@ -441,22 +440,9 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
     _hasVertexColors = hasColor;
 
     if (hasFaces) {
-      // Colored scans: unlit so scanner RGB is not washed by Phong lights.
-      // Uncolored STL/PLY: keep Phong for readable shape.
-      final three.Material mat;
-      if (hasColor) {
-        mat = three.MeshBasicMaterial({
-          three.MaterialProperty.color: 0xffffff,
-          three.MaterialProperty.vertexColors: true,
-          three.MaterialProperty.side: three.DoubleSide,
-          three.MaterialProperty.wireframe: false,
-          three.MaterialProperty.transparent: false,
-          three.MaterialProperty.opacity: 1.0,
-          three.MaterialProperty.depthTest: true,
-          three.MaterialProperty.depthWrite: true,
-        });
-      } else {
-        mat = three.MeshPhongMaterial({
+      _mesh = three.Mesh(
+        geometry,
+        three.MeshPhongMaterial({
           three.MaterialProperty.color: 0xffffff,
           three.MaterialProperty.vertexColors: false,
           three.MaterialProperty.side: three.DoubleSide,
@@ -468,25 +454,40 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
           three.MaterialProperty.opacity: 1.0,
           three.MaterialProperty.depthTest: true,
           three.MaterialProperty.depthWrite: true,
-        });
-      }
-      _mesh = three.Mesh(geometry, mat);
+        }),
+      );
+      // Unlit so scanner RGB is not washed by Phong lights.
+      _colorMesh = hasColor
+          ? three.Mesh(
+              geometry,
+              three.MeshBasicMaterial({
+                three.MaterialProperty.color: 0xffffff,
+                three.MaterialProperty.vertexColors: true,
+                three.MaterialProperty.side: three.DoubleSide,
+                three.MaterialProperty.wireframe: false,
+                three.MaterialProperty.transparent: false,
+                three.MaterialProperty.opacity: 1.0,
+                three.MaterialProperty.depthTest: true,
+                three.MaterialProperty.depthWrite: true,
+              }),
+            )
+          : null;
     } else {
       _mesh = null;
+      _colorMesh = null;
     }
-    // Points created lazily in [_applyMode] so Solid never shares the scene
-    // with a Points draw call (same geometry + Points looks like a cloud).
+    // Points only for face-less clouds, created in [_applyMode].
     _points = null;
   }
 
   void _ensurePoints() {
-    if (_points != null || _geometry == null) return;
+    if (_geometry == null) return;
     // Fixed screen-space dots (no perspective attenuation) so density reads
     // straight from the input: dots bunch where the scan sampled denser
     // (cavities/fissures) instead of ballooning with the model's mm scale.
     final ptsMat = three.PointsMaterial({
       three.MaterialProperty.color: 0xffffff,
-      three.MaterialProperty.vertexColors: _hasVertexColors,
+      three.MaterialProperty.vertexColors: _hasVertexColors && _colored,
       three.MaterialProperty.size: 1.6,
       three.MaterialProperty.sizeAttenuation: false,
     });
@@ -498,41 +499,33 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
     final scene = _three?.scene;
     if (scene == null) return;
 
-    final useSolid = _solid && _canSolid && _mesh != null;
-
-    if (useSolid) {
-      // Solid: Mesh only — tear down Points so ANGLE cannot draw gl.POINTS.
-      if (_points != null) {
+    final active = _colored && _colorMesh != null ? _colorMesh : _mesh;
+    for (final m in [_mesh, _colorMesh]) {
+      if (m == null) continue;
+      if (identical(m, active)) {
+        if (m.parent == null) scene.add(m);
+        m.visible = true;
+      } else if (m.parent != null) {
         try {
-          scene.remove(_points!);
+          scene.remove(m);
         } catch (_) {}
-        try {
-          _points!.material?.dispose();
-        } catch (_) {}
-        _points = null;
+        m.visible = false;
       }
-      if (_mesh!.parent == null) {
-        scene.add(_mesh!);
-      }
-      _mesh!.visible = true;
-      return;
     }
 
-    // Dots: Points only.
-    if (_mesh != null) {
-      if (_mesh!.parent != null) {
-        try {
-          scene.remove(_mesh!);
-        } catch (_) {}
-      }
-      _mesh!.visible = false;
-    }
-    _ensurePoints();
+    // Face-less cloud: rebuild Points so the material follows the tab.
     if (_points != null) {
-      if (_points!.parent == null) {
-        scene.add(_points!);
-      }
-      _points!.visible = true;
+      try {
+        scene.remove(_points!);
+      } catch (_) {}
+      try {
+        _points!.material?.dispose();
+      } catch (_) {}
+      _points = null;
+    }
+    if (active == null) {
+      _ensurePoints();
+      if (_points != null) scene.add(_points!);
     }
   }
 
@@ -583,15 +576,17 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
 
   void _disposeMeshObjects({required bool disposeGeometry}) {
     final tj = _three;
-    if (_mesh != null) {
+    for (final m in [_mesh, _colorMesh]) {
+      if (m == null) continue;
       try {
-        tj?.scene.remove(_mesh!);
+        tj?.scene.remove(m);
       } catch (_) {}
       try {
-        _mesh!.material?.dispose();
+        m.material?.dispose();
       } catch (_) {}
-      _mesh = null;
     }
+    _mesh = null;
+    _colorMesh = null;
     if (_points != null) {
       try {
         tj?.scene.remove(_points!);
@@ -710,23 +705,20 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           MeshViewerChip(
-                            'Dots',
-                            selected: !_solid,
+                            'Solid',
+                            selected: !_colored,
                             onTap: () => setState(() {
-                              _solid = false;
+                              _colored = false;
                               _applyMode();
                             }),
                           ),
                           MeshViewerChip(
-                            'Solid',
-                            selected: _solid,
-                            enabled: _canSolid,
-                            onTap: _canSolid
-                                ? () => setState(() {
-                                      _solid = true;
-                                      _applyMode();
-                                    })
-                                : null,
+                            'Colored',
+                            selected: _colored,
+                            onTap: () => setState(() {
+                              _colored = true;
+                              _applyMode();
+                            }),
                           ),
                         ],
                       ),
@@ -754,7 +746,7 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
 
   String get _hudLabel {
     final n = widget.vertexCount ?? _loadedVerts;
-    if (_solid && _canSolid) {
+    if (_canSolid) {
       // Must NOT look like CpuMeshViewer ("web · N tris · drag/pinch").
       return 'ipad-gpu · ${n ?? '—'} verts · $_loadedTris tris';
     }

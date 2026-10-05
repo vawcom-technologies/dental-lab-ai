@@ -200,8 +200,9 @@ def midline_from_rows(rows: list[dict[str, Any]]) -> list[list[float]] | None:
     return [[round(x, 5), round(min(tops), 5)], [round(x, 5), round(max(bottoms), 5)]]
 
 
-# Lip vs skin: lips are redder and darker. Feature = a* − weight·L.
-_LIP_DARK_WEIGHT = 0.5
+# Lip vs skin: lips are redder. Feature = a* − weight·L; any darkness weight
+# pulled nostril / chin shadows into the mouth region on new photos.
+_LIP_DARK_WEIGHT = 0.0
 # Inward dent bigger than this fraction of mouth height = pale highlight on
 # the lip read as skin → replaced by the neighbours' average.
 _LIP_DENT_FRAC = 0.08
@@ -243,15 +244,19 @@ def lip_suggestions(
     # Search window: around the teeth, generous enough to hold both lips.
     ys, xs = np.nonzero(teeth)
     th, tw = ys.max() - ys.min(), xs.max() - xs.min()
-    y0, y1 = max(0, int(ys.min() - 1.5 * th)), min(h, int(ys.max() + 1.5 * th))
-    x0, x1 = max(0, int(xs.min() - 0.4 * tw)), min(w, int(xs.max() + 0.4 * tw))
+    reach = max(1.5 * th, 0.25 * h)  # partial tooth detection must not shrink the window
+    y0, y1 = max(0, int(ys.min() - reach)), min(h, int(ys.max() + reach))
+    x0, x1 = 0, w  # KAIST can miss teeth, so tooth extent underestimates the mouth
     roi = lip_like[y0:y1, x0:x1]
     vals = roi[teeth[y0:y1, x0:x1] == 0]
     if vals.size < 50 or float(np.ptp(vals)) < 1e-3:
         return {}
-    v8 = ((vals - vals.min()) * (255.0 / np.ptp(vals))).astype(np.uint8)
-    t8, _ = cv2.threshold(v8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    cut = float(vals.min() + np.ptp(vals) * t8 / 255.0)
+    # Threshold midway between skin (low quartile of the window) and the lip /
+    # gum colour right around the teeth. Otsu split the face's own skin tones
+    # on some photos and flooded the "mouth" over the cheeks.
+    near = cv2.dilate(teeth, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (int(th * 1.2) | 1,) * 2)) > 0
+    ring = lip_like[near & (teeth == 0)]
+    cut = 0.5 * (float(np.percentile(vals, 25)) + float(np.percentile(ring, 75)))
 
     mouth = np.zeros((h, w), np.uint8)
     mouth[y0:y1, x0:x1] = roi > cut
@@ -321,6 +326,10 @@ def lip_suggestions(
 # Measured: skin L 164–226 / a* +10…+23; retracted mucosa L 100–141 / a* +31…+50.
 _SKIN_MIN_L = 150.0
 _SKIN_MAX_A = 27.0
+# Warm or dim light pushes skin past the absolute limits above, so also accept
+# a clear redness drop from the lip into what lies beyond (measured 4–16;
+# mucosa continues the same red).
+_SKIN_MIN_A_DROP = 4.0
 
 
 def _skin_beyond(
@@ -329,12 +338,19 @@ def _skin_beyond(
     """Is the band just outside the middle of a lip line skin-coloured?"""
     mid = line[len(line) // 3 : len(line) - len(line) // 3] or line
     xs = [int(np.clip(p[0] * w, 0, w - 1)) for p in mid]
+    cols = range(min(xs), max(xs) + 1)
+
+    def band(offsets: tuple[int, ...]) -> np.ndarray:
+        ys = sorted({int(np.clip(p[1] * h + outward * k, 0, h - 1)) for p in mid for k in offsets})
+        return lab[np.ix_(ys, cols)].reshape(-1, 3)
+
     # 8–16 px out (at 400 px wide): soft lip edges stay lip-coloured nearer in.
-    ys = [int(np.clip(p[1] * h + outward * k, 0, h - 1)) for p in mid for k in (8, 12, 16)]
-    band = lab[np.ix_(sorted(set(ys)), range(min(xs), max(xs) + 1))].reshape(-1, 3)
-    if band.size == 0:
+    out, inner = band((8, 12, 16)), band((-8, -6, -4))
+    if out.size == 0:
         return False
-    return float(band[:, 0].mean()) > _SKIN_MIN_L and float(band[:, 1].mean()) - 128 < _SKIN_MAX_A
+    out_a = float(out[:, 1].mean()) - 128
+    absolute = float(out[:, 0].mean()) > _SKIN_MIN_L and out_a < _SKIN_MAX_A
+    return absolute or float(inner[:, 1].mean()) - 128 - out_a >= _SKIN_MIN_A_DROP
 
 
 def tooth_display_geometry(

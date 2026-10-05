@@ -1,5 +1,7 @@
 """Shade / shape / scan-body selection persistence (Week 3)."""
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -350,6 +352,65 @@ def latest_shape(
         "scale": row.scale,
         "created_at": row.created_at,
     }
+
+
+@router.post("/{case_id}/shapes")
+def save_shapes(
+    case_id: int,
+    payload: list[ShapeSave],
+    user: User = Depends(require_dentist),
+    db: Session = Depends(get_db),
+):
+    """Save upper + lower selections as one batch (shared created_at)."""
+    if not db.query(Case).filter(Case.id == case_id).first():
+        raise HTTPException(status_code=404, detail="Case not found")
+    now = datetime.utcnow()
+    for item in payload:
+        db.add(ShapeSelection(case_id=case_id, created_at=now, **item.model_dump()))
+    db.add(
+        ActivityLog(
+            user_id=user.id,
+            action="shape.save",
+            target_type="case",
+            target_id=case_id,
+        )
+    )
+    db.commit()
+    return {"saved": len(payload)}
+
+
+@router.get("/{case_id}/shapes")
+def latest_shapes(
+    case_id: int,
+    user: User = Depends(require_dentist),
+    db: Session = Depends(get_db),
+):
+    """Rows of the most recent save batch (one per jaw)."""
+    last = (
+        db.query(ShapeSelection.created_at)
+        .filter(ShapeSelection.case_id == case_id)
+        .order_by(ShapeSelection.id.desc())
+        .limit(1)
+        .scalar()
+    )
+    if last is None:
+        return []
+    rows = (
+        db.query(ShapeSelection)
+        .filter(ShapeSelection.case_id == case_id, ShapeSelection.created_at == last)
+        .order_by(ShapeSelection.id)
+        .all()
+    )
+    return [
+        {
+            "shape_id": r.shape_id,
+            "position_x": r.position_x,
+            "position_y": r.position_y,
+            "rotation": r.rotation,
+            "scale": r.scale,
+        }
+        for r in rows
+    ]
 
 
 # Scan body parked — restore when needed.

@@ -123,12 +123,6 @@ class ShapeLibrary {
       asset: 'assets/clinical/shapes/shape_13_implant_natural.png',
     ),
     ShapeLibraryItem(
-      id: 14,
-      shapeId: 'shape_14',
-      label: 'Implant bright',
-      asset: 'assets/clinical/shapes/shape_14_implant_bright.png',
-    ),
-    ShapeLibraryItem(
       id: 15,
       shapeId: 'shape_15',
       label: 'Implant classic',
@@ -142,6 +136,8 @@ class ShapeLibrary {
       ];
 
   static int get total => catalog.length;
+
+  static bool isLower(int index) => index >= items.length;
 
   static ShapeLibraryItem at(int index) {
     final all = catalog;
@@ -162,14 +158,14 @@ class ShapeLibrary {
 class BatemModelAccordion extends StatefulWidget {
   const BatemModelAccordion({
     super.key,
-    required this.selectedIndex,
+    required this.selectedIndexes,
     required this.openIds,
     required this.onToggle,
     required this.onSelect,
     this.shrinkWrap = false,
   });
 
-  final int selectedIndex;
+  final Set<int> selectedIndexes;
   final Set<int> openIds;
   final ValueChanged<int> onToggle;
   final ValueChanged<int> onSelect;
@@ -268,7 +264,7 @@ class _BatemModelAccordionState extends State<BatemModelAccordion> {
     required ShapeLibraryItem item,
     required int catalogIndex,
   }) {
-    final selected = catalogIndex == widget.selectedIndex;
+    final selected = widget.selectedIndexes.contains(catalogIndex);
     final open = widget.openIds.contains(item.id);
     return Padding(
       key: ValueKey('batem-${item.id}'),
@@ -444,6 +440,24 @@ class ShapeOverlayPage extends StatefulWidget {
   State<ShapeOverlayPage> createState() => _ShapeOverlayPageState();
 }
 
+/// Position / size / opacity of one jaw's overlay.
+class _Placement {
+  Offset offset = Offset.zero;
+  double scale = 1.0;
+  double width = 1.0; // ponytail: session-only; persist when API gets scale_x/y
+  double height = 1.0;
+  double rotation = 0;
+  double opacity = 0.88;
+
+  void reset() {
+    scale = 1.05;
+    width = 1.0;
+    height = 1.0;
+    rotation = 0;
+    opacity = 0.88;
+  }
+}
+
 class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     with SingleTickerProviderStateMixin {
   List<Map<String, dynamic>> _patients = [];
@@ -451,13 +465,26 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
   Map<String, dynamic>? _case;
   Uint8List? _photoBytes;
 
-  int _shapeIndex = 0;
-  Offset _offset = Offset.zero;
-  double _scale = 1.0;
-  double _width = 1.0; // ponytail: session-only; persist when API gets scale_x/y
-  double _height = 1.0;
-  double _rotation = 0;
-  double _opacity = 0.88;
+  // One model per jaw (catalog indexes); the placement controls edit the
+  // active jaw via the getters/setters below.
+  int? _upperIndex = 0;
+  int? _lowerIndex;
+  final _upperP = _Placement();
+  final _lowerP = _Placement();
+  bool _lowerActive = false;
+  _Placement get _p => _lowerActive ? _lowerP : _upperP;
+  Offset get _offset => _p.offset;
+  set _offset(Offset v) => _p.offset = v;
+  double get _scale => _p.scale;
+  set _scale(double v) => _p.scale = v;
+  double get _width => _p.width;
+  set _width(double v) => _p.width = v;
+  double get _height => _p.height;
+  set _height(double v) => _p.height = v;
+  double get _rotation => _p.rotation;
+  set _rotation(double v) => _p.rotation = v;
+  double get _opacity => _p.opacity;
+  set _opacity(double v) => _p.opacity = v;
   bool _showOverlay = true;
   bool _comparing = false;
   bool _showGuides = true;
@@ -479,7 +506,17 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
   late final AnimationController _fsController;
   late final Animation<double> _fsExpand;
 
-  ShapeLibraryItem get _selected => ShapeLibrary.at(_shapeIndex);
+  int? get _activeIndex => _lowerActive ? _lowerIndex : _upperIndex;
+  ShapeLibraryItem? get _selected {
+    final i = _activeIndex;
+    return i == null ? null : ShapeLibrary.at(i);
+  }
+
+  /// Selected models, upper first.
+  List<(_Placement, ShapeLibraryItem)> get _chosen => [
+        if (_upperIndex != null) (_upperP, ShapeLibrary.at(_upperIndex!)),
+        if (_lowerIndex != null) (_lowerP, ShapeLibrary.at(_lowerIndex!)),
+      ];
 
   @override
   void initState() {
@@ -711,11 +748,8 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     setState(() {
       _photoBytes = data;
       _imageSize = null;
-      _scale = 1.05;
-      _width = 1.0;
-      _height = 1.0;
-      _rotation = 0;
-      _opacity = 0.88;
+      _upperP.reset();
+      _lowerP.reset();
       _showOverlay = true;
       _centeredOnce = false;
       _dirty = true;
@@ -730,21 +764,32 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
 
   Future<void> _restoreSaved(int caseId) async {
     try {
-      final saved = await widget.api.latestShape(caseId);
-      if (saved == null || !mounted) return;
-      final idx = ShapeLibrary.indexOfShapeId(saved['shape_id']?.toString());
+      final rows = await widget.api.latestShapes(caseId);
+      if (rows.isEmpty || !mounted) return;
       setState(() {
-        _shapeIndex = idx;
+        _upperIndex = null;
+        _lowerIndex = null;
+        for (final r in rows) {
+          final idx = ShapeLibrary.indexOfShapeId(r['shape_id']?.toString());
+          final lower = ShapeLibrary.isLower(idx);
+          final p = lower ? _lowerP : _upperP;
+          if (lower) {
+            _lowerIndex = idx;
+          } else {
+            _upperIndex = idx;
+          }
+          p.offset = Offset(
+            (r['position_x'] as num?)?.toDouble() ?? p.offset.dx,
+            (r['position_y'] as num?)?.toDouble() ?? p.offset.dy,
+          );
+          p.rotation = (r['rotation'] as num?)?.toDouble() ?? 0;
+          p.scale = (r['scale'] as num?)?.toDouble() ?? 1.0;
+        }
+        _lowerActive = _upperIndex == null;
         _openBatemIds
           ..clear()
-          ..add(ShapeLibrary.at(idx).id);
-        _offset = Offset(
-          (saved['position_x'] as num?)?.toDouble() ?? _offset.dx,
-          (saved['position_y'] as num?)?.toDouble() ?? _offset.dy,
-        );
-        _rotation = (saved['rotation'] as num?)?.toDouble() ?? 0;
-        _scale = (saved['scale'] as num?)?.toDouble() ?? 1.0;
-        _status = 'Restored ${_selected.label}';
+          ..addAll([for (final (_, it) in _chosen) it.id]);
+        _status = 'Restored ${_chosen.map((c) => c.$2.label).join(' + ')}';
         _centeredOnce = true;
         _dirty = false;
       });
@@ -788,11 +833,13 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     final b = _photoRect(to);
     if (a.width < 1 || a.height < 1) return;
     final sx = b.width / a.width;
-    _offset = Offset(
-      b.left + (_offset.dx - a.left) * sx,
-      b.top + (_offset.dy - a.top) * sx,
-    );
-    _scale = (_scale * sx).clamp(0.15, 8.0);
+    for (final p in [_upperP, _lowerP]) {
+      p.offset = Offset(
+        b.left + (p.offset.dx - a.left) * sx,
+        b.top + (p.offset.dy - a.top) * sx,
+      );
+      p.scale = (p.scale * sx).clamp(0.15, 8.0);
+    }
   }
 
   Future<void> _pickPhoto() async {
@@ -855,14 +902,29 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     }
   }
 
+  /// One model per jaw: picking replaces that jaw's model, picking the
+  /// current one again removes it.
   void _selectShape(int i) {
     if (i < 0 || i >= ShapeLibrary.total) return;
+    final lower = ShapeLibrary.isLower(i);
+    final item = ShapeLibrary.at(i);
     setState(() {
-      _shapeIndex = i;
-      _openBatemIds.add(ShapeLibrary.at(i).id);
-      _status = 'Selected ${ShapeLibrary.at(i).label}';
+      final remove = (lower ? _lowerIndex : _upperIndex) == i;
+      if (lower) {
+        _lowerIndex = remove ? null : i;
+      } else {
+        _upperIndex = remove ? null : i;
+      }
+      if (remove) {
+        _lowerActive = !lower && _lowerIndex != null;
+        _status = 'Removed ${item.label}';
+      } else {
+        _lowerActive = lower;
+        _openBatemIds.add(item.id);
+        _status = 'Selected ${item.label}';
+        _showOverlay = true;
+      }
       _dirty = true;
-      _showOverlay = true;
     });
   }
 
@@ -872,33 +934,34 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     });
   }
 
-  void _centerIn(Size canvas) {
+  void _centerP(_Placement p, Size canvas, {double dyFrac = 0}) {
+    final w = ShapeOverlayPage.cellW * p.scale * p.width;
+    final h = ShapeOverlayPage.cellH * p.scale * p.height;
+    final photo = _photoRect(canvas);
+    p.offset = Offset(
+      photo.left + (photo.width - w) / 2,
+      photo.top + (photo.height - h) / 2 + h * dyFrac,
+    );
+  }
+
+  /// [both]: first placement — lower sits below the upper (ponytail: fixed
+  /// 0.5-cell drop; the user drags it onto the lower teeth).
+  void _centerIn(Size canvas, {bool both = false}) {
     setState(() {
-      final w = ShapeOverlayPage.cellW * _scale * _width;
-      final h = ShapeOverlayPage.cellH * _scale * _height;
-      final photo = _photoRect(canvas);
-      _offset = Offset(
-        photo.left + (photo.width - w) / 2,
-        photo.top + (photo.height - h) / 2,
-      );
+      if (both) {
+        _centerP(_upperP, canvas);
+        _centerP(_lowerP, canvas, dyFrac: 0.5);
+      } else {
+        _centerP(_p, canvas);
+      }
       _centeredOnce = true;
     });
   }
 
   void _resetTransform(Size canvas) {
     setState(() {
-      _scale = 1.05;
-      _width = 1.0;
-      _height = 1.0;
-      _rotation = 0;
-      _opacity = 0.88;
-      final w = ShapeOverlayPage.cellW * _scale * _width;
-      final h = ShapeOverlayPage.cellH * _scale * _height;
-      final photo = _photoRect(canvas);
-      _offset = Offset(
-        photo.left + (photo.width - w) / 2,
-        photo.top + (photo.height - h) / 2,
-      );
+      _p.reset();
+      _centerP(_p, canvas, dyFrac: _lowerActive ? 0.5 : 0);
       _dirty = true;
     });
   }
@@ -975,18 +1038,27 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
           _error = AppLocalizations.of(context).smileLoadSmilePhoto);
       return;
     }
+    if (_chosen.isEmpty) {
+      setState(() => _error = 'Select a model first');
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
     });
     try {
-      await widget.api.saveShape(
+      await widget.api.saveShapes(
         caseId: _case!['id'] as int,
-        shapeId: _selected.shapeId,
-        x: _offset.dx,
-        y: _offset.dy,
-        rotation: _rotation,
-        scale: _scale,
+        shapes: [
+          for (final (p, it) in _chosen)
+            {
+              'shape_id': it.shapeId,
+              'position_x': p.offset.dx,
+              'position_y': p.offset.dy,
+              'rotation': p.rotation,
+              'scale': p.scale,
+            },
+        ],
       );
       await widget.api.markCaseInProgressIfPending(
         _case!['id'] as int,
@@ -999,7 +1071,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       if (mounted) {
         AppSnackBars.success(
           context,
-          'Saved “${_selected.label}” to case #${_case!['id']}',
+          'Saved ${_chosen.map((c) => '“${c.$2.label}”').join(' + ')} to case #${_case!['id']}',
         );
       }
     } catch (e) {
@@ -1235,6 +1307,89 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     );
   }
 
+  Widget _overlay(bool lower) {
+    final p = lower ? _lowerP : _upperP;
+    final item = ShapeLibrary.at((lower ? _lowerIndex : _upperIndex)!);
+    final active = lower == _lowerActive;
+    return Positioned(
+      left: p.offset.dx,
+      top: p.offset.dy,
+      child: Transform.rotate(
+        angle: p.rotation * math.pi / 180,
+        child: SizedBox(
+          width: ShapeOverlayPage.cellW * p.scale * p.width,
+          height: ShapeOverlayPage.cellH * p.scale * p.height,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned.fill(
+                child: GestureDetector(
+                  // Tap the other jaw's overlay to switch to editing it.
+                  onTap: active ? null : () => setState(() => _lowerActive = lower),
+                  onScaleStart: !active
+                      ? null
+                      : (_) {
+                          _baseScale = _scale;
+                          _baseRotation = _rotation;
+                        },
+                  onScaleUpdate: !active
+                      ? null
+                      : (d) {
+                          setState(() {
+                            _offset += d.focalPointDelta;
+                            _scale = (_baseScale * d.scale).clamp(0.15, 8.0);
+                            _rotation =
+                                (_baseRotation + d.rotation * 180 / math.pi)
+                                    .clamp(-35.0, 35.0);
+                            _dirty = true;
+                          });
+                        },
+                  child: _OverlayTooth(
+                    item: item,
+                    opacity: p.opacity,
+                    showChrome: _showGuides && active,
+                  ),
+                ),
+              ),
+              if (_showGuides && active) ...[
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: _AxisResizeHandle(
+                    horizontal: true,
+                    onDragUpdate: (delta) {
+                      final local = _localDragDelta(delta);
+                      setState(() {
+                        _width = (_width +
+                                local.dx / (ShapeOverlayPage.cellW * _scale))
+                            .clamp(0.4, 2.4);
+                        _dirty = true;
+                      });
+                    },
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.bottomCenter,
+                  child: _AxisResizeHandle(
+                    horizontal: false,
+                    onDragUpdate: (delta) {
+                      final local = _localDragDelta(delta);
+                      setState(() {
+                        _height = (_height +
+                                local.dy / (ShapeOverlayPage.cellH * _scale))
+                            .clamp(0.4, 2.4);
+                        _dirty = true;
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _photoStage() {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1248,7 +1403,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
         _lastCanvas = canvas;
         if (!_centeredOnce) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted && !_centeredOnce) _centerIn(canvas);
+            if (mounted && !_centeredOnce) _centerIn(canvas, both: true);
           });
         }
 
@@ -1265,109 +1420,48 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                 filterQuality: FilterQuality.high,
               ),
             ),
-            if (overlayVisible)
-              Positioned(
-                left: _offset.dx,
-                top: _offset.dy,
-                child: Transform.rotate(
-                  angle: _rotation * math.pi / 180,
-                  child: SizedBox(
-                    width: ShapeOverlayPage.cellW * _scale * _width,
-                    height: ShapeOverlayPage.cellH * _scale * _height,
-                    child: Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        Positioned.fill(
-                          child: GestureDetector(
-                            onScaleStart: (_) {
-                              _baseScale = _scale;
-                              _baseRotation = _rotation;
-                            },
-                            onScaleUpdate: (d) {
-                              setState(() {
-                                _offset += d.focalPointDelta;
-                                _scale =
-                                    (_baseScale * d.scale).clamp(0.15, 8.0);
-                                _rotation = (_baseRotation +
-                                        d.rotation * 180 / math.pi)
-                                    .clamp(-35.0, 35.0);
-                                _dirty = true;
-                              });
-                            },
-                            child: _OverlayTooth(
-                              item: _selected,
-                              opacity: _opacity,
-                              showChrome: _showGuides,
-                            ),
-                          ),
-                        ),
-                        if (_showGuides) ...[
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: _AxisResizeHandle(
-                              horizontal: true,
-                              onDragUpdate: (delta) {
-                                final local = _localDragDelta(delta);
-                                setState(() {
-                                  _width = (_width +
-                                          local.dx /
-                                              (ShapeOverlayPage.cellW *
-                                                  _scale))
-                                      .clamp(0.4, 2.4);
-                                  _dirty = true;
-                                });
-                              },
-                            ),
-                          ),
-                          Align(
-                            alignment: Alignment.bottomCenter,
-                            child: _AxisResizeHandle(
-                              horizontal: false,
-                              onDragUpdate: (delta) {
-                                final local = _localDragDelta(delta);
-                                setState(() {
-                                  _height = (_height +
-                                          local.dy /
-                                              (ShapeOverlayPage.cellH *
-                                                  _scale))
-                                      .clamp(0.4, 2.4);
-                                  _dirty = true;
-                                });
-                              },
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ),
+            if (overlayVisible) ...[
+              // Active jaw last so it sits on top and takes the gestures.
+              for (final lower in _lowerActive ? [false, true] : [true, false])
+                if ((lower ? _lowerIndex : _upperIndex) != null)
+                  _overlay(lower),
+            ],
             Positioned(
               left: 12,
               top: 12,
-              child: _StageChip(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: SizedBox(
-                        width: 44,
-                        height: 30,
-                        child: ShapeToothImage(item: _selected, fit: BoxFit.cover),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final (_, item) in _chosen)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: _StageChip(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(4),
+                              child: SizedBox(
+                                width: 44,
+                                height: 30,
+                                child: ShapeToothImage(
+                                    item: item, fit: BoxFit.cover),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '${item.id} · ${item.label}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '${_selected.id} · ${_selected.label}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
+                ],
               ),
             ),
             Positioned(
@@ -1438,6 +1532,14 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     );
   }
 
+  /// Which jaw the placement controls edit.
+  String get _activeLabel {
+    final loc = AppLocalizations.of(context);
+    final sel = _selected;
+    if (sel == null) return '—';
+    return '${_lowerActive ? loc.smileLowerJaw : loc.smileUpperJaw} · ${sel.label}';
+  }
+
   Widget _libraryHeader() {
     return Row(
       children: [
@@ -1452,7 +1554,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
           ),
         ),
         Text(
-          '${_shapeIndex + 1}/${ShapeLibrary.total}',
+          '${_chosen.length}/2',
           style: const TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w600,
@@ -1465,7 +1567,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
 
   Widget _batemList({required bool shrinkWrap}) {
     return BatemModelAccordion(
-      selectedIndex: _shapeIndex,
+      selectedIndexes: {?_upperIndex, ?_lowerIndex},
       openIds: _openBatemIds,
       onToggle: _toggleBatem,
       onSelect: _selectShape,
@@ -1485,7 +1587,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
           _libraryHeader(),
           const SizedBox(height: 2),
           Text(
-            _selected.label,
+            _activeLabel,
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
@@ -1616,7 +1718,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                     ),
                   ),
                   Text(
-                    '${_shapeIndex + 1}/${ShapeLibrary.total}',
+                    '${_chosen.length}/2',
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -1627,7 +1729,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
               ),
               const SizedBox(height: 2),
               Text(
-                _selected.label,
+                _activeLabel,
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -1647,7 +1749,9 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                   ),
                 ),
                 clipBehavior: Clip.antiAlias,
-                child: ShapeToothImage(item: _selected, fit: BoxFit.contain),
+                child: _selected == null
+                    ? null
+                    : ShapeToothImage(item: _selected!, fit: BoxFit.contain),
               ),
               const SizedBox(height: 12),
               Expanded(

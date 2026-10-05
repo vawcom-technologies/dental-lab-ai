@@ -1241,6 +1241,31 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
+  /// Saves upper + lower placements as one batch.
+  Future<void> saveShapes({
+    required int caseId,
+    required List<Map<String, dynamic>> shapes,
+  }) async {
+    final res = await _http.post(
+      Uri.parse('$baseUrl/api/cases/$caseId/shapes'),
+      headers: _jsonHeaders,
+      body: jsonEncode(shapes),
+    );
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(_errorMessage(res));
+    }
+    AppHaptics.success();
+  }
+
+  Future<List<Map<String, dynamic>>> latestShapes(int caseId) async {
+    final res = await _http.get(
+      Uri.parse('$baseUrl/api/cases/$caseId/shapes'),
+      headers: _getHeaders(forceRefresh: true),
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
+  }
+
   Future<Map<String, dynamic>?> latestShape(
     int caseId, {
     bool forceRefresh = false,

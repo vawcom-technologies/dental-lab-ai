@@ -7,12 +7,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('Shape library includes the three implant models', () {
-    expect(ShapeLibrary.total, 15);
-    expect(ShapeLibrary.lowerArchItems, isEmpty);
+  test('Shape library includes the two implant models', () {
+    expect(ShapeLibrary.total, 14);
     expect(
       ShapeLibrary.catalog.map((e) => e.label),
-      containsAll(['Implant natural', 'Implant bright', 'Implant classic']),
+      containsAll(['Implant natural', 'Implant classic']),
     );
   });
 
@@ -41,7 +40,7 @@ void main() {
               width: 400,
               height: 1700,
               child: BatemModelAccordion(
-                selectedIndex: 0,
+                selectedIndexes: {0},
                 openIds: openIds,
                 onToggle: (_) {},
                 onSelect: (_) {},
@@ -78,7 +77,7 @@ void main() {
               child: StatefulBuilder(
                 builder: (context, setState) {
                   return BatemModelAccordion(
-                    selectedIndex: selected,
+                    selectedIndexes: {selected},
                     openIds: openIds,
                     onToggle: (id) => setState(() {
                       if (!openIds.remove(id)) openIds.add(id);

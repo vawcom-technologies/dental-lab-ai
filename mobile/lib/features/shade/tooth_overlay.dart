@@ -69,6 +69,46 @@ Map<String, List<List<double>>> parseGuideLines(Object? raw) {
   );
 }
 
+// Facial proportions off the lip corner-to-corner width (no face landmarks
+// available): outer upper-lip top → nose tip ≈ 0.7×, lower-lip bottom → chin
+// ≈ 0.75×. Average faces; Adjust edges can still move the midline ends.
+const _noseAboveLipFrac = 0.7;
+const _chinBelowLipFrac = 0.75;
+
+/// Symmetry-view midline stretched from nose tip to chin, as normalized
+/// `[[x, top], [x, bottom]]`. Never shorter than [mid]; an end whose lip is
+/// absent keeps its tooth-row end. [aspect] = photo width / height.
+List<List<double>> extendMidlineToFace(
+  List<List<double>> mid,
+  Map<String, List<List<double>>> guides,
+  double aspect,
+) {
+  final upper = guides['upper_lip'] ?? const <List<double>>[];
+  final lower = guides['lower_lip'] ?? const <List<double>>[];
+  final xs = [for (final p in [...upper, ...lower]) p[0]];
+  var top = mid.first[1];
+  var bottom = mid.last[1];
+  if (xs.isNotEmpty) {
+    // mouth width in photo heights
+    final w = (xs.reduce((a, b) => a > b ? a : b) -
+            xs.reduce((a, b) => a < b ? a : b)) /
+        aspect;
+    if (upper.isNotEmpty) {
+      final lipTop = upper.map((p) => p[1]).reduce((a, b) => a < b ? a : b);
+      top = (lipTop - _noseAboveLipFrac * w).clamp(0.0, top);
+    }
+    if (lower.isNotEmpty) {
+      final lipBottom = lower.map((p) => p[1]).reduce((a, b) => a > b ? a : b);
+      bottom = (lipBottom + _chinBelowLipFrac * w).clamp(bottom, 1.0);
+    }
+  }
+  final x = mid.first[0];
+  return [
+    [x, top],
+    [x, bottom],
+  ];
+}
+
 /// Guides the user can drag in Adjust edges.
 const kEditableGuides = {'midline', 'upper_lip', 'lower_lip'};
 
@@ -931,9 +971,10 @@ class ToothOverlayPainter extends CustomPainter {
       ..color = _midlineColor.withValues(alpha: 0.9);
     final mid = guideLines['midline'];
     if (mid != null && mid.length >= 2) {
+      final face = extendMidlineToFace(mid, guideLines, dest.width / dest.height);
       canvas.drawLine(
-        normToLocal(mid.first, dest),
-        normToLocal(mid.last, dest),
+        normToLocal(face.first, dest),
+        normToLocal(face.last, dest),
         paint,
       );
     }

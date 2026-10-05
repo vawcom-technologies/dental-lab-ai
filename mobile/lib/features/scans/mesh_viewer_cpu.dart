@@ -40,7 +40,7 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
   Float32List? _triangles;
   String? _sampleError;
   bool _sampling = false;
-  bool _solid = true;
+  bool _colored = true;
   double _yaw = 0.10;
   double _pitch = -0.14;
   double _zoom = 1.0;
@@ -92,7 +92,6 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
             _triangles = local.triangles;
             _sampleError = local.error;
             _sampling = false;
-            if (!_canSolid) _solid = false;
           });
         } catch (e) {
           if (!identical(_token, token) || !mounted) return;
@@ -101,7 +100,6 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
             _triangles = null;
             _sampleError = e.toString().replaceFirst('Exception: ', '');
             _sampling = false;
-            _solid = false;
           });
         }
       });
@@ -112,7 +110,6 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
       _triangles = null;
       _sampleError = null;
       _sampling = false;
-      _solid = false;
     });
   }
 
@@ -161,7 +158,7 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
                     yaw: _yaw,
                     pitch: _pitch,
                     zoom: _zoom,
-                    solid: _solid && _canSolid,
+                    colored: _colored,
                   ),
                   child: const SizedBox.expand(),
                 ),
@@ -177,17 +174,14 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       MeshViewerChip(
-                        'Dots',
-                        selected: !_solid,
-                        onTap: () => setState(() => _solid = false),
+                        'Solid',
+                        selected: !_colored,
+                        onTap: () => setState(() => _colored = false),
                       ),
                       MeshViewerChip(
-                        'Solid',
-                        selected: _solid,
-                        enabled: _canSolid,
-                        onTap: _canSolid
-                            ? () => setState(() => _solid = true)
-                            : null,
+                        'Colored',
+                        selected: _colored,
+                        onTap: () => setState(() => _colored = true),
                       ),
                     ],
                   ),
@@ -197,7 +191,7 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
                 left: 12,
                 bottom: 10,
                 child: Text(
-                  _solid && _canSolid
+                  _canSolid
                       ? 'web · ${_triangles!.length ~/ 18} tris · drag/pinch'
                       : 'web · ${widget.vertexCount ?? _vertices.length}'
                           '${_canSolid ? '' : ' · no faces'} · drag/pinch',
@@ -219,7 +213,7 @@ class _CpuMeshPainter extends CustomPainter {
     required this.yaw,
     required this.pitch,
     required this.zoom,
-    required this.solid,
+    required this.colored,
   });
 
   final List<List<double>> vertices;
@@ -227,7 +221,7 @@ class _CpuMeshPainter extends CustomPainter {
   final double yaw;
   final double pitch;
   final double zoom;
-  final bool solid;
+  final bool colored;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -253,7 +247,7 @@ class _CpuMeshPainter extends CustomPainter {
       return Offset(cx + x1 * scale, cy - y2 * scale);
     }
 
-    if (solid && triangles != null && triangles!.length >= 18) {
+    if (triangles != null && triangles!.length >= 18) {
       final t = triangles!;
       final n = t.length ~/ 18;
       final depth = Float32List(n);
@@ -267,7 +261,7 @@ class _CpuMeshPainter extends CustomPainter {
       }
       order.sort((a, b) => depth[b].compareTo(depth[a]));
 
-      final fileColor = vertices.any((v) => v.length >= 6);
+      final fileColor = colored && vertices.any((v) => v.length >= 6);
       final fill = Paint()
         ..style = PaintingStyle.fill
         ..isAntiAlias = false;
@@ -313,7 +307,7 @@ class _CpuMeshPainter extends CustomPainter {
         final v = vertices[i];
         final p = project(v[0], v[1], v[2]);
         var r = 255, g = 255, b = 255;
-        if (v.length >= 6) {
+        if (colored && v.length >= 6) {
           r = (v[3] * 255).round().clamp(0, 255);
           g = (v[4] * 255).round().clamp(0, 255);
           b = (v[5] * 255).round().clamp(0, 255);
@@ -341,7 +335,7 @@ class _CpuMeshPainter extends CustomPainter {
       old.yaw != yaw ||
       old.pitch != pitch ||
       old.zoom != zoom ||
-      old.solid != solid ||
+      old.colored != colored ||
       !identical(old.vertices, vertices) ||
       !identical(old.triangles, triangles);
 }
