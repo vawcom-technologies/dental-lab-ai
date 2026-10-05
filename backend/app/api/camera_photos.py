@@ -6,6 +6,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.services.file_urls import client_file_url
 from app.core.security import AuthUser, get_current_user
 from app.core.supabase_client import get_supabase_admin
 from app.schemas_patient_media import ShadeDetectionOut, SmilePreviewOut
@@ -93,7 +94,7 @@ def _shade_out(row: dict) -> ShadeDetectionOut:
         patient_id=str(row["patient_id"]),
         uploaded_by=str(row["uploaded_by"]),
         file_key=str(row.get("file_key") or ""),
-        file_url=str(row.get("file_url") or ""),
+        file_url=client_file_url("shades", row),
         file_name=str(row.get("file_name") or ""),
         created_at=row.get("created_at"),
     )
@@ -105,7 +106,7 @@ def _smile_out(row: dict) -> SmilePreviewOut:
         patient_id=str(row["patient_id"]),
         uploaded_by=str(row["uploaded_by"]),
         file_key=str(row.get("file_key") or ""),
-        file_url=str(row.get("file_url") or ""),
+        file_url=client_file_url("smiles", row),
         file_name=str(row.get("file_name") or ""),
         created_at=row.get("created_at"),
     )

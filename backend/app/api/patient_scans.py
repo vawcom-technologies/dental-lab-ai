@@ -7,6 +7,7 @@ import logging
 
 from fastapi import APIRouter, Depends, File, UploadFile, status
 
+from app.services.file_urls import client_file_url
 from app.ai.scan_quality import validate_scan_bytes
 from app.core.security import AuthUser, get_current_user
 from app.schemas_patient_media import DeleteOkOut, PatientScanOut
@@ -27,7 +28,7 @@ def _serialize(row: dict, validation: dict | None = None) -> PatientScanOut:
         patient_id=str(row["patient_id"]),
         uploaded_by=str(row["uploaded_by"]),
         file_key=str(row.get("file_key") or ""),
-        file_url=str(row.get("file_url") or ""),
+        file_url=client_file_url("scans", row),
         file_name=str(row.get("file_name") or ""),
         format=str(row.get("format") or ""),
         created_at=row.get("created_at"),

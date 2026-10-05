@@ -26,6 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import (
+    files,
     auth,
     health,
     admin,
@@ -99,6 +100,8 @@ app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(chat.router, prefix="/api", tags=["chat"])
 # Contact discovery: GET /api/users
 app.include_router(users.router, prefix="/api", tags=["Users & Contacts"])
+# Access-checked patient files: GET /api/files/{kind}/{id}
+app.include_router(files.router, prefix="/api/files", tags=["Files"])
 # Chat media upload: POST /api/media/chat-upload
 app.include_router(media.router, prefix="/api/media", tags=["Chat Media"])
 # GDPR patients: /api/patients...
