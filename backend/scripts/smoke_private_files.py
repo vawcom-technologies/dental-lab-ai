@@ -19,6 +19,7 @@ BASE = os.environ["BASE"].rstrip("/")
 def call(path_or_url, token=None, data=None):
     url = path_or_url if path_or_url.startswith("http") else BASE + path_or_url
     req = urllib.request.Request(url, data=data, method="POST" if data else "GET")
+    req.add_header("User-Agent", "Mozilla/5.0 (smoke-test)")  # Cloudflare 403s bare urllib
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     if data:
@@ -50,16 +51,21 @@ def main():
     assert status == 200, f"login failed ({status})"
     token = json.loads(body)["access_token"]
 
-    pid = sys.argv[1] if len(sys.argv) > 1 else None
-    if not pid:
+    if len(sys.argv) > 1:
+        pids = [sys.argv[1]]
+    else:
         _, body = call("/api/patients", token)
-        pid = next(r["id"] for r in file_rows_or_ids(json.loads(body)))
+        pids = [r["id"] for r in file_rows_or_ids(json.loads(body))][:30]
     failures = 0
     for kind, route in [("photos", "photos"), ("scans", "scans"), ("shades", "shade-detections"), ("smiles", "smile-previews")]:
-        _, body = call(f"/api/patients/{pid}/{route}", token)
-        row = next(iter(file_rows(json.loads(body or b"null"))), None)
+        row = None
+        for pid in pids:  # first patient that has a file of this kind
+            _, body = call(f"/api/patients/{pid}/{route}", token)
+            row = next(iter(file_rows(json.loads(body or b"null"))), None)
+            if row:
+                break
         if row is None:
-            print(f"{kind:7} SKIP  (no files for this patient)")
+            print(f"{kind:7} SKIP  (no files found for {len(pids)} patient(s))")
             continue
         url = row["file_url"]
         if url.startswith("/"):
@@ -69,7 +75,7 @@ def main():
             failures += not ok
         else:
             status, _ = call(url)
-            print(f"{kind:7} INFO  API still returns a public URL; anonymous GET -> {status}")
+            print(f"{kind:7} INFO  API returns a public URL; anonymous GET -> {status}")
     sys.exit(1 if failures else 0)
 
 

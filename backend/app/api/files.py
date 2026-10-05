@@ -8,7 +8,11 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.core.security import AuthUser, get_current_user
 from app.services import patient_media as pm
-from app.services.r2 import _require_patient_bucket, download_r2_object_bytes
+from app.services.r2 import (
+    _require_patient_bucket,
+    download_r2_object_bytes,
+    is_patient_images_url,
+)
 from app.services.shade_media import load_shade_detection_bytes
 
 router = APIRouter()
@@ -22,7 +26,10 @@ _TABLES = {
 
 
 def _load_bytes(kind: str, row: dict) -> bytes:
-    if kind in ("photos", "shades"):
+    # Rows copied from a camera photo (copy-to-shade / copy-to-smile) point at
+    # the photo's object, which lives in the patient-images bucket, not the
+    # kind's own bucket.
+    if kind in ("photos", "shades") or is_patient_images_url(str(row.get("file_url") or "")):
         # Handles the camera-photo bucket, shade keys and the local fallback.
         return load_shade_detection_bytes(row)
     key = str(row.get("file_key") or "").strip()

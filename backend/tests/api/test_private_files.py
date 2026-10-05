@@ -48,3 +48,14 @@ def test_no_access_is_forbidden(client, monkeypatch):
 def test_unknown_kind_and_missing_row_404(client):
     assert client.get("/api/files/nope/r1").status_code == 404
     assert client.get("/api/files/scans/missing").status_code == 404
+
+
+def test_smile_copied_from_camera_photo_reads_patient_images_bucket(client, monkeypatch):
+    row = {**ROW, "file_url": "https://img.example/patients/p1/photos/a.jpg", "file_key": "patients/p1/photos/a.jpg", "file_name": "a.jpg"}
+    monkeypatch.setattr(files.pm, "fetch_row", lambda t, i: row)
+    monkeypatch.setattr(files, "is_patient_images_url", lambda u: u.startswith("https://img.example"))
+    monkeypatch.setattr(files, "load_shade_detection_bytes", lambda r: b"PHOTO")
+    # smiles bucket would 502 for this key; must not be consulted
+    monkeypatch.setattr(files, "download_r2_object_bytes", lambda b, k: (_ for _ in ()).throw(AssertionError("wrong bucket")))
+    r = client.get("/api/files/smiles/r1")
+    assert r.status_code == 200 and r.content == b"PHOTO"
