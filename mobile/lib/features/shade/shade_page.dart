@@ -224,6 +224,16 @@ class _ShadePageState extends State<ShadePage> {
     return 'patient-$pid';
   }
 
+  /// Session rows of the selected patient only (history keeps other patients'
+  /// unsaved visits so switching back restores them).
+  List<Map<String, dynamic>> get _patientHistory {
+    final pid = _patient == null ? '' : _pid(_patient!);
+    return [
+      for (final h in _history)
+        if ('${h['patient_id'] ?? (h['patient'] is Map ? _pid(Map<String, dynamic>.from(h['patient'] as Map)) : '')}' == pid) h,
+    ];
+  }
+
   int _historyIndexForKey(String key) {
     return _history.indexWhere((h) => '${h['session_key'] ?? ''}' == key);
   }
@@ -2441,6 +2451,7 @@ class _ShadePageState extends State<ShadePage> {
 
     final portrait = AppBreakpoints.isPortrait(context);
     final phone = AppBreakpoints.isPhone(context);
+    final shown = _patientHistory;
     final sessionCollapsed =
         _sessionCollapsed || ((portrait || phone) && !_sessionPinnedOpen);
 
@@ -2699,15 +2710,15 @@ class _ShadePageState extends State<ShadePage> {
                 const SizedBox(width: 12),
                 ShadeSessionPane(
                   collapsed: sessionCollapsed,
-                  history: _history,
+                  history: shown,
                   activeSessionKey: _sessionKey(),
                   swatch: shadeSwatch,
                   onCollapseChanged: (v) => setState(() {
                     _sessionCollapsed = v;
                     _sessionPinnedOpen = !v;
                   }),
-                  onOpen: _openHistoryAt,
-                  onDelete: _deleteHistoryAt,
+                  onOpen: (i) => _openHistoryAt(_history.indexOf(shown[i])),
+                  onDelete: (i) => _deleteHistoryAt(_history.indexOf(shown[i])),
                   thumbnail: _sessionThumbnail,
                 ),
               ],
