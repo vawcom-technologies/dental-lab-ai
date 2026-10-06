@@ -19,7 +19,7 @@ OVERLAY = {"shapes": [{"shape_id": "shape_03", "x": 0.4, "y": 0.5}]}
 @pytest.fixture
 def env(monkeypatch):
     rows, objects, deleted = [], set(), []
-    monkeypatch.setattr(r2, "bucket_for", lambda k: (f"bucket-{k}", "https://pub"))
+    monkeypatch.setattr(r2, "bucket_for", lambda k: f"bucket-{k}")
     monkeypatch.setattr(r2, "get_r2_client", lambda: type("C", (), {"put_object": lambda self, **kw: objects.add(kw["Key"])})())
     monkeypatch.setattr(pm, "delete_patient_asset", lambda kind, file_key: deleted.append(file_key))
     monkeypatch.setattr(pm, "require_patient_access", lambda p, u: {})

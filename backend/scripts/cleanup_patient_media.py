@@ -54,8 +54,8 @@ def hash_key(kind: str, patient_id: str, source_key: str, digest: str) -> str:
 
 def plan_table(client, table: str, kind: str, saved_col: str | None, drop_unsaved: bool):
     db = get_supabase_admin()
-    bucket, public = bucket_for(kind)
-    img_bucket, _ = bucket_for("photos")
+    bucket = bucket_for(kind)
+    img_bucket = bucket_for("photos")
     own, img = list_keys(client, bucket), list_keys(client, img_bucket)
     rows = db.table(table).select("*").execute().data or []
 
@@ -99,7 +99,6 @@ def plan_table(client, table: str, kind: str, saved_col: str | None, drop_unsave
     moves = [r for r in keep if r["_new_key"] != r.get("file_key")]
     return {
         "bucket": bucket,
-        "public": public,
         "rows": rows,
         "keep": keep,
         "moves": moves,
@@ -112,7 +111,7 @@ def plan_table(client, table: str, kind: str, saved_col: str | None, drop_unsave
 
 def apply(client, table: str, plan: dict) -> None:
     db = get_supabase_admin()
-    bucket, public = plan["bucket"], plan["public"]
+    bucket = plan["bucket"]
     for new_key, (src_bucket, src_key) in plan["copies"].items():
         client.copy_object(
             Bucket=bucket,
@@ -121,7 +120,7 @@ def apply(client, table: str, plan: dict) -> None:
         )
     for row in plan["moves"]:
         db.table(table).update(
-            {"file_key": row["_new_key"], "file_url": f"{public.rstrip('/')}/{row['_new_key']}"}
+            {"file_key": row["_new_key"], "file_url": row["_new_key"]}
         ).eq("id", row["id"]).execute()
     for row, _ in plan["delete_rows"]:
         db.table(table).delete().eq("id", row["id"]).execute()

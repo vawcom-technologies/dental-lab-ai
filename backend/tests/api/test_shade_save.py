@@ -17,7 +17,7 @@ PHOTO = {"id": "ph1", "patient_id": "p1", "filename": "front.jpg", "file_url": "
 @pytest.fixture
 def env(monkeypatch):
     rows, puts = [], []
-    monkeypatch.setattr(r2, "bucket_for", lambda k: (f"bucket-{k}", "https://pub"))
+    monkeypatch.setattr(r2, "bucket_for", lambda k: f"bucket-{k}")
     monkeypatch.setattr(r2, "get_r2_client", lambda: type("C", (), {"put_object": lambda self, **kw: puts.append(kw)})())
     monkeypatch.setattr(pm, "require_patient_access", lambda p, u: {})
     monkeypatch.setattr(pm, "find_row_by_key", lambda t, p, k: next((r for r in rows if (r["patient_id"], r["file_key"]) == (p, k)), None))

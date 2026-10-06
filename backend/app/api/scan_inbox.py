@@ -19,7 +19,7 @@ from app.services import patient_media as pm
 from app.services.r2 import (
     INBOX_EXPIRY_DAYS,
     bucket_for,
-    copy_scan_object,
+    copy_inbox_to_scans,
     delete_patient_asset,
     download_r2_object_bytes,
     upload_inbox_file,
@@ -87,7 +87,7 @@ def upload_to_inbox(file: UploadFile = File(...), user: AuthUser = Depends(get_c
             },
         )
     except Exception:
-        delete_patient_asset(kind="scans", file_key=key)
+        delete_patient_asset(kind="inbox", file_key=key)
         raise
     logger.info("inbox upload user_id=%s item_id=%s size=%s", user.id, row["id"], size)
     return _out(row)
@@ -112,7 +112,7 @@ def list_inbox(user: AuthUser = Depends(get_current_user)):
 @router.get("/{item_id}/file", summary="Download an incoming scan (preview)")
 def inbox_file(item_id: str, user: AuthUser = Depends(get_current_user)):
     row = _own_item(item_id, user)
-    bucket, _ = bucket_for("scans")
+    bucket = bucket_for("inbox")
     # ponytail: whole file in memory, like /api/files; stream if scans outgrow RAM.
     data = download_r2_object_bytes(bucket, str(row["file_key"]))
     return Response(
@@ -127,11 +127,11 @@ def assign_inbox_item(item_id: str, body: AssignIn, user: AuthUser = Depends(get
     row = _own_item(item_id, user)
     pm.require_patient_access(body.patient_id, user.id)
 
-    # The inbox object expires after 30 days, so the patient gets their own copy
+    # Inbox objects expire after 30 days, so the patient gets their own copy
     # (named after the item id: assigning twice reuses the same key and record).
     ext = Path(str(row["file_key"])).suffix
     key = f"patients/{body.patient_id}/scans/{item_id}{ext}"
-    copy_scan_object(src_key=str(row["file_key"]), dst_key=key)
+    copy_inbox_to_scans(src_key=str(row["file_key"]), dst_key=key)
 
     existing = pm.find_row_by_key("patient_scans", body.patient_id, key)
     if existing is None:
@@ -153,7 +153,7 @@ def assign_inbox_item(item_id: str, body: AssignIn, user: AuthUser = Depends(get
             raise
     # Past this point the scan is safely on the record; cleanup failures are harmless.
     try:
-        delete_patient_asset(kind="scans", file_key=str(row["file_key"]))
+        delete_patient_asset(kind="inbox", file_key=str(row["file_key"]))
         pm.delete_row(_TABLE, item_id)
     except Exception:
         logger.warning("inbox cleanup after assign failed item_id=%s", item_id, exc_info=True)
@@ -164,6 +164,6 @@ def assign_inbox_item(item_id: str, body: AssignIn, user: AuthUser = Depends(get
 @router.delete("/{item_id}", response_model=DeleteOkOut, summary="Delete an incoming scan")
 def delete_inbox_item(item_id: str, user: AuthUser = Depends(get_current_user)):
     row = _own_item(item_id, user)
-    delete_patient_asset(kind="scans", file_key=str(row["file_key"]))
+    delete_patient_asset(kind="inbox", file_key=str(row["file_key"]))
     pm.delete_row(_TABLE, item_id)
     return DeleteOkOut(deleted=True, id=item_id)

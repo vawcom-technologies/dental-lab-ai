@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from app.api import scan_inbox as si
 from app.core.security import AuthUser, get_current_user
 
-ROW = {"id": "i1", "uploaded_by": "u1", "file_key": "inbox/u1/abc.ply", "file_name": "a.ply", "format": "ply", "byte_size": 3}
+ROW = {"id": "i1", "uploaded_by": "u1", "file_key": "u1/abc.ply", "file_name": "a.ply", "format": "ply", "byte_size": 3}
 
 
 @pytest.fixture
@@ -18,7 +18,7 @@ def env(monkeypatch):
     app.dependency_overrides[get_current_user] = lambda: AuthUser("u1", "a@b.c", "A", "dentist")
     monkeypatch.setattr(si.pm, "fetch_row", lambda t, i: s["rows"].get(i))
     monkeypatch.setattr(si.pm, "require_patient_access", lambda p, u: {})
-    monkeypatch.setattr(si, "copy_scan_object", lambda src_key, dst_key: s["copied"].append(dst_key))
+    monkeypatch.setattr(si, "copy_inbox_to_scans", lambda src_key, dst_key: s["copied"].append(dst_key))
     monkeypatch.setattr(si.pm, "find_row_by_key", lambda t, p, k: None)
     monkeypatch.setattr(si.pm, "insert_row", lambda t, row: s["scans"].append(row) or {"id": "s1", **row})
     monkeypatch.setattr(si, "delete_patient_asset", lambda kind, file_key: s["deleted"].append(file_key))
@@ -32,7 +32,7 @@ def test_assign_copies_to_patient_folder_then_removes_inbox_item(env):
     assert r.status_code == 200
     assert env["copied"] == ["patients/p1/scans/i1.ply"]
     assert env["scans"][0]["file_key"] == "patients/p1/scans/i1.ply"
-    assert env["deleted"] == ["inbox/u1/abc.ply"] and env["inbox_rows_deleted"] == ["i1"]
+    assert env["deleted"] == ["u1/abc.ply"] and env["inbox_rows_deleted"] == ["i1"]
 
 
 def test_failed_assign_keeps_inbox_item(env, monkeypatch):
@@ -75,8 +75,8 @@ def test_upload_rejects_bad_type_and_streams_valid(env, monkeypatch):
     from app.services import r2
 
     monkeypatch.setattr(r2, "get_r2_client", lambda: C())
-    monkeypatch.setattr(r2, "bucket_for", lambda k: ("b", ""))
+    monkeypatch.setattr(r2, "bucket_for", lambda k: "b")
     r = c.post("/api/scan-inbox", files={"file": ("scan.ply", b"PLYDATA")})
     assert r.status_code == 201, r.text
-    assert sent["data"] == b"PLYDATA" and sent["key"].startswith("inbox/u1/") and sent["key"].endswith(".ply")
+    assert sent["data"] == b"PLYDATA" and sent["key"].startswith("u1/") and sent["key"].endswith(".ply")
     assert [r["file_key"] for r in env["scans"]] == [sent["key"]]  # one inbox row, no patient record

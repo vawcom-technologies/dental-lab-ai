@@ -12,19 +12,16 @@ from app.services import file_urls, shade_media
 ROW = {"id": "r1", "patient_id": "p1", "file_url": "https://pub.example/k.ply", "file_key": "patients/p1/scans/k.ply", "file_name": "scan.ply"}
 
 
-def test_client_file_url_switches_per_kind(monkeypatch):
-    monkeypatch.setattr(settings, "private_file_kinds", "scans, smiles")
+def test_client_file_url_never_hands_out_stored_url():
     assert file_urls.client_file_url("scans", ROW) == "/api/files/scans/r1"
-    assert file_urls.client_file_url("photos", ROW) == ROW["file_url"]  # not switched on
-    monkeypatch.setattr(settings, "private_file_kinds", "")
-    assert file_urls.client_file_url("scans", ROW) == ROW["file_url"]  # rollback
+    assert file_urls.client_file_url("photos", ROW) == "/api/files/photos/r1"
 
 
 @pytest.fixture
 def store(monkeypatch):
     """{(bucket, key): bytes}; buckets are named after their kind."""
     objects = {("bucket-scans", ROW["file_key"]): b"MESH"}
-    monkeypatch.setattr(shade_media, "bucket_for", lambda k: (f"bucket-{k}", "https://pub"))
+    monkeypatch.setattr(shade_media, "bucket_for", lambda k: f"bucket-{k}")
 
     def download(bucket, key):
         if (bucket, key) not in objects:

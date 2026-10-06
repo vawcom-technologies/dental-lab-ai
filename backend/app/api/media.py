@@ -133,7 +133,9 @@ def chat_media_link(message_id: str, user: AuthUser = Depends(get_current_user))
     if msg is None or not msg.get("media_url") or conv is None or not cm.is_participant(conv, user.id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
     url = presign_chat_media(
-        media_type=str(msg.get("media_type") or ""), media_url=str(msg["media_url"])
+        media_type=str(msg.get("media_type") or ""),
+        media_url=str(msg["media_url"]),
+        conversation_id=str(msg["conversation_id"]),
     )
     logger.info("chat-file link user_id=%s message_id=%s", user.id, message_id)
     return {"url": url, "expires_in": CHAT_LINK_TTL_SECONDS}

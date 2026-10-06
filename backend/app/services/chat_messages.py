@@ -12,6 +12,7 @@ from fastapi import HTTPException, status
 from app.core.supabase_client import get_supabase_admin
 from app.schemas_chat import MessageOut, PatientMentionOut, ReplyPreviewOut
 from app.services.chat_manager import chat_manager
+from app.services.r2 import chat_key_from_url
 from app.services.patient_access import (
     patient_display_name,
     require_patient_access,
@@ -119,6 +120,12 @@ def fetch_message(message_id: str) -> dict[str, Any] | None:
     return rows[0] if rows else None
 
 
+def _media_key(value: Any) -> str | None:
+    """Old rows store a public URL; the app only needs to know there is a file
+    (and its extension) and fetches a signed link by message id."""
+    return chat_key_from_url(str(value)) if value else None
+
+
 def message_out(
     row: dict[str, Any],
     reply: dict[str, Any] | None = None,
@@ -129,7 +136,7 @@ def message_out(
             id=str(reply.get("id")),
             sender_id=str(reply.get("sender_id")),
             content=reply.get("content"),
-            media_url=reply.get("media_url"),
+            media_url=_media_key(reply.get("media_url")),
             media_type=reply.get("media_type"),
             duration_seconds=(
                 float(reply["duration_seconds"])
@@ -145,7 +152,7 @@ def message_out(
         conversation_id=str(row.get("conversation_id")),
         sender_id=str(row.get("sender_id")),
         content=row.get("content"),
-        media_url=row.get("media_url"),
+        media_url=_media_key(row.get("media_url")),
         media_type=row.get("media_type"),
         duration_seconds=float(duration) if duration is not None else None,
         reply_to_message_id=(

@@ -27,36 +27,31 @@ _VIDEO_EXTENSIONS = frozenset(
 )
 
 
-# kind -> (bucket setting, public URL setting); env vars are the upper-case names.
+# kind -> bucket setting; env vars are the upper-case names. All buckets are
+# private: files are served by the backend (/api/files) or by short signed links.
 _BUCKETS = {
-    "voice": ("r2_voice_bucket", "r2_voice_public_url"),
-    "video": ("r2_videos_bucket", "r2_videos_public_url"),
-    "image": ("r2_documents_bucket", "r2_documents_public_url"),  # chat images share documents
-    "document": ("r2_documents_bucket", "r2_documents_public_url"),
-    "photos": ("r2_patient_images_bucket", "r2_patient_images_public_url"),
-    "scans": ("r2_scans_bucket", "r2_scans_public_url"),
-    "shades": ("r2_shades_bucket", "r2_shades_public_url"),
-    "smiles": ("r2_smiles_bucket", "r2_smiles_public_url"),
+    "voice": "r2_voice_bucket",
+    "video": "r2_videos_bucket",
+    "image": "r2_documents_bucket",  # chat images share documents
+    "document": "r2_documents_bucket",
+    "photos": "r2_patient_images_bucket",
+    "scans": "r2_scans_bucket",
+    "shades": "r2_shades_bucket",
+    "smiles": "r2_smiles_bucket",
+    "inbox": "r2_scan_inbox_bucket",
 }
 
 
-def bucket_for(kind: str) -> tuple[str, str]:
-    """(bucket, public base URL) for a media kind; 503 if no bucket is set.
-
-    Buckets are private, so the public URL is optional (empty = none).
-    """
-    names = _BUCKETS[kind]
-    bucket, public = (str(getattr(settings, n) or "").strip().rstrip("/") for n in names)
+def bucket_for(kind: str) -> str:
+    """Bucket for a media kind; 503 if not configured."""
+    name = _BUCKETS[kind]
+    bucket = str(getattr(settings, name) or "").strip()
     if not bucket:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Missing {names[0].upper()} in environment",
+            detail=f"Missing {name.upper()} in environment",
         )
-    return bucket, public
-
-
-def _stored_url(public_base: str, key: str) -> str:
-    return f"{public_base}/{key}" if public_base else key
+    return bucket
 
 
 @lru_cache
@@ -106,11 +101,9 @@ def chat_media_kind(media_type: str | None) -> str:
     return media if media in ALLOWED_MEDIA_TYPES else "document"
 
 
-def chat_key_from_url(media_url: str, public_base: str = "") -> str:
+def chat_key_from_url(media_url: str) -> str:
     """Object key of a chat media value: a bare key, or a (legacy) public URL."""
     url = (media_url or "").strip()
-    if public_base and url.startswith(f"{public_base}/"):
-        return url[len(public_base) + 1 :]
     if url.startswith(("http://", "https://")):
         from urllib.parse import urlparse
 
@@ -121,11 +114,15 @@ def chat_key_from_url(media_url: str, public_base: str = "") -> str:
 CHAT_LINK_TTL_SECONDS = 3600  # long enough for a video to play and seek
 
 
-def presign_chat_media(*, media_type: str, media_url: str) -> str:
-    """Short-lived signed GET link for a chat attachment (caller checks access)."""
-    bucket, public_base = bucket_for(chat_media_kind(media_type))
-    key = chat_key_from_url(media_url, public_base)
-    if not key.startswith("chat/"):
+def presign_chat_media(*, media_type: str, media_url: str, conversation_id: str) -> str:
+    """Short-lived signed GET link for a chat attachment (caller checks access).
+
+    Only files under this conversation's own folder: a message can't point at
+    another conversation's file and get it signed.
+    """
+    bucket = bucket_for(chat_media_kind(media_type))
+    key = chat_key_from_url(media_url)
+    if not conversation_id or not key.startswith(f"chat/{conversation_id}/"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
     return get_r2_client().generate_presigned_url(
         "get_object",
@@ -139,11 +136,11 @@ def delete_chat_media_object(*, media_type: str, file_url: str) -> None:
     if not (file_url or "").strip():
         return
     try:
-        bucket, public_base = bucket_for(chat_media_kind(media_type))
+        bucket = bucket_for(chat_media_kind(media_type))
     except HTTPException:
         logger.warning("chat R2 delete skipped — bucket not configured media_type=%s", media_type)
         return
-    key = chat_key_from_url(file_url, public_base)
+    key = chat_key_from_url(file_url)
     if not key:
         logger.warning("chat R2 delete skipped — no key from url=%s", file_url)
         return
@@ -267,7 +264,7 @@ def upload_chat_file(
     media_type: str,
 ) -> str:
     """
-    Stream UploadFile to R2 and return the public CDN URL.
+    Stream UploadFile to R2 and return its object key (stored as media_url).
 
     Videos are stored as-is (no transcode) and capped at 200 MB.
     Other chat media has no file-size enforcement.
@@ -281,7 +278,7 @@ def upload_chat_file(
     if media_type == "video":
         _validate_chat_video(file)
 
-    bucket, public_base = bucket_for(media_type)
+    bucket = bucket_for(media_type)
     key = build_object_key(
         conversation_id=conversation_id,
         media_type=media_type,
@@ -349,7 +346,7 @@ def upload_chat_file(
             detail=f"R2 upload failed: {str(exc).strip() or 'unknown error'}",
         ) from exc
 
-    public_url = _stored_url(public_base, key)
+    public_url = key
     logger.debug(
         "R2 upload ok bucket=%s key=%s url=%s",
         bucket,
@@ -361,7 +358,7 @@ def upload_chat_file(
 
 # ── Patient clinical media (scans / shades / smiles) ──────────────────────────
 
-PatientAssetKind = Literal["scans", "shades", "smiles"]
+PatientAssetKind = Literal["scans", "shades", "smiles", "inbox"]
 
 _SCAN_EXTENSIONS = frozenset({".ply", ".stl", ".obj"})
 _IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".webp", ".heic", ".tif", ".tiff"})
@@ -430,7 +427,7 @@ def upload_patient_asset(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Empty file",
         )
-    bucket, public_base = bucket_for(kind)
+    bucket = bucket_for(kind)
     key = build_patient_asset_key(
         kind=kind, patient_id=patient_id, filename=filename, data=data
     )
@@ -455,7 +452,7 @@ def upload_patient_asset(
             detail=f"R2 upload failed: {str(exc).strip() or 'unknown error'}",
         ) from exc
 
-    public_url = _stored_url(public_base, key)
+    public_url = key
     logger.debug(
         "R2 patient upload ok kind=%s bucket=%s key=%s",
         kind,
@@ -466,18 +463,19 @@ def upload_patient_asset(
 
 
 # ── Scan inbox (PC web upload, waiting for a patient) ─────────────────────────
+# Own private bucket; its lifecycle rule deletes objects after 30 days.
 
 INBOX_MAX_BYTES = 300 * 1024 * 1024
-INBOX_EXPIRY_DAYS = 30  # mirror the Cloudflare lifecycle rule on inbox/
+INBOX_EXPIRY_DAYS = 30  # mirror the inbox bucket's lifecycle rule
 
 
 def upload_inbox_file(*, file: UploadFile, user_id: str) -> tuple[str, int, str]:
-    """Stream a scan to the scans bucket under inbox/{user}/. Returns (key, size, filename)."""
+    """Stream a scan to the inbox bucket under {user}/. Returns (key, size, filename)."""
     filename = validate_patient_upload_filename(kind="scans", filename=file.filename)
     stream = _sized_upload_stream(file, max_bytes=INBOX_MAX_BYTES, label="Scan")
     size = _upload_size(file) or 0
-    key = f"inbox/{user_id}/{uuid.uuid4().hex}{Path(filename).suffix.lower()}"
-    bucket, _ = bucket_for("scans")
+    key = f"{user_id}/{uuid.uuid4().hex}{Path(filename).suffix.lower()}"
+    bucket = bucket_for("inbox")
     try:
         stream.seek(0)
         get_r2_client().upload_fileobj(stream, bucket, key)
@@ -495,12 +493,13 @@ def upload_inbox_file(*, file: UploadFile, user_id: str) -> tuple[str, int, str]
     return key, size, filename
 
 
-def copy_scan_object(*, src_key: str, dst_key: str) -> None:
-    """Server-side copy inside the scans bucket (no bytes through the backend)."""
-    bucket, _ = bucket_for("scans")
+def copy_inbox_to_scans(*, src_key: str, dst_key: str) -> None:
+    """Server-side copy inbox → scans bucket (no bytes through the backend)."""
     try:
         get_r2_client().copy_object(
-            Bucket=bucket, Key=dst_key, CopySource={"Bucket": bucket, "Key": src_key}
+            Bucket=bucket_for("scans"),
+            Key=dst_key,
+            CopySource={"Bucket": bucket_for("inbox"), "Key": src_key},
         )
     except Exception as exc:
         logger.exception("R2 copy failed src=%s", src_key)
@@ -514,7 +513,7 @@ def delete_patient_asset(*, kind: PatientAssetKind, file_key: str) -> None:
     """Delete an object from the patient-asset R2 bucket. Missing keys are ignored."""
     if not (file_key or "").strip():
         return
-    bucket, _ = bucket_for(kind)
+    bucket = bucket_for(kind)
     client = get_r2_client()
     try:
         client.delete_object(Bucket=bucket, Key=file_key)
@@ -616,7 +615,7 @@ def upload_patient_photo_bytes(
             patient_id=patient_id, filename=filename, data=data
         )
 
-    bucket, public_base = bucket_for("photos")
+    bucket = bucket_for("photos")
     ext = Path(filename or "").suffix.lower() or ".jpg"
     if ext not in _IMAGE_EXTENSIONS:
         ext = ".jpg"
@@ -644,7 +643,7 @@ def upload_patient_photo_bytes(
             detail=f"R2 upload failed: {str(exc).strip() or 'unknown error'}",
         ) from exc
 
-    public_url = _stored_url(public_base, key)
+    public_url = key
     logger.debug("R2 photo upload ok bucket=%s key=%s", bucket, key)
     return public_url
 
@@ -668,7 +667,7 @@ def delete_patient_photo_object(file_url: str) -> None:
         logger.warning("R2 photo delete skipped — could not derive key from url=%s", url)
         return
 
-    bucket, _ = bucket_for("photos")
+    bucket = bucket_for("photos")
     client = get_r2_client()
     try:
         client.delete_object(Bucket=bucket, Key=key)
@@ -720,15 +719,12 @@ def download_r2_object_bytes(bucket: str, key: str) -> bytes:
 
 
 def file_key_from_patient_photo_url(file_url: str) -> str:
-    """Derive object key from a patient photo public URL."""
+    """Object key of a patient photo: a bare key, or a (legacy) public URL."""
     url = (file_url or "").strip()
     if not url:
         return ""
     if is_local_patient_photo_url(url):
         return url[len(LOCAL_PHOTO_URL_PREFIX) + 1 :]
-    public = (settings.r2_patient_images_public_url or "").strip().rstrip("/")
-    if public and url.startswith(f"{public}/"):
-        return url[len(public) + 1 :]
     try:
         from urllib.parse import urlparse
 

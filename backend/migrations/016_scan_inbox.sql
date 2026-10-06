@@ -1,6 +1,6 @@
 -- Scan inbox: files uploaded from a PC web page, waiting to be assigned to a
--- patient on the iPad. Objects live under inbox/{user}/ in the scans bucket;
--- add a Cloudflare lifecycle rule on that prefix (delete after 30 days).
+-- patient on the iPad. Objects live under {user}/ in the private bucket
+-- R2_SCAN_INBOX_BUCKET, whose lifecycle rule deletes them after 30 days.
 -- Idempotent — safe to re-run in Supabase SQL Editor.
 
 CREATE TABLE IF NOT EXISTS public.scan_inbox (

@@ -87,7 +87,7 @@ def _purge_patient_folders(patient_id: str) -> None:
     client = get_r2_client()
     for kind in ("photos", "scans", "shades", "smiles"):
         try:
-            bucket, _ = bucket_for(kind)
+            bucket = bucket_for(kind)
             pages = client.get_paginator("list_objects_v2").paginate(
                 Bucket=bucket, Prefix=f"patients/{patient_id}/"
             )
@@ -142,10 +142,10 @@ def _purge_chat_for_user(user_id: str) -> None:
 def _purge_inbox_for_user(user_id: str) -> None:
     """Unassigned scans waiting in the user's inbox (rows go with the profile)."""
     try:
-        bucket, _ = bucket_for("scans")
+        bucket = bucket_for("inbox")
         client = get_r2_client()
         pages = client.get_paginator("list_objects_v2").paginate(
-            Bucket=bucket, Prefix=f"inbox/{user_id}/"
+            Bucket=bucket, Prefix=f"{user_id}/"
         )
         keys = [{"Key": o["Key"]} for page in pages for o in page.get("Contents", [])]
         for i in range(0, len(keys), 1000):
