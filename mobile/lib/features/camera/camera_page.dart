@@ -1172,11 +1172,19 @@ class _CameraPageState extends State<CameraPage> {
                   patientLabel:
                       '${_patient?['first_name'] ?? ''} ${_patient?['last_name'] ?? ''}'
                           .trim(),
+                  angle: _angle,
                   active: widget.active,
                   enabled: !_busy,
-                  onAssigned: (_) async {
+                  onAssigned: (photoId, angle) async {
                     final p = _patient;
-                    if (p != null) await _reloadPhotos(_pid(p), selectNewest: true);
+                    if (p == null) return;
+                    setState(() => _angle = angle);
+                    await _reloadPhotos(_pid(p));
+                    if (!mounted) return;
+                    setState(() {
+                      _selectedPhotoId = photoId;
+                      _syncPhotoSelection();
+                    });
                   },
                   onOpenShade: widget.patientSession.requestShadeHandoff,
                   onOpenSmile: widget.patientSession.requestSmileHandoff,

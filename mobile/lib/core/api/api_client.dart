@@ -852,11 +852,15 @@ class ApiClient {
 
   /// Scans go to the patient's scans, photos to the patient's photos.
   /// Returns `{kind: scan|photo, record_id, ...}`.
-  Future<Map<String, dynamic>> assignScanInbox(String id, String patientId) async {
+  Future<Map<String, dynamic>> assignScanInbox(
+    String id,
+    String patientId, {
+    String? angle,
+  }) async {
     final res = await _http.post(
       Uri.parse('$baseUrl/api/scan-inbox/$id/assign'),
       headers: _jsonHeaders,
-      body: jsonEncode({'patient_id': patientId}),
+      body: jsonEncode({'patient_id': patientId, 'angle': ?angle}),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     // The POST only evicts /api/scan-inbox; the patient's photos/scans changed too.

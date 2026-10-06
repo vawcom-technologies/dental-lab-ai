@@ -11,6 +11,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from fastapi.responses import FileResponse
+from typing import Literal
+
 from pydantic import BaseModel
 
 from app.core.security import AuthUser, get_current_user
@@ -50,6 +52,8 @@ class InboxItemOut(BaseModel):
 
 class AssignIn(BaseModel):
     patient_id: str
+    # Photos only: the Camera tab shows photos per angle.
+    angle: Literal["frontal", "left", "right"] = "frontal"
 
 
 def _out(row: dict) -> InboxItemOut:
@@ -130,7 +134,7 @@ def inbox_file(item_id: str, user: AuthUser = Depends(get_current_user)):
     )
 
 
-def _assign_scan(row: dict, item_id: str, patient_id: str, user_id: str) -> str:
+def _assign_scan(row: dict, item_id: str, patient_id: str, user_id: str, angle: str) -> str:
     # Inbox objects expire after 30 days, so the patient gets their own copy
     # (named after the item id: assigning twice reuses the same key and record).
     key = f"patients/{patient_id}/scans/{item_id}{Path(str(row['file_key'])).suffix}"
@@ -153,7 +157,7 @@ def _assign_scan(row: dict, item_id: str, patient_id: str, user_id: str) -> str:
         raise
 
 
-def _assign_photo(row: dict, item_id: str, patient_id: str, user_id: str) -> str:
+def _assign_photo(row: dict, item_id: str, patient_id: str, user_id: str, angle: str) -> str:
     db = get_supabase_admin()
     key = f"patients/{patient_id}/photos/{item_id}{Path(str(row['file_key'])).suffix}"
     try:
@@ -170,7 +174,7 @@ def _assign_photo(row: dict, item_id: str, patient_id: str, user_id: str) -> str
         photo_id = str(pm.insert_row("patient_photos", {
             "patient_id": patient_id,
             "uploaded_by": user_id,
-            "angle": "other",
+            "angle": angle,
             "filename": row.get("file_name") or "photo.jpg",
             "file_url": key,
             "byte_size": int(row.get("byte_size") or 0),
@@ -189,7 +193,7 @@ def assign_inbox_item(item_id: str, body: AssignIn, user: AuthUser = Depends(get
     pm.require_patient_access(body.patient_id, user.id)
     photo = is_inbox_image(str(row.get("file_name") or ""))
     assign = _assign_photo if photo else _assign_scan
-    record_id = assign(row, item_id, body.patient_id, user.id)
+    record_id = assign(row, item_id, body.patient_id, user.id, body.angle)
     # Past this point the file is safely on the record; cleanup failures are harmless.
     try:
         delete_patient_asset(kind="inbox", file_key=str(row["file_key"]))

@@ -93,9 +93,9 @@ def test_photo_assign_goes_to_patient_photos(env, monkeypatch):
 
     monkeypatch.setattr(si, "get_supabase_admin", lambda: Q())
     monkeypatch.setattr(si.pa, "write_audit_log", lambda **k: None)
-    r = env["client"].post("/api/scan-inbox/i1/assign", json={"patient_id": "p1"})
+    r = env["client"].post("/api/scan-inbox/i1/assign", json={"patient_id": "p1", "angle": "left"})
     assert r.status_code == 200 and r.json()["kind"] == "photo"
     assert env["copied"] == ["patients/p1/photos/i1.jpg"]
     row = env["scans"][0]
-    assert row["file_url"] == "patients/p1/photos/i1.jpg" and row["angle"] == "other"
+    assert row["file_url"] == "patients/p1/photos/i1.jpg" and row["angle"] == "left"
     assert env["inbox_rows_deleted"] == ["i1"]
