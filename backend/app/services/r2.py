@@ -465,6 +465,51 @@ def upload_patient_asset(
     return key, public_url, filename
 
 
+# ── Scan inbox (PC web upload, waiting for a patient) ─────────────────────────
+
+INBOX_MAX_BYTES = 300 * 1024 * 1024
+INBOX_EXPIRY_DAYS = 30  # mirror the Cloudflare lifecycle rule on inbox/
+
+
+def upload_inbox_file(*, file: UploadFile, user_id: str) -> tuple[str, int, str]:
+    """Stream a scan to the scans bucket under inbox/{user}/. Returns (key, size, filename)."""
+    filename = validate_patient_upload_filename(kind="scans", filename=file.filename)
+    stream = _sized_upload_stream(file, max_bytes=INBOX_MAX_BYTES, label="Scan")
+    size = _upload_size(file) or 0
+    key = f"inbox/{user_id}/{uuid.uuid4().hex}{Path(filename).suffix.lower()}"
+    bucket, _ = bucket_for("scans")
+    try:
+        stream.seek(0)
+        get_r2_client().upload_fileobj(stream, bucket, key)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        cause = exc.__cause__ or getattr(exc, "__context__", None)
+        if isinstance(cause, HTTPException):
+            raise cause from exc
+        logger.exception("R2 inbox upload failed user_id=%s", user_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"R2 upload failed: {str(exc).strip() or 'unknown error'}",
+        ) from exc
+    return key, size, filename
+
+
+def copy_scan_object(*, src_key: str, dst_key: str) -> None:
+    """Server-side copy inside the scans bucket (no bytes through the backend)."""
+    bucket, _ = bucket_for("scans")
+    try:
+        get_r2_client().copy_object(
+            Bucket=bucket, Key=dst_key, CopySource={"Bucket": bucket, "Key": src_key}
+        )
+    except Exception as exc:
+        logger.exception("R2 copy failed src=%s", src_key)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not move the scan to the patient record",
+        ) from exc
+
+
 def delete_patient_asset(*, kind: PatientAssetKind, file_key: str) -> None:
     """Delete an object from the patient-asset R2 bucket. Missing keys are ignored."""
     if not (file_key or "").strip():

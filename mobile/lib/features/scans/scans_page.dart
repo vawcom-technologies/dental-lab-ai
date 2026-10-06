@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -35,6 +36,9 @@ class _ScansPageState extends State<ScansPage>
   List<Map<String, dynamic>> _patients = [];
   Map<String, dynamic>? _patient;
   List<Map<String, dynamic>> _scans = [];
+  // Scans sent from the PC page, waiting for a patient; _incoming is the one being previewed.
+  List<Map<String, dynamic>> _inbox = [];
+  Map<String, dynamic>? _incoming;
   int _selected = 0;
   bool _loading = true;
   bool _mediaLoading = false;
@@ -89,7 +93,120 @@ class _ScansPageState extends State<ScansPage>
     }
   }
 
+  Future<void> _loadInbox() async {
+    try {
+      final items = await widget.api.listScanInbox();
+      if (mounted) setState(() => _inbox = items);
+    } catch (_) {
+      // Badge only; the sheet shows errors when opened.
+    }
+  }
+
+  Future<void> _openInbox() async {
+    await _loadInbox();
+    if (!mounted) return;
+    final picked = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: _inbox.isEmpty
+            ? const Padding(
+                padding: EdgeInsets.all(32),
+                child: Text(
+                  'No incoming scans. Upload from a PC at /scan-upload on your server.',
+                  textAlign: TextAlign.center,
+                ),
+              )
+            : ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final item in _inbox)
+                    ListTile(
+                      leading: const Icon(Icons.view_in_ar_outlined),
+                      title: Text('${item['file_name']}'),
+                      subtitle: Text(
+                        '${((item['byte_size'] as num? ?? 0) / 1048576).toStringAsFixed(1)} MB'
+                        ' · ${'${item['created_at'] ?? ''}'.split('T').first}',
+                      ),
+                      onTap: () => Navigator.pop(ctx, item),
+                    ),
+                ],
+              ),
+      ),
+    );
+    if (picked != null) await _previewIncoming(picked);
+  }
+
+  Future<void> _previewIncoming(Map<String, dynamic> item) async {
+    final id = '${item['id']}';
+    setState(() => _incoming = item);
+    try {
+      final bytes = await widget.api.downloadScanInboxFile(id);
+      if (!mounted || _incoming == null) return;
+      await _applyLocalPreview(
+        scanId: 'inbox-$id',
+        bytes: bytes,
+        filename: '${item['file_name']}',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _incoming = null);
+      AppSnackBars.error(context, friendlyError(e));
+    }
+  }
+
+  void _closeIncoming() {
+    setState(() => _incoming = null);
+    if (_scans.isNotEmpty) _loadPreviewFor(_scans.first);
+  }
+
+  Future<void> _assignIncoming() async {
+    final item = _incoming;
+    final patient = _patient;
+    if (item == null || patient == null || _busy) return;
+    final ok = await AppDialogs.confirm(
+      context,
+      title: 'Assign scan',
+      message: 'Add "${item['file_name']}" to $_patientLabel?',
+      confirmLabel: 'Assign',
+    );
+    if (!ok || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await widget.api.assignScanInbox('${item['id']}', _pid(patient));
+      if (!mounted) return;
+      setState(() => _incoming = null);
+      await _loadInbox();
+      await _selectPatient(patient, publish: false);
+      if (mounted) AppSnackBars.success(context, 'Scan added to $_patientLabel');
+    } catch (e) {
+      if (mounted) AppSnackBars.error(context, friendlyError(e));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _deleteIncoming() async {
+    final item = _incoming;
+    if (item == null || _busy) return;
+    final ok = await confirmPatientMediaDelete(context);
+    if (ok != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await widget.api.deleteScanInbox('${item['id']}');
+      if (!mounted) return;
+      setState(() => _incoming = null);
+      await _loadInbox();
+      if (_scans.isNotEmpty) await _loadPreviewFor(_scans.first);
+    } catch (e) {
+      if (mounted) AppSnackBars.error(context, friendlyError(e));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _bootstrap() async {
+    unawaited(_loadInbox());
     setState(() {
       _loading = true;
     });
@@ -122,6 +239,7 @@ class _ScansPageState extends State<ScansPage>
     );
     final sel = widget.patientSession.selected;
     if (!mounted) return;
+    unawaited(_loadInbox());
     setState(() => _patients = list);
     if (sel == null) {
       if (_patient != null) {
@@ -209,6 +327,7 @@ class _ScansPageState extends State<ScansPage>
     if (publish) widget.patientSession.select(patient);
     setState(() {
       _patient = patient;
+      _incoming = null;
       _scans = [];
       _mediaLoading = true;
       _lastResult = null;
@@ -689,6 +808,15 @@ class _ScansPageState extends State<ScansPage>
                                 },
                                 emptyHint: loc.scansEmptyHintUpload,
                               ),
+                              OutlinedButton.icon(
+                                onPressed: _busy ? null : _openInbox,
+                                icon: const Icon(Icons.inbox_outlined, size: 18),
+                                label: Text(
+                                  _inbox.isEmpty
+                                      ? 'Incoming'
+                                      : 'Incoming (${_inbox.length})',
+                                ),
+                              ),
                               FilledButton.icon(
                                 onPressed: canUpload ? _upload : null,
                                 icon: _busy
@@ -710,6 +838,45 @@ class _ScansPageState extends State<ScansPage>
                             ],
                           ),
                           const SizedBox(height: 14),
+                          if (_incoming != null) ...[
+                            SectionCard(
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.inbox_outlined,
+                                      color: AppColors.dentalBlue),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Incoming: ${_incoming!['file_name']}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600),
+                                    ),
+                                  ),
+                                  FilledButton(
+                                    onPressed: _patient == null || _busy
+                                        ? null
+                                        : _assignIncoming,
+                                    child: Text(_patient == null
+                                        ? 'Select a patient'
+                                        : 'Assign to $_patientLabel'),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Delete',
+                                    onPressed: _busy ? null : _deleteIncoming,
+                                    icon: const Icon(Icons.delete_outline),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Close',
+                                    onPressed: _closeIncoming,
+                                    icon: const Icon(Icons.close),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                          ],
                         ],
                       ),
                     ),

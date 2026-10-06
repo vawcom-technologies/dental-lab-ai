@@ -136,3 +136,13 @@ The current picker (`patient_picker.dart`) has no search. For either option:
 2. Gap #5 (encryption keys), then #6, #7, #8.
 3. Patient picker search.
 4. B or A, per the table above (A needs the Cloudflare plan done first).
+
+## Built: web inbox (option A), branch `file-transfer-web-inbox`
+
+- PC page: `GET /scan-upload` (static, `backend/app/static/scan_upload.html`). Signs in with the app account (`POST /api/auth/signin`), token kept in memory only, drag-and-drop, per-file progress.
+- API: `POST/GET /api/scan-inbox`, `GET /{id}/file` (preview), `POST /{id}/assign {patient_id}`, `DELETE /{id}`. Owner only; `.ply/.stl/.obj`, 300 MB, streamed to R2.
+- Storage: **the existing scans bucket**, prefix `inbox/{user_id}/` (no new bucket, so the later EU move carries it along). Migration `016_scan_inbox.sql`.
+- Assign **copies** the object server-side to `patients/{patient}/scans/{item}.ext` and then removes the inbox object. (Not "same object, no copy" as first proposed: the 30-day lifecycle rule on `inbox/` would otherwise delete assigned scans, and patient files must live in the patient's folder for access checks and account deletion.)
+- Expiry: Cloudflare lifecycle rule on prefix `inbox/` (delete after 30 days); the list endpoint drops the matching DB rows.
+- iPad: Scans tab, "Incoming" button (count) → pick → preview → Assign to selected patient / Delete / Close.
+- Not done: German strings for the new UI, scan-quality check at assign time, "new scan" notification.

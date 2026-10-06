@@ -139,6 +139,21 @@ def _purge_chat_for_user(user_id: str) -> None:
     _delete_in("conversations", "id", conversation_ids)
 
 
+def _purge_inbox_for_user(user_id: str) -> None:
+    """Unassigned scans waiting in the user's inbox (rows go with the profile)."""
+    try:
+        bucket, _ = bucket_for("scans")
+        client = get_r2_client()
+        pages = client.get_paginator("list_objects_v2").paginate(
+            Bucket=bucket, Prefix=f"inbox/{user_id}/"
+        )
+        keys = [{"Key": o["Key"]} for page in pages for o in page.get("Contents", [])]
+        for i in range(0, len(keys), 1000):
+            client.delete_objects(Bucket=bucket, Delete={"Objects": keys[i : i + 1000]})
+    except Exception as exc:
+        logger.warning("R2 inbox purge skipped user=%s detail=%s", user_id, exc)
+
+
 def _purge_owned_patients(user_id: str) -> None:
     patients = _select("patients", created_by=user_id)
     patient_ids = [str(p["id"]) for p in patients if p.get("id")]
@@ -202,6 +217,7 @@ def purge_user_account(user_id: str) -> None:
     logger.info("account purge start user_id=%s", uid)
 
     _purge_chat_for_user(uid)
+    _purge_inbox_for_user(uid)
     _purge_owned_patients(uid)
     _purge_leftover_user_refs(uid)
 
