@@ -835,6 +835,54 @@ class ApiClient {
     return _decodeMap(res.body);
   }
 
+  // ── Scan inbox (files sent from the PC web page) ──
+
+  Future<List<Map<String, dynamic>>> listScanInbox() async {
+    final res = await _http.get(
+      Uri.parse('$baseUrl/api/scan-inbox'),
+      headers: _getHeaders(forceRefresh: true),
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return _decodeMapList(res.body);
+  }
+
+  /// Preview bytes of an inbox item (owner only).
+  Future<Uint8List> downloadScanInboxFile(String id) =>
+      downloadMediaBytes('/api/scan-inbox/$id/file', forceRefresh: true);
+
+  /// Scans go to the patient's scans, photos to the patient's photos.
+  /// Returns `{kind: scan|photo, record_id, ...}`.
+  Future<Map<String, dynamic>> assignScanInbox(
+    String id,
+    String patientId, {
+    String? angle,
+  }) async {
+    final res = await _http.post(
+      Uri.parse('$baseUrl/api/scan-inbox/$id/assign'),
+      headers: _jsonHeaders,
+      body: jsonEncode({'patient_id': patientId, 'angle': ?angle}),
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    // The POST only evicts /api/scan-inbox; the patient's photos/scans changed too.
+    final cache = _http;
+    if (cache is CachedHttpClient) {
+      cache.invalidateFor(Uri.parse('$baseUrl/api/patients/$patientId'));
+    }
+    AppHaptics.success();
+    return _decodeMap(res.body);
+  }
+
+  Future<void> deleteScanInbox(String id) async {
+    final res = await _http.delete(
+      Uri.parse('$baseUrl/api/scan-inbox/$id'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200 && res.statusCode != 204) {
+      throw Exception(_errorMessage(res));
+    }
+    AppHaptics.success();
+  }
+
   Future<void> deletePatientScan(String scanId) async {
     final res = await _http.delete(
       Uri.parse('$baseUrl/api/scans/$scanId'),

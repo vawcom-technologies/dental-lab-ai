@@ -53,5 +53,5 @@ def load_media_bytes(kind: str, row: dict) -> bytes:
     if kind != "photos" and key.startswith(f"{own}photos/"):
         logger.warning("legacy camera-photo pointer kind=%s id=%s key=%s", kind, row.get("id"), key)
         source = "photos"
-    bucket, _ = bucket_for(source)
+    bucket = bucket_for(source)
     return download_r2_object_bytes(bucket, key)

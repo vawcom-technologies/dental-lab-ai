@@ -48,3 +48,8 @@ def test_non_participant_and_missing_get_404(client, monkeypatch):
 def test_key_from_legacy_url_or_bare_key():
     assert r2.chat_key_from_url("https://pub.r2.dev/chat/c/a.jpg") == "chat/c/a.jpg"
     assert r2.chat_key_from_url("chat/c/a.jpg") == "chat/c/a.jpg"
+
+
+def test_message_pointing_at_another_conversations_file_is_404(client, monkeypatch):
+    monkeypatch.setitem(MSG, "media_url", "chat/other-conv/video/a.mp4")
+    assert client.get("/api/media/chat-files/m1").status_code == 404
