@@ -4,10 +4,10 @@ import pytest
 from fastapi import HTTPException
 
 from app.services.r2 import LOCAL_PHOTO_URL_PREFIX, LOCAL_PHOTO_ROOT
-from app.services.shade_media import load_shade_detection_bytes
+from app.services.shade_media import load_media_bytes
 
 
-def test_load_shade_detection_bytes_from_local_disk(tmp_path, monkeypatch):
+def test_camera_photo_from_local_disk(tmp_path, monkeypatch):
     pid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
     name = "photo.jpg"
     dest = LOCAL_PHOTO_ROOT / pid
@@ -16,19 +16,21 @@ def test_load_shade_detection_bytes_from_local_disk(tmp_path, monkeypatch):
     (dest / name).write_bytes(payload)
     try:
         row = {
+            "patient_id": pid,
             "file_url": f"{LOCAL_PHOTO_URL_PREFIX}/{pid}/{name}",
             "file_key": f"{pid}/{name}",
         }
-        assert load_shade_detection_bytes(row) == payload
+        assert load_media_bytes("photos", row) == payload
     finally:
         (dest / name).unlink(missing_ok=True)
 
 
-def test_load_shade_detection_bytes_missing_local_file():
+def test_missing_local_camera_photo_is_404():
     row = {
+        "patient_id": "missing-patient",
         "file_url": f"{LOCAL_PHOTO_URL_PREFIX}/missing-patient/nope.jpg",
         "file_key": "missing-patient/nope.jpg",
     }
     with pytest.raises(HTTPException) as exc:
-        load_shade_detection_bytes(row)
+        load_media_bytes("photos", row)
     assert exc.value.status_code == 404

@@ -1,4 +1,4 @@
-"""Copy camera captures (`patient_photos`) into shade/smile tables without re-upload."""
+"""Copy camera captures (`patient_photos`) into shade/smile records (older app builds)."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from app.core.supabase_client import get_supabase_admin
 from app.schemas_patient_media import ShadeDetectionOut, SmilePreviewOut
 from app.services import patient_access as pa
 from app.services import patient_media as pm
-from app.services.r2 import file_key_from_patient_photo_url
+from app.services.shade_media import load_media_bytes
 
 router = APIRouter()
 logger = logging.getLogger("app.api.camera_photos")
@@ -45,47 +45,25 @@ def _copy_photo_row(
     table: str,
     user_id: str,
 ) -> dict:
+    """Real copy into the kind's bucket; the same photo again reuses its record.
+
+    Only app builds from before Save-time copies call this.
+    """
     patient_id = str(photo.get("patient_id") or "")
-    file_url = str(photo.get("file_url") or "").strip()
-    if not patient_id or not file_url:
+    if not patient_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Photo is missing patient_id or file_url",
+            detail="Photo is missing patient_id",
         )
-
     pm.require_patient_access(patient_id, user_id)
-
-    file_key = str(photo.get("file_key") or "").strip()
-    if not file_key:
-        file_key = file_key_from_patient_photo_url(file_url)
-    if not file_key:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Could not derive file_key from photo file_url",
-        )
-
-    file_name = str(photo.get("filename") or photo.get("file_name") or "photo.jpg")
-    row = {
-        "patient_id": patient_id,
-        "uploaded_by": user_id,
-        "file_key": file_key,
-        "file_url": file_url,
-        "file_name": file_name,
-        "created_at": pm.utc_now_iso(),
-    }
-    inserted = pm.insert_row(table, row)
-    kind = "shades" if table == "shade_detections" else "smiles"
-    try:
-        from app.services.notify import notify_clinical_upload
-
-        notify_clinical_upload(
-            pa.fetch_patient(patient_id),
-            actor_id=user_id,
-            kind=kind,
-        )
-    except Exception:
-        logger.debug("copy-photo notify skipped table=%s", table, exc_info=True)
-    return inserted
+    return pm.upload_and_insert(
+        table=table,
+        kind="shades" if table == "shade_detections" else "smiles",
+        patient_id=patient_id,
+        user_id=user_id,
+        data=load_media_bytes("photos", photo),
+        filename=str(photo.get("filename") or "photo.jpg"),
+    )
 
 
 def _shade_out(row: dict) -> ShadeDetectionOut:

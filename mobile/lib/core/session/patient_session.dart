@@ -24,12 +24,12 @@ class PatientSession extends ChangeNotifier {
   String? _visitPatientId;
   DateTime? _visitStartedAt;
 
-  /// Camera → Shade: open this detection and run the same AI suggest path.
-  String? _pendingShadeDetectionId;
+  /// Camera → Shade: analyse this camera photo (saved only when the doctor saves).
+  String? _pendingShadePhotoId;
   bool _navigateToShade = false;
 
-  /// Camera → Smile Preview: open this saved preview on the overlay canvas.
-  String? _pendingSmilePreviewId;
+  /// Camera → Smile Preview: put this camera photo on the overlay canvas.
+  String? _pendingSmilePhotoId;
   bool _navigateToSmilePreview = false;
 
   bool _navigateToNewPatient = false;
@@ -50,8 +50,6 @@ class PatientSession extends ChangeNotifier {
     return _visitStartedAt;
   }
 
-  String? get pendingShadeDetectionId => _pendingShadeDetectionId;
-
   String pidOf(Map<String, dynamic> row) => '${row['id'] ?? ''}';
 
   void _beginVisitFor(String patientId) {
@@ -60,19 +58,19 @@ class PatientSession extends ChangeNotifier {
     _visitStartedAt = DateTime.now().toUtc();
   }
 
-  /// After opening a camera photo in shade_detections, hand off to Shade.
-  void requestShadeHandoff(String shadeDetectionId) {
-    final id = shadeDetectionId.trim();
+  /// Camera "Open with Shade Detection": hand the photo to the Shade tab.
+  void requestShadeHandoff(String photoId) {
+    final id = photoId.trim();
     if (id.isEmpty) return;
-    _pendingShadeDetectionId = id;
+    _pendingShadePhotoId = id;
     _navigateToShade = true;
     _notify();
   }
 
-  /// Returns and clears the pending shade detection id (one-shot).
-  String? takePendingShadeDetectionId() {
-    final id = _pendingShadeDetectionId;
-    _pendingShadeDetectionId = null;
+  /// Returns and clears the pending camera photo id (one-shot).
+  String? takePendingShadePhotoId() {
+    final id = _pendingShadePhotoId;
+    _pendingShadePhotoId = null;
     return id;
   }
 
@@ -83,19 +81,19 @@ class PatientSession extends ChangeNotifier {
     return true;
   }
 
-  /// After opening a camera photo in smile_previews, hand off to Smile Preview.
-  void requestSmileHandoff(String smilePreviewId) {
-    final id = smilePreviewId.trim();
+  /// Camera "Open with Smile Preview": hand the photo to Smile Preview.
+  void requestSmileHandoff(String photoId) {
+    final id = photoId.trim();
     if (id.isEmpty) return;
-    _pendingSmilePreviewId = id;
+    _pendingSmilePhotoId = id;
     _navigateToSmilePreview = true;
     _notify();
   }
 
-  /// Returns and clears the pending smile preview id (one-shot).
-  String? takePendingSmilePreviewId() {
-    final id = _pendingSmilePreviewId;
-    _pendingSmilePreviewId = null;
+  /// Returns and clears the pending camera photo id (one-shot).
+  String? takePendingSmilePhotoId() {
+    final id = _pendingSmilePhotoId;
+    _pendingSmilePhotoId = null;
     return id;
   }
 

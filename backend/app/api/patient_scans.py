@@ -71,13 +71,8 @@ async def upload_patient_scan(
         user.id,
         file.filename,
     )
+    # ponytail: whole scan in memory (validation needs it anyway); stream if scans outgrow RAM.
     data = await file.read()
-    try:
-        await file.seek(0)
-    except Exception:
-        from io import BytesIO
-
-        file.file = BytesIO(data)
     validation = await asyncio.to_thread(
         validate_scan_bytes, data, file.filename or "scan.ply"
     )
@@ -86,7 +81,9 @@ async def upload_patient_scan(
         kind=_KIND,
         patient_id=patient_id,
         user_id=user.id,
-        file=file,
+        data=data,
+        filename=file.filename,
+        content_type=file.content_type,
     )
     return _serialize(row, validation)
 

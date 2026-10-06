@@ -8,12 +8,14 @@ from typing import Any
 from fastapi import HTTPException, status
 
 from app.core.supabase_client import get_supabase_admin
+from app.services import patient_media as pm
 from app.services.r2 import (
     PatientAssetKind,
+    bucket_for,
     delete_chat_media_object,
-    delete_patient_asset,
     delete_patient_photo_object,
-    is_patient_images_url,
+    get_r2_client,
+    is_local_patient_photo_url,
 )
 
 logger = logging.getLogger("app.account_deletion")
@@ -61,34 +63,39 @@ def _delete_in(table: str, column: str, values: list[str]) -> None:
 
 
 def _purge_media_row(table: str, row: dict[str, Any], kind: PatientAssetKind | None) -> None:
-    url = str(row.get("file_url") or "").strip()
-    key = str(row.get("file_key") or "").strip()
-    if not url and not key:
-        return
+    """Best-effort: delete a media row's files (R2 or local), then the row."""
     try:
-        if table == "patient_photos" or kind is None:
-            if url:
-                delete_patient_photo_object(url)
-            return
-        if url and is_patient_images_url(url):
-            # Shared camera CDN object — owned by patient_photos lifecycle.
-            return
-        if key:
-            delete_patient_asset(kind=kind, file_key=key)
-    except HTTPException as exc:
-        logger.warning(
-            "R2 purge skipped table=%s id=%s detail=%s",
-            table,
-            row.get("id"),
-            getattr(exc, "detail", exc),
-        )
+        if kind is None:
+            delete_patient_photo_object(str(row.get("file_url") or ""))
+        else:
+            for key in (row.get("file_key"), row.get("base_file_key")):
+                pm.delete_file_if_unused(
+                    table=table,
+                    kind=kind,
+                    patient_id=str(row.get("patient_id") or ""),
+                    file_key=str(key or ""),
+                    ignore_row_id=str(row.get("id")),
+                )
     except Exception as exc:
-        logger.warning(
-            "R2 purge error table=%s id=%s detail=%s",
-            table,
-            row.get("id"),
-            exc,
-        )
+        logger.warning("R2 purge skipped table=%s id=%s detail=%s", table, row.get("id"), exc)
+    # Gone now, so the next row's "still used?" check doesn't count it.
+    _delete_eq(table, "id", str(row["id"]))
+
+
+def _purge_patient_folders(patient_id: str) -> None:
+    """GDPR: every R2 file under the patient's folder, in every patient bucket."""
+    client = get_r2_client()
+    for kind in ("photos", "scans", "shades", "smiles"):
+        try:
+            bucket, _ = bucket_for(kind)
+            pages = client.get_paginator("list_objects_v2").paginate(
+                Bucket=bucket, Prefix=f"patients/{patient_id}/"
+            )
+            keys = [{"Key": o["Key"]} for page in pages for o in page.get("Contents", [])]
+            for i in range(0, len(keys), 1000):
+                client.delete_objects(Bucket=bucket, Delete={"Objects": keys[i : i + 1000]})
+        except Exception as exc:
+            logger.warning("R2 folder purge skipped kind=%s patient=%s detail=%s", kind, patient_id, exc)
 
 
 def _purge_chat_for_user(user_id: str) -> None:
@@ -136,10 +143,14 @@ def _purge_owned_patients(user_id: str) -> None:
     patients = _select("patients", created_by=user_id)
     patient_ids = [str(p["id"]) for p in patients if p.get("id")]
     for pid in patient_ids:
-        for table, kind in _MEDIA_TABLES:
-            rows = _select(table, patient_id=pid)
-            for row in rows:
-                _purge_media_row(table, row, kind)
+        # Local-disk camera photos (dev) aren't in R2.
+        for row in _select("patient_photos", patient_id=pid):
+            url = str(row.get("file_url") or "")
+            if is_local_patient_photo_url(url):
+                delete_patient_photo_object(url)
+        _purge_patient_folders(pid)
+        for table, _ in _MEDIA_TABLES:
+            _delete_eq(table, "patient_id", pid)
     if patient_ids:
         _delete_in("patients", "id", patient_ids)
 

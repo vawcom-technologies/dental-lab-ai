@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from pydantic import BaseModel, Field, ValidationError
 
 from app.services.file_urls import client_file_url
 from app.core.security import AuthUser, get_current_user
 from app.schemas_patient_media import DeleteOkOut, ShadeDetectionOut
 from app.services import patient_media as pm
+from app.services.shade_media import load_media_bytes
 
 patients_router = APIRouter()
 shades_router = APIRouter()
@@ -30,6 +31,9 @@ class ShadeAnalysisIn(BaseModel):
     overridden: bool = False
     final_shade: str | None = None
     gum: dict | None = None
+    # App's session-tab entry + workspace (tooth outlines, overrides, guide
+    # lines) so a saved shade reopens exactly. No image bytes, no patient PII.
+    session: dict | None = None
 
 
 def _serialize(row: dict) -> ShadeDetectionOut:
@@ -60,30 +64,62 @@ def list_shade_detections(
     return [_serialize(r) for r in rows]
 
 
+def _analysis_json(payload: ShadeAnalysisIn) -> dict:
+    analysis = payload.model_dump()
+    analysis["saved_at"] = pm.utc_now_iso()
+    return analysis
+
+
 @patients_router.post(
     "/{patient_id}/shade-detections",
     response_model=ShadeDetectionOut,
     status_code=status.HTTP_201_CREATED,
-    summary="Upload a shade detection image",
+    summary="Save a shade detection to the patient record",
 )
 async def upload_shade_detection(
     patient_id: str,
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
+    photo_id: str | None = Form(None),
+    analysis: str | None = Form(None),
     user: AuthUser = Depends(get_current_user),
 ):
+    """Send either the image (`file`) or a camera photo of this patient
+    (`photo_id`, copied into the shades bucket server-side), optionally with
+    the `analysis` JSON. Saving the same image again updates its record."""
     pm.require_patient_access(patient_id, user.id)
+    if file is not None:
+        data, filename, ctype = await file.read(), file.filename, file.content_type
+    elif photo_id:
+        photo = pm.fetch_row("patient_photos", photo_id)
+        if photo is None or str(photo.get("patient_id")) != patient_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Photo not found")
+        data, filename, ctype = load_media_bytes("photos", photo), photo.get("filename"), None
+    else:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Send a file or a photo_id")
+
+    extra = None
+    if analysis:
+        try:
+            extra = {"analysis": _analysis_json(ShadeAnalysisIn.model_validate_json(analysis))}
+        except ValidationError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid analysis") from exc
+
     logger.debug(
-        "upload shade patient_id=%s user_id=%s filename=%s",
+        "save shade patient_id=%s user_id=%s photo_id=%s filename=%s",
         patient_id,
         user.id,
-        file.filename,
+        photo_id,
+        filename,
     )
     row = pm.upload_and_insert(
         table=_TABLE,
         kind=_KIND,
         patient_id=patient_id,
         user_id=user.id,
-        file=file,
+        data=data,
+        filename=filename,
+        content_type=ctype,
+        extra=extra,
     )
     return _serialize(row)
 
@@ -123,14 +159,5 @@ def save_shade_detection_analysis(
             detail="Shade detection not found",
         )
     pm.require_patient_access(str(row.get("patient_id") or ""), user.id)
-    analysis = payload.model_dump()
-    analysis["saved_at"] = pm.utc_now_iso()
-    try:
-        updated = pm.update_row(_TABLE, shade_id, {"analysis": analysis})
-    except Exception:
-        logger.exception("shade analysis persist failed id=%s", shade_id)
-        # Column may be missing until migration 009; still return the row so
-        # the chairside session can complete.
-        row = {**row, "analysis": analysis}
-        return _serialize(row)
+    updated = pm.update_row(_TABLE, shade_id, {"analysis": _analysis_json(payload)})
     return _serialize(updated)

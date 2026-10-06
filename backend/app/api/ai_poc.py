@@ -15,7 +15,7 @@ from app.core.config import settings
 from app.core.security import AuthUser, get_current_user
 from app.schemas import ScanValidateOut, ShadeAnalyzeOut
 from app.services import patient_media as pm
-from app.services.shade_media import load_shade_detection_bytes
+from app.services.shade_media import load_media_bytes
 
 router = APIRouter()
 logger = logging.getLogger("app.api.ai")
@@ -144,7 +144,7 @@ async def shade_suggest_from_detection(
 ):
     """Analyze a photo already stored on the server — no client re-upload."""
     row = _load_detection_for_user(payload.shade_detection_id, user)
-    data = await asyncio.to_thread(load_shade_detection_bytes, row)
+    data = await asyncio.to_thread(load_media_bytes, "shades", row)
     try:
         result = await _analyze_bytes(data)
     except ValueError as exc:
@@ -187,7 +187,7 @@ async def shade_resample_outline_from_detection(
     if not isinstance(payload.outline, list) or len(payload.outline) < 3:
         raise HTTPException(status_code=400, detail="outline needs at least 3 points")
     row = _load_detection_for_user(payload.shade_detection_id, user)
-    data = await asyncio.to_thread(load_shade_detection_bytes, row)
+    data = await asyncio.to_thread(load_media_bytes, "shades", row)
     try:
         return await asyncio.to_thread(
             analyze_tooth_from_outline_bytes,

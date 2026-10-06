@@ -630,32 +630,6 @@ class ApiClient {
     return payload;
   }
 
-  /// Open a camera photo in shade_detections (no re-upload). Returns the new row.
-  Future<Map<String, dynamic>> copyToShadeDetection(String photoId) async {
-    final res = await _http.post(
-      Uri.parse('$baseUrl/api/patient-photos/$photoId/copy-to-shade'),
-      headers: _jsonHeaders,
-    );
-    if (res.statusCode != 201) {
-      throw Exception(_errorMessage(res));
-    }
-    AppHaptics.success();
-    return _decodeMap(res.body);
-  }
-
-  /// Open a camera photo in smile_previews (no re-upload). Returns the new row.
-  Future<Map<String, dynamic>> copyToSmilePreview(String photoId) async {
-    final res = await _http.post(
-      Uri.parse('$baseUrl/api/patient-photos/$photoId/copy-to-smile'),
-      headers: _jsonHeaders,
-    );
-    if (res.statusCode != 201) {
-      throw Exception(_errorMessage(res));
-    }
-    AppHaptics.success();
-    return _decodeMap(res.body);
-  }
-
   Future<List<Map<String, dynamic>>> listCases({bool forceRefresh = false}) async {
     final res = await _http.get(
       Uri.parse('$baseUrl/api/cases'),
@@ -884,56 +858,45 @@ class ApiClient {
     return _decodeMapList(res.body);
   }
 
-  Future<Map<String, dynamic>> uploadShadeDetection({
+  /// Save a shade result to the patient record. First save ([shadeId] null)
+  /// stores the image — the analysed [bytes], or camera [photoId] copied
+  /// server-side — together with [analysis]; later saves update [analysis].
+  Future<Map<String, dynamic>> saveShadeDetection({
     required String patientId,
-    required List<int> bytes,
-    required String filename,
+    String? shadeId,
+    List<int>? bytes,
+    String? filename,
+    String? photoId,
+    required Map<String, dynamic> analysis,
   }) async {
-    final req = http.MultipartRequest(
-      'POST',
-      Uri.parse('$baseUrl/api/patients/$patientId/shade-detections'),
-    );
-    req.headers.addAll(_authHeaders);
-    req.files.add(
-      http.MultipartFile.fromBytes('file', bytes, filename: filename),
-    );
-    final streamed = await _http.send(req);
-    final res = await http.Response.fromStream(streamed);
+    final http.Response res;
+    if (shadeId != null && shadeId.isNotEmpty) {
+      res = await _http.patch(
+        Uri.parse('$baseUrl/api/shade-detections/$shadeId'),
+        headers: _jsonHeaders,
+        body: jsonEncode(analysis),
+      );
+    } else {
+      final req = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/api/patients/$patientId/shade-detections'),
+      );
+      req.headers.addAll(_authHeaders);
+      req.fields['analysis'] = jsonEncode(analysis);
+      if (photoId != null && photoId.isNotEmpty) {
+        req.fields['photo_id'] = photoId;
+      } else if (bytes != null) {
+        req.files.add(http.MultipartFile.fromBytes(
+          'file',
+          bytes,
+          filename: filename ?? 'tooth.jpg',
+        ));
+      }
+      res = await http.Response.fromStream(await _http.send(req));
+    }
     if (res.statusCode != 200 && res.statusCode != 201) {
       throw Exception(_errorMessage(res));
     }
-    AppHaptics.success();
-    return _decodeMap(res.body);
-  }
-
-    Future<Map<String, dynamic>> saveShadeDetectionAnalysis({
-    required String shadeId,
-    required List<Map<String, dynamic>> teeth,
-    int selectedToothIndex = 0,
-    String? summaryShade,
-    bool hasOverride = false,
-    String? detectedShade,
-    double? confidence,
-    bool overridden = false,
-    String? finalShade,
-    Map<String, dynamic>? gum,
-  }) async {
-    final res = await _http.patch(
-      Uri.parse('$baseUrl/api/shade-detections/$shadeId'),
-      headers: _jsonHeaders,
-      body: jsonEncode({
-        'teeth': teeth,
-        'selected_tooth_index': selectedToothIndex,
-        'summary_shade': summaryShade,
-        'has_override': hasOverride,
-        'detected_shade': detectedShade,
-        'confidence': confidence,
-        'overridden': overridden,
-        'final_shade': finalShade,
-        'gum': gum,
-      }),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
     AppHaptics.success();
     return _decodeMap(res.body);
   }
@@ -961,19 +924,44 @@ class ApiClient {
     return _decodeMapList(res.body);
   }
 
-  Future<Map<String, dynamic>> uploadSmilePreview({
+  /// Save a smile preview: [composite] is the photo with overlays, [overlay]
+  /// the shape placements. A new smile ([smileId] null) also sends the photo
+  /// without overlays — [baseBytes], or camera [basePhotoId] copied
+  /// server-side. A reopened smile only replaces composite + placements.
+  Future<Map<String, dynamic>> saveSmilePreview({
     required String patientId,
-    required List<int> bytes,
-    required String filename,
+    String? smileId,
+    required List<int> composite,
+    List<int>? baseBytes,
+    String? baseFilename,
+    String? basePhotoId,
+    required Map<String, dynamic> overlay,
   }) async {
+    final isUpdate = smileId != null && smileId.isNotEmpty;
     final req = http.MultipartRequest(
-      'POST',
-      Uri.parse('$baseUrl/api/patients/$patientId/smile-previews'),
+      isUpdate ? 'PATCH' : 'POST',
+      Uri.parse(isUpdate
+          ? '$baseUrl/api/smile-previews/$smileId'
+          : '$baseUrl/api/patients/$patientId/smile-previews'),
     );
     req.headers.addAll(_authHeaders);
-    req.files.add(
-      http.MultipartFile.fromBytes('file', bytes, filename: filename),
-    );
+    req.fields['overlay'] = jsonEncode(overlay);
+    req.files.add(http.MultipartFile.fromBytes(
+      'file',
+      composite,
+      filename: 'smile_preview.jpg',
+    ));
+    if (!isUpdate) {
+      if (basePhotoId != null && basePhotoId.isNotEmpty) {
+        req.fields['base_photo_id'] = basePhotoId;
+      } else if (baseBytes != null) {
+        req.files.add(http.MultipartFile.fromBytes(
+          'base',
+          baseBytes,
+          filename: baseFilename ?? 'smile_photo.jpg',
+        ));
+      }
+    }
     final streamed = await _http.send(req);
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200 && res.statusCode != 201) {

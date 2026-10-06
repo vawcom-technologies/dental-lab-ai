@@ -1,9 +1,11 @@
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:image/image.dart' as imglib;
 
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
@@ -420,6 +422,18 @@ class _BatemModelAccordionState extends State<BatemModelAccordion> {
   }
 }
 
+/// JPEG-encode raw RGBA off the UI thread (for [compute]).
+Uint8List _encodeJpeg((Uint8List, int, int) rgba) {
+  final (bytes, w, h) = rgba;
+  final image = imglib.Image.fromBytes(
+    width: w,
+    height: h,
+    bytes: bytes.buffer,
+    numChannels: 4,
+  );
+  return imglib.encodeJpg(image, quality: 92);
+}
+
 /// Tooth-shape try-on: overlay a library smile on the patient photo and save.
 class ShapeOverlayPage extends StatefulWidget {
   const ShapeOverlayPage({
@@ -502,7 +516,19 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
   bool _dirty = false;
   String? _status;
   String? _error;
+  /// This patient's saved smiles (newest first) — the "Saved smiles" strip.
   List<Map<String, dynamic>> _smileItems = [];
+  /// Saved smile being edited; null until the first Save.
+  String? _smileId;
+  /// Camera photo on the canvas (unsaved) — Save copies it server-side.
+  String? _basePhotoId;
+  String _baseFilename = 'smile.jpg';
+  /// Placements of a reopened smile, applied once the canvas is laid out.
+  Map<String, dynamic>? _pendingOverlay;
+  bool _savedSmilesOpen = true;
+  /// True for the frame Save captures: overlays on, edit handles off.
+  bool _capturing = false;
+  final _captureKey = GlobalKey();
   late final AnimationController _fsController;
   late final Animation<double> _fsExpand;
 
@@ -636,12 +662,20 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     bool publish = true,
   }) async {
     if (publish) widget.patientSession.select(patient);
+    final switching = _patient == null || _pid(_patient!) != _pid(patient);
     setState(() {
       _patient = patient;
       _status = null;
       _error = null;
-      _dirty = false;
       _smileItems = [];
+      if (switching) {
+        // A photo or smile from the previous patient must never save here.
+        _dirty = false;
+        _photoBytes = null;
+        _smileId = null;
+        _basePhotoId = null;
+        _pendingOverlay = null;
+      }
     });
     try {
       final patientId = _pid(patient);
@@ -666,7 +700,8 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       if (!mounted) return;
       setState(() => _case = null);
     }
-    await _loadSmilePreviews();
+    // Fresh: updating a saved smile (PATCH) doesn't evict this cached list.
+    await _loadSmilePreviews(forceRefresh: true);
   }
 
   Future<void> _loadSmilePreviews({bool forceRefresh = false}) async {
@@ -682,7 +717,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
         pid,
         forceRefresh: forceRefresh,
       );
-      if (!mounted) return;
+      if (!mounted || _patient == null || _pid(_patient!) != pid) return;
       setState(() => _smileItems = rows);
     } catch (e) {
       if (!mounted) return;
@@ -692,36 +727,77 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     }
   }
 
-  /// Camera handoff: load the photo onto the overlay canvas.
+  /// Camera handoff: put the camera photo on the canvas. Nothing is stored
+  /// until Save.
   Future<void> _consumeSmileHandoff() async {
-    final id = widget.patientSession.takePendingSmilePreviewId();
-    if (id == null || id.isEmpty || _patient == null) return;
-
-    // Fresh list: the camera copy doesn't evict this patient's cached GET.
-    await _loadSmilePreviews(forceRefresh: true);
-    if (!mounted) return;
-
-    Map<String, dynamic>? item;
-    for (final row in _smileItems) {
-      if ('${row['id'] ?? ''}' == id) {
-        item = row;
-        break;
+    final photoId = widget.patientSession.takePendingSmilePhotoId();
+    if (photoId == null || photoId.isEmpty || _patient == null) return;
+    Map<String, dynamic>? photo;
+    try {
+      final photos = await widget.api.listPatientPhotos(
+        _pid(_patient!),
+        forceRefresh: true,
+      );
+      for (final row in photos) {
+        if ('${row['id'] ?? ''}' == photoId) {
+          photo = row;
+          break;
+        }
       }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      return;
     }
-    if (item == null) {
-      setState(
-        () => _error =
-            'Photo is not in Smile Preview yet. Open Smile Preview again.',
+    if (!mounted) return;
+    if (photo == null) {
+      setState(() => _error = 'Photo not found for this patient.');
+      return;
+    }
+    await _openOnCanvas(
+      '${photo['file_url'] ?? ''}',
+      basePhotoId: photoId,
+      filename: '${photo['filename'] ?? 'smile.jpg'}',
+      status: 'Opened from Camera — select a shape from the library.',
+    );
+  }
+
+  /// Reopen a saved smile: photo without overlays + shapes where they were.
+  Future<void> _openSaved(Map<String, dynamic> item) async {
+    final id = '${item['id'] ?? ''}';
+    if (id.isEmpty || id == _smileId) return;
+    final base = '${item['base_file_url'] ?? ''}';
+    final overlay = item['overlay'];
+    if (base.isEmpty || overlay is! Map) {
+      // Earlier photo with no shapes yet: Save turns this record into a
+      // saved smile (the photo becomes its base) instead of adding another.
+      await _openOnCanvas(
+        '${item['file_url'] ?? ''}',
+        smileId: id,
+        filename: '${item['file_name'] ?? 'smile.jpg'}',
       );
       return;
     }
+    await _openOnCanvas(
+      base,
+      smileId: id,
+      overlay: Map<String, dynamic>.from(overlay),
+      status: 'Reopened saved smile — adjust and Save changes.',
+    );
+  }
 
-    final url = '${item['file_url'] ?? ''}'.trim();
-    if (url.isEmpty) {
+  Future<void> _openOnCanvas(
+    String url, {
+    String? smileId,
+    String? basePhotoId,
+    String filename = 'smile.jpg',
+    Map<String, dynamic>? overlay,
+    String? status,
+  }) async {
+    if (url.trim().isEmpty) {
       setState(() => _error = 'This photo has no file to open.');
       return;
     }
-
     setState(() {
       _saving = true;
       _error = null;
@@ -731,7 +807,11 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       if (!mounted) return;
       await _applyPhotoBytes(
         bytes,
-        status: 'Opened from Camera — select a shape from the library.',
+        smileId: smileId,
+        basePhotoId: basePhotoId,
+        filename: filename,
+        overlay: overlay,
+        status: status,
       );
     } catch (e) {
       if (!mounted) return;
@@ -743,19 +823,127 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
 
   Future<void> _applyPhotoBytes(
     Uint8List data, {
+    String? smileId,
+    String? basePhotoId,
+    String filename = 'smile.jpg',
+    Map<String, dynamic>? overlay,
     String? status,
   }) async {
     setState(() {
       _photoBytes = data;
+      _smileId = smileId;
+      _basePhotoId = basePhotoId;
+      _baseFilename = filename;
+      _pendingOverlay = overlay;
       _imageSize = null;
       _upperP.reset();
       _lowerP.reset();
       _showOverlay = true;
       _centeredOnce = false;
-      _dirty = true;
-      _status = status ?? 'Photo loaded — select a shape from the library.';
+      _dirty = overlay == null;
+      _status = status;
     });
     await _readImageSize(data);
+  }
+
+  /// Shape placements relative to the photo (not the screen), so they restore
+  /// exactly on any iPad size or orientation. x/y/scale are in photo widths.
+  Map<String, dynamic> _overlayJson(Size canvas) {
+    final r = _photoRect(canvas);
+    Map<String, dynamic> one(_Placement p, int index) => {
+          'shape_id': ShapeLibrary.at(index).shapeId,
+          'label': ShapeLibrary.at(index).label,
+          'jaw': ShapeLibrary.isLower(index) ? 'lower' : 'upper',
+          'x': (p.offset.dx - r.left) / r.width,
+          'y': (p.offset.dy - r.top) / r.width,
+          'scale': p.scale / r.width,
+          'width': p.width,
+          'height': p.height,
+          'rotation': p.rotation,
+          'opacity': p.opacity,
+        };
+    return {
+      'version': 1,
+      'shapes': [
+        if (_upperIndex != null) one(_upperP, _upperIndex!),
+        if (_lowerIndex != null) one(_lowerP, _lowerIndex!),
+      ],
+      'active_jaw': _lowerActive ? 'lower' : 'upper',
+    };
+  }
+
+  void _applyOverlay(Map<String, dynamic> overlay, Size canvas) {
+    final r = _photoRect(canvas);
+    double num0(Map s, String k, double fallback) =>
+        (s[k] as num?)?.toDouble() ?? fallback;
+    _upperIndex = null;
+    _lowerIndex = null;
+    for (final s in (overlay['shapes'] as List? ?? const [])) {
+      if (s is! Map) continue;
+      final idx = ShapeLibrary.indexOfShapeId(s['shape_id']?.toString());
+      final lower = ShapeLibrary.isLower(idx);
+      final p = lower ? _lowerP : _upperP;
+      if (lower) {
+        _lowerIndex = idx;
+      } else {
+        _upperIndex = idx;
+      }
+      p.offset = Offset(
+        r.left + num0(s, 'x', 0) * r.width,
+        r.top + num0(s, 'y', 0) * r.width,
+      );
+      p.scale = (num0(s, 'scale', 1 / r.width) * r.width).clamp(0.15, 8.0);
+      p.width = num0(s, 'width', 1);
+      p.height = num0(s, 'height', 1);
+      p.rotation = num0(s, 'rotation', 0);
+      p.opacity = num0(s, 'opacity', 0.88);
+    }
+    _lowerActive = _upperIndex == null ||
+        (overlay['active_jaw'] == 'lower' && _lowerIndex != null);
+    _openBatemIds
+      ..clear()
+      ..addAll([for (final (_, it) in _chosen) it.id]);
+    _centeredOnce = true;
+    _dirty = false;
+  }
+
+  /// The photo with overlays at photo resolution (max 2400 px wide), cropped
+  /// to the photo — no letterbox, no edit handles, no stage buttons.
+  Future<Uint8List> _renderComposite(Size canvas) async {
+    setState(() => _capturing = true);
+    try {
+      await WidgetsBinding.instance.endOfFrame;
+      final boundary = _captureKey.currentContext!.findRenderObject()!
+          as RenderRepaintBoundary;
+      final r = _photoRect(canvas);
+      final photoW = _imageSize?.width ?? r.width * 2;
+      final ratio = math.min(photoW, 2400.0) / r.width;
+      final full = await boundary.toImage(pixelRatio: ratio);
+      final src = Rect.fromLTWH(
+        r.left * ratio,
+        r.top * ratio,
+        r.width * ratio,
+        r.height * ratio,
+      );
+      final recorder = ui.PictureRecorder();
+      Canvas(recorder).drawImageRect(
+        full,
+        src,
+        Offset.zero & src.size,
+        Paint()..filterQuality = FilterQuality.high,
+      );
+      final out = await recorder
+          .endRecording()
+          .toImage(src.width.round(), src.height.round());
+      final rgba = await out.toByteData(format: ui.ImageByteFormat.rawRgba);
+      final w = out.width;
+      final h = out.height;
+      full.dispose();
+      out.dispose();
+      return compute(_encodeJpeg, (rgba!.buffer.asUint8List(), w, h));
+    } finally {
+      if (mounted) setState(() => _capturing = false);
+    }
   }
 
   void _openNewPatientPage() {
@@ -865,40 +1053,18 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       final confirmed = await confirmPatientMediaUpload(context);
       if (!confirmed || !mounted) return;
 
-      final data = Uint8List.fromList(bytes);
       final name = picked.files.first.name.isNotEmpty
           ? picked.files.first.name
           : 'smile.jpg';
-      final pid = _pid(_patient!);
-
-      setState(() => _saving = true);
-      final uploaded = await runWithToothLoadingDialog(
-        context,
-        message: AppLocalizations.of(context).commonUploading,
-        action: () => widget.api.uploadSmilePreview(
-          patientId: pid,
-          bytes: data,
-          filename: name,
-        ),
-      );
-      if (!mounted) return;
-
-      setState(() {
-        _smileItems = [uploaded, ..._smileItems];
-        _saving = false;
-      });
+      // Nothing is uploaded until Save.
       await _applyPhotoBytes(
-        data,
-        status: 'Smile preview saved — select a shape from the library.',
+        Uint8List.fromList(bytes),
+        filename: name,
+        status: 'Photo loaded — select a shape from the library.',
       );
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _saving = false;
-        _error = e.toString().replaceFirst('Exception: ', '');
-      });
-    } finally {
-      if (mounted && _saving) setState(() => _saving = false);
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     }
   }
 
@@ -1029,7 +1195,8 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
 
   Future<void> _save() async {
     if (_saving) return;
-    if (_case == null) {
+    final patient = _patient;
+    if (patient == null) {
       setState(() => _error = 'Select a patient first');
       return;
     }
@@ -1042,38 +1209,63 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       setState(() => _error = 'Select a model first');
       return;
     }
+    final canvas = _lastCanvas;
+    if (canvas == null) return;
     setState(() {
       _saving = true;
       _error = null;
     });
     try {
-      await widget.api.saveShapes(
-        caseId: _case!['id'] as int,
-        shapes: [
-          for (final (p, it) in _chosen)
-            {
-              'shape_id': it.shapeId,
-              'position_x': p.offset.dx,
-              'position_y': p.offset.dy,
-              'rotation': p.rotation,
-              'scale': p.scale,
-            },
-        ],
+      final saved = await widget.api.saveSmilePreview(
+        patientId: _pid(patient),
+        smileId: _smileId,
+        composite: await _renderComposite(canvas),
+        baseBytes: _basePhotoId == null ? _photoBytes : null,
+        baseFilename: _baseFilename,
+        basePhotoId: _basePhotoId,
+        overlay: _overlayJson(canvas),
       );
-      await widget.api.markCaseInProgressIfPending(
-        _case!['id'] as int,
-        _case!['status']?.toString(),
-      );
-      _case = {..._case!, 'status': 'in_progress'};
-      setState(() {
-        _dirty = false;
-      });
-      if (mounted) {
-        AppSnackBars.success(
-          context,
-          'Saved ${_chosen.map((c) => '“${c.$2.label}”').join(' + ')} to case #${_case!['id']}',
+      // Legacy numeric-id patients also keep their case shape rows.
+      final caseId = _case?['id'];
+      if (caseId is int) {
+        await widget.api.saveShapes(
+          caseId: caseId,
+          shapes: [
+            for (final (p, it) in _chosen)
+              {
+                'shape_id': it.shapeId,
+                'position_x': p.offset.dx,
+                'position_y': p.offset.dy,
+                'rotation': p.rotation,
+                'scale': p.scale,
+              },
+          ],
         );
+        await widget.api.markCaseInProgressIfPending(
+          caseId,
+          _case!['status']?.toString(),
+        );
+        _case = {..._case!, 'status': 'in_progress'};
       }
+      if (!mounted) return;
+      final id = '${saved['id'] ?? ''}';
+      setState(() {
+        _smileId = id;
+        _basePhotoId = null;
+        _dirty = false;
+        _smileItems = [
+          saved,
+          for (final row in _smileItems)
+            if ('${row['id']}' != id) row,
+        ];
+      });
+      final shapes = _chosen.map((c) => '“${c.$2.label}”').join(' + ');
+      AppSnackBars.success(
+        context,
+        caseId is int
+            ? 'Saved $shapes to case #$caseId'
+            : 'Smile preview saved ($shapes)',
+      );
     } catch (e) {
       final msg = e.toString().replaceFirst('Exception: ', '');
       setState(() => _error = msg);
@@ -1141,6 +1333,10 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                                 fontSize: 13,
                               ),
                             ),
+                          if (_smileItems.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            _savedSmilesStrip(),
+                          ],
                           const SizedBox(height: 16),
                         ],
                       ),
@@ -1176,6 +1372,154 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     );
   }
 
+  Future<void> _deleteSaved(Map<String, dynamic> item) async {
+    final id = '${item['id'] ?? ''}';
+    if (id.isEmpty) return;
+    final ok = await AppDialogs.confirm(
+      context,
+      title: 'Delete saved smile?',
+      message: 'This removes it from the patient record.',
+      confirmLabel: 'Delete',
+      isDestructive: true,
+    );
+    if (!ok || !mounted) return;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await widget.api.deleteSmilePreview(id);
+      if (!mounted) return;
+      setState(() {
+        _smileItems = [
+          for (final row in _smileItems)
+            if ('${row['id']}' != id) row,
+        ];
+        if (_smileId == id) {
+          // Open smile deleted: clear it so Save can't bring it back.
+          _photoBytes = null;
+          _smileId = null;
+          _basePhotoId = null;
+          _pendingOverlay = null;
+          _dirty = false;
+        }
+        _status = 'Saved smile deleted';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  /// This patient's saved smiles; tap one to reopen it on the canvas.
+  Widget _savedSmilesStrip() {
+    return SizedBox(
+      height: _savedSmilesOpen ? 64 : 32,
+      child: Row(
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => setState(() => _savedSmilesOpen = !_savedSmilesOpen),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _savedSmilesOpen ? Icons.expand_less : Icons.expand_more,
+                    size: 20,
+                    color: AppColors.navy,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Saved smiles (${_smileItems.length})',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      color: AppColors.navy,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          if (_savedSmilesOpen)
+            Expanded(
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _smileItems.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (context, i) {
+                final item = _smileItems[i];
+                final current = '${item['id']}' == _smileId;
+                return GestureDetector(
+                  onTap: _saving ? null : () => _openSaved(item),
+                  child: Container(
+                    width: 88,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F1724),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: current
+                            ? AppColors.dentalBlue
+                            : AppColors.muted.withValues(alpha: 0.3),
+                        width: current ? 2.5 : 1,
+                      ),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Image.network(
+                          widget.api
+                              .resolveMediaUrl('${item['file_url'] ?? ''}'),
+                          headers: widget.api.mediaHeaders,
+                          fit: BoxFit.cover,
+                          cacheWidth: 200,
+                          errorBuilder: (_, _, _) => const Icon(
+                            Icons.broken_image_outlined,
+                            color: Colors.white54,
+                          ),
+                        ),
+                        Positioned(
+                          top: 0,
+                          right: 0,
+                          child: IconButton(
+                            tooltip: 'Delete saved smile',
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints.tightFor(
+                              width: 32,
+                              height: 32,
+                            ),
+                            onPressed:
+                                _saving ? null : () => _deleteSaved(item),
+                            icon: const CircleAvatar(
+                              radius: 11,
+                              backgroundColor: Colors.black54,
+                              child: Icon(
+                                Icons.close,
+                                size: 14,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildHeader() {
     return PageHeader(
       icon: Icons.sentiment_satisfied_alt_outlined,
@@ -1207,7 +1551,11 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                 )
               : Icon(_dirty ? Icons.save : Icons.save_outlined, size: 18),
           label: Text(
-            _saving ? 'Saving…' : (_dirty ? 'Save changes' : 'Save to case'),
+            _saving
+                ? 'Saving…'
+                : _dirty
+                    ? 'Save changes'
+                    : (_case?['id'] is int ? 'Save to case' : 'Save'),
           ),
         ),
       ],
@@ -1311,6 +1659,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     final p = lower ? _lowerP : _upperP;
     final item = ShapeLibrary.at((lower ? _lowerIndex : _upperIndex)!);
     final active = lower == _lowerActive;
+    final guides = _showGuides && active && !_capturing;
     return Positioned(
       left: p.offset.dx,
       top: p.offset.dy,
@@ -1347,11 +1696,11 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                   child: _OverlayTooth(
                     item: item,
                     opacity: p.opacity,
-                    showChrome: _showGuides && active,
+                    showChrome: guides,
                   ),
                 ),
               ),
-              if (_showGuides && active) ...[
+              if (guides) ...[
                 Align(
                   alignment: Alignment.centerRight,
                   child: _AxisResizeHandle(
@@ -1401,31 +1750,52 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
           _remapPlacement(prev, canvas);
         }
         _lastCanvas = canvas;
-        if (!_centeredOnce) {
+        final pending = _pendingOverlay;
+        if (pending != null && _imageSize != null) {
+          // Reopened smile: placements are photo-relative, so wait for the
+          // photo size, then map them onto this canvas.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted || !identical(_pendingOverlay, pending)) return;
+            setState(() {
+              _applyOverlay(pending, canvas);
+              _pendingOverlay = null;
+            });
+          });
+        } else if (!_centeredOnce && pending == null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted && !_centeredOnce) _centerIn(canvas, both: true);
           });
         }
 
-        final overlayVisible = _showOverlay && !_comparing;
+        final overlayVisible = (_showOverlay && !_comparing) || _capturing;
 
         return Stack(
           fit: StackFit.expand,
           children: [
-            ColoredBox(
-              color: const Color(0xFF0F1724),
-              child: Image.memory(
-                _photoBytes!,
-                fit: BoxFit.contain,
-                filterQuality: FilterQuality.high,
+            // What Save captures: photo + overlays only.
+            RepaintBoundary(
+              key: _captureKey,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  ColoredBox(
+                    color: const Color(0xFF0F1724),
+                    child: Image.memory(
+                      _photoBytes!,
+                      fit: BoxFit.contain,
+                      filterQuality: FilterQuality.high,
+                    ),
+                  ),
+                  if (overlayVisible) ...[
+                    // Active jaw last so it sits on top and takes the gestures.
+                    for (final lower
+                        in _lowerActive ? [false, true] : [true, false])
+                      if ((lower ? _lowerIndex : _upperIndex) != null)
+                        _overlay(lower),
+                  ],
+                ],
               ),
             ),
-            if (overlayVisible) ...[
-              // Active jaw last so it sits on top and takes the gestures.
-              for (final lower in _lowerActive ? [false, true] : [true, false])
-                if ((lower ? _lowerIndex : _upperIndex) != null)
-                  _overlay(lower),
-            ],
             Positioned(
               left: 12,
               top: 12,

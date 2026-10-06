@@ -19,6 +19,7 @@ class ShadeSessionPane extends StatelessWidget {
     required this.onCollapseChanged,
     required this.onOpen,
     required this.onDelete,
+    this.thumbnail,
   });
 
   final bool collapsed;
@@ -28,6 +29,8 @@ class ShadeSessionPane extends StatelessWidget {
   final ValueChanged<bool> onCollapseChanged;
   final ValueChanged<int> onOpen;
   final ValueChanged<int> onDelete;
+  /// Photo thumbnail for a row (null: none).
+  final Widget? Function(Map<String, dynamic> entry)? thumbnail;
 
   @override
   Widget build(BuildContext context) {
@@ -156,6 +159,10 @@ class ShadeSessionPane extends StatelessWidget {
                                             sessionKey == activeSessionKey,
                                         teeth: toothSummaries,
                                         swatch: swatch,
+                                        thumbnail: thumbnail?.call(h),
+                                        note: h['not_analysed'] == true
+                                            ? 'Not analysed yet'
+                                            : null,
                                         onOpen: () => onOpen(i),
                                         onDelete: () => onDelete(i),
                                       );
@@ -186,6 +193,8 @@ class SessionRecent extends StatefulWidget {
     this.teeth = const [],
     this.isOverride = false,
     this.selected = false,
+    this.thumbnail,
+    this.note,
   });
 
   final String name;
@@ -196,6 +205,9 @@ class SessionRecent extends StatefulWidget {
   final bool selected;
   final List<Map<String, dynamic>> teeth;
   final Color Function(String) swatch;
+  final Widget? thumbnail;
+  /// Replaces the shade line, e.g. "Not analysed yet".
+  final String? note;
   final VoidCallback onOpen;
   final VoidCallback onDelete;
 
@@ -250,6 +262,17 @@ class _SessionRecentState extends State<SessionRecent> {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          if (widget.thumbnail != null) ...[
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: SizedBox(
+                                width: 48,
+                                height: 48,
+                                child: widget.thumbnail,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                          ],
                           Container(
                             width: 48,
                             height: 48,
@@ -285,11 +308,12 @@ class _SessionRecentState extends State<SessionRecent> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  [
-                                    widget.shade,
-                                    ?countLabel,
-                                    if (widget.isOverride) 'Override',
-                                  ].join(' · '),
+                                  widget.note ??
+                                      [
+                                        widget.shade,
+                                        ?countLabel,
+                                        if (widget.isOverride) 'Override',
+                                      ].join(' · '),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: AppFonts.style(
