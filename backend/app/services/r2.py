@@ -469,6 +469,34 @@ INBOX_MAX_BYTES = 300 * 1024 * 1024
 INBOX_EXPIRY_DAYS = 30  # mirror the inbox bucket's lifecycle rule
 
 
+# Leading bytes per type. STL/OBJ have no fixed header, so they're only checked
+# for not being one of the binary formats people mistakenly rename.
+_MAGIC = {
+    ".jpg": (b"\xff\xd8\xff",),
+    ".jpeg": (b"\xff\xd8\xff",),
+    ".png": (b"\x89PNG\r\n\x1a\n",),
+    ".webp": (b"RIFF",),
+    ".tif": (b"II*\x00", b"MM\x00*"),
+    ".tiff": (b"II*\x00", b"MM\x00*"),
+    ".ply": (b"ply",),
+}
+_NEVER = (b"MZ", b"\x7fELF", b"PK\x03\x04", b"%PDF", b"#!", b"<")
+
+
+def _content_matches_extension(file: UploadFile, ext: str) -> bool:
+    try:
+        file.file.seek(0)
+        head = file.file.read(16)
+        file.file.seek(0)
+    except Exception:
+        return False
+    if ext == ".heic":
+        return head[4:8] == b"ftyp"
+    if ext in _MAGIC:
+        return head.startswith(_MAGIC[ext])
+    return bool(head) and not head.lstrip().startswith(_NEVER)
+
+
 def is_inbox_image(name: str) -> bool:
     return Path(name or "").suffix.lower() in _IMAGE_EXTENSIONS
 
@@ -481,6 +509,11 @@ def upload_inbox_file(*, file: UploadFile, user_id: str) -> tuple[str, int, str]
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File must be a scan (.ply, .stl, .obj) or a photo (.jpg, .jpeg, .png, .webp, .heic, .tif, .tiff)",
+        )
+    if not _content_matches_extension(file, ext):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File content does not look like a {ext} file",
         )
     stream = _sized_upload_stream(file, max_bytes=INBOX_MAX_BYTES, label="File")
     size = _upload_size(file) or 0

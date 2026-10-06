@@ -11,7 +11,9 @@
   body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.45 system-ui,sans-serif; }
   main { max-width:560px; margin:0 auto; padding:32px 16px; }
   h1 { font-size:22px; margin:0 0 4px; }
-  p.sub { color:var(--muted); margin:0 0 20px; }
+  .sub { color:var(--muted); margin:0 0 16px; }
+  ol.sub { padding-left:20px; } ol.sub li { margin-bottom:4px; }
+  strong { color:var(--fg); }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; }
   label { display:block; font-size:14px; color:var(--muted); margin:12px 0 4px; }
   input { width:100%; padding:10px 12px; font:inherit; color:inherit; background:transparent; border:1px solid var(--line); border-radius:8px; }
@@ -30,7 +32,12 @@
 <body>
 <main>
   <h1>Send scans and photos to your iPad</h1>
-  <p class="sub">Sign in with your app account, then drop scans (.ply, .stl, .obj) or photos (.jpg, .png, .heic, …), up to 300 MB each. In the app, scans appear under “Incoming” on the Scans tab and photos on the Camera tab, where you add them to a patient.</p>
+  <ol class="sub">
+    <li>Sign in with the <strong>same account</strong> you use on the iPad.</li>
+    <li>Drop scans (.ply, .stl, .obj) or photos (.jpg, .png, .heic, .webp, .tif), up to 300 MB each.</li>
+    <li>On the iPad, open <strong>Incoming</strong>: scans on the Scans tab, photos on the Camera tab. Check the file, then add it to the selected patient.</li>
+  </ol>
+  <p class="sub">Files wait privately for you for up to 30 days, then are deleted if not added to a patient. Closing or reloading this page signs you out.</p>
 
   <form id="login" class="card">
     <label for="email">Email</label>

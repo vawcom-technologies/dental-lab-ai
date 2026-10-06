@@ -80,7 +80,20 @@ def scan_upload_page():
     return FileResponse(
         _PAGE,
         media_type="text/html",
-        headers={"Strict-Transport-Security": "max-age=31536000", "Cache-Control": "no-store"},
+        headers={
+            "Strict-Transport-Security": "max-age=31536000",
+            "Cache-Control": "no-store",
+            # Only this page's own inline code may run, it talks only to this
+            # server, and no other site can frame it (clickjacking).
+            "Content-Security-Policy": (
+                "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+                "connect-src 'self'; img-src 'self'; form-action 'none'; "
+                "frame-ancestors 'none'; base-uri 'none'"
+            ),
+            "X-Frame-Options": "DENY",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+        },
     )
 
 

@@ -67,6 +67,8 @@ def test_upload_rejects_bad_type_and_streams_valid(env, monkeypatch):
     c = env["client"]
     assert c.post("/api/scan-inbox", files={"file": ("x.exe", b"MZ")}).status_code == 400
     assert c.post("/api/scan-inbox", files={"file": ("x.pdf", b"%PDF")}).status_code == 400
+    assert c.post("/api/scan-inbox", files={"file": ("renamed.jpg", b"MZ\x90\x00")}).status_code == 400
+    assert c.post("/api/scan-inbox", files={"file": ("renamed.stl", b"MZ\x90\x00")}).status_code == 400
     sent = {}
 
     class C:
@@ -77,9 +79,9 @@ def test_upload_rejects_bad_type_and_streams_valid(env, monkeypatch):
 
     monkeypatch.setattr(r2, "get_r2_client", lambda: C())
     monkeypatch.setattr(r2, "bucket_for", lambda k: "b")
-    r = c.post("/api/scan-inbox", files={"file": ("scan.ply", b"PLYDATA")})
+    r = c.post("/api/scan-inbox", files={"file": ("scan.ply", b"ply\nformat ascii 1.0\n")})
     assert r.status_code == 201, r.text
-    assert sent["data"] == b"PLYDATA" and sent["key"].startswith("u1/") and sent["key"].endswith(".ply")
+    assert sent["data"] == b"ply\nformat ascii 1.0\n" and sent["key"].startswith("u1/") and sent["key"].endswith(".ply")
     assert [r["file_key"] for r in env["scans"]] == [sent["key"]]  # one inbox row, no patient record
 
 
