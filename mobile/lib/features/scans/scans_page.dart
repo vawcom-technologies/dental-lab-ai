@@ -39,7 +39,6 @@ class _ScansPageState extends State<ScansPage>
   // Scans sent from the PC page, waiting for a patient; _incoming is the one being previewed.
   List<Map<String, dynamic>> _inbox = [];
   Map<String, dynamic>? _incoming;
-  Uint8List? _incomingPhoto;
   int _selected = 0;
   bool _loading = true;
   bool _mediaLoading = false;
@@ -97,7 +96,10 @@ class _ScansPageState extends State<ScansPage>
   Future<void> _loadInbox() async {
     try {
       final items = await widget.api.listScanInbox();
-      if (mounted) setState(() => _inbox = items);
+      if (mounted) {
+        // Photos arrive on the Camera tab.
+        setState(() => _inbox = items.where((i) => i['kind'] != 'photo').toList());
+      }
     } catch (_) {
       // Badge only; the sheet shows errors when opened.
     }
@@ -114,7 +116,7 @@ class _ScansPageState extends State<ScansPage>
             ? const Padding(
                 padding: EdgeInsets.all(32),
                 child: Text(
-                  'Nothing incoming. Send scans or photos from a PC at /scan-upload on your server.',
+                  'No incoming scans. Send scans from a PC at /scan-upload on your server (photos arrive on the Camera tab).',
                   textAlign: TextAlign.center,
                 ),
               )
@@ -123,9 +125,7 @@ class _ScansPageState extends State<ScansPage>
                 children: [
                   for (final item in _inbox)
                     ListTile(
-                      leading: Icon(item['kind'] == 'photo'
-                          ? Icons.photo_outlined
-                          : Icons.view_in_ar_outlined),
+                      leading: const Icon(Icons.view_in_ar_outlined),
                       title: Text('${item['file_name']}'),
                       subtitle: Text(
                         '${((item['byte_size'] as num? ?? 0) / 1048576).toStringAsFixed(1)} MB'
@@ -146,11 +146,6 @@ class _ScansPageState extends State<ScansPage>
     try {
       final bytes = await widget.api.downloadScanInboxFile(id);
       if (!mounted || _incoming == null) return;
-      if (item['kind'] == 'photo') {
-        _incomingPhoto = bytes;
-        await _showIncomingPhoto();
-        return;
-      }
       await _applyLocalPreview(
         scanId: 'inbox-$id',
         bytes: bytes,
@@ -163,53 +158,8 @@ class _ScansPageState extends State<ScansPage>
     }
   }
 
-  Future<void> _showIncomingPhoto() async {
-    final bytes = _incomingPhoto;
-    if (bytes == null) return;
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => Dialog(
-        clipBehavior: Clip.antiAlias,
-        child: Stack(
-          children: [
-            InteractiveViewer(child: Image.memory(bytes, fit: BoxFit.contain)),
-            Positioned(
-              top: 4,
-              right: 4,
-              child: IconButton.filledTonal(
-                onPressed: () => Navigator.pop(ctx),
-                icon: const Icon(Icons.close),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Photo added to the patient: offer to open it straight in Shade or Smile.
-  Future<void> _offerPhotoHandoff(String photoId) async {
-    final choice = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Photo added'),
-        content: Text('Saved to $_patientLabel\'s photos. Open it now?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Later')),
-          TextButton(onPressed: () => Navigator.pop(ctx, 'smile'), child: const Text('Smile Preview')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, 'shade'), child: const Text('Shade Detection')),
-        ],
-      ),
-    );
-    if (choice == 'shade') widget.patientSession.requestShadeHandoff(photoId);
-    if (choice == 'smile') widget.patientSession.requestSmileHandoff(photoId);
-  }
-
   void _closeIncoming() {
-    setState(() {
-      _incoming = null;
-      _incomingPhoto = null;
-    });
+    setState(() => _incoming = null);
     if (_scans.isNotEmpty) _loadPreviewFor(_scans.first);
   }
 
@@ -219,26 +169,19 @@ class _ScansPageState extends State<ScansPage>
     if (item == null || patient == null || _busy) return;
     final ok = await AppDialogs.confirm(
       context,
-      title: item['kind'] == 'photo' ? 'Add photo' : 'Assign scan',
+      title: 'Assign scan',
       message: 'Add "${item['file_name']}" to $_patientLabel?',
       confirmLabel: 'Assign',
     );
     if (!ok || !mounted) return;
     setState(() => _busy = true);
     try {
-      final res =
-          await widget.api.assignScanInbox('${item['id']}', _pid(patient));
+      await widget.api.assignScanInbox('${item['id']}', _pid(patient));
       if (!mounted) return;
       setState(() {
         _incoming = null;
-        _incomingPhoto = null;
       });
       await _loadInbox();
-      if (res['kind'] == 'photo') {
-        if (mounted) setState(() => _busy = false);
-        if (mounted) await _offerPhotoHandoff('${res['record_id']}');
-        return;
-      }
       await _selectPatient(patient, publish: false);
       if (mounted) AppSnackBars.success(context, 'Scan added to $_patientLabel');
     } catch (e) {
@@ -259,7 +202,6 @@ class _ScansPageState extends State<ScansPage>
       if (!mounted) return;
       setState(() {
         _incoming = null;
-        _incomingPhoto = null;
       });
       await _loadInbox();
       if (_scans.isNotEmpty) await _loadPreviewFor(_scans.first);
@@ -393,7 +335,6 @@ class _ScansPageState extends State<ScansPage>
     setState(() {
       _patient = patient;
       _incoming = null;
-      _incomingPhoto = null;
       _scans = [];
       _mediaLoading = true;
       _lastResult = null;
@@ -928,12 +869,6 @@ class _ScansPageState extends State<ScansPage>
                                         ? 'Select a patient'
                                         : 'Assign to $_patientLabel'),
                                   ),
-                                  if (_incomingPhoto != null)
-                                    IconButton(
-                                      tooltip: 'View photo',
-                                      onPressed: _showIncomingPhoto,
-                                      icon: const Icon(Icons.photo_outlined),
-                                    ),
                                   IconButton(
                                     tooltip: 'Delete',
                                     onPressed: _busy ? null : _deleteIncoming,

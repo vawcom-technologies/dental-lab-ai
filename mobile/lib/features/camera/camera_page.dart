@@ -15,6 +15,7 @@ import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/touchable.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'crop_photo_page.dart';
+import 'incoming_photos_button.dart';
 import 'live_camera_capture.dart';
 
 /// Chairside camera — frontal / left / right, max 12 photos per patient.
@@ -1164,6 +1165,21 @@ class _CameraPageState extends State<CameraPage> {
                     }
                   },
                   emptyHint: AppLocalizations.of(context).cameraNoPatientsCaptureHint,
+                ),
+                IncomingPhotosButton(
+                  api: widget.api,
+                  patientId: _patient == null ? null : _pid(_patient!),
+                  patientLabel:
+                      '${_patient?['first_name'] ?? ''} ${_patient?['last_name'] ?? ''}'
+                          .trim(),
+                  active: widget.active,
+                  enabled: !_busy,
+                  onAssigned: (_) async {
+                    final p = _patient;
+                    if (p != null) await _reloadPhotos(_pid(p), selectNewest: true);
+                  },
+                  onOpenShade: widget.patientSession.requestShadeHandoff,
+                  onOpenSmile: widget.patientSession.requestSmileHandoff,
                 ),
                 AppButtons.primary(
                   onPressed:

@@ -145,5 +145,5 @@ The current picker (`patient_picker.dart`) has no search. For either option:
 - Storage: its own private bucket `R2_SCAN_INBOX_BUCKET`, keys `{user_id}/{uuid}.ext`. Migration `016_scan_inbox.sql`.
 - Assign **copies** the object server-side into the scans bucket at `patients/{patient}/scans/{item}.ext`, then removes the inbox object. (Not "same object, no copy" as first proposed: the 30-day lifecycle rule would otherwise delete assigned scans, and patient files must live in the patient's folder for access checks and account deletion.)
 - Expiry: lifecycle rule on the inbox bucket (delete after 30 days); the list endpoint drops the matching DB rows.
-- iPad: Scans tab, "Incoming" button (count) → pick → preview → Assign to selected patient / Delete / Close.
+- iPad: "Incoming (n)" on the Scans tab lists scans (preview in the 3D viewer → Assign / Delete / Close); "Incoming (n)" on the Camera tab lists photos (full-size check → Add to patient / Delete / Close, then offers Shade Detection or Smile Preview).
 - Not done: German strings for the new UI, scan-quality check at assign time, "new scan" notification.
