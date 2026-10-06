@@ -392,6 +392,24 @@ class _ShadePageState extends State<ShadePage> {
     _photoTransformController.value = Matrix4.identity();
   }
 
+  bool get _hasWorkInProgress =>
+      _sessionKey() != null &&
+      (_previewBytes != null ||
+          _teeth.isNotEmpty ||
+          (_finalShade != null && _finalShade!.isNotEmpty) ||
+          (_selected != '—' && _selected.isNotEmpty));
+
+  /// Before another patient takes over: keep this visit in the session list
+  /// under its own patient, then empty the canvas so nothing carries over.
+  /// Call inside setState, while [_patient] is still the old one.
+  void _leaveCurrentPatient() {
+    if (_hasWorkInProgress) _upsertSessionEntry();
+    _resetWorkspace();
+    _sourcePhotoId = null;
+    _shadeDetectionId = null;
+    _case = null;
+  }
+
   void _openHistoryAt(int index) {
     if (index < 0 || index >= _history.length) return;
     final entry = _history[index];
@@ -408,13 +426,7 @@ class _ShadePageState extends State<ShadePage> {
 
     setState(() {
       // Keep the leave-behind visit editable when coming back.
-      if (_sessionKey() != null &&
-          (_previewBytes != null ||
-              _teeth.isNotEmpty ||
-              (_finalShade != null && _finalShade!.isNotEmpty) ||
-              (_selected != '—' && _selected.isNotEmpty))) {
-        _upsertSessionEntry();
-      }
+      if (_hasWorkInProgress) _upsertSessionEntry();
 
       final patient = entry['patient'];
       final caseRow = entry['case'];
@@ -1556,9 +1568,8 @@ class _ShadePageState extends State<ShadePage> {
     if (sel == null) {
       if (_patient != null) {
         setState(() {
+          _leaveCurrentPatient();
           _patient = null;
-          _case = null;
-          _shadeDetectionId = null;
         });
       }
       return;
@@ -1582,9 +1593,8 @@ class _ShadePageState extends State<ShadePage> {
     });
     if (_patients.isEmpty) {
       setState(() {
+        _leaveCurrentPatient();
         _patient = null;
-        _case = null;
-        _shadeDetectionId = null;
       });
       widget.patientSession.clearSelection();
       return;
@@ -1603,6 +1613,9 @@ class _ShadePageState extends State<ShadePage> {
   }) async {
     if (publish) widget.patientSession.select(patient);
     setState(() {
+      if (_patient != null && _pid(_patient!) != _pid(patient)) {
+        _leaveCurrentPatient();
+      }
       _patient = patient;
       _saveStatus = null;
       _error = null;
@@ -2472,7 +2485,7 @@ class _ShadePageState extends State<ShadePage> {
                 patients: _patients,
                 selected: _patient,
                 caseId: _case?['id'],
-                enabled: !_busy,
+                enabled: !_busy && !_saving,
                 onSelect: _selectPatient,
                 onAdd: _openNewPatientPage,
                 onRefresh: () async {
