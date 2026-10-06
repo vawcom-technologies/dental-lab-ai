@@ -1,6 +1,6 @@
 # Chat media (voice, documents, videos): making the buckets private
 
-Status: patient media (photos, scans, shades, smiles) is private and served through `/api/files`. Chat media is still public. Nothing for chat is built yet; decision pending.
+Status: patient media (photos, scans, shades, smiles) is private and served through `/api/files`. **Decision: option 1 (on-demand signed link), built** on branch `cloudflare-private-eu-buckets`: `GET /api/media/chat-files/{message_id}` checks conversation membership and returns a 1-hour R2 link; all four chat widgets use it (app update required). Remaining: deploy, test every media type, then turn off public access on the three chat buckets.
 
 ## Why not repeat the patient-media approach
 

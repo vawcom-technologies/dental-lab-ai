@@ -58,11 +58,14 @@ class ChatMessageBubble extends StatelessWidget {
     required this.message,
     required this.mine,
     required this.onReply,
+    required this.mediaLink,
     this.onPatientMention,
     this.showSeenEye = false,
   });
 
   final Message message;
+  /// Signed link for a message's attachment (access-checked by the backend).
+  final Future<String> Function(String messageId) mediaLink;
   final bool mine;
   final VoidCallback onReply;
   final ValueChanged<String>? onPatientMention;
@@ -159,27 +162,28 @@ class ChatMessageBubble extends StatelessWidget {
                                 ),
                               ),
                             )
-                          else if (message.isVoice && message.hasMedia)
-                            VoiceNoteBubble(
-                              url: message.mediaUrl!,
-                              durationSeconds: message.durationSeconds,
-                              mine: mine,
-                            )
-                          else if (message.isImage && message.hasMedia)
-                            ImageMessageBubble(
-                              url: message.mediaUrl!,
-                              mine: mine,
-                            )
-                          else if (message.isVideo && message.hasMedia)
-                            VideoMessageBubble(
-                              url: message.mediaUrl!,
-                              mine: mine,
-                              durationSeconds: message.durationSeconds,
-                            )
                           else if (message.hasMedia)
-                            DocumentMessageBubble(
-                              url: message.mediaUrl!,
-                              mine: mine,
+                            _SignedMedia(
+                              link: mediaLink(message.id),
+                              builder: (url) => message.isVoice
+                                  ? VoiceNoteBubble(
+                                      url: url,
+                                      durationSeconds: message.durationSeconds,
+                                      mine: mine,
+                                    )
+                                  : message.isImage
+                                      ? ImageMessageBubble(url: url, mine: mine)
+                                      : message.isVideo
+                                          ? VideoMessageBubble(
+                                              url: url,
+                                              mine: mine,
+                                              durationSeconds:
+                                                  message.durationSeconds,
+                                            )
+                                          : DocumentMessageBubble(
+                                              url: url,
+                                              mine: mine,
+                                            ),
                             ),
                           if (hasText) ...[
                             if (hasMediaBody) const SizedBox(height: 6),
@@ -252,6 +256,34 @@ class ChatMessageBubble extends StatelessWidget {
   }
 }
 
+
+/// Builds [builder] once the signed link resolves; spinner while waiting.
+class _SignedMedia extends StatelessWidget {
+  const _SignedMedia({required this.link, required this.builder});
+
+  final Future<String> link;
+  final Widget Function(String url) builder;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String>(
+      future: link,
+      builder: (context, snap) {
+        if (snap.hasData) return builder(snap.data!);
+        if (snap.hasError) {
+          return const Padding(
+            padding: EdgeInsets.all(8),
+            child: Icon(CupertinoIcons.exclamationmark_triangle, size: 22),
+          );
+        }
+        return const Padding(
+          padding: EdgeInsets.all(12),
+          child: ToothLoadingIndicator(size: 24),
+        );
+      },
+    );
+  }
+}
 
 class _MentionRichText extends StatefulWidget {
   const _MentionRichText({

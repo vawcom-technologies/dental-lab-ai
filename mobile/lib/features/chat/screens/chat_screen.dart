@@ -193,6 +193,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                 return ChatMessageBubble(
                                   message: message,
                                   mine: mine,
+                                  mediaLink:
+                                      controller.apiService.chatMediaLink,
                                   showSeenEye: mine &&
                                       lastSeenMineId != null &&
                                       message.id == lastSeenMineId,
