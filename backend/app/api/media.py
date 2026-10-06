@@ -23,8 +23,10 @@ from app.services import chat_messages as cm
 from app.services import patient_access as pa
 from app.services.r2 import (
     ALLOWED_MEDIA_TYPES,
+    CHAT_LINK_TTL_SECONDS,
     MEDIA_TYPE_HELP,
     local_patient_photo_path,
+    presign_chat_media,
     upload_chat_file,
 )
 from app.services.video_meta import probe_video_duration_seconds
@@ -119,6 +121,22 @@ async def chat_media_upload(
         public_url,
     )
     return message
+
+
+@router.get(
+    "/chat-files/{message_id}",
+    summary="Short-lived signed link to a chat attachment (participants only)",
+)
+def chat_media_link(message_id: str, user: AuthUser = Depends(get_current_user)):
+    msg = cm.fetch_message(message_id)
+    conv = cm.fetch_conversation(str(msg["conversation_id"])) if msg else None
+    if msg is None or not msg.get("media_url") or conv is None or not cm.is_participant(conv, user.id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
+    url = presign_chat_media(
+        media_type=str(msg.get("media_type") or ""), media_url=str(msg["media_url"])
+    )
+    logger.info("chat-file link user_id=%s message_id=%s", user.id, message_id)
+    return {"url": url, "expires_in": CHAT_LINK_TTL_SECONDS}
 
 
 @router.get(

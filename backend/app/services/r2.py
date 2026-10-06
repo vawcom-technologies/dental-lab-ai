@@ -1,4 +1,4 @@
-"""Cloudflare R2 (S3-compatible) uploads for chat media."""
+"""Cloudflare R2 (S3-compatible) storage: chat media and patient files."""
 
 from __future__ import annotations
 
@@ -41,16 +41,22 @@ _BUCKETS = {
 
 
 def bucket_for(kind: str) -> tuple[str, str]:
-    """(bucket, public base URL) for a media kind; 503 if not configured."""
+    """(bucket, public base URL) for a media kind; 503 if no bucket is set.
+
+    Buckets are private, so the public URL is optional (empty = none).
+    """
     names = _BUCKETS[kind]
     bucket, public = (str(getattr(settings, n) or "").strip().rstrip("/") for n in names)
-    for value, name in zip((bucket, public), names):
-        if not value:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Missing {name.upper()} in environment",
-            )
+    if not bucket:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Missing {names[0].upper()} in environment",
+        )
     return bucket, public
+
+
+def _stored_url(public_base: str, key: str) -> str:
+    return f"{public_base}/{key}" if public_base else key
 
 
 @lru_cache
@@ -63,9 +69,12 @@ def get_r2_client() -> BaseClient:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="R2 storage is not configured — set R2_* env vars",
         )
+    # Buckets created with a jurisdiction (e.g. "eu") only answer on that endpoint.
+    jur = (settings.r2_jurisdiction or "").strip().strip(".")
+    host = f"{account}.{jur}.r2" if jur else f"{account}.r2"
     return boto3.client(
         "s3",
-        endpoint_url=f"https://{account}.r2.cloudflarestorage.com",
+        endpoint_url=f"https://{host}.cloudflarestorage.com",
         aws_access_key_id=access,
         aws_secret_access_key=secret,
         region_name="auto",
@@ -92,48 +101,57 @@ def build_object_key(
     return f"chat/{conversation_id}/{media_type}/{safe_name}"
 
 
-def delete_chat_media_object(*, media_type: str, file_url: str) -> None:
-    """Best-effort delete of a chat media object from its public CDN URL."""
-    url = (file_url or "").strip()
+def chat_media_kind(media_type: str | None) -> str:
     media = (media_type or "").strip().lower() or "document"
-    if not url:
-        return
-    if media not in ALLOWED_MEDIA_TYPES:
-        media = "document"
+    return media if media in ALLOWED_MEDIA_TYPES else "document"
 
+
+def chat_key_from_url(media_url: str, public_base: str = "") -> str:
+    """Object key of a chat media value: a bare key, or a (legacy) public URL."""
+    url = (media_url or "").strip()
+    if public_base and url.startswith(f"{public_base}/"):
+        return url[len(public_base) + 1 :]
+    if url.startswith(("http://", "https://")):
+        from urllib.parse import urlparse
+
+        return (urlparse(url).path or "").lstrip("/")
+    return url.lstrip("/")
+
+
+CHAT_LINK_TTL_SECONDS = 3600  # long enough for a video to play and seek
+
+
+def presign_chat_media(*, media_type: str, media_url: str) -> str:
+    """Short-lived signed GET link for a chat attachment (caller checks access)."""
+    bucket, public_base = bucket_for(chat_media_kind(media_type))
+    key = chat_key_from_url(media_url, public_base)
+    if not key.startswith("chat/"):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
+    return get_r2_client().generate_presigned_url(
+        "get_object",
+        Params={"Bucket": bucket, "Key": key},
+        ExpiresIn=CHAT_LINK_TTL_SECONDS,
+    )
+
+
+def delete_chat_media_object(*, media_type: str, file_url: str) -> None:
+    """Best-effort delete of a chat media object."""
+    if not (file_url or "").strip():
+        return
     try:
-        bucket, public_base = bucket_for(media)
+        bucket, public_base = bucket_for(chat_media_kind(media_type))
     except HTTPException:
-        logger.warning(
-            "chat R2 delete skipped — bucket not configured media_type=%s",
-            media,
-        )
+        logger.warning("chat R2 delete skipped — bucket not configured media_type=%s", media_type)
         return
-
-    key = ""
-    if url.startswith(f"{public_base}/"):
-        key = url[len(public_base) + 1 :]
-    else:
-        try:
-            from urllib.parse import urlparse
-
-            key = (urlparse(url).path or "").lstrip("/")
-        except Exception:
-            key = ""
+    key = chat_key_from_url(file_url, public_base)
     if not key:
-        logger.warning("chat R2 delete skipped — no key from url=%s", url)
+        logger.warning("chat R2 delete skipped — no key from url=%s", file_url)
         return
-
-    client = get_r2_client()
     try:
-        client.delete_object(Bucket=bucket, Key=key)
+        get_r2_client().delete_object(Bucket=bucket, Key=key)
     except Exception as exc:
         # Account deletion should not abort solely on orphaned media.
-        logger.warning(
-            "chat R2 delete failed key=%s detail=%s",
-            key,
-            exc,
-        )
+        logger.warning("chat R2 delete failed key=%s detail=%s", key, exc)
 
 
 def _video_content_type(filename: str | None) -> str:
@@ -331,7 +349,7 @@ def upload_chat_file(
             detail=f"R2 upload failed: {str(exc).strip() or 'unknown error'}",
         ) from exc
 
-    public_url = f"{public_base}/{key}"
+    public_url = _stored_url(public_base, key)
     logger.debug(
         "R2 upload ok bucket=%s key=%s url=%s",
         bucket,
@@ -437,7 +455,7 @@ def upload_patient_asset(
             detail=f"R2 upload failed: {str(exc).strip() or 'unknown error'}",
         ) from exc
 
-    public_url = f"{public_base}/{key}"
+    public_url = _stored_url(public_base, key)
     logger.debug(
         "R2 patient upload ok kind=%s bucket=%s key=%s",
         kind,
@@ -482,7 +500,6 @@ def patient_images_r2_configured() -> bool:
         and (settings.r2_access_key_id or "").strip()
         and (settings.r2_secret_access_key or "").strip()
         and (settings.r2_patient_images_bucket or "").strip()
-        and (settings.r2_patient_images_public_url or "").strip()
     )
 
 
@@ -582,7 +599,7 @@ def upload_patient_photo_bytes(
             detail=f"R2 upload failed: {str(exc).strip() or 'unknown error'}",
         ) from exc
 
-    public_url = f"{public_base}/{key}"
+    public_url = _stored_url(public_base, key)
     logger.debug("R2 photo upload ok bucket=%s key=%s", bucket, key)
     return public_url
 

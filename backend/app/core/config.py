@@ -9,9 +9,8 @@ class Settings(BaseSettings):
     supabase_anon_key: str = ""
     supabase_service_role_key: str = ""
     # Comma list of patient file kinds served only through GET /api/files/...
-    # (photos,scans,shades,smiles). Empty = stored public URLs, as before.
-    # Flip a kind on, then make its R2 bucket private; remove it to roll back.
-    private_file_kinds: str = ""
+    # (photos,scans,shades,smiles). All on: the buckets are private.
+    private_file_kinds: str = "photos,scans,shades,smiles"
     # Where Supabase sends users after they click the password-reset email link
     password_reset_redirect_url: str = ""
 
@@ -23,6 +22,9 @@ class Settings(BaseSettings):
 
     # Cloudflare R2 (S3-compatible) for chat media
     r2_account_id: str = ""
+    # "eu" for buckets created in the European Union jurisdiction (endpoint
+    # {account}.eu.r2.cloudflarestorage.com). Empty = default endpoint.
+    r2_jurisdiction: str = ""
     r2_access_key_id: str = ""
     r2_secret_access_key: str = ""
     r2_voice_bucket: str = ""

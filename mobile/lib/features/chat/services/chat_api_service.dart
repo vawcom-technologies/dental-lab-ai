@@ -31,6 +31,33 @@ class ChatApiService {
         if (_api.token != null) 'Authorization': 'Bearer ${_api.token}',
       };
 
+  final _mediaLinks = <String, ({Future<String> url, DateTime at})>{};
+
+  /// Signed link for a message attachment; cached for 50 min (links last 60).
+  Future<String> chatMediaLink(String messageId) {
+    final hit = _mediaLinks[messageId];
+    if (hit != null &&
+        DateTime.now().difference(hit.at) < const Duration(minutes: 50)) {
+      return hit.url;
+    }
+    final url = _fetchMediaLink(messageId);
+    _mediaLinks[messageId] = (url: url, at: DateTime.now());
+    url.catchError((_) {
+      _mediaLinks.remove(messageId);
+      return '';
+    });
+    return url;
+  }
+
+  Future<String> _fetchMediaLink(String messageId) async {
+    final res = await _api.httpClient.get(
+      Uri.parse('$_base/api/media/chat-files/$messageId'),
+      headers: _authHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return (jsonDecode(res.body) as Map)['url'] as String;
+  }
+
   Future<List<Conversation>> fetchConversations({
     bool forceRefresh = false,
   }) async {
