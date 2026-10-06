@@ -139,6 +139,7 @@ The current picker (`patient_picker.dart`) has no search. For either option:
 
 ## Built: web inbox (option A), branch `file-transfer-web-inbox`
 
+- Accepts scans (.ply/.stl/.obj) **and photos** (.jpg/.jpeg/.png/.webp/.heic/.tif/.tiff). On assign, scans become the patient's scans; photos become the patient's photos (angle "other", 12-photo cap), and the iPad offers to open them straight in Shade Detection or Smile Preview.
 - PC page: `GET /scan-upload` (static, `backend/app/static/scan_upload.html`). Signs in with the app account (`POST /api/auth/signin`), token kept in memory only, drag-and-drop, per-file progress.
 - API: `POST/GET /api/scan-inbox`, `GET /{id}/file` (preview), `POST /{id}/assign {patient_id}`, `DELETE /{id}`. Owner only; `.ply/.stl/.obj`, 300 MB, streamed to R2.
 - Storage: its own private bucket `R2_SCAN_INBOX_BUCKET`, keys `{user_id}/{uuid}.ext`. Migration `016_scan_inbox.sql`.

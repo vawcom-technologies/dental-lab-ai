@@ -358,7 +358,7 @@ def upload_chat_file(
 
 # ── Patient clinical media (scans / shades / smiles) ──────────────────────────
 
-PatientAssetKind = Literal["scans", "shades", "smiles", "inbox"]
+PatientAssetKind = Literal["scans", "shades", "smiles", "inbox", "photos"]
 
 _SCAN_EXTENSIONS = frozenset({".ply", ".stl", ".obj"})
 _IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".webp", ".heic", ".tif", ".tiff"})
@@ -469,16 +469,27 @@ INBOX_MAX_BYTES = 300 * 1024 * 1024
 INBOX_EXPIRY_DAYS = 30  # mirror the inbox bucket's lifecycle rule
 
 
+def is_inbox_image(name: str) -> bool:
+    return Path(name or "").suffix.lower() in _IMAGE_EXTENSIONS
+
+
 def upload_inbox_file(*, file: UploadFile, user_id: str) -> tuple[str, int, str]:
-    """Stream a scan to the inbox bucket under {user}/. Returns (key, size, filename)."""
-    filename = validate_patient_upload_filename(kind="scans", filename=file.filename)
-    stream = _sized_upload_stream(file, max_bytes=INBOX_MAX_BYTES, label="Scan")
+    """Stream a scan or photo to the inbox bucket under {user}/. Returns (key, size, filename)."""
+    filename = (file.filename or "").strip()
+    ext = Path(filename).suffix.lower()
+    if ext not in _SCAN_EXTENSIONS and ext not in _IMAGE_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File must be a scan (.ply, .stl, .obj) or a photo (.jpg, .jpeg, .png, .webp, .heic, .tif, .tiff)",
+        )
+    stream = _sized_upload_stream(file, max_bytes=INBOX_MAX_BYTES, label="File")
     size = _upload_size(file) or 0
-    key = f"{user_id}/{uuid.uuid4().hex}{Path(filename).suffix.lower()}"
+    key = f"{user_id}/{uuid.uuid4().hex}{ext}"
     bucket = bucket_for("inbox")
+    ctype = mimetypes.guess_type(filename)[0] or "application/octet-stream"
     try:
         stream.seek(0)
-        get_r2_client().upload_fileobj(stream, bucket, key)
+        get_r2_client().upload_fileobj(stream, bucket, key, ExtraArgs={"ContentType": ctype})
     except HTTPException:
         raise
     except Exception as exc:
@@ -493,11 +504,11 @@ def upload_inbox_file(*, file: UploadFile, user_id: str) -> tuple[str, int, str]
     return key, size, filename
 
 
-def copy_inbox_to_scans(*, src_key: str, dst_key: str) -> None:
-    """Server-side copy inbox → scans bucket (no bytes through the backend)."""
+def copy_inbox_to(kind: str, *, src_key: str, dst_key: str) -> None:
+    """Server-side copy inbox → a patient bucket (no bytes through the backend)."""
     try:
         get_r2_client().copy_object(
-            Bucket=bucket_for("scans"),
+            Bucket=bucket_for(kind),
             Key=dst_key,
             CopySource={"Bucket": bucket_for("inbox"), "Key": src_key},
         )
@@ -505,7 +516,7 @@ def copy_inbox_to_scans(*, src_key: str, dst_key: str) -> None:
         logger.exception("R2 copy failed src=%s", src_key)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Could not move the scan to the patient record",
+            detail="Could not move the file to the patient record",
         ) from exc
 
 

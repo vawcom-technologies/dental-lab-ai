@@ -850,7 +850,9 @@ class ApiClient {
   Future<Uint8List> downloadScanInboxFile(String id) =>
       downloadMediaBytes('/api/scan-inbox/$id/file', forceRefresh: true);
 
-  Future<void> assignScanInbox(String id, String patientId) async {
+  /// Scans go to the patient's scans, photos to the patient's photos.
+  /// Returns `{kind: scan|photo, record_id, ...}`.
+  Future<Map<String, dynamic>> assignScanInbox(String id, String patientId) async {
     final res = await _http.post(
       Uri.parse('$baseUrl/api/scan-inbox/$id/assign'),
       headers: _jsonHeaders,
@@ -858,6 +860,7 @@ class ApiClient {
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     AppHaptics.success();
+    return _decodeMap(res.body);
   }
 
   Future<void> deleteScanInbox(String id) async {

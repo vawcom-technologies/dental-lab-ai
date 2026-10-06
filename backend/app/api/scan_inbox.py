@@ -1,4 +1,6 @@
-"""Scan inbox: a PC uploads scans to the web page, the dentist assigns them on the iPad."""
+"""Scan inbox: a PC uploads scans and photos to the web page, the dentist assigns them
+to a patient on the iPad (scans → the patient's scans, photos → the patient's photos,
+where Shade Detection and Smile Preview open them)."""
 
 from __future__ import annotations
 
@@ -19,7 +21,8 @@ from app.services import patient_media as pm
 from app.services.r2 import (
     INBOX_EXPIRY_DAYS,
     bucket_for,
-    copy_inbox_to_scans,
+    copy_inbox_to,
+    is_inbox_image,
     delete_patient_asset,
     download_r2_object_bytes,
     upload_inbox_file,
@@ -33,8 +36,12 @@ _TABLE = "scan_inbox"
 _PAGE = Path(__file__).resolve().parents[1] / "static" / "scan_upload.html"
 
 
+_MAX_PATIENT_PHOTOS = 12  # same cap as the camera upload (patients_gdpr)
+
+
 class InboxItemOut(BaseModel):
     id: str
+    kind: str  # "scan" | "photo"
     file_name: str
     format: str
     byte_size: int
@@ -48,6 +55,7 @@ class AssignIn(BaseModel):
 def _out(row: dict) -> InboxItemOut:
     return InboxItemOut(
         id=str(row["id"]),
+        kind="photo" if is_inbox_image(str(row.get("file_name") or "")) else "scan",
         file_name=str(row.get("file_name") or ""),
         format=str(row.get("format") or ""),
         byte_size=int(row.get("byte_size") or 0),
@@ -122,43 +130,80 @@ def inbox_file(item_id: str, user: AuthUser = Depends(get_current_user)):
     )
 
 
-@router.post("/{item_id}/assign", summary="Assign an incoming scan to a patient")
+def _assign_scan(row: dict, item_id: str, patient_id: str, user_id: str) -> str:
+    # Inbox objects expire after 30 days, so the patient gets their own copy
+    # (named after the item id: assigning twice reuses the same key and record).
+    key = f"patients/{patient_id}/scans/{item_id}{Path(str(row['file_key'])).suffix}"
+    copy_inbox_to("scans", src_key=str(row["file_key"]), dst_key=key)
+    existing = pm.find_row_by_key("patient_scans", patient_id, key)
+    if existing is not None:
+        return str(existing["id"])
+    try:
+        return str(pm.insert_row("patient_scans", {
+            "patient_id": patient_id,
+            "uploaded_by": user_id,
+            "file_key": key,
+            "file_url": key,
+            "file_name": row.get("file_name") or "",
+            "format": row.get("format") or "",
+            "created_at": pm.utc_now_iso(),
+        })["id"])
+    except Exception:
+        delete_patient_asset(kind="scans", file_key=key)  # inbox item stays
+        raise
+
+
+def _assign_photo(row: dict, item_id: str, patient_id: str, user_id: str) -> str:
+    db = get_supabase_admin()
+    key = f"patients/{patient_id}/photos/{item_id}{Path(str(row['file_key'])).suffix}"
+    try:
+        found = db.table("patient_photos").select("id").eq("patient_id", patient_id).eq("file_url", key).execute().data
+        if found:
+            return str(found[0]["id"])
+        count = len(db.table("patient_photos").select("id").eq("patient_id", patient_id).execute().data or [])
+    except Exception as exc:
+        raise pa.db_error(exc) from exc
+    if count >= _MAX_PATIENT_PHOTOS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"This patient already has {_MAX_PATIENT_PHOTOS} photos. Delete one first.")
+    copy_inbox_to("photos", src_key=str(row["file_key"]), dst_key=key)
+    try:
+        photo_id = str(pm.insert_row("patient_photos", {
+            "patient_id": patient_id,
+            "uploaded_by": user_id,
+            "angle": "other",
+            "filename": row.get("file_name") or "photo.jpg",
+            "file_url": key,
+            "byte_size": int(row.get("byte_size") or 0),
+            "created_at": pm.utc_now_iso(),
+        })["id"])
+    except Exception:
+        delete_patient_asset(kind="photos", file_key=key)  # inbox item stays
+        raise
+    pa.write_audit_log(actor_id=user_id, action="upload_patient_photo", patient_id=patient_id, details={"photo_id": photo_id, "source": "inbox"})
+    return photo_id
+
+
+@router.post("/{item_id}/assign", summary="Assign an incoming file to a patient")
 def assign_inbox_item(item_id: str, body: AssignIn, user: AuthUser = Depends(get_current_user)):
     row = _own_item(item_id, user)
     pm.require_patient_access(body.patient_id, user.id)
-
-    # Inbox objects expire after 30 days, so the patient gets their own copy
-    # (named after the item id: assigning twice reuses the same key and record).
-    ext = Path(str(row["file_key"])).suffix
-    key = f"patients/{body.patient_id}/scans/{item_id}{ext}"
-    copy_inbox_to_scans(src_key=str(row["file_key"]), dst_key=key)
-
-    existing = pm.find_row_by_key("patient_scans", body.patient_id, key)
-    if existing is None:
-        try:
-            existing = pm.insert_row(
-                "patient_scans",
-                {
-                    "patient_id": body.patient_id,
-                    "uploaded_by": user.id,
-                    "file_key": key,
-                    "file_url": key,
-                    "file_name": row.get("file_name") or "",
-                    "format": row.get("format") or "",
-                    "created_at": pm.utc_now_iso(),
-                },
-            )
-        except Exception:
-            delete_patient_asset(kind="scans", file_key=key)  # inbox item stays
-            raise
-    # Past this point the scan is safely on the record; cleanup failures are harmless.
+    photo = is_inbox_image(str(row.get("file_name") or ""))
+    assign = _assign_photo if photo else _assign_scan
+    record_id = assign(row, item_id, body.patient_id, user.id)
+    # Past this point the file is safely on the record; cleanup failures are harmless.
     try:
         delete_patient_asset(kind="inbox", file_key=str(row["file_key"]))
         pm.delete_row(_TABLE, item_id)
     except Exception:
         logger.warning("inbox cleanup after assign failed item_id=%s", item_id, exc_info=True)
     logger.info("inbox assign user_id=%s item_id=%s patient_id=%s", user.id, item_id, body.patient_id)
-    return {"assigned": True, "scan_id": str(existing["id"]), "patient_id": body.patient_id}
+    return {
+        "assigned": True,
+        "kind": "photo" if photo else "scan",
+        "record_id": record_id,
+        "scan_id": None if photo else record_id,
+        "patient_id": body.patient_id,
+    }
 
 
 @router.delete("/{item_id}", response_model=DeleteOkOut, summary="Delete an incoming scan")

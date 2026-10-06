@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Scan upload</title>
+<title>Send to iPad</title>
 <style>
   :root { --bg:#f6f8fb; --card:#fff; --fg:#14202e; --muted:#64748b; --line:#dbe3ec; --accent:#1d6fd6; --ok:#1a8a4a; --bad:#c0392b; }
   @media (prefers-color-scheme: dark) { :root { --bg:#0f1720; --card:#17212c; --fg:#e8eef5; --muted:#8a9bb0; --line:#273543; --accent:#4c9bff; --ok:#46c27d; --bad:#ff7a6b; } }
@@ -29,8 +29,8 @@
 </head>
 <body>
 <main>
-  <h1>Send scans to your iPad</h1>
-  <p class="sub">Sign in with your app account, then drop .ply, .stl or .obj files (up to 300 MB each). They appear under “Incoming scans” in the app.</p>
+  <h1>Send scans and photos to your iPad</h1>
+  <p class="sub">Sign in with your app account, then drop scans (.ply, .stl, .obj) or photos (.jpg, .png, .heic, …), up to 300 MB each. They appear under “Incoming” in the app’s Scans tab, where you add them to a patient.</p>
 
   <form id="login" class="card">
     <label for="email">Email</label>
@@ -43,7 +43,7 @@
 
   <section id="up" hidden>
     <div id="drop" tabindex="0">Drop files here, or click to choose</div>
-    <input id="pick" type="file" accept=".ply,.stl,.obj" multiple hidden>
+    <input id="pick" type="file" accept=".ply,.stl,.obj,.jpg,.jpeg,.png,.webp,.heic,.tif,.tiff" multiple hidden>
     <ul id="list"></ul>
   </section>
 </main>
@@ -52,6 +52,7 @@
   let token = null;
   const $ = (id) => document.getElementById(id);
   const MAX = 300 * 1024 * 1024;
+  const OK = ['ply', 'stl', 'obj', 'jpg', 'jpeg', 'png', 'webp', 'heic', 'tif', 'tiff'];
 
   $('login').onsubmit = async (e) => {
     e.preventDefault();
@@ -92,7 +93,7 @@
       $('list').prepend(li);
       const fail = (m) => { status.className = 'bad'; status.textContent = m; bar.hidden = true; };
       const ext = f.name.split('.').pop().toLowerCase();
-      if (!['ply', 'stl', 'obj'].includes(ext)) { fail('Only .ply, .stl or .obj files'); continue; }
+      if (!OK.includes(ext)) { fail('Only scans (.ply, .stl, .obj) or photos (.jpg, .png, .heic, …)'); continue; }
       if (f.size > MAX) { fail('Larger than 300 MB'); continue; }
       status.textContent = 'Uploading…';
       const xhr = new XMLHttpRequest();
