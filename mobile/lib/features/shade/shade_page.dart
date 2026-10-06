@@ -1008,7 +1008,8 @@ class _ShadePageState extends State<ShadePage> {
     final idx = _teeth.length;
     final tooth = <String, dynamic>{
       'tooth_index': idx,
-      'label': 'Tooth ${idx + 1}',
+      'label': '',
+      'manual': true,
       'confidence': 0.5,
       'rejected': false,
       'reject_reason': null,
@@ -1040,7 +1041,7 @@ class _ShadePageState extends State<ShadePage> {
       _error = null;
       _syncUiFromSelection();
       _saveStatus =
-          'Added Tooth ${idx + 1} — hold inside the outline and drag it onto the tooth, then Apply.';
+          'Added tooth — hold inside the outline and drag it onto the tooth, then Apply.';
       _upsertSessionEntry(onlyIfExists: true);
     });
     _startOutlineEdit();
@@ -1388,7 +1389,7 @@ class _ShadePageState extends State<ShadePage> {
         }
       }
       if (prev != null) {
-        for (final k in ['fdi', 'label', 'arch', 'arch_index']) {
+        for (final k in ['fdi', 'label', 'arch', 'arch_index', 'manual']) {
           if (prev[k] != null) updated[k] = prev[k];
         }
       }

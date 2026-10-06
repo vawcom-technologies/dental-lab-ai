@@ -232,6 +232,7 @@ int? toothFdi(Map tooth) {
 
 /// Chart / overlay / list label — FDI when mapped, never a left→right T-index.
 String toothDisplayLabel(Map tooth) {
+  if (tooth['manual'] == true) return ''; // added by hand: no label
   final fdi = toothFdi(tooth);
   if (fdi != null) return '$fdi';
   final label = tooth['label']?.toString();
@@ -259,7 +260,7 @@ void renumberTeethFromMidline(
     final right = <(Map<String, dynamic>, double)>[];
     final left = <(Map<String, dynamic>, double)>[];
     for (final t in teeth) {
-      if ((t['arch'] == 'lower') != lower) continue;
+      if (t['manual'] == true || (t['arch'] == 'lower') != lower) continue;
       final box = (t['geometry'] as Map?)?['bbox'];
       if (box is! Map) continue;
       final cx = ((box['x'] as num) + (box['w'] as num) / 2).toDouble();
