@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import mimetypes
 import uuid
@@ -11,6 +12,7 @@ from typing import Literal
 
 import boto3
 from botocore.client import BaseClient
+from botocore.exceptions import ClientError
 from fastapi import HTTPException, UploadFile, status
 
 from app.core.config import settings
@@ -23,6 +25,32 @@ CHAT_VIDEO_MAX_BYTES = 200 * 1024 * 1024
 _VIDEO_EXTENSIONS = frozenset(
     {".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv", ".3gp", ".mpeg", ".mpg", ".qt"}
 )
+
+
+# kind -> (bucket setting, public URL setting); env vars are the upper-case names.
+_BUCKETS = {
+    "voice": ("r2_voice_bucket", "r2_voice_public_url"),
+    "video": ("r2_videos_bucket", "r2_videos_public_url"),
+    "image": ("r2_documents_bucket", "r2_documents_public_url"),  # chat images share documents
+    "document": ("r2_documents_bucket", "r2_documents_public_url"),
+    "photos": ("r2_patient_images_bucket", "r2_patient_images_public_url"),
+    "scans": ("r2_scans_bucket", "r2_scans_public_url"),
+    "shades": ("r2_shades_bucket", "r2_shades_public_url"),
+    "smiles": ("r2_smiles_bucket", "r2_smiles_public_url"),
+}
+
+
+def bucket_for(kind: str) -> tuple[str, str]:
+    """(bucket, public base URL) for a media kind; 503 if not configured."""
+    names = _BUCKETS[kind]
+    bucket, public = (str(getattr(settings, n) or "").strip().rstrip("/") for n in names)
+    for value, name in zip((bucket, public), names):
+        if not value:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Missing {name.upper()} in environment",
+            )
+    return bucket, public
 
 
 @lru_cache
@@ -42,35 +70,6 @@ def get_r2_client() -> BaseClient:
         aws_secret_access_key=secret,
         region_name="auto",
     )
-
-
-def _require_bucket_and_public_url(media_type: str) -> tuple[str, str]:
-    """Pick bucket + matching public CDN base from media_type."""
-    if media_type == "voice":
-        bucket = (settings.r2_voice_bucket or "").strip()
-        public = (settings.r2_voice_public_url or "").strip().rstrip("/")
-        bucket_env, url_env = "R2_VOICE_BUCKET", "R2_VOICE_PUBLIC_URL"
-    elif media_type == "video":
-        bucket = (settings.r2_videos_bucket or "").strip()
-        public = (settings.r2_videos_public_url or "").strip().rstrip("/")
-        bucket_env, url_env = "R2_VIDEOS_BUCKET", "R2_VIDEOS_PUBLIC_URL"
-    else:
-        # image + document share the documents bucket/CDN
-        bucket = (settings.r2_documents_bucket or "").strip()
-        public = (settings.r2_documents_public_url or "").strip().rstrip("/")
-        bucket_env, url_env = "R2_DOCUMENTS_BUCKET", "R2_DOCUMENTS_PUBLIC_URL"
-
-    if not bucket:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Missing {bucket_env} in environment",
-        )
-    if not public:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Missing {url_env} in environment",
-        )
-    return bucket, public
 
 
 def build_object_key(
@@ -103,7 +102,7 @@ def delete_chat_media_object(*, media_type: str, file_url: str) -> None:
         media = "document"
 
     try:
-        bucket, public_base = _require_bucket_and_public_url(media)
+        bucket, public_base = bucket_for(media)
     except HTTPException:
         logger.warning(
             "chat R2 delete skipped — bucket not configured media_type=%s",
@@ -264,7 +263,7 @@ def upload_chat_file(
     if media_type == "video":
         _validate_chat_video(file)
 
-    bucket, public_base = _require_bucket_and_public_url(media_type)
+    bucket, public_base = bucket_for(media_type)
     key = build_object_key(
         conversation_id=conversation_id,
         media_type=media_type,
@@ -350,46 +349,20 @@ _SCAN_EXTENSIONS = frozenset({".ply", ".stl", ".obj"})
 _IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".webp", ".heic", ".tif", ".tiff"})
 
 
-def _require_patient_bucket(kind: PatientAssetKind) -> tuple[str, str]:
-    if kind == "scans":
-        bucket = (settings.r2_scans_bucket or "").strip()
-        public = (settings.r2_scans_public_url or "").strip().rstrip("/")
-        bucket_env, url_env = "R2_SCANS_BUCKET", "R2_SCANS_PUBLIC_URL"
-    elif kind == "shades":
-        bucket = (settings.r2_shades_bucket or "").strip()
-        public = (settings.r2_shades_public_url or "").strip().rstrip("/")
-        bucket_env, url_env = "R2_SHADES_BUCKET", "R2_SHADES_PUBLIC_URL"
-    else:
-        bucket = (settings.r2_smiles_bucket or "").strip()
-        public = (settings.r2_smiles_public_url or "").strip().rstrip("/")
-        bucket_env, url_env = "R2_SMILES_BUCKET", "R2_SMILES_PUBLIC_URL"
-
-    if not bucket:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Missing {bucket_env} in environment",
-        )
-    if not public:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Missing {url_env} in environment",
-        )
-    return bucket, public
-
-
 def build_patient_asset_key(
     *,
     kind: PatientAssetKind,
     patient_id: str,
     filename: str | None,
+    data: bytes,
 ) -> str:
+    """Content-addressed key: the same bytes for the same patient map to one object."""
     ext = Path(filename or "").suffix.lower()
     if kind == "scans" and ext not in _SCAN_EXTENSIONS:
         ext = ext if ext else ".ply"
     elif kind != "scans" and not ext:
         ext = ".jpg"
-    safe_name = f"{uuid.uuid4().hex}{ext}"
-    return f"patients/{patient_id}/{kind}/{safe_name}"
+    return f"patients/{patient_id}/{kind}/{hashlib.sha256(data).hexdigest()}{ext}"
 
 
 def validate_patient_upload_filename(
@@ -421,21 +394,29 @@ def validate_patient_upload_filename(
 
 def upload_patient_asset(
     *,
-    file: UploadFile,
+    data: bytes,
+    filename: str | None,
+    content_type: str | None,
     kind: PatientAssetKind,
     patient_id: str,
 ) -> tuple[str, str, str]:
     """
-    Upload a patient clinical file to R2.
+    Store a patient clinical file in its kind's R2 bucket.
 
-    Returns (file_key, public_url, original_filename).
+    Re-storing identical bytes overwrites the same object, so repeats never
+    pile up. Returns (file_key, public_url, original_filename).
     """
-    filename = validate_patient_upload_filename(kind=kind, filename=file.filename)
-    bucket, public_base = _require_patient_bucket(kind)
+    filename = validate_patient_upload_filename(kind=kind, filename=filename)
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Empty file",
+        )
+    bucket, public_base = bucket_for(kind)
     key = build_patient_asset_key(
-        kind=kind, patient_id=patient_id, filename=filename
+        kind=kind, patient_id=patient_id, filename=filename, data=data
     )
-    content_type = file.content_type or mimetypes.guess_type(filename)[0] or (
+    content_type = content_type or mimetypes.guess_type(filename)[0] or (
         "application/octet-stream"
     )
     if content_type in ("application/octet-stream", "binary/octet-stream", ""):
@@ -446,16 +427,7 @@ def upload_patient_asset(
 
     client = get_r2_client()
     try:
-        try:
-            file.file.seek(0)
-        except Exception:
-            pass
-        client.upload_fileobj(
-            file.file,
-            bucket,
-            key,
-            ExtraArgs={"ContentType": content_type},
-        )
+        client.put_object(Bucket=bucket, Key=key, Body=data, ContentType=content_type)
     except HTTPException:
         raise
     except Exception as exc:
@@ -479,7 +451,7 @@ def delete_patient_asset(*, kind: PatientAssetKind, file_key: str) -> None:
     """Delete an object from the patient-asset R2 bucket. Missing keys are ignored."""
     if not (file_key or "").strip():
         return
-    bucket, _ = _require_patient_bucket(kind)
+    bucket, _ = bucket_for(kind)
     client = get_r2_client()
     try:
         client.delete_object(Bucket=bucket, Key=file_key)
@@ -564,22 +536,6 @@ def _delete_local_patient_photo(file_url: str) -> None:
         logger.warning("local photo delete failed path=%s detail=%s", path, exc)
 
 
-def _require_patient_images_bucket() -> tuple[str, str]:
-    bucket = (settings.r2_patient_images_bucket or "").strip()
-    public = (settings.r2_patient_images_public_url or "").strip().rstrip("/")
-    if not bucket:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Missing R2_PATIENT_IMAGES_BUCKET in environment",
-        )
-    if not public:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Missing R2_PATIENT_IMAGES_PUBLIC_URL in environment",
-        )
-    return bucket, public
-
-
 def upload_patient_photo_bytes(
     *,
     patient_id: str,
@@ -598,7 +554,7 @@ def upload_patient_photo_bytes(
             patient_id=patient_id, filename=filename, data=data
         )
 
-    bucket, public_base = _require_patient_images_bucket()
+    bucket, public_base = bucket_for("photos")
     ext = Path(filename or "").suffix.lower() or ".jpg"
     if ext not in _IMAGE_EXTENSIONS:
         ext = ".jpg"
@@ -650,7 +606,7 @@ def delete_patient_photo_object(file_url: str) -> None:
         logger.warning("R2 photo delete skipped — could not derive key from url=%s", url)
         return
 
-    bucket, _ = _require_patient_images_bucket()
+    bucket, _ = bucket_for("photos")
     client = get_r2_client()
     try:
         client.delete_object(Bucket=bucket, Key=key)
@@ -660,20 +616,6 @@ def delete_patient_photo_object(file_url: str) -> None:
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"R2 delete failed: {str(exc).strip() or 'unknown error'}",
         ) from exc
-
-
-def is_patient_images_url(file_url: str) -> bool:
-    """True when URL points at the clinical camera photos CDN or local fallback."""
-    url = (file_url or "").strip()
-    if not url:
-        return False
-    if is_local_patient_photo_url(url):
-        return True
-    public = (settings.r2_patient_images_public_url or "").strip().rstrip("/")
-    if public and url.startswith(f"{public}/"):
-        return True
-    # Path convention used by upload_patient_photo_bytes
-    return "/patients/" in url and "/photos/" in url
 
 
 def download_r2_object_bytes(bucket: str, key: str) -> bytes:
@@ -690,11 +632,22 @@ def download_r2_object_bytes(bucket: str, key: str) -> bytes:
         data = body.read() if body is not None else b""
     except HTTPException:
         raise
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") in ("NoSuchKey", "404"):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"File not found in {bucket}",
+            ) from exc
+        logger.exception("R2 get_object failed bucket=%s key=%s", bucket, key)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Could not read stored file: {str(exc).strip() or 'unknown error'}",
+        ) from exc
     except Exception as exc:
         logger.exception("R2 get_object failed bucket=%s key=%s", bucket, key)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Could not read stored photo: {str(exc).strip() or 'unknown error'}",
+            detail=f"Could not read stored file: {str(exc).strip() or 'unknown error'}",
         ) from exc
     if not data:
         raise HTTPException(

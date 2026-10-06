@@ -41,6 +41,9 @@ class SmilePreviewOut(BaseModel):
     file_url: str
     file_name: str
     created_at: datetime | str | None = None
+    # Photo without overlays + shape placements, for reopening (migration 014).
+    base_file_url: str | None = None
+    overlay: dict | None = None
 
 
 class DeleteOkOut(BaseModel):

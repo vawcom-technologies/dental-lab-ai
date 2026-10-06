@@ -44,7 +44,9 @@ class ShadeOverridePane extends StatelessWidget {
     final zoneLabel = capitalizeZone(focusZone);
     final toothLabel = selectedToothIndex == null
         ? null
-        : '${selectedToothLabel ?? 'T${selectedToothIndex! + 1}'} · $zoneLabel';
+        : selectedToothLabel == ''
+            ? zoneLabel
+            : '${selectedToothLabel ?? 'T${selectedToothIndex! + 1}'} · $zoneLabel';
     final gumTab = tab == 1;
 
     return LayoutBuilder(

@@ -6,14 +6,13 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from fastapi import HTTPException, UploadFile, status
+from fastapi import HTTPException, status
 
 from app.core.supabase_client import get_supabase_admin
 from app.services import patient_access as pa
 from app.services.r2 import (
     PatientAssetKind,
     delete_patient_asset,
-    is_patient_images_url,
     upload_patient_asset,
 )
 
@@ -50,6 +49,23 @@ def fetch_row(table: str, row_id: str) -> dict[str, Any] | None:
             .table(table)
             .select("*")
             .eq("id", row_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        raise pa.db_error(exc) from exc
+    rows = getattr(result, "data", None) or []
+    return rows[0] if rows else None
+
+
+def find_row_by_key(table: str, patient_id: str, file_key: str) -> dict[str, Any] | None:
+    try:
+        result = (
+            get_supabase_admin()
+            .table(table)
+            .select("*")
+            .eq("patient_id", patient_id)
+            .eq("file_key", file_key)
             .limit(1)
             .execute()
         )
@@ -106,15 +122,25 @@ def upload_and_insert(
     kind: PatientAssetKind,
     patient_id: str,
     user_id: str,
-    file: UploadFile,
+    data: bytes,
+    filename: str | None,
+    content_type: str | None = None,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Upload to R2 then insert DB row. Rolls back R2 object if insert fails."""
+    """Store in R2, then insert the DB row — or, when this patient already has a
+    row for the same bytes, update that row with `extra` instead of adding a
+    duplicate. Rolls back the R2 object if a fresh insert fails."""
     file_key, file_url, file_name = upload_patient_asset(
-        file=file,
+        data=data,
+        filename=filename,
+        content_type=content_type,
         kind=kind,
         patient_id=patient_id,
     )
+    existing = find_row_by_key(table, patient_id, file_key)
+    if existing is not None:
+        return update_row(table, str(existing["id"]), extra) if extra else existing
+
     row: dict[str, Any] = {
         "patient_id": patient_id,
         "uploaded_by": user_id,
@@ -153,6 +179,32 @@ def upload_and_insert(
     return inserted
 
 
+def delete_file_if_unused(
+    *,
+    table: str,
+    kind: PatientAssetKind,
+    patient_id: str,
+    file_key: str,
+    ignore_row_id: str | None = None,
+) -> None:
+    """Delete a file from the kind's bucket once no other row of `table` uses it.
+
+    Only files in this patient's own `patients/{id}/{kind}/` folder are ever
+    deleted — older rows pointing at a camera photo (`.../photos/...`) leave it
+    to the camera photo's own lifecycle.
+    """
+    if not file_key.startswith(f"patients/{patient_id}/{kind}/"):
+        if file_key:
+            logger.warning("R2 delete skipped, outside %s folder key=%s", kind, file_key)
+        return
+    for other in list_rows(table, patient_id):
+        if str(other.get("id")) == str(ignore_row_id):
+            continue
+        if file_key in (other.get("file_key"), other.get("base_file_key")):
+            return
+    delete_patient_asset(kind=kind, file_key=file_key)
+
+
 def delete_record_and_file(
     *,
     table: str,
@@ -173,16 +225,12 @@ def delete_record_and_file(
     patient_id = str(row.get("patient_id") or "")
     require_patient_access(patient_id, user_id)
 
-    file_key = str(row.get("file_key") or "")
-    file_url = str(row.get("file_url") or "")
-    # Camera-photo copies share R2 objects with patient_photos — drop DB row only.
-    if file_key and not is_patient_images_url(file_url):
-        delete_patient_asset(kind=kind, file_key=file_key)
-    elif is_patient_images_url(file_url):
-        logger.debug(
-            "skip R2 delete for shared camera photo table=%s id=%s",
-            table,
-            row_id,
-        )
+    delete_file_if_unused(
+        table=table,
+        kind=kind,
+        patient_id=patient_id,
+        file_key=str(row.get("file_key") or ""),
+        ignore_row_id=row_id,
+    )
     delete_row(table, row_id)
     return row

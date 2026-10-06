@@ -435,32 +435,22 @@ class _CameraPageState extends State<CameraPage> {
     });
   }
 
-  Future<void> _openPhotoWithShade(Map<String, dynamic> photo) async {
+  void _openPhotoWithShade(Map<String, dynamic> photo) {
     final photoId = '${photo['id'] ?? ''}';
     if (photoId.isEmpty) return;
     final label = _photoName(photo);
-    await _runBusy('Opening with Shade Detection…', () async {
-      final row = await widget.api.copyToShadeDetection(photoId);
-      final shadeId = '${row['id'] ?? ''}'.trim();
-      if (shadeId.isNotEmpty) {
-        widget.patientSession.requestShadeHandoff(shadeId);
-      }
-      return 'Opening “$label” with Shade Detection…';
-    });
+    // Nothing is stored here — Shade saves the photo when the doctor saves.
+    widget.patientSession.requestShadeHandoff(photoId);
+    setState(() => _status = 'Opening “$label” with Shade Detection…');
   }
 
-  Future<void> _openPhotoWithSmile(Map<String, dynamic> photo) async {
+  void _openPhotoWithSmile(Map<String, dynamic> photo) {
     final photoId = '${photo['id'] ?? ''}';
     if (photoId.isEmpty) return;
     final label = _photoName(photo);
-    await _runBusy('Opening with Smile Preview…', () async {
-      final row = await widget.api.copyToSmilePreview(photoId);
-      final smileId = '${row['id'] ?? ''}'.trim();
-      if (smileId.isNotEmpty) {
-        widget.patientSession.requestSmileHandoff(smileId);
-      }
-      return 'Opening “$label” with Smile Preview…';
-    });
+    // Nothing is stored here — Smile Preview saves when the doctor saves.
+    widget.patientSession.requestSmileHandoff(photoId);
+    setState(() => _status = 'Opening “$label” with Smile Preview…');
   }
 
   void _onPhotoMenuSelected(_PhotoMenuAction action, Map<String, dynamic> photo) {

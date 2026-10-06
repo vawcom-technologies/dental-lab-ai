@@ -91,13 +91,6 @@
     "shapeId": "shape_13"
   },
   {
-    "id": 14,
-    "slug": "implant_bright",
-    "label": "Implant bright",
-    "asset": "assets/clinical/shapes/shape_14_implant_bright.png",
-    "shapeId": "shape_14"
-  },
-  {
     "id": 15,
     "slug": "implant_classic",
     "label": "Implant classic",

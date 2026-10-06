@@ -13,7 +13,6 @@ import '../../core/layout/adaptive.dart';
 import '../../core/navigation/app_page_routes.dart';
 import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/touchable.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'apple_translate.dart';
@@ -87,7 +86,6 @@ class _InterpreterPageState extends State<InterpreterPage> {
   String _speechStatus = '';
   String? _speechError;
   double _peakSoundLevel = -120;
-  DateTime? _holdBegan;
   DateTime? _pointerDownAt;
   int? _holdPointer;
   int _holdEpoch = 0;
@@ -852,7 +850,6 @@ class _InterpreterPageState extends State<InterpreterPage> {
     final lang = fromDoctor ? _doctor : _patient;
     if (!lang.supportsSpeech) return;
     FocusManager.instance.primaryFocus?.unfocus();
-    _holdBegan = DateTime.now();
     _peakSoundLevel = -120;
     _speechError = null;
     setState(() {
@@ -976,8 +973,6 @@ class _InterpreterPageState extends State<InterpreterPage> {
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
     final portrait = AppBreakpoints.isPortrait(context);
-    final patients = widget.patientSession.patients;
-    final selected = widget.patientSession.selected;
 
     return Padding(
       padding: AppBreakpoints.pagePadding(
@@ -1007,17 +1002,6 @@ class _InterpreterPageState extends State<InterpreterPage> {
                 tooltip: loc.interpreterClear,
                 onPressed: _turns.isEmpty ? null : _clearTurns,
                 icon: Icons.delete_outline_rounded,
-              ),
-            ],
-            actions: [
-              PatientPickerButton(
-                patients: patients,
-                selected: selected,
-                onSelect: widget.patientSession.select,
-                onAdd: widget.patientSession.requestNavigateToNewPatient,
-                onRefresh: () =>
-                    widget.patientSession.refresh(keepSelection: true),
-                emptyHint: loc.interpreterPatientOptional,
               ),
             ],
           ),

@@ -63,9 +63,10 @@ class _ShadePageState extends State<ShadePage> {
   /// Aggregated across all teeth/zones for the Result card (not zone-similar).
   List<Map<String, dynamic>> _overallTopMatches = [];
   List<Map<String, dynamic>> _history = [];
-  /// All saved shade-detection images for the selected patient (full history).
-  List<Map<String, dynamic>> _allShadeItems = [];
+  /// Saved record being edited; null until the first Save.
   String? _shadeDetectionId;
+  /// Camera photo open on the canvas (not yet saved) — Save copies it server-side.
+  String? _sourcePhotoId;
   /// Case-level gingiva match from the last analyze pass (not a VITA tooth shade).
   Map<String, dynamic>? _gum;
   /// Upper/lower incisal guide curves from the last analyze pass.
@@ -223,6 +224,16 @@ class _ShadePageState extends State<ShadePage> {
     return 'patient-$pid';
   }
 
+  /// Session rows of the selected patient only (history keeps other patients'
+  /// unsaved visits so switching back restores them).
+  List<Map<String, dynamic>> get _patientHistory {
+    final pid = _patient == null ? '' : _pid(_patient!);
+    return [
+      for (final h in _history)
+        if ('${h['patient_id'] ?? (h['patient'] is Map ? _pid(Map<String, dynamic>.from(h['patient'] as Map)) : '')}' == pid) h,
+    ];
+  }
+
   int _historyIndexForKey(String key) {
     return _history.indexWhere((h) => '${h['session_key'] ?? ''}' == key);
   }
@@ -250,6 +261,7 @@ class _ShadePageState extends State<ShadePage> {
           ? null
           : Uint8List.fromList(_previewBytes!),
       'preview_filename': _previewFilename,
+      'source_photo_id': _sourcePhotoId,
       'preview_image_width': _previewImageSize.width,
       'preview_image_height': _previewImageSize.height,
       'teeth': cloneShadeMaps(_teeth),
@@ -333,6 +345,7 @@ class _ShadePageState extends State<ShadePage> {
         ? Uint8List.fromList(bytes)
         : (bytes is List ? Uint8List.fromList(bytes.cast<int>()) : null);
     _previewFilename = ws['preview_filename'] as String? ?? 'tooth.jpg';
+    _sourcePhotoId = ws['source_photo_id'] as String?;
     final pw = (ws['preview_image_width'] as num?)?.toDouble() ?? 0;
     final ph = (ws['preview_image_height'] as num?)?.toDouble() ?? 0;
     _previewImageSize = (pw > 0 && ph > 0)
@@ -379,6 +392,24 @@ class _ShadePageState extends State<ShadePage> {
     _photoTransformController.value = Matrix4.identity();
   }
 
+  bool get _hasWorkInProgress =>
+      _sessionKey() != null &&
+      (_previewBytes != null ||
+          _teeth.isNotEmpty ||
+          (_finalShade != null && _finalShade!.isNotEmpty) ||
+          (_selected != '—' && _selected.isNotEmpty));
+
+  /// Before another patient takes over: keep this visit in the session list
+  /// under its own patient, then empty the canvas so nothing carries over.
+  /// Call inside setState, while [_patient] is still the old one.
+  void _leaveCurrentPatient() {
+    if (_hasWorkInProgress) _upsertSessionEntry();
+    _resetWorkspace();
+    _sourcePhotoId = null;
+    _shadeDetectionId = null;
+    _case = null;
+  }
+
   void _openHistoryAt(int index) {
     if (index < 0 || index >= _history.length) return;
     final entry = _history[index];
@@ -395,13 +426,7 @@ class _ShadePageState extends State<ShadePage> {
 
     setState(() {
       // Keep the leave-behind visit editable when coming back.
-      if (_sessionKey() != null &&
-          (_previewBytes != null ||
-              _teeth.isNotEmpty ||
-              (_finalShade != null && _finalShade!.isNotEmpty) ||
-              (_selected != '—' && _selected.isNotEmpty))) {
-        _upsertSessionEntry();
-      }
+      if (_hasWorkInProgress) _upsertSessionEntry();
 
       final patient = entry['patient'];
       final caseRow = entry['case'];
@@ -427,6 +452,7 @@ class _ShadePageState extends State<ShadePage> {
         _restoreWorkspace(Map<String, dynamic>.from(ws));
       } else {
         _previewBytes = null;
+        _sourcePhotoId = null;
         _previewImageSize = Size.zero;
         _teeth = [];
         _teethMemory = [];
@@ -460,6 +486,55 @@ class _ShadePageState extends State<ShadePage> {
       ];
     });
     AppHaptics.selection();
+    // Entries loaded from the patient record carry no image bytes.
+    final url = '${entry['file_url'] ?? ''}'.trim();
+    if (entry['not_analysed'] == true && entry['workspace'] is! Map) {
+      // Earlier photo with no result yet: analyse it now; Save adds the
+      // result to this same record.
+      _openAndAnalyse(
+        url,
+        '${entry['file_name'] ?? 'tooth.jpg'}',
+        shadeId: '${entry['shade_detection_id']}',
+      );
+    } else if (_previewBytes == null && url.isNotEmpty) {
+      _loadSavedPreview(url);
+    }
+  }
+
+  /// Session row photo: in-memory bytes for this visit's work, else the
+  /// stored image (access-checked, with the login header).
+  Widget? _sessionThumbnail(Map<String, dynamic> entry) {
+    final ws = entry['workspace'];
+    final bytes = ws is Map ? ws['preview_bytes'] : null;
+    if (bytes is Uint8List) {
+      return Image.memory(bytes, fit: BoxFit.cover, cacheWidth: 120);
+    }
+    final url = '${entry['file_url'] ?? ''}'.trim();
+    if (url.isEmpty) return null;
+    return Image.network(
+      widget.api.resolveMediaUrl(url),
+      headers: widget.api.mediaHeaders,
+      fit: BoxFit.cover,
+      cacheWidth: 120,
+      errorBuilder: (_, _, _) => const ColoredBox(color: Color(0xFF0F1724)),
+    );
+  }
+
+  Future<void> _loadSavedPreview(String url) async {
+    final key = _sessionKey();
+    try {
+      final bytes = await widget.api.downloadMediaBytes(url);
+      if (!mounted || _sessionKey() != key) return;
+      setState(() {
+        _previewBytes = bytes;
+        final i = _historyIndexForKey(key ?? '');
+        final ws = i < 0 ? null : _history[i]['workspace'];
+        if (ws is Map) ws['preview_bytes'] = bytes;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    }
   }
 
   /// Replace-or-insert the Session row for the active visit.
@@ -468,10 +543,15 @@ class _ShadePageState extends State<ShadePage> {
     String? summaryShade,
     bool? hasOverride,
     bool onlyIfExists = false,
+    String? previousKey,
   }) {
     final key = _sessionKey();
     if (key == null) return;
     var existing = _historyIndexForKey(key);
+    // First save turns 'patient-…' into 'shade-…' — replace, don't duplicate.
+    if (existing < 0 && previousKey != null) {
+      existing = _historyIndexForKey(previousKey);
+    }
     if (existing < 0) {
       final caseId = _currentCaseId();
       if (caseId != null) existing = _historyIndexForCase(caseId);
@@ -950,7 +1030,8 @@ class _ShadePageState extends State<ShadePage> {
     final idx = _teeth.length;
     final tooth = <String, dynamic>{
       'tooth_index': idx,
-      'label': 'Tooth ${idx + 1}',
+      'label': '',
+      'manual': true,
       'confidence': 0.5,
       'rejected': false,
       'reject_reason': null,
@@ -982,7 +1063,7 @@ class _ShadePageState extends State<ShadePage> {
       _error = null;
       _syncUiFromSelection();
       _saveStatus =
-          'Added Tooth ${idx + 1} — hold inside the outline and drag it onto the tooth, then Apply.';
+          'Added tooth — hold inside the outline and drag it onto the tooth, then Apply.';
       _upsertSessionEntry(onlyIfExists: true);
     });
     _startOutlineEdit();
@@ -1189,36 +1270,41 @@ class _ShadePageState extends State<ShadePage> {
 
   void _clearUploadedPhoto() {
     setState(() {
-      _previewBytes = null;
-      _previewFilename = 'tooth.jpg';
-      _previewImageSize = Size.zero;
-      _teeth = [];
-      _teethMemory = [];
-      _teethUndo.clear();
-      _selectedToothIndex = null;
-      _analysisImageSize = Size.zero;
-      _detected = '—';
-      _selected = '—';
-      _confidence = 0;
-      _topMatches = [];
-      _overallTopMatches = [];
-      _finalShade = null;
-      _pendingShade = null;
-      _pendingGumShade = null;
-      _overrideTab = 0;
-      _overallShadePick = false;
-      _gum = null;
-      _guideLines = const {};
-      _lipSuggestions = const {};
-      _symmetryView = false;
-      _focusView = false;
-      if (_fullscreenPortal.isShowing) _fullscreenPortal.hide();
-      _exitOutlineEdit(clearStatus: false);
-      _photoTransformController.value = Matrix4.identity();
-      _error = null;
+      _resetWorkspace();
       _saveStatus = 'Photo removed';
       _upsertSessionEntry(onlyIfExists: true);
     });
+  }
+
+  /// Empty canvas: no photo, no analysis. Call inside setState.
+  void _resetWorkspace() {
+    _previewBytes = null;
+    _previewFilename = 'tooth.jpg';
+    _previewImageSize = Size.zero;
+    _teeth = [];
+    _teethMemory = [];
+    _teethUndo.clear();
+    _selectedToothIndex = null;
+    _analysisImageSize = Size.zero;
+    _detected = '—';
+    _selected = '—';
+    _confidence = 0;
+    _topMatches = [];
+    _overallTopMatches = [];
+    _finalShade = null;
+    _pendingShade = null;
+    _pendingGumShade = null;
+    _overrideTab = 0;
+    _overallShadePick = false;
+    _gum = null;
+    _guideLines = const {};
+    _lipSuggestions = const {};
+    _symmetryView = false;
+    _focusView = false;
+    if (_fullscreenPortal.isShowing) _fullscreenPortal.hide();
+    _exitOutlineEdit(clearStatus: false);
+    _photoTransformController.value = Matrix4.identity();
+    _error = null;
   }
 
   void _endOutlineDrag() {
@@ -1325,7 +1411,7 @@ class _ShadePageState extends State<ShadePage> {
         }
       }
       if (prev != null) {
-        for (final k in ['fdi', 'label', 'arch', 'arch_index']) {
+        for (final k in ['fdi', 'label', 'arch', 'arch_index', 'manual']) {
           if (prev[k] != null) updated[k] = prev[k];
         }
       }
@@ -1482,10 +1568,8 @@ class _ShadePageState extends State<ShadePage> {
     if (sel == null) {
       if (_patient != null) {
         setState(() {
+          _leaveCurrentPatient();
           _patient = null;
-          _case = null;
-          _allShadeItems = [];
-          _shadeDetectionId = null;
         });
       }
       return;
@@ -1509,9 +1593,8 @@ class _ShadePageState extends State<ShadePage> {
     });
     if (_patients.isEmpty) {
       setState(() {
+        _leaveCurrentPatient();
         _patient = null;
-        _case = null;
-        _shadeDetectionId = null;
       });
       widget.patientSession.clearSelection();
       return;
@@ -1530,10 +1613,12 @@ class _ShadePageState extends State<ShadePage> {
   }) async {
     if (publish) widget.patientSession.select(patient);
     setState(() {
+      if (_patient != null && _pid(_patient!) != _pid(patient)) {
+        _leaveCurrentPatient();
+      }
       _patient = patient;
       _saveStatus = null;
       _error = null;
-      _allShadeItems = [];
       _shadeDetectionId = null;
     });
     // Cases API is optional for Upload & detect. GDPR patient ids are UUIDs;
@@ -1557,17 +1642,60 @@ class _ShadePageState extends State<ShadePage> {
       if (!mounted) return;
       setState(() => _case = null);
     }
-    await _loadShadeDetections();
+    // Fresh: analysis PATCHes don't evict this patient's cached list.
+    await _loadShadeDetections(forceRefresh: true);
+  }
+
+  /// Session-tab rows for all of this patient's shade photos, so they survive
+  /// restarts. Photos without a saved result open and get analysed on tap.
+  void _mergePatientShadesIntoHistory(List<Map<String, dynamic>> rows) {
+    final patient = _patient;
+    final name =
+        '${patient?['first_name'] ?? ''} ${patient?['last_name'] ?? ''}'.trim();
+    final added = <Map<String, dynamic>>[];
+    for (final row in rows) {
+      final id = '${row['id'] ?? ''}';
+      if (id.isEmpty || _historyIndexForKey('shade-$id') >= 0) continue;
+      final analysis = row['analysis'];
+      final session = analysis is Map ? analysis['session'] : null;
+      final ws = session is Map ? session['workspace'] : null;
+      added.add({
+        if (session is Map) ...Map<String, dynamic>.from(session)
+        else ...{'shade': '—', 'conf': 0, 'teeth': const [], 'not_analysed': true},
+        'id': id,
+        'session_key': 'shade-$id',
+        'shade_detection_id': id,
+        'file_url': row['file_url'],
+        'file_name': row['file_name'],
+        'name': name,
+        'patient': patient,
+        'workspace': ws is Map ? Map<String, dynamic>.from(ws) : null,
+      });
+    }
+    if (added.isNotEmpty) _history = [..._history, ...added];
+  }
+
+  /// [_sessionEntryFromCurrent] as stored on the record: no image bytes
+  /// (the record has the image) and no patient details (the record has the id).
+  Map<String, dynamic> _sessionForServer(Map<String, dynamic> entry) {
+    final ws = entry['workspace'];
+    return {
+      for (final e in entry.entries)
+        if (!const {'patient', 'case', 'name', 'workspace'}.contains(e.key))
+          e.key: e.value,
+      'workspace': ws is Map
+          ? {
+              for (final e in ws.entries)
+                if (e.key != 'preview_bytes' && e.key != 'source_photo_id')
+                  '${e.key}': e.value,
+            }
+          : null,
+    };
   }
 
   Future<void> _loadShadeDetections({bool forceRefresh = false}) async {
     final patient = _patient;
-    if (patient == null) {
-      if (mounted) {
-        setState(() => _allShadeItems = []);
-      }
-      return;
-    }
+    if (patient == null) return;
     final pid = _pid(patient);
     if (pid.isEmpty) return;
     try {
@@ -1575,8 +1703,8 @@ class _ShadePageState extends State<ShadePage> {
         pid,
         forceRefresh: forceRefresh,
       );
-      if (!mounted) return;
-      setState(() => _allShadeItems = rows);
+      if (!mounted || _patient == null || _pid(_patient!) != pid) return;
+      setState(() => _mergePatientShadesIntoHistory(rows));
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -1585,46 +1713,57 @@ class _ShadePageState extends State<ShadePage> {
     }
   }
 
-  /// Camera handoff: open copied detection and run the same suggest pipeline.
+  /// Camera handoff: analyse the camera photo. Nothing is stored until Save.
   Future<void> _consumeShadeHandoff() async {
-    final id = widget.patientSession.takePendingShadeDetectionId();
-    if (id == null || id.isEmpty || _patient == null) return;
+    final photoId = widget.patientSession.takePendingShadePhotoId();
+    if (photoId == null || photoId.isEmpty || _patient == null) return;
 
-    // Bypass the 5-min GET cache: the camera copy POSTs under
-    // /api/patient-photos, which doesn't evict this patient's shade list, so a
-    // cached list (no recent upload) lacks the new row.
-    await _loadShadeDetections(forceRefresh: true);
-    if (!mounted) return;
-
-    Map<String, dynamic>? item;
-    for (final row in _allShadeItems) {
-      if ('${row['id'] ?? ''}' == id) {
-        item = row;
-        break;
-      }
-    }
-    if (item == null) {
-      setState(
-        () => _error =
-            'Photo is not in Shade Detection yet. Open Shade Detection again.',
+    Map<String, dynamic>? photo;
+    try {
+      final photos = await widget.api.listPatientPhotos(
+        _pid(_patient!),
+        forceRefresh: true,
       );
+      for (final row in photos) {
+        if ('${row['id'] ?? ''}' == photoId) {
+          photo = row;
+          break;
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
       return;
     }
-    await _openShadeItem(item, runAi: true);
+    if (!mounted) return;
+    if (photo == null) {
+      setState(() => _error = 'Photo not found for this patient.');
+      return;
+    }
+    await _openAndAnalyse(
+      '${photo['file_url'] ?? ''}',
+      '${photo['filename'] ?? 'tooth.jpg'}',
+      photoId: '${photo['id']}',
+    );
   }
 
-  Future<void> _openShadeItem(
-    Map<String, dynamic> item, {
-    bool runAi = false,
+  /// Load a stored photo and run KAIST + VITA matching on it. [shadeId]: an
+  /// existing record (Save adds the result to it); [photoId]: a camera photo
+  /// (Save copies it into a new record).
+  Future<void> _openAndAnalyse(
+    String url,
+    String name, {
+    String? shadeId,
+    String? photoId,
   }) async {
-    final url = '${item['file_url'] ?? ''}'.trim();
-    final name = '${item['file_name'] ?? 'tooth.jpg'}';
+    url = url.trim();
     if (url.isEmpty) return;
     setState(() {
       _busy = true;
       _error = null;
-      _saveStatus = runAi ? 'Mapping teeth…' : null;
-      _shadeDetectionId = '${item['id'] ?? ''}'.trim();
+      _saveStatus = 'Mapping teeth…';
+      _shadeDetectionId = shadeId;
+      _sourcePhotoId = photoId;
     });
     try {
       final bytes = await widget.api.downloadMediaBytes(url);
@@ -1655,14 +1794,7 @@ class _ShadePageState extends State<ShadePage> {
         if (_fullscreenPortal.isShowing) _fullscreenPortal.hide();
         _pendingGumShade = null;
       });
-      if (runAi) {
-        await _applySuggestFromBytes(baked.bytes, name);
-      } else if (mounted) {
-        final gum = _parseGum(item['analysis']);
-        if (gum != null) {
-          setState(() => _gum = gum);
-        }
-      }
+      await _applySuggestFromBytes(baked.bytes, name);
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
@@ -1766,12 +1898,14 @@ class _ShadePageState extends State<ShadePage> {
       final baked = await prepareShadeJpeg(Uint8List.fromList(bytes));
       if (!mounted) return;
       final data = baked.bytes;
-      final pid = _pid(_patient!);
       final detecting = AppLocalizations.of(context).shadeDetecting;
 
       setState(() {
         _busy = true;
         _saveStatus = detecting;
+        // New, unsaved photo: Save stores these exact bytes on the record.
+        _shadeDetectionId = null;
+        _sourcePhotoId = null;
         _setPreviewJpeg(data, width: baked.width, height: baked.height);
         _previewFilename = name;
         _photoTransformController.value = Matrix4.identity();
@@ -1793,22 +1927,10 @@ class _ShadePageState extends State<ShadePage> {
         _pendingGumShade = null;
       });
       // Inline photo overlay only — no modal dialog, so sidebar / other tabs
-      // stay usable while upload + suggest continue on this kept-alive page.
-      final upload = widget.api.uploadShadeDetection(
-        patientId: pid,
-        bytes: data,
-        filename: name,
-      );
-      final suggest = widget.api.suggestShade(data, name);
-      final row = await upload;
-      final result = await suggest;
+      // stay usable while suggest continues on this kept-alive page.
+      final result = await widget.api.suggestShade(data, name);
       if (!mounted) return;
-
-      setState(() {
-        _allShadeItems = [row, ..._allShadeItems];
-        _shadeDetectionId = '${row['id'] ?? ''}'.trim();
-        _saveStatus = null;
-      });
+      setState(() => _saveStatus = null);
 
       _applySuggestResult(result);
       if (mounted) setState(() => _busy = false);
@@ -1942,24 +2064,50 @@ class _ShadePageState extends State<ShadePage> {
           'summary_shade': finalShade,
           'has_override': overridden || gumIsOverridden(_gum),
         };
-        if (shadeId.isNotEmpty) {
-          try {
-            final summary =
-                kAllowedShades.contains(finalShade) ? finalShade : null;
-            saved = await widget.api.saveShadeDetectionAnalysis(
-              shadeId: shadeId,
-              teeth: _teethPayloadForSave(),
-              selectedToothIndex: _selectedToothIndex ?? 0,
-              summaryShade: summary,
-              hasOverride: overridden || gumIsOverridden(_gum),
-              detectedShade: _detected == '—' ? null : _detected,
-              confidence: _confidence > 0 ? _confidence : null,
-              overridden: overridden,
-              finalShade: summary,
-              gum: _gum,
-            );
-          } catch (_) {
-            // Session save still proceeds if the detection row has no analysis column yet.
+        final hasImage = _previewBytes != null || _sourcePhotoId != null;
+        if (shadeId.isNotEmpty || hasImage) {
+          final summary =
+              kAllowedShades.contains(finalShade) ? finalShade : null;
+          final hasOverride = overridden || gumIsOverridden(_gum);
+          final session = _sessionForServer(_sessionEntryFromCurrent(
+            summaryShade: gumOnly ? null : finalShade,
+            hasOverride: hasOverride,
+          ));
+          final ws = session['workspace'];
+          if (!gumOnly && ws is Map) {
+            // Snapshot is taken before setState applies the saved shade.
+            ws['final_shade'] = finalShade;
+            ws['selected'] = finalShade;
+            ws['pending_shade'] = null;
+            ws['overall_shade_pick'] = false;
+          }
+          final previousKey = _sessionKey();
+          saved = await widget.api.saveShadeDetection(
+            patientId: _pid(_patient!),
+            shadeId: shadeId.isEmpty ? null : shadeId,
+            bytes: _previewBytes,
+            filename: _previewFilename,
+            photoId: _sourcePhotoId,
+            analysis: {
+              'teeth': _teethPayloadForSave(),
+              'selected_tooth_index': _selectedToothIndex ?? 0,
+              'summary_shade': summary,
+              'has_override': hasOverride,
+              'detected_shade': _detected == '—' ? null : _detected,
+              'confidence': _confidence > 0 ? _confidence : null,
+              'overridden': overridden,
+              'final_shade': summary,
+              'gum': _gum,
+              'session': session,
+            },
+          );
+          final newId = '${saved['id'] ?? ''}'.trim();
+          if (shadeId.isEmpty && newId.isNotEmpty && mounted) {
+            setState(() {
+              _shadeDetectionId = newId;
+              _sourcePhotoId = null;
+              _upsertSessionEntry(previousKey: previousKey, onlyIfExists: true);
+            });
           }
         }
         if (!gumOnly) _selected = finalShade;
@@ -2019,9 +2167,13 @@ class _ShadePageState extends State<ShadePage> {
 
     final shadeId = entry['id'];
     final caseId = entry['case_id'] ?? _case?['id'];
+    final detectionId = '${entry['shade_detection_id'] ?? ''}'.trim();
+    final wasOpen = '${entry['session_key'] ?? ''}' == _sessionKey();
     setState(() => _busy = true);
     try {
-      if (shadeId is num && caseId is num) {
+      if (detectionId.isNotEmpty) {
+        await widget.api.deleteShadeDetection(detectionId);
+      } else if (shadeId is num && caseId is num) {
         if (entry['is_analysis'] == true) {
           await widget.api.deleteShadeAnalysis(
             caseId: caseId.toInt(),
@@ -2038,7 +2190,14 @@ class _ShadePageState extends State<ShadePage> {
       }
       if (!mounted) return;
       setState(() {
-        _history.removeAt(index);
+        _history.remove(entry);
+        if (wasOpen) {
+          // Otherwise the canvas still holds the deleted shade, and opening
+          // another entry (or Save) brings it back as a new one.
+          _resetWorkspace();
+          _shadeDetectionId = null;
+          _sourcePhotoId = null;
+        }
         _saveStatus = null;
         _error = null;
       });
@@ -2305,6 +2464,7 @@ class _ShadePageState extends State<ShadePage> {
 
     final portrait = AppBreakpoints.isPortrait(context);
     final phone = AppBreakpoints.isPhone(context);
+    final shown = _patientHistory;
     final sessionCollapsed =
         _sessionCollapsed || ((portrait || phone) && !_sessionPinnedOpen);
 
@@ -2325,7 +2485,7 @@ class _ShadePageState extends State<ShadePage> {
                 patients: _patients,
                 selected: _patient,
                 caseId: _case?['id'],
-                enabled: !_busy,
+                enabled: !_busy && !_saving,
                 onSelect: _selectPatient,
                 onAdd: _openNewPatientPage,
                 onRefresh: () async {
@@ -2563,15 +2723,16 @@ class _ShadePageState extends State<ShadePage> {
                 const SizedBox(width: 12),
                 ShadeSessionPane(
                   collapsed: sessionCollapsed,
-                  history: _history,
+                  history: shown,
                   activeSessionKey: _sessionKey(),
                   swatch: shadeSwatch,
                   onCollapseChanged: (v) => setState(() {
                     _sessionCollapsed = v;
                     _sessionPinnedOpen = !v;
                   }),
-                  onOpen: _openHistoryAt,
-                  onDelete: _deleteHistoryAt,
+                  onOpen: (i) => _openHistoryAt(_history.indexOf(shown[i])),
+                  onDelete: (i) => _deleteHistoryAt(_history.indexOf(shown[i])),
+                  thumbnail: _sessionThumbnail,
                 ),
               ],
             );
