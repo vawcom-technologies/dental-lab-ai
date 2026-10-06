@@ -97,6 +97,11 @@ def scan_upload_page():
     )
 
 
+@page_router.get("/scan-upload/logo.png", include_in_schema=False)
+def scan_upload_logo():
+    return FileResponse(_PAGE.with_name("logo.png"), media_type="image/png")
+
+
 @router.post("", response_model=InboxItemOut, status_code=status.HTTP_201_CREATED, summary="Upload a scan to your inbox")
 def upload_to_inbox(file: UploadFile = File(...), user: AuthUser = Depends(get_current_user)):
     key, size, name = upload_inbox_file(file=file, user_id=user.id)
