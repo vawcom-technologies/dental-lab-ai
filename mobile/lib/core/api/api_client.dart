@@ -859,6 +859,11 @@ class ApiClient {
       body: jsonEncode({'patient_id': patientId}),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    // The POST only evicts /api/scan-inbox; the patient's photos/scans changed too.
+    final cache = _http;
+    if (cache is CachedHttpClient) {
+      cache.invalidateFor(Uri.parse('$baseUrl/api/patients/$patientId'));
+    }
     AppHaptics.success();
     return _decodeMap(res.body);
   }
