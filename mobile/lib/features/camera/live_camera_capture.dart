@@ -18,7 +18,7 @@ import '../../core/l10n/app_localizations.dart';
 class LiveCameraCapturePage extends StatefulWidget {
   const LiveCameraCapturePage({
     super.key,
-    this.hint = 'Align the tooth / arch, then capture',
+    this.hint = '',
     this.angle = 'frontal',
   });
 
@@ -146,7 +146,7 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
       if (cameras.isEmpty) {
         setState(
           () => _error =
-              'No camera found. Use the system camera or photo library.',
+              AppLocalizations.current.tr('lc.none'),
         );
         return;
       }
@@ -172,9 +172,9 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
         case 'CameraAccessDenied':
         case 'CameraAccessDeniedWithoutPrompt':
         case 'AccessDenied':
-          return 'Camera permission is off. Enable it in Settings, then retry.';
+          return AppLocalizations.current.tr('lc.perm');
         case 'CameraAccessRestricted':
-          return 'Camera access is restricted on this device.';
+          return AppLocalizations.current.tr('lc.restricted');
         default:
           break;
       }
@@ -226,7 +226,7 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
     if (!mounted) return;
     setState(() {
       _error = _friendlyCameraError(
-        lastError ?? Exception('Could not start the camera.'),
+        lastError ?? Exception(AppLocalizations.current.tr('lc.start')),
       );
       _ready = false;
     });
@@ -256,8 +256,8 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
       context: context,
       builder: (ctx) => CupertinoActionSheet(
         title: Text(AppLocalizations.of(context).cameraCaptureFocus),
-        message: const Text(
-          'Hold the preview to change. Default is both jaws.',
+        message: Text(
+          AppLocalizations.current.tr('lc.holdPrev'),
         ),
         actions: [
           for (final f in JawFocus.values)
@@ -294,7 +294,7 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
       final file = await c.takePicture();
       final raw = await file.readAsBytes();
       if (raw.isEmpty) {
-        throw Exception('Camera returned an empty photo. Please try again.');
+        throw Exception(AppLocalizations.current.tr('lc.empty'));
       }
       final oriented = _orientedPreviewSize(c);
       final box = _previewKey.currentContext?.findRenderObject() as RenderBox?;
@@ -501,7 +501,7 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
                               foregroundColor: Colors.white,
                               side: const BorderSide(color: Colors.white54),
                             ),
-                            child: const Text('System camera'),
+                            child: Text(AppLocalizations.current.tr('lc.system')),
                           ),
                           OutlinedButton(
                             onPressed: _capturing ? null : _captureViaGallery,
@@ -583,7 +583,7 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
                       border: Border.all(color: Colors.white24),
                     ),
                     child: Text(
-                      '${widget.angle.toUpperCase()} · ${_focus.label} · hold to change',
+                      '${AppLocalizations.current.cameraAngleLabel(widget.angle).toUpperCase()} · ${_focus.label} · ${AppLocalizations.current.tr('lc.holdChange')}',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 12,
@@ -601,7 +601,7 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
               child: Column(
                 children: [
                   Text(
-                    widget.hint,
+                    widget.hint.isEmpty ? AppLocalizations.current.tr('lc.align') : widget.hint,
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: Colors.white70,
@@ -682,14 +682,14 @@ class _LiveCameraCapturePageState extends State<LiveCameraCapturePage>
               ),
             ),
             if (_capturing)
-              const Positioned.fill(
+              Positioned.fill(
                 child: ColoredBox(
                   color: Color(0x99000000),
                   child: Center(
                     child: ToothLoadingIndicator(
                       size: 44,
                       color: Colors.white,
-                      loadingText: 'Processing photo…',
+                      loadingText: AppLocalizations.current.tr('lc.processing'),
                     ),
                   ),
                 ),
@@ -812,7 +812,7 @@ class _CoveredCameraPreview extends StatelessWidget {
 /// Opens the live camera UI and returns cropped JPEG bytes.
 Future<Uint8List?> captureWithLiveCamera(
   BuildContext context, {
-  String hint = 'Align the tooth / arch, then capture',
+  String hint = '',
   String angle = 'frontal',
 }) {
   return Navigator.of(context).push<Uint8List>(

@@ -33,9 +33,9 @@ String _fileExtension(String? url) {
 }
 
 String _fileName(String? url) {
-  if (url == null || url.isEmpty) return 'Document';
+  if (url == null || url.isEmpty) return AppLocalizations.current.tr('ch.doc');
   final name = p.basename(Uri.tryParse(url)?.path ?? url);
-  return name.isEmpty ? 'Document' : name;
+  return name.isEmpty ? AppLocalizations.current.tr('ch.doc') : name;
 }
 
 Future<void> _openMediaUrl(String url) async {
@@ -572,7 +572,7 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
               child: GestureDetector(
                 onTap: () => _openMediaUrl(widget.url),
                 child: Text(
-                  'Voice · ${formatVoiceDuration(widget.durationSeconds)}',
+                  '${AppLocalizations.current.tr('ch.voiceShort')} · ${formatVoiceDuration(widget.durationSeconds)}',
                   style: TextStyle(
                     color: widget.mine ? Colors.white : _BubbleColors.theirsFg,
                     fontSize: 15,
@@ -953,13 +953,13 @@ class _ChatNetworkImage extends StatelessWidget {
               Icon(Icons.broken_image_outlined, color: iconColor, size: 28),
               const SizedBox(height: 8),
               Text(
-                'Could not preview',
+                AppLocalizations.current.tr('ch.noPreview'),
                 style: TextStyle(color: iconColor, fontSize: 12),
               ),
               TextButton(
                 onPressed: () => _openMediaUrl(url),
                 child: Text(
-                  'Open / download',
+                  AppLocalizations.current.tr('ch.openDl'),
                   style: TextStyle(color: iconColor, fontSize: 12),
                 ),
               ),

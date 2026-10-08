@@ -52,7 +52,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       final data = await widget.api.forgotPassword(email);
       if (!mounted) return;
       final msg = data['message'] as String? ??
-          'If an account exists for that email, a password reset link has been sent.';
+          AppLocalizations.current.tr('au.reset');
       setState(() => _success = msg);
       AppSnackBars.success(context, msg);
     } catch (e) {

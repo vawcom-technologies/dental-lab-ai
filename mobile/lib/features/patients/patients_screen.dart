@@ -50,7 +50,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
         title: Text('${AppLocalizations.of(context).patientsTitle} · ${widget.dentistName}'),
         actions: [
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: AppLocalizations.of(context).refresh,
             onPressed: _reload,
             icon: const Icon(Icons.refresh),
           ),
@@ -85,9 +85,9 @@ class _PatientsScreenState extends State<PatientsScreen> {
           }
           final patients = snap.data ?? [];
           if (patients.isEmpty) {
-            return const Center(
+            return Center(
               child: Text(
-                'No patients yet. Add the first record.',
+                AppLocalizations.of(context).tr('p.noneYet'),
                 style: TextStyle(color: AppColors.muted),
               ),
             );

@@ -10,6 +10,7 @@ import '../../core/widgets/touchable.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../../shell/app_sidebar.dart';
 import 'notification_inbox_controller.dart';
+import '../../core/errors/user_facing_error.dart';
 
 class NotificationsPage extends StatefulWidget {
   const NotificationsPage({
@@ -95,7 +96,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
       await _inbox.markRead(id);
     } catch (e) {
       if (!mounted) return;
-      final msg = e.toString().replaceFirst('Exception: ', '');
+      final msg = friendlyError(e);
       AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _markingId = null);
@@ -123,7 +124,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
       }
     } catch (e) {
       if (!mounted) return;
-      final msg = e.toString().replaceFirst('Exception: ', '');
+      final msg = friendlyError(e);
       AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _markingAll = false);

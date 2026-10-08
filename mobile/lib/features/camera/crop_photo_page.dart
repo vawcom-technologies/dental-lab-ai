@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
+import '../../core/l10n/app_localizations.dart';
 
 /// Lets the user adjust a crop rectangle over [bytes]; pops cropped JPEG bytes
 /// (or null when cancelled).
@@ -69,7 +70,7 @@ class _CropPhotoPageState extends State<CropPhotoPage> {
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
-        title: const Text('Crop photo'),
+        title: Text(AppLocalizations.of(context).tr('c.crop')),
         leading: IconButton(
           icon: const Icon(Icons.close),
           onPressed: _saving ? null : () => Navigator.of(context).pop(),
@@ -83,7 +84,7 @@ class _CropPhotoPageState extends State<CropPhotoPage> {
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text('Use photo'),
+                : Text(AppLocalizations.of(context).tr('c.usePhoto')),
           ),
         ],
       ),

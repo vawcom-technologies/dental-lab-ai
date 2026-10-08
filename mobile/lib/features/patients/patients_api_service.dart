@@ -7,6 +7,7 @@ import '../../core/api/cached_http_client.dart';
 import '../../core/auth/auth_aware_http_client.dart';
 import '../../core/auth/session_coordinator.dart';
 import 'patient_models.dart';
+import '../../core/l10n/app_localizations.dart';
 
 /// GDPR patient REST client — all `/api/patients*` endpoints.
 class PatientsApiService {
@@ -44,7 +45,7 @@ class PatientsApiService {
         throw AgentApiException(
           httpCode: res.statusCode,
           code: 'INVALID_RESPONSE',
-          message: 'Unexpected response from server.',
+          message: AppLocalizations.current.tr('err.unexpected'),
         );
       }
       body = Map<String, dynamic>.from(decoded);
@@ -100,7 +101,7 @@ class PatientsApiService {
       throw AgentApiException(
         httpCode: 502,
         code: 'MISSING_PATIENT',
-        message: 'Patient payload missing.',
+        message: AppLocalizations.current.tr('err.unexpected'),
       );
     }
     return GdprPatient.fromJson(Map<String, dynamic>.from(raw));
@@ -137,7 +138,7 @@ class PatientsApiService {
       throw AgentApiException(
         httpCode: 502,
         code: 'MISSING_PATIENT',
-        message: 'Patient payload missing.',
+        message: AppLocalizations.current.tr('err.unexpected'),
       );
     }
     return GdprPatient.fromJson(Map<String, dynamic>.from(raw));
@@ -159,7 +160,7 @@ class PatientsApiService {
       throw AgentApiException(
         httpCode: 502,
         code: 'MISSING_PATIENT',
-        message: 'Patient payload missing.',
+        message: AppLocalizations.current.tr('err.unexpected'),
       );
     }
     return GdprPatient.fromJson(Map<String, dynamic>.from(raw));
@@ -266,7 +267,7 @@ class PatientsApiService {
       throw AgentApiException(
         httpCode: 502,
         code: 'MISSING_ACCESS',
-        message: 'Access decision payload missing.',
+        message: AppLocalizations.current.tr('err.unexpected'),
       );
     }
     return PatientAccessEntry.fromJson(Map<String, dynamic>.from(raw));
@@ -342,7 +343,7 @@ class PatientsApiService {
       throw AgentApiException(
         httpCode: 502,
         code: 'MISSING_NOTE',
-        message: 'Note payload missing.',
+        message: AppLocalizations.current.tr('err.unexpected'),
       );
     }
     return PatientNote.fromJson(Map<String, dynamic>.from(raw));
@@ -364,7 +365,7 @@ class PatientsApiService {
       throw AgentApiException(
         httpCode: 502,
         code: 'MISSING_NOTE',
-        message: 'Note payload missing.',
+        message: AppLocalizations.current.tr('err.unexpected'),
       );
     }
     return PatientNote.fromJson(Map<String, dynamic>.from(raw));

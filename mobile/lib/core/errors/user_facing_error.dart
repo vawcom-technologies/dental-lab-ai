@@ -52,16 +52,14 @@ String friendlyError(Object error, [AppLocalizations? loc]) {
   final statusFromDownload =
       RegExp(r'Failed to download file \((\d+)\)').firstMatch(text);
   if (statusFromDownload != null) {
-    return loc?.errDownloadFailed ??
-        'Could not download the file. Please try again.';
+    return (loc ?? AppLocalizations.current).errDownloadFailed;
   }
 
   if (_looksLikeNetwork(text, error)) {
-    return loc?.errNetwork ??
-        'Cannot reach the server. Check your connection and try again.';
+    return (loc ?? AppLocalizations.current).errNetwork;
   }
   if (_looksLikeTimeout(text, error)) {
-    return loc?.errTimeout ?? 'That took too long. Please try again.';
+    return (loc ?? AppLocalizations.current).errTimeout;
   }
 
   return _fromParts(detail: text, loc: loc);
@@ -100,28 +98,28 @@ String? _rewriteDetail(String text, AppLocalizations? loc) {
   if (_looksLikeCode(text)) return null;
 
   final lower = text.toLowerCase();
+  if (_looksTechnical(text, lower)) {
+    return (loc ?? AppLocalizations.current).errGeneric;
+  }
 
   if (_looksLikeNetwork(text, text)) {
-    return loc?.errNetwork ??
-        'Cannot reach the server. Check your connection and try again.';
+    return (loc ?? AppLocalizations.current).errNetwork;
   }
   if (_looksLikeTimeout(text, text)) {
-    return loc?.errTimeout ?? 'That took too long. Please try again.';
+    return (loc ?? AppLocalizations.current).errTimeout;
   }
 
   if (lower.contains('incorrect email or password') ||
       lower.contains('invalid login') ||
       lower == 'invalid credentials') {
-    return loc?.errBadCredentials ??
-        'Email or password is incorrect. Please try again.';
+    return (loc ?? AppLocalizations.current).errBadCredentials;
   }
   if (lower.contains('could not validate credentials') ||
       lower.contains('not authenticated') ||
       lower.contains('invalid or expired token') ||
       lower.contains('jwt expired') ||
       lower.contains('session expired')) {
-    return loc?.errSessionExpired ??
-        'Your session expired. Please sign in again.';
+    return (loc ?? AppLocalizations.current).errSessionExpired;
   }
   if (lower == 'permission denied' ||
       lower == 'forbidden' ||
@@ -129,8 +127,7 @@ String? _rewriteDetail(String text, AppLocalizations? loc) {
       lower == 'dentist access required' ||
       lower == 'admin access required' ||
       lower.contains('clinic, dentist, or lab access')) {
-    return loc?.errNoPermission ??
-        'You do not have permission to do this.';
+    return (loc ?? AppLocalizations.current).errNoPermission;
   }
   if (lower.contains('already exists')) {
     return text;
@@ -143,8 +140,7 @@ String? _rewriteDetail(String text, AppLocalizations? loc) {
       lower.contains('input should be') ||
       lower.contains('value is not a valid') ||
       lower.contains('string should have at least')) {
-    return loc?.errValidation ??
-        'Please check the information you entered and try again.';
+    return (loc ?? AppLocalizations.current).errValidation;
   }
 
   if (RegExp(r'^https?://').hasMatch(text) ||
@@ -152,7 +148,7 @@ String? _rewriteDetail(String text, AppLocalizations? loc) {
       lower.contains('traceback') ||
       lower.contains('postgrest') ||
       lower.contains('pgrst')) {
-    return loc?.errGeneric ?? 'Something went wrong. Please try again.';
+    return (loc ?? AppLocalizations.current).errGeneric;
   }
 
   var cleaned = stripMachineErrorCodes(
@@ -166,29 +162,25 @@ String? _mapCode(String? code, AppLocalizations? loc) {
   final c = (code ?? '').trim().toUpperCase();
   if (c.isEmpty) return null;
   if (c.contains('UNAUTHORIZED') || c == 'HTTP_401') {
-    return loc?.errSessionExpired ??
-        'Your session expired. Please sign in again.';
+    return (loc ?? AppLocalizations.current).errSessionExpired;
   }
   if (c.contains('FORBIDDEN') || c == 'HTTP_403') {
-    return loc?.errNoPermission ??
-        'You do not have permission to do this.';
+    return (loc ?? AppLocalizations.current).errNoPermission;
   }
   if (c.contains('NOT_FOUND') || c == 'HTTP_404') {
-    return loc?.errNotFound ?? 'We could not find that. It may have been removed.';
+    return (loc ?? AppLocalizations.current).errNotFound;
   }
   if (c.contains('VALIDATION') || c == 'HTTP_422' || c.contains('UNPROCESSABLE')) {
-    return loc?.errValidation ??
-        'Please check the information you entered and try again.';
+    return (loc ?? AppLocalizations.current).errValidation;
   }
   if (c.contains('TOO_MANY') || c == 'HTTP_429') {
-    return loc?.errTooMany ?? 'Too many attempts. Please wait a moment and try again.';
+    return (loc ?? AppLocalizations.current).errTooMany;
   }
   if (c.startsWith('HTTP_5') ||
       c.contains('INTERNAL') ||
       c.contains('BAD_GATEWAY') ||
       c.contains('UNAVAILABLE')) {
-    return loc?.errServer ??
-        'Something went wrong on our side. Please try again.';
+    return (loc ?? AppLocalizations.current).errServer;
   }
   if (_looksLikeCode(c)) return null;
   return null;
@@ -197,31 +189,24 @@ String? _mapCode(String? code, AppLocalizations? loc) {
 String _mapStatus(int? statusCode, AppLocalizations? loc) {
   switch (statusCode) {
     case 401:
-      return loc?.errSessionExpired ??
-          'Your session expired. Please sign in again.';
+      return (loc ?? AppLocalizations.current).errSessionExpired;
     case 403:
-      return loc?.errNoPermission ??
-          'You do not have permission to do this.';
+      return (loc ?? AppLocalizations.current).errNoPermission;
     case 404:
-      return loc?.errNotFound ??
-          'We could not find that. It may have been removed.';
+      return (loc ?? AppLocalizations.current).errNotFound;
     case 409:
-      return loc?.errConflict ??
-          'That change conflicts with existing data. Please refresh and try again.';
+      return (loc ?? AppLocalizations.current).errConflict;
     case 422:
-      return loc?.errValidation ??
-          'Please check the information you entered and try again.';
+      return (loc ?? AppLocalizations.current).errValidation;
     case 429:
-      return loc?.errTooMany ??
-          'Too many attempts. Please wait a moment and try again.';
+      return (loc ?? AppLocalizations.current).errTooMany;
     case 500:
     case 502:
     case 503:
     case 504:
-      return loc?.errServer ??
-          'Something went wrong on our side. Please try again.';
+      return (loc ?? AppLocalizations.current).errServer;
     default:
-      return loc?.errGeneric ?? 'Something went wrong. Please try again.';
+      return (loc ?? AppLocalizations.current).errGeneric;
   }
 }
 
@@ -262,3 +247,14 @@ bool _looksLikeTimeout(String text, Object error) {
   final lower = text.toLowerCase();
   return lower.contains('timeout') || lower.contains('timed out');
 }
+
+/// Developer-speak (exception names, parser/IO failures, payload checks) that
+/// a person should never read.
+final _technical = RegExp(
+  r"exception|\berror\b|stateerror|rangeerror|nosuchmethod|instance of|null check|"
+  r"package:|dart:|stack|socket|handshake|errno|payload|\bjson\b|decode|buffer|"
+  r"geometry|vertices|resample|websocket|invalid .*response|unexpected response|"
+  r"not connected|failed to|\b[a-z]+_[a-z_]+\b",
+);
+
+bool _looksTechnical(String text, String lower) => _technical.hasMatch(lower);

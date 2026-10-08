@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -780,6 +781,7 @@ class ToothOverlayPainter extends CustomPainter {
     this.paintSelectedOnlyWhileDragging = false,
     this.guideLines = const {},
     this.symmetryView = false,
+    this.lipBottom,
     this.focusSelected = false,
   });
 
@@ -801,6 +803,9 @@ class ToothOverlayPainter extends CustomPainter {
   final Map<String, List<List<double>>> guideLines;
   /// Symmetry view: only the midline + the lip top / bottom lines.
   final bool symmetryView;
+  /// User-set height of the lower-lip line in symmetry view (normalized y);
+  /// null = follow the lower lip's lowest point.
+  final ValueListenable<double?>? lipBottom;
   /// Focus view: only the selected tooth's mapping, nothing else.
   final bool focusSelected;
 
@@ -990,10 +995,29 @@ class ToothOverlayPainter extends CustomPainter {
         canvas.drawLine(tip, tip + Offset(dir * head, head * 0.6), paint);
       }
     }
-    final bottom = lines.bottomY;
+    final bottom = lipBottom?.value ?? lines.bottomY;
     if (bottom != null) {
       final y = normToLocal([0, bottom], dest).dy;
       canvas.drawLine(Offset(dest.left, y), Offset(dest.right, y), paint);
+      // Grab handle: this line can be dragged up / down.
+      final grip = Offset(dest.right - 22, y);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: grip, width: 30, height: 14),
+          const Radius.circular(7),
+        ),
+        Paint()..color = Colors.black45,
+      );
+      for (final dy in [-2.5, 2.5]) {
+        canvas.drawLine(
+          grip + Offset(-8, dy),
+          grip + Offset(8, dy),
+          Paint()
+            ..color = Colors.white
+            ..strokeWidth = 1.4
+            ..strokeCap = StrokeCap.round,
+        );
+      }
     }
   }
 

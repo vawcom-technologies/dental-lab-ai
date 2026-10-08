@@ -9,6 +9,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'mesh_sample.dart';
 import 'mesh_viewer_chrome.dart';
+import '../../core/errors/user_facing_error.dart';
 
 /// Native three_js host. Booted only after [LayoutBuilder] size is known.
 ///
@@ -102,19 +103,19 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
           _loadCurrent();
         },
         setup: _setupScene,
-        loadingWidget: const ColoredBox(
+        loadingWidget: ColoredBox(
           color: Color(0xFF15283F),
           child: Center(
             child: ToothLoadingIndicator(
               size: 44,
               color: Colors.white70,
-              loadingText: 'Loading mesh…',
+              loadingText: AppLocalizations.current.tr('ms.loading'),
             ),
           ),
         ),
       );
     } catch (e) {
-      _meshError = '3D viewer failed to start: $e';
+      _meshError = AppLocalizations.current.tr('err.unexpected');
     }
   }
 
@@ -267,7 +268,7 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
       if (!identical(_loadToken, token) || !mounted) return;
       setState(() {
         _meshLoading = false;
-        _meshError = e.toString().replaceFirst('Exception: ', '');
+        _meshError = friendlyError(e);
         _canSolid = false;
         _loadedVerts = null;
       });
@@ -677,13 +678,13 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
                     ),
                   ),
                 if (widget.loading || _meshLoading)
-                  const ColoredBox(
+                  ColoredBox(
                     color: Color(0x8815283F),
                     child: Center(
                       child: ToothLoadingIndicator(
                         size: 44,
                         color: Colors.white70,
-                        loadingText: 'Loading mesh…',
+                        loadingText: AppLocalizations.current.tr('ms.loading'),
                       ),
                     ),
                   )
@@ -705,7 +706,7 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           MeshViewerChip(
-                            'Solid',
+                            AppLocalizations.current.tr('ms.solid'),
                             selected: !_colored,
                             onTap: () => setState(() {
                               _colored = false;
@@ -713,7 +714,7 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
                             }),
                           ),
                           MeshViewerChip(
-                            'Colored',
+                            AppLocalizations.current.tr('ms.colored'),
                             selected: _colored,
                             onTap: () => setState(() {
                               _colored = true;
@@ -748,11 +749,11 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
     final n = widget.vertexCount ?? _loadedVerts;
     if (_canSolid) {
       // Must NOT look like CpuMeshViewer ("web · N tris · drag/pinch").
-      return 'ipad-gpu · ${n ?? '—'} verts · $_loadedTris tris';
+      return AppLocalizations.current.trp('ms.gpuTris', {'n': n ?? '—', 't': _loadedTris});
     }
     if (!_canSolid && _hasSource) {
-      return 'ipad-gpu · ${n ?? '—'} pts · no faces';
+      return AppLocalizations.current.trp('ms.gpuNoFaces', {'n': n ?? '—'});
     }
-    return 'ipad-gpu · ${n ?? '—'} pts';
+    return AppLocalizations.current.trp('ms.gpuPts', {'n': n ?? '—'});
   }
 }

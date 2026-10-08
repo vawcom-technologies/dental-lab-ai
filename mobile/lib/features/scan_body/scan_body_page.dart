@@ -9,6 +9,7 @@ import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
+import '../../core/errors/user_facing_error.dart';
 
 /// Scan-body diameter → manufacturer / tooth (provisional table until client data).
 /// Parked: sidebar, settings, and API routes are commented out until needed.
@@ -92,7 +93,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
         await _selectPatient(_patients.first);
       }
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -178,12 +179,11 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
           'matched_manufacturer': saved['matched_manufacturer'],
           'matched_platform': saved['matched_platform'],
           'confidence_score': saved['confidence_score'],
-          'note': 'Restored saved match for this case.',
+          'note': AppLocalizations.current.tr('sb.restored'),
           'provisional': true,
         };
         _status =
-            'Restored ${saved['matched_manufacturer'] ?? 'match'} · '
-            'tooth ${saved['matched_tooth_position'] ?? '—'}';
+            AppLocalizations.current.trp('sb.restoredN', {'m': saved['matched_manufacturer'] ?? '—', 't': saved['matched_tooth_position'] ?? '—'});
       });
     } catch (_) {}
   }
@@ -232,7 +232,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
     if (_busy) return;
     final mm = double.tryParse(_diameterCtrl.text.trim());
     if (mm == null || mm <= 0) {
-      setState(() => _error = 'Enter a valid diameter in mm');
+      setState(() => _error = AppLocalizations.current.tr('sb.validMm'));
       return;
     }
     setState(() {
@@ -244,7 +244,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
       final result = await widget.api.matchScanBody(mm);
       _applyMatch(result);
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -273,7 +273,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
         final file = picked.files.first;
         final raw = file.bytes;
         if (raw == null || raw.isEmpty) {
-          setState(() => _error = 'Could not read image bytes.');
+          setState(() => _error = AppLocalizations.current.tr('sp.bytes'));
           return;
         }
         bytes = Uint8List.fromList(raw);
@@ -292,18 +292,18 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
       if (result['detected_diameter'] == null) {
         setState(
           () => _status =
-              'Circle found in pixels — enter diameter in mm (3–6), or tap a table row.',
+              AppLocalizations.current.tr('sb.circlePx'),
         );
       } else if (result['needs_calibration'] == true) {
         setState(
           () => _status =
-              'Circle detected — calibrate scale or confirm diameter for accuracy.',
+              AppLocalizations.current.tr('sb.circleDet'),
         );
       } else {
-        setState(() => _status = 'Matched from photo (${result['detected_diameter']} mm).');
+        setState(() => _status = AppLocalizations.current.trp('sb.matched', {'d': result['detected_diameter']}));
       }
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -326,16 +326,16 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
       if (result['detected_diameter'] == null) {
         setState(
           () => _status =
-              'Scale ${_pixelsPerMm.toStringAsFixed(0)} px/mm is outside 3–6 mm range — adjust or calibrate.',
+              AppLocalizations.current.trp('sb.scaleOut', {'s': _pixelsPerMm.toStringAsFixed(0)}),
         );
       } else {
         setState(
           () => _status =
-              'Measured ${result['detected_diameter']} mm at ${_pixelsPerMm.toStringAsFixed(1)} px/mm.',
+              AppLocalizations.current.trp('sb.measured', {'d': result['detected_diameter'], 's': _pixelsPerMm.toStringAsFixed(1)}),
         );
       }
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -344,18 +344,18 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
   Future<void> _calibrateWithKnown() async {
     final mm = double.tryParse(_diameterCtrl.text.trim());
     if (mm == null || mm <= 0) {
-      setState(() => _error = 'Enter the known diameter in millimetres (mm)');
+      setState(() => _error = AppLocalizations.current.tr('sb.enterMm'));
       return;
     }
     if (mm < 2.5 || mm > 7.0) {
       setState(
         () => _error =
-            'Scan-body diameters are typically 3–6 mm (not metres). Check your value.',
+            AppLocalizations.current.tr('sb.typical'),
       );
       return;
     }
     if (_previewBytes == null || _circleRadius == null) {
-      setState(() => _error = 'Detect a circle from a photo first');
+      setState(() => _error = AppLocalizations.current.tr('sb.detectFirst'));
       return;
     }
     setState(() => _scaleLocked = true);
@@ -380,11 +380,11 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
       result['confidence_score'] = 0.99;
       result['ambiguous'] = false;
       result['note'] = override
-          ? 'Selected from reference table.'
+          ? AppLocalizations.current.tr('sb.fromTable')
           : result['note'];
       _applyMatch(result);
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -393,11 +393,11 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
   Future<void> _save() async {
     if (_saving) return;
     if (_case == null) {
-      setState(() => _error = 'Select a patient first');
+      setState(() => _error = AppLocalizations.current.tr('c.selPatFirst'));
       return;
     }
     if (_match == null) {
-      setState(() => _error = 'Match a diameter first');
+      setState(() => _error = AppLocalizations.current.tr('sb.matchFirst'));
       return;
     }
     setState(() {
@@ -429,12 +429,11 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
       if (mounted) {
         AppSnackBars.success(
           context,
-          'Saved ${_match!['matched_manufacturer']} · '
-          'tooth ${_match!['matched_tooth_position']} on case #${_case!['id']}',
+          AppLocalizations.current.trp('sb.saved', {'m': _match!['matched_manufacturer'], 't': _match!['matched_tooth_position'], 'c': _case!['id']}),
         );
       }
     } catch (e) {
-      final msg = e.toString().replaceFirst('Exception: ', '');
+      final msg = friendlyError(e);
       setState(() => _error = msg);
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -469,7 +468,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
             icon: Icons.radio_button_checked_outlined,
             title: AppLocalizations.of(context).scanBodyTitle,
             subtitle:
-                'Platform Ø in millimetres (mm) — typically 3–6 mm, not metres',
+                AppLocalizations.current.tr('sb.platMm'),
             actions: [
               PatientPickerButton(
                 patients: _patients,
@@ -508,8 +507,8 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
               color: AppColors.warningSoft,
               borderRadius: AppRadii.border,
             ),
-            child: const Text(
-              'Provisional reference table — swap for Elite Dent manufacturer data before production.',
+            child: Text(
+              AppLocalizations.current.tr('sb.provisional'),
               style: TextStyle(
                 color: AppColors.warning,
                 fontWeight: FontWeight.w600,
@@ -534,18 +533,18 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Measurement',
+                          Text(
+                            AppLocalizations.current.tr('sb.measurement'),
                             style: TextStyle(fontWeight: FontWeight.w700),
                           ),
                           const SizedBox(height: 12),
                           TextField(
                             controller: _diameterCtrl,
                             decoration: InputDecoration(
-                              labelText: 'Platform diameter (mm)',
+                              labelText: AppLocalizations.current.tr('sb.platDia'),
                               hintText: AppLocalizations.of(context).scanBodyDiameterHint,
                               helperText:
-                                  'Outer scan-body platform width in millimetres',
+                                  AppLocalizations.current.tr('sb.outer'),
                               suffixText: 'mm',
                             ),
                             keyboardType: const TextInputType.numberWithOptions(
@@ -600,8 +599,8 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                                       : const Icon(Icons.image_search_outlined, size: 18),
                                   label: Text(
                                     _previewBytes == null
-                                        ? 'Detect from photo'
-                                        : 'New photo',
+                                        ? AppLocalizations.current.tr('sb.detect')
+                                        : AppLocalizations.current.tr('sb.newPhoto'),
                                   ),
                                 ),
                               ),
@@ -609,15 +608,15 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                           ),
                           if (_previewBytes != null) ...[
                             const SizedBox(height: 14),
-                            const Text(
-                              'Scale calibration',
+                            Text(
+                              AppLocalizations.current.tr('sb.scaleCal'),
                               style: TextStyle(fontWeight: FontWeight.w700),
                             ),
                             const SizedBox(height: 4),
                             Text(
                               _needsCalibration
-                                  ? 'Photo has no scale yet — enter mm from a caliper, tap a table row, or calibrate.'
-                                  : 'Scale locked · refine if reading looks off.',
+                                  ? AppLocalizations.current.tr('sb.noScale')
+                                  : AppLocalizations.current.tr('sb.locked'),
                               style: const TextStyle(
                                 fontSize: 12,
                                 color: AppColors.muted,
@@ -663,8 +662,8 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                               child: TextButton.icon(
                                 onPressed: _busy ? null : _calibrateWithKnown,
                                 icon: const Icon(Icons.straighten, size: 16),
-                                label: const Text(
-                                  'Calibrate using diameter above',
+                                label: Text(
+                                  AppLocalizations.current.tr('sb.calib'),
                                 ),
                               ),
                             ),
@@ -675,8 +674,8 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                             const SizedBox(height: 8),
                             Row(
                               children: [
-                                const Text(
-                                  'Result',
+                                Text(
+                                  AppLocalizations.current.tr('sb.result'),
                                   style: TextStyle(fontWeight: FontWeight.w700),
                                 ),
                                 const Spacer(),
@@ -690,8 +689,8 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                                       color: AppColors.warningSoft,
                                       borderRadius: BorderRadius.circular(6),
                                     ),
-                                    child: const Text(
-                                      'Ambiguous — confirm',
+                                    child: Text(
+                                      AppLocalizations.current.tr('sb.ambig'),
                                       style: TextStyle(
                                         color: AppColors.warning,
                                         fontSize: 11,
@@ -706,7 +705,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                               label: AppLocalizations.of(context).scanBodyDetected,
                               value: _match!['detected_diameter'] == null
                                   ? (_match!['pixel_diameter'] != null
-                                      ? 'Ø ${_match!['pixel_diameter']} px (enter mm)'
+                                      ? AppLocalizations.current.trp('sb.pxEnter', {'p': _match!['pixel_diameter']})
                                       : '—')
                                   : '${_match!['detected_diameter']} mm',
                             ),
@@ -743,8 +742,8 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                             ),
                             if (_candidates.isNotEmpty) ...[
                               const SizedBox(height: 10),
-                              const Text(
-                                'Top candidates',
+                              Text(
+                                AppLocalizations.current.tr('sb.top'),
                                 style: TextStyle(
                                   fontWeight: FontWeight.w600,
                                   fontSize: 13,
@@ -815,16 +814,16 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                                               .withValues(alpha: 0.55),
                                         ),
                                         const SizedBox(height: 10),
-                                        const Text(
-                                          'Load a scan-body photo',
+                                        Text(
+                                          AppLocalizations.current.tr('sb.load'),
                                           style: TextStyle(
                                             fontWeight: FontWeight.w600,
                                             color: AppColors.navy,
                                           ),
                                         ),
                                         const SizedBox(height: 4),
-                                        const Text(
-                                          'AI finds the circular platform; you enter mm (3–6) or calibrate.',
+                                        Text(
+                                          AppLocalizations.current.tr('sb.aiFinds'),
                                           style: TextStyle(
                                             color: AppColors.muted,
                                             fontSize: 12,
@@ -881,11 +880,11 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                                           ),
                                           child: Text(
                                             _circleRadius == null
-                                                ? 'No circle'
+                                                ? AppLocalizations.current.tr('sb.noCircle')
                                                 : _match?['detected_diameter'] !=
                                                         null
                                                     ? '⌀ ${_match!['detected_diameter']} mm'
-                                                    : '⌀ ${(_circleRadius! * 2).toStringAsFixed(0)} px · enter mm',
+                                                    : AppLocalizations.current.trp('sb.pxEnter2', {'p': (_circleRadius! * 2).toStringAsFixed(0)}),
                                             style: const TextStyle(
                                               color: Colors.white,
                                               fontSize: 12,
@@ -907,7 +906,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Reference table (${_table.length})',
+                                AppLocalizations.current.trp('sb.refTable', {'n': _table.length}),
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -915,9 +914,9 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                               const SizedBox(height: 8),
                               Expanded(
                                 child: _table.isEmpty
-                                    ? const Center(
+                                    ? Center(
                                         child: Text(
-                                          'No reference rows loaded',
+                                          AppLocalizations.current.tr('sb.noRows'),
                                           style: TextStyle(
                                             color: AppColors.muted,
                                           ),
@@ -951,7 +950,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                                                 ),
                                               ),
                                               subtitle: Text(
-                                                'Tooth ${row['tooth_position']} · ${row['platform']}',
+                                                AppLocalizations.current.trp('sb.toothRow', {'t': row['tooth_position'], 'p': row['platform']}),
                                                 style: const TextStyle(
                                                   fontSize: 12,
                                                 ),
@@ -960,7 +959,7 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
                                                 onPressed: () =>
                                                     _useTableRow(row),
                                                 child: Text(
-                                                  selected ? 'Selected' : 'Use',
+                                                  selected ? AppLocalizations.current.tr('sb.selected') : AppLocalizations.current.tr('sb.use'),
                                                 ),
                                               ),
                                               onTap: () => _useTableRow(row),

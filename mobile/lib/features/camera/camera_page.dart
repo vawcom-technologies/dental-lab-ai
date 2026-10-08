@@ -17,6 +17,7 @@ import '../../core/widgets/ui_kit.dart';
 import 'crop_photo_page.dart';
 import 'incoming_photos_button.dart';
 import 'live_camera_capture.dart';
+import '../../core/errors/user_facing_error.dart';
 
 /// Chairside camera — frontal / left / right, max 12 photos per patient.
 class CameraPage extends StatefulWidget {
@@ -45,7 +46,7 @@ class _CameraPageState extends State<CameraPage> {
   String _angle = 'frontal';
   bool _loading = true;
   bool _busy = false;
-  String _busyLabel = 'Saving photo…';
+  String _busyLabel = '';
   String? _status;
   String? _error;
 
@@ -213,7 +214,7 @@ class _CameraPageState extends State<CameraPage> {
     } catch (e) {
       AppHaptics.warn();
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -240,7 +241,7 @@ class _CameraPageState extends State<CameraPage> {
         await _selectPatient(_patients.first);
       }
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -317,7 +318,7 @@ class _CameraPageState extends State<CameraPage> {
       await _reloadPhotos(pid);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     }
   }
 
@@ -327,7 +328,7 @@ class _CameraPageState extends State<CameraPage> {
     if (pid.isEmpty) return;
     if (_photos.length >= maxPhotos) {
       AppHaptics.warn();
-      setState(() => _error = 'Max $maxPhotos photos per patient');
+      setState(() => _error = AppLocalizations.of(context).trp('c.maxPhotos', {'n': maxPhotos}));
       return;
     }
 
@@ -338,7 +339,7 @@ class _CameraPageState extends State<CameraPage> {
     if (fromCamera) {
       bytes = await captureWithLiveCamera(
         context,
-        hint: 'Align $_angle guide for $_patientLabel — hold preview for upper/lower',
+        hint: AppLocalizations.of(context).trp('c.alignHint', {'a': AppLocalizations.of(context).cameraAngleLabel(_angle), 'p': _patientLabel}),
         angle: _angle,
       );
       if (bytes == null) return;
@@ -371,7 +372,7 @@ class _CameraPageState extends State<CameraPage> {
     if (cropped == null) return;
     bytes = cropped;
 
-    await _runBusy('Saving photo…', () async {
+    await _runBusy(AppLocalizations.current.tr('c.savingPhoto'), () async {
       await widget.api.uploadPatientPhoto(
         patientId: pid,
         angle: _angle,
@@ -380,7 +381,7 @@ class _CameraPageState extends State<CameraPage> {
       );
       AppHaptics.success();
       await _reloadPhotos(pid, selectNewest: true);
-      return 'Saved $_angle photo for $_patientLabel';
+      return AppLocalizations.of(context).trp('c.savedPhoto', {'a': AppLocalizations.of(context).cameraAngleLabel(_angle), 'p': _patientLabel});
     });
   }
 
@@ -395,15 +396,15 @@ class _CameraPageState extends State<CameraPage> {
       context,
       title: AppLocalizations.of(context).cameraDeletePhotoTitle,
       message: AppLocalizations.of(context).cameraDeletePhotoBody(angle, _patientLabel),
-      confirmLabel: 'Delete',
+      confirmLabel: AppLocalizations.of(context).commonDelete,
       isDestructive: true,
     );
     if (!confirmed) return;
 
-    await _runBusy('Deleting photo…', () async {
+    await _runBusy(AppLocalizations.of(context).tr('c.deleting'), () async {
       await widget.api.deletePatientPhoto(patientId: pid, photoId: photoId);
       await _reloadPhotos(pid);
-      return 'Deleted $angle photo';
+      return AppLocalizations.of(context).trp('c.deleted', {'a': AppLocalizations.of(context).cameraAngleLabel(angle)});
     });
   }
 
@@ -417,14 +418,14 @@ class _CameraPageState extends State<CameraPage> {
       context,
       title: AppLocalizations.of(context).cameraRenamePhoto,
       initial: _photoName(photo),
-      placeholder: 'e.g. Upper smile',
-      confirmLabel: 'Save',
+      placeholder: AppLocalizations.of(context).tr('c.renamePh'),
+      confirmLabel: AppLocalizations.of(context).save,
     );
     if (!mounted) return;
     final trimmed = name?.trim() ?? '';
     if (trimmed.isEmpty || trimmed == _photoName(photo)) return;
 
-    await _runBusy('Renaming photo…', () async {
+    await _runBusy(AppLocalizations.of(context).tr('c.renaming'), () async {
       await widget.api.renamePatientPhoto(
         patientId: pid,
         photoId: photoId,
@@ -432,7 +433,7 @@ class _CameraPageState extends State<CameraPage> {
       );
       AppHaptics.success();
       await _reloadPhotos(pid);
-      return 'Renamed to $trimmed';
+      return AppLocalizations.of(context).trp('c.renamed', {'n': trimmed});
     });
   }
 
@@ -442,7 +443,7 @@ class _CameraPageState extends State<CameraPage> {
     final label = _photoName(photo);
     // Nothing is stored here — Shade saves the photo when the doctor saves.
     widget.patientSession.requestShadeHandoff(photoId);
-    setState(() => _status = 'Opening “$label” with Shade Detection…');
+    setState(() => _status = AppLocalizations.of(context).trp('c.openShade', {'n': label}));
   }
 
   void _openPhotoWithSmile(Map<String, dynamic> photo) {
@@ -451,7 +452,7 @@ class _CameraPageState extends State<CameraPage> {
     final label = _photoName(photo);
     // Nothing is stored here — Smile Preview saves when the doctor saves.
     widget.patientSession.requestSmileHandoff(photoId);
-    setState(() => _status = 'Opening “$label” with Smile Preview…');
+    setState(() => _status = AppLocalizations.of(context).trp('c.openSmile', {'n': label}));
   }
 
   void _onPhotoMenuSelected(_PhotoMenuAction action, Map<String, dynamic> photo) {
@@ -484,7 +485,7 @@ class _CameraPageState extends State<CameraPage> {
     showGeneralDialog<void>(
       context: context,
       barrierDismissible: true,
-      barrierLabel: 'Close photo',
+      barrierLabel: AppLocalizations.of(context).tr('c.closePhoto'),
       barrierColor: Colors.black.withValues(alpha: 0.92),
       transitionDuration: const Duration(milliseconds: 220),
       pageBuilder: (ctx, _, _) {
@@ -791,7 +792,7 @@ class _CameraPageState extends State<CameraPage> {
 
   Widget _photoInspectorEmpty({required bool compact}) {
     final hint =
-        'Take a ${_titleCase(_angle).toLowerCase()} photo or pick one from the grid.';
+        AppLocalizations.of(context).trp('c.takeHint', {'a': AppLocalizations.of(context).cameraAngleLabel(_angle)});
     if (compact) {
       return SectionCard(
         padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
@@ -861,11 +862,11 @@ class _CameraPageState extends State<CameraPage> {
           Expanded(
             child: ClipRRect(
               borderRadius: BorderRadius.circular(14),
-              child: const ColoredBox(
+              child: ColoredBox(
                 color: Color(0xFF111827),
                 child: Center(
                   child: Text(
-                    'Nothing selected',
+                    AppLocalizations.of(context).tr('c.nothingSel'),
                     style: TextStyle(color: Colors.white54, fontSize: 13),
                   ),
                 ),
@@ -902,9 +903,9 @@ class _CameraPageState extends State<CameraPage> {
             width: size,
             height: size,
             child: url.isEmpty
-                ? const Center(
+                ? Center(
                     child: Text(
-                      'Photo unavailable',
+                      AppLocalizations.of(context).tr('c.photoUnavail'),
                       style: TextStyle(color: Colors.white70, fontSize: 12),
                     ),
                   )
@@ -1071,9 +1072,9 @@ class _CameraPageState extends State<CameraPage> {
                 child: ColoredBox(
                   color: const Color(0xFF111827),
                   child: url.isEmpty
-                      ? const Center(
+                      ? Center(
                           child: Text(
-                            'Photo unavailable',
+                            AppLocalizations.of(context).tr('c.photoUnavail'),
                             style: TextStyle(color: Colors.white70),
                           ),
                         )
@@ -1156,7 +1157,7 @@ class _CameraPageState extends State<CameraPage> {
                   onRefresh: () async {
                     setState(() {
                       _busy = true;
-                      _busyLabel = 'Refreshing…';
+                      _busyLabel = AppLocalizations.of(context).tr('c.refreshing');
                     });
                     try {
                       await _reloadPatients();
@@ -1337,9 +1338,9 @@ class _FilledNetworkPhoto extends StatelessWidget {
           width: constraints.maxWidth,
           height: constraints.maxHeight,
           alignment: Alignment.center,
-          errorBuilder: (_, _, _) => const Center(
+          errorBuilder: (_, _, _) => Center(
             child: Text(
-              'Could not load photo',
+              AppLocalizations.of(context).tr('c.loadFail'),
               style: TextStyle(color: Colors.white70, fontSize: 16),
             ),
           ),
@@ -1490,7 +1491,7 @@ class _PhotoGridTile extends StatelessWidget {
                               PopupMenuItem(
                                 value: _PhotoMenuAction.delete,
                                 child: Text(
-                                  'Delete',
+                                  AppLocalizations.of(context).commonDelete,
                                   style: TextStyle(color: AppColors.danger),
                                 ),
                               ),

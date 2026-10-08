@@ -9,6 +9,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'mesh_sample.dart';
 import 'mesh_viewer_chrome.dart';
+import '../../core/errors/user_facing_error.dart';
 
 /// CPU / CustomPaint preview — **web only** via [MeshViewer] on `dart.library.html`.
 /// Native iPad must not use this: Impeller often fails to fill `drawVertices`,
@@ -98,7 +99,7 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
           setState(() {
             _vertices = const [];
             _triangles = null;
-            _sampleError = e.toString().replaceFirst('Exception: ', '');
+            _sampleError = friendlyError(e);
             _sampling = false;
           });
         }
@@ -129,11 +130,11 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
           clipBehavior: Clip.hardEdge,
           children: [
             if (busy)
-              const Center(
+              Center(
                 child: ToothLoadingIndicator(
                   size: 44,
                   color: Colors.white70,
-                  loadingText: 'Loading mesh…',
+                  loadingText: AppLocalizations.current.tr('ms.loading'),
                 ),
               )
             else if (empty)
@@ -174,12 +175,12 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       MeshViewerChip(
-                        'Solid',
+                        AppLocalizations.current.tr('ms.solid'),
                         selected: !_colored,
                         onTap: () => setState(() => _colored = false),
                       ),
                       MeshViewerChip(
-                        'Colored',
+                        AppLocalizations.current.tr('ms.colored'),
                         selected: _colored,
                         onTap: () => setState(() => _colored = true),
                       ),
@@ -192,9 +193,8 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
                 bottom: 10,
                 child: Text(
                   _canSolid
-                      ? 'web · ${_triangles!.length ~/ 18} tris · drag/pinch'
-                      : 'web · ${widget.vertexCount ?? _vertices.length}'
-                          '${_canSolid ? '' : ' · no faces'} · drag/pinch',
+                      ? AppLocalizations.current.trp('ms.hudTris', {'n': _triangles!.length ~/ 18})
+                      : AppLocalizations.current.trp('ms.hudPts', {'n': widget.vertexCount ?? _vertices.length}),
                   style: const TextStyle(color: Colors.white54, fontSize: 11.5),
                 ),
               ),

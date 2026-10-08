@@ -1,4 +1,5 @@
 import '../models/chat_models.dart';
+import '../../../core/l10n/app_localizations.dart';
 
 /// Detects an in-progress `@query` immediately before [cursor].
 class MentionDraft {
@@ -107,7 +108,7 @@ String patientRowLabel(Map<String, dynamic> row) {
   final first = '${row['first_name'] ?? ''}'.trim();
   final last = '${row['last_name'] ?? ''}'.trim();
   final name = '$first $last'.trim();
-  return name.isEmpty ? 'Unnamed patient' : name;
+  return name.isEmpty ? AppLocalizations.current.tr('p.unnamed') : name;
 }
 
 List<Map<String, dynamic>> filterPatientsForMention(

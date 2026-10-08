@@ -124,7 +124,7 @@ class _PatientsPageState extends State<PatientsPage> {
           return AppLocalizations.of(context).patientsOnlyOwnerApprove;
         }
         if (lower.contains('creator') || lower.contains('created this')) {
-          return 'Only the person who created this patient record can edit it.';
+          return AppLocalizations.of(context).tr('p.onlyCreatorEdit');
         }
       }
       return friendlyError(e.message);
@@ -177,7 +177,7 @@ class _PatientsPageState extends State<PatientsPage> {
     if (_controller.mutating) return;
     if (!_controller.isOwner(patient)) {
       _toast(
-        'Permission Denied: Only the creator of this record can modify patient details.',
+        AppLocalizations.of(context).tr('p.permDenied'),
         error: true,
       );
       return;
@@ -219,7 +219,7 @@ class _PatientsPageState extends State<PatientsPage> {
     if (_controller.mutating) return;
     if (!_controller.isOwner(patient)) {
       _toast(
-        'Permission Denied: Only the creator of this record can modify patient details.',
+        AppLocalizations.of(context).tr('p.permDenied'),
         error: true,
       );
       return;
@@ -237,7 +237,7 @@ class _PatientsPageState extends State<PatientsPage> {
       await _controller.deletePatient(patient.id, hard: hard);
       await _syncSharedPatientSession();
       if (!mounted) return;
-      _toast(hard ? 'Patient permanently deleted' : 'Patient archived');
+      _toast(hard ? AppLocalizations.of(context).tr('p.deleted') : AppLocalizations.of(context).tr('p.archived'));
     } catch (e) {
       _toast(_friendlyError(e), error: true);
     }
@@ -278,7 +278,7 @@ class _PatientsPageState extends State<PatientsPage> {
     if (_controller.mutating) return;
     if (!_controller.isOwner(patient)) {
       _toast(
-        'Permission Denied: Only the creator of this record can modify patient details.',
+        AppLocalizations.of(context).tr('p.permDenied'),
         error: true,
       );
       return;
@@ -642,8 +642,8 @@ class _EmptyPatients extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               filtered
-                  ? 'Try another status or clear the search.'
-                  : 'Add the first record to get started.',
+                  ? AppLocalizations.of(context).tr('p.tryOtherStatus')
+                  : AppLocalizations.of(context).tr('p.addFirst'),
               textAlign: TextAlign.center,
               style: AppFonts.style(
                 color: AppColors.muted,
@@ -1025,7 +1025,7 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
       if (!mounted) return;
       setState(() => _saving = false);
       final msg = e is AgentApiException && e.isForbidden
-          ? 'Only the person who created this patient record can edit it.'
+          ? AppLocalizations.of(context).tr('p.onlyCreatorEdit')
           : friendlyError(e);
       AppSnackBars.error(context, msg);
     }
@@ -1091,7 +1091,7 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
                     requiredField: true,
                     keyboardType: TextInputType.emailAddress,
                     autofillHints: const [AutofillHints.email],
-                    validator: validatePatientEmail,
+                    validator: (v) => validatePatientEmail(v, AppLocalizations.of(context)),
                   ),
                   const SizedBox(height: 12),
                   PhoneField(
@@ -1596,7 +1596,7 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
                               final u = _users[i];
                               final busy = _busyId == u.userId;
                               final title = u.fullName.trim().isEmpty
-                                  ? (u.email ?? 'Staff member')
+                                  ? (u.email ?? AppLocalizations.of(context).tr('p.staffMember'))
                                   : u.fullName.trim();
                               final showEmail = u.email != null &&
                                   u.email!.trim().isNotEmpty &&
@@ -1725,7 +1725,7 @@ class _PendingAccessDrawer extends StatelessWidget {
     try {
       await controller.approveAccessRequest(req.id);
       onToast(
-        'Access approved. Staff member can now access this patient record.',
+        AppLocalizations.of(context).tr('p.accessApprovedLong'),
       );
     } catch (e) {
       onToast(friendlyError(e), error: true);
@@ -1735,7 +1735,7 @@ class _PendingAccessDrawer extends StatelessWidget {
   Future<void> _reject(BuildContext context, PendingAccessRequest req) async {
     try {
       await controller.rejectAccessRequest(req.id);
-      onToast('Access request rejected.');
+      onToast(AppLocalizations.of(context).tr('p.accessRejectedDot'));
     } catch (e) {
       onToast(friendlyError(e), error: true);
     }
@@ -1782,8 +1782,8 @@ class _PendingAccessDrawer extends StatelessWidget {
                   const SizedBox(height: 6),
                   Text(
                     rows.isEmpty
-                        ? 'No pending requests right now.'
-                        : '${rows.length} request${rows.length == 1 ? '' : 's'} awaiting your decision.',
+                        ? AppLocalizations.of(context).tr('p.noPending')
+                        : AppLocalizations.of(context).trp(rows.length == 1 ? 'p.reqOne' : 'p.reqN', {'n': rows.length}),
                     style: const TextStyle(color: AppColors.muted, fontSize: 13),
                   ),
                   const SizedBox(height: 12),
@@ -1793,9 +1793,9 @@ class _PendingAccessDrawer extends StatelessWidget {
                             message: AppLocalizations.of(context).patientsLoadingAccessRequests,
                           )
                         : rows.isEmpty
-                            ? const Center(
+                            ? Center(
                                 child: Text(
-                                  'All caught up.',
+                                  AppLocalizations.of(context).tr('p.allCaughtUp'),
                                   style: TextStyle(color: AppColors.muted),
                                 ),
                               )
@@ -1828,14 +1828,14 @@ class _PendingAccessDrawer extends StatelessWidget {
                                         ),
                                         const SizedBox(height: 6),
                                         Text(
-                                          'Target: ${r.targetUserName}',
+                                          AppLocalizations.of(context).trp('p.target', {'n': r.targetUserName}),
                                           style: const TextStyle(
                                             fontSize: 13,
                                             color: AppColors.text,
                                           ),
                                         ),
                                         Text(
-                                          'Requested by: ${r.requestingUserName}',
+                                          AppLocalizations.of(context).trp('p.requestedByColon', {'n': r.requestingUserName}),
                                           style: const TextStyle(
                                             fontSize: 13,
                                             color: AppColors.text,
@@ -1927,15 +1927,15 @@ class _AccessStatusBadge extends StatelessWidget {
         case PatientAccessStatus.approved:
           bg = AppColors.successSoft;
           fg = AppColors.success;
-          text = status!.label;
+          text = status!.labelOf(AppLocalizations.of(context));
         case PatientAccessStatus.pending:
           bg = AppColors.warningSoft;
           fg = AppColors.warning;
-          text = status!.label;
+          text = status!.labelOf(AppLocalizations.of(context));
         case PatientAccessStatus.rejected:
           bg = const Color(0xFFE8EDF4);
           fg = AppColors.muted;
-          text = status!.label;
+          text = status!.labelOf(AppLocalizations.of(context));
       }
     }
     return Container(
@@ -2068,7 +2068,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
         patientId: widget.patient.id,
         targetUserId: entry.userId,
       );
-      widget.onToast('Access revoked');
+      widget.onToast(AppLocalizations.of(context).tr('p.accessRevoked'));
     } catch (e) {
       widget.onToast(widget.friendlyError(e), error: true);
     }
@@ -2078,7 +2078,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     if (widget.controller.mutating) return;
     try {
       await widget.controller.approveAccessEntry(entry);
-      widget.onToast('Access approved');
+      widget.onToast(AppLocalizations.of(context).tr('p.accessApproved'));
     } catch (e) {
       widget.onToast(widget.friendlyError(e), error: true);
     }
@@ -2088,7 +2088,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     if (widget.controller.mutating) return;
     try {
       await widget.controller.rejectAccessEntry(entry);
-      widget.onToast('Access request rejected');
+      widget.onToast(AppLocalizations.of(context).tr('p.accessRejected'));
     } catch (e) {
       widget.onToast(widget.friendlyError(e), error: true);
     }
@@ -2118,7 +2118,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     final me = widget.controller.currentUserId;
     if (me == null || note.authorId != me) {
       widget.onToast(
-        'Only the author can delete this clinical note.',
+        AppLocalizations.of(context).tr('p.onlyAuthorDelete'),
         error: true,
       );
       return;
@@ -2133,7 +2133,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     if (!ok) return;
     try {
       await widget.controller.deleteNote(note.id);
-      widget.onToast('Note deleted');
+      widget.onToast(AppLocalizations.of(context).tr('p.noteDeleted'));
     } catch (e) {
       widget.onToast(widget.friendlyError(e), error: true);
     }
@@ -2296,7 +2296,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                                     vertical: 6,
                                   ),
                                   child: Text(
-                                    'Info',
+                                    AppLocalizations.of(context).tr('p.tabInfo'),
                                     style: AppFonts.style(
                                       fontSize: 13,
                                       fontWeight: FontWeight.w600,
@@ -2324,7 +2324,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                                     vertical: 6,
                                   ),
                                   child: Text(
-                                    'Access',
+                                    AppLocalizations.of(context).tr('p.tabAccess'),
                                     style: AppFonts.style(
                                       fontSize: 13,
                                       fontWeight: FontWeight.w600,
@@ -2375,11 +2375,11 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
 
   Widget _buildDemographicsTab(GdprPatient p) {
     final rows = [
-      ('Date of birth', p.dateOfBirth),
-      ('Email', p.email),
-      ('Phone', p.phone),
-      ('Health insurance', p.healthInsurance),
-      ('Address', p.address),
+      (AppLocalizations.of(context).dateOfBirth, p.dateOfBirth),
+      (AppLocalizations.of(context).tr('p.email'), p.email),
+      (AppLocalizations.of(context).tr('p.phone'), p.phone),
+      (AppLocalizations.of(context).tr('patients.insurance'), p.healthInsurance),
+      (AppLocalizations.of(context).tr('patients.address'), p.address),
     ];
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
@@ -2561,7 +2561,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     if (accessOwner == null) {
       return Center(
         child: Text(
-          'No access information available.',
+          AppLocalizations.of(context).tr('p.noAccessInfo'),
           style: AppFonts.style(color: AppColors.muted),
         ),
       );
@@ -2650,7 +2650,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
       case PatientAccessStatus.pending:
         final requester = entry.requestedByName?.trim();
         final requestedBy = (requester != null && requester.isNotEmpty)
-            ? 'Requested by $requester'
+            ? AppLocalizations.of(context).trp('p.requestedBy', {'n': requester})
             : null;
         if (isOwner) {
           subtext = requestedBy;

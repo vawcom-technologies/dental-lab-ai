@@ -83,7 +83,7 @@ class ShadeOverridePane extends StatelessWidget {
               if (!gumTab && toothLabel != null) ...[
                 const SizedBox(height: 4),
                 Text(
-                  'Editing $toothLabel',
+                  AppLocalizations.of(context).trp('sh.editingTooth', {'t': toothLabel}),
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -229,8 +229,8 @@ class ShadeOverridePane extends StatelessWidget {
               child: _matchBlock(
                 title: AppLocalizations.of(context).shadeSimilarShades,
                 subtitle: toothLabel == null
-                    ? 'For the focused zone'
-                    : 'For $toothLabel',
+                    ? AppLocalizations.of(context).tr('sh.forZone')
+                    : AppLocalizations.of(context).trp('sh.forTooth', {'t': toothLabel}),
                 matches: similarMatches,
                 onPick: onShadeChoice,
               ),

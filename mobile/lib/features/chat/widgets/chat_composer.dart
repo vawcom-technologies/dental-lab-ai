@@ -18,6 +18,7 @@ import '../utils/voice_gain.dart';
 import '../utils/voice_record_path.dart';
 import '../utils/video_duration.dart';
 import '../widgets/chat_bubble.dart';
+import '../../../core/errors/user_facing_error.dart';
 
 typedef SendTextFn = void Function(List<PatientMention> mentions);
 
@@ -166,7 +167,7 @@ class _ChatComposerState extends State<ChatComposer> {
       if (shot == null) return;
       final bytes = await shot.readAsBytes();
       if (bytes.isEmpty) {
-        _toast('Could not read the selected image.');
+        _toast(AppLocalizations.current.tr('ch.errImg'));
         return;
       }
       final name = shot.name.trim().isNotEmpty
@@ -178,7 +179,7 @@ class _ChatComposerState extends State<ChatComposer> {
         mediaType: 'image',
       );
     } catch (e) {
-      _toast(e.toString());
+      _toast(friendlyError(e));
     }
   }
 
@@ -194,13 +195,13 @@ class _ChatComposerState extends State<ChatComposer> {
       if (bytes == null || bytes.isEmpty) {
         final path = picked.path;
         if (path == null || path.isEmpty) {
-          _toast('Could not read the selected file.');
+          _toast(AppLocalizations.current.tr('ch.errFile'));
           return;
         }
         bytes = await XFile(path).readAsBytes();
       }
       if (bytes.isEmpty) {
-        _toast('Could not read the selected file.');
+        _toast(AppLocalizations.current.tr('ch.errFile'));
         return;
       }
       final name = picked.name.trim().isNotEmpty
@@ -212,7 +213,7 @@ class _ChatComposerState extends State<ChatComposer> {
         mediaType: 'document',
       );
     } catch (e) {
-      _toast(e.toString());
+      _toast(friendlyError(e));
     }
   }
 
@@ -232,7 +233,7 @@ class _ChatComposerState extends State<ChatComposer> {
         sizeBytes: picked.size,
       );
     } catch (e) {
-      _toast(e.toString());
+      _toast(friendlyError(e));
     }
   }
 
@@ -250,7 +251,7 @@ class _ChatComposerState extends State<ChatComposer> {
         sizeBytes: length,
       );
     } catch (e) {
-      _toast(e.toString());
+      _toast(friendlyError(e));
     }
   }
 
@@ -262,11 +263,11 @@ class _ChatComposerState extends State<ChatComposer> {
   }) async {
     final size = sizeBytes ?? bytes?.length ?? 0;
     if (size <= 0) {
-      _toast('Could not read the selected video.');
+      _toast(AppLocalizations.current.tr('ch.errVid'));
       return;
     }
     if (size > kChatVideoMaxBytes) {
-      _toast('Videos must be 200 MB or smaller.');
+      _toast(AppLocalizations.current.tr('ch.vidBig'));
       return;
     }
     var name = fileName.trim();
@@ -277,12 +278,12 @@ class _ChatComposerState extends State<ChatComposer> {
     Uint8List? payload = bytes;
     if (!usePath && (payload == null || payload.isEmpty)) {
       if (path == null || path.isEmpty) {
-        _toast('Could not read the selected video.');
+        _toast(AppLocalizations.current.tr('ch.errVid'));
         return;
       }
       payload = await XFile(path).readAsBytes();
       if (payload.isEmpty) {
-        _toast('Could not read the selected video.');
+        _toast(AppLocalizations.current.tr('ch.errVid'));
         return;
       }
     }
@@ -347,7 +348,7 @@ class _ChatComposerState extends State<ChatComposer> {
     try {
       final hasPermission = await _audioRecorder.hasPermission();
       if (!hasPermission) {
-        _toast('Microphone permission is required for voice notes.');
+        _toast(AppLocalizations.current.tr('ch.mic'));
         return;
       }
       _activeEncoder = await _resolveEncoder();
@@ -396,7 +397,7 @@ class _ChatComposerState extends State<ChatComposer> {
         setState(() => _amplitudeNorm = norm);
       });
     } catch (e) {
-      _toast('Could not start recording: $e');
+      _toast(AppLocalizations.current.tr('ch.recStart'));
     }
   }
 
@@ -424,16 +425,16 @@ class _ChatComposerState extends State<ChatComposer> {
       });
       if (cancel) return;
       if (path == null || path.isEmpty) {
-        _toast('Recording failed — no audio captured.');
+        _toast(AppLocalizations.current.tr('ch.recFail'));
         return;
       }
       if (duration < 0.4) {
-        _toast('Hold a bit longer to record a voice note.');
+        _toast(AppLocalizations.current.tr('ch.holdLonger'));
         return;
       }
       final raw = await XFile(path).readAsBytes();
       if (raw.isEmpty) {
-        _toast('Could not read the recorded audio.');
+        _toast(AppLocalizations.current.tr('ch.errAudio'));
         return;
       }
       final bytes = amplifyVoiceWav(raw);
@@ -453,7 +454,7 @@ class _ChatComposerState extends State<ChatComposer> {
           _recordStartedAt = null;
         });
       }
-      _toast('Could not send voice note: $e');
+      _toast(AppLocalizations.current.tr('ch.sendVN'));
     }
   }
 
@@ -583,7 +584,7 @@ class _ChatComposerState extends State<ChatComposer> {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (widget.sending)
-            const Padding(
+            Padding(
               padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
               child: Row(
                 children: [
@@ -594,7 +595,7 @@ class _ChatComposerState extends State<ChatComposer> {
                   ),
                   SizedBox(width: 8),
                   Text(
-                    'Uploading…',
+                    AppLocalizations.current.tr('c.uploading'),
                     style: TextStyle(
                       fontSize: 12,
                       color: AppColors.muted,
@@ -862,7 +863,7 @@ class _PatientMentionPicker extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
                 child: Text(
-                  query.isEmpty ? 'Tag a patient' : 'Patients matching “$query”',
+                  query.isEmpty ? AppLocalizations.current.tr('ch.tag') : AppLocalizations.current.trp('ch.match', {'q': query}),
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -882,10 +883,10 @@ class _PatientMentionPicker extends StatelessWidget {
                   ),
                 )
               else if (hits.isEmpty)
-                const Padding(
+                Padding(
                   padding: EdgeInsets.fromLTRB(12, 4, 12, 14),
                   child: Text(
-                    'No matching patients',
+                    AppLocalizations.current.tr('p.noMatchP'),
                     style: TextStyle(fontSize: 13, color: AppColors.muted),
                   ),
                 )

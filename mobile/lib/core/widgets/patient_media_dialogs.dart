@@ -65,7 +65,7 @@ Future<bool> confirmPatientMediaDelete(BuildContext context) {
 Future<T> runWithToothLoadingDialog<T>(
   BuildContext context, {
   required Future<T> Function() action,
-  String message = 'Uploading…',
+  String? message,
 }) async {
   await _settleGestures();
   if (!context.mounted) {
@@ -76,7 +76,7 @@ Future<T> runWithToothLoadingDialog<T>(
     return await AppDialogs.runWithLoading(
       context,
       action: action,
-      message: message,
+      message: message ?? AppLocalizations.of(context).tr('c.uploading'),
     );
   } finally {
     await _settleGestures();

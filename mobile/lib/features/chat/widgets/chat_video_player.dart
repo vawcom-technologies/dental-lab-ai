@@ -458,8 +458,8 @@ class _FailedBody extends StatelessWidget {
         const Spacer(),
         const Icon(CupertinoIcons.exclamationmark_circle, color: Colors.white70, size: 40),
         const SizedBox(height: 12),
-        const Text(
-          'Could not load video',
+        Text(
+          AppLocalizations.current.tr('ch.vidFail'),
           style: TextStyle(color: Colors.white, fontSize: 16),
         ),
         TextButton(

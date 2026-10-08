@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:image/image.dart' as img;
+import '../../core/l10n/app_localizations.dart';
 
 /// Longest side sent to shade upload / detect. iPad camera-roll photos are
 /// often 12MP HEIC; the backend segments at ≤1280px and times out at 90s.
@@ -53,7 +54,7 @@ Future<({Uint8List bytes, int width, int height})> prepareShadeJpeg(
   int maxSide = kShadeUploadMaxSide,
 }) async {
   if (bytes.isEmpty) {
-    throw StateError('Could not read this photo. Try another image.');
+    throw StateError(AppLocalizations.current.tr('img.read'));
   }
 
   final native = await _prepareWithUi(bytes, quality: quality, maxSide: maxSide);
@@ -64,7 +65,7 @@ Future<({Uint8List bytes, int width, int height})> prepareShadeJpeg(
   final baked = bakeExifOrientationSized(bytes, quality: quality);
   if (baked.width < 2 || baked.height < 2) {
     throw StateError(
-      'Could not read this photo. Export it as JPEG from Photos and try again.',
+      AppLocalizations.current.tr('img.heic'),
     );
   }
   return _downscaleJpeg(baked, quality: quality, maxSide: maxSide);

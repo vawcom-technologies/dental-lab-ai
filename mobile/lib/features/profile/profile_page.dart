@@ -6,6 +6,7 @@ import '../../core/l10n/app_localizations.dart';
 import '../../core/layout/adaptive.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
+import '../../core/errors/user_facing_error.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({
@@ -82,7 +83,7 @@ class _ProfilePageState extends State<ProfilePage> {
       _createdAt = _fmt(me['created_at']);
       _lastLogin = _fmt(me['last_login']);
     } catch (e) {
-      if (mounted) AppSnackBars.error(context, e.toString());
+      if (mounted) AppSnackBars.error(context, friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -124,7 +125,7 @@ class _ProfilePageState extends State<ProfilePage> {
       );
     } catch (e) {
       if (!mounted) return;
-      final msg = e.toString().replaceFirst('Exception: ', '');
+      final msg = friendlyError(e);
       AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -169,7 +170,7 @@ class _ProfilePageState extends State<ProfilePage> {
       );
     } catch (e) {
       if (!mounted) return;
-      final msg = e.toString().replaceFirst('Exception: ', '');
+      final msg = friendlyError(e);
       AppSnackBars.error(context, msg);
     } finally {
       if (mounted) setState(() => _changingPassword = false);
@@ -183,7 +184,7 @@ class _ProfilePageState extends State<ProfilePage> {
       return ToothPageLoader(message: loc.profileLoading);
     }
 
-    final displayName = _name.text.trim().isEmpty ? 'User' : _name.text.trim();
+    final displayName = _name.text.trim().isEmpty ? AppLocalizations.current.tr('c.user') : _name.text.trim();
 
     return Padding(
       padding: AppBreakpoints.pagePadding(context),

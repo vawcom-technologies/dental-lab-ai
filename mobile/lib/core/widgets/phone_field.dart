@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/app_theme.dart';
+import '../../core/l10n/app_localizations.dart';
 
 /// German mobile numbers: fixed country code `+49` + exactly 11 subscriber digits.
 class PhoneNumbers {
@@ -41,21 +42,19 @@ class PhoneNumbers {
 
   static String? validateRequired(
     String? local, {
-    String message =
-        'Phone must start with +49 and have exactly 11 digits after',
+    String? message,
   }) {
-    if (!isValidLocal(local)) return message;
+    if (!isValidLocal(local)) return message ?? AppLocalizations.current.tr('auth.errPhoneInvalid');
     return null;
   }
 
   static String? validateOptional(
     String? local, {
-    String message =
-        'Phone must start with +49 and have exactly 11 digits after',
+    String? message,
   }) {
     final digits = digitsOnly(local ?? '');
     if (digits.isEmpty) return null;
-    if (digits.length != digitCount) return message;
+    if (digits.length != digitCount) return message ?? AppLocalizations.current.tr('auth.errPhoneInvalid');
     return null;
   }
 }
@@ -65,12 +64,11 @@ class PhoneField extends StatelessWidget {
   const PhoneField({
     super.key,
     required this.controller,
-    this.labelText = 'Phone',
+    this.labelText,
     this.hintText = '17012345678',
     this.required = true,
     this.enabled = true,
-    this.errorMessage =
-        'Phone must start with +49 and have exactly 11 digits after',
+    this.errorMessage,
     this.onChanged,
     this.textInputAction,
   });
@@ -80,7 +78,7 @@ class PhoneField extends StatelessWidget {
   final String? hintText;
   final bool required;
   final bool enabled;
-  final String errorMessage;
+  final String? errorMessage;
   final ValueChanged<String>? onChanged;
   final TextInputAction? textInputAction;
 
@@ -96,7 +94,7 @@ class PhoneField extends StatelessWidget {
         LengthLimitingTextInputFormatter(PhoneNumbers.digitCount),
       ],
       decoration: InputDecoration(
-        labelText: labelText,
+        labelText: labelText ?? AppLocalizations.of(context).tr('p.phone'),
         hintText: hintText,
         prefixText: '${PhoneNumbers.prefix} ',
         prefixStyle: const TextStyle(

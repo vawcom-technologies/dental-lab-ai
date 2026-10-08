@@ -41,7 +41,7 @@ class _LoginScreenState extends State<LoginScreen> {
         AppPageRoutes.fade(
           AppShell(
             api: widget.api,
-            dentistName: data['name'] as String? ?? 'Dentist',
+            dentistName: data['name'] as String? ?? AppLocalizations.current.tr('p.dentist'),
           ),
         ),
       );

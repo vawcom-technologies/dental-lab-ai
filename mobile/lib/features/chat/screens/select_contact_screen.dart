@@ -11,6 +11,7 @@ import '../../../core/widgets/ui_kit.dart';
 import '../models/chat_models.dart';
 import '../services/chat_api_service.dart';
 import '../state/chat_controller.dart';
+import '../../../core/errors/user_facing_error.dart';
 
 const _kSeparator = Color(0xFFC6C6C8);
 const _kSearchFill = Color(0xFFE5E5EA);
@@ -74,7 +75,7 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-      AppSnackBars.error(context, e.toString());
+      AppSnackBars.error(context, friendlyError(e));
     }
   }
 
@@ -129,7 +130,7 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
       if (!mounted) return;
       AppSnackBars.error(
         context,
-        e.toString().replaceFirst('Exception: ', ''),
+        friendlyError(e),
       );
     } finally {
       if (mounted) setState(() => _creating = false);
@@ -157,8 +158,8 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
             size: 22,
           ),
         ),
-        title: const Text(
-          'New Message',
+        title: Text(
+          AppLocalizations.current.tr('ch.newMsg'),
           style: TextStyle(
             fontWeight: FontWeight.w700,
             fontSize: 17,
@@ -182,7 +183,7 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
               children: [
                 CupertinoSearchTextField(
                   controller: _search,
-                  placeholder: 'Search',
+                  placeholder: AppLocalizations.current.tr('ch.search'),
                   backgroundColor: _kSearchFill,
                   style: const TextStyle(fontSize: 16, color: AppColors.navy),
                   onChanged: _onSearchChanged,
@@ -218,7 +219,7 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
                   ),
                 ),
                 if (_creating)
-                  const Padding(
+                  Padding(
                     padding: EdgeInsets.only(top: 12),
                     child: Row(
                       children: [
@@ -229,7 +230,7 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
                         ),
                         SizedBox(width: 8),
                         Text(
-                          'Opening conversation…',
+                          AppLocalizations.current.tr('ch.opening'),
                           style: TextStyle(
                             color: AppColors.muted,
                             fontSize: 13,
@@ -265,7 +266,7 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
                           child: _loading
                           ? ToothPageLoader(message: AppLocalizations.of(context).messagesLoadingContacts)
                           : _users.isEmpty
-                              ? const Center(
+                              ? Center(
                                   child: Padding(
                                     padding: EdgeInsets.all(28),
                                     child: Column(
@@ -278,7 +279,7 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
                                         ),
                                         SizedBox(height: 10),
                                         Text(
-                                          'No contacts found.',
+                                          AppLocalizations.current.tr('ch.noContacts'),
                                           style: TextStyle(
                                             color: AppColors.muted,
                                             fontSize: 16,

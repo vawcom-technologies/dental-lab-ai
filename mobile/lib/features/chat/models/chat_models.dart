@@ -2,6 +2,7 @@
 library;
 
 import '../../../core/auth/app_roles.dart';
+import '../../../core/l10n/app_localizations.dart';
 
 class UserProfile {
   const UserProfile({
@@ -25,7 +26,7 @@ class UserProfile {
     if (n != null && n.isNotEmpty) return n;
     final e = email?.trim();
     if (e != null && e.isNotEmpty) return e;
-    return 'User';
+    return AppLocalizations.current.tr('c.user');
   }
 
   String get subtitle {
@@ -103,15 +104,15 @@ class ParentMessage {
     if (text.isNotEmpty) return text;
     switch (mediaType) {
       case 'voice':
-        return 'Voice message';
+        return AppLocalizations.current.tr('ch.voice');
       case 'image':
-        return 'Photo';
+        return AppLocalizations.current.tr('ch.photo');
       case 'video':
-        return 'Video';
+        return AppLocalizations.current.tr('ch.video');
       case 'document':
-        return 'Document';
+        return AppLocalizations.current.tr('ch.doc');
       default:
-        return mediaUrl != null ? 'Attachment' : '';
+        return mediaUrl != null ? AppLocalizations.current.tr('ch.attach') : '';
     }
   }
 
@@ -191,28 +192,28 @@ class Message {
     if (isPending) {
       switch (mediaType) {
         case 'voice':
-          return 'Sending voice…';
+          return AppLocalizations.current.tr('ch.sendVoice');
         case 'image':
-          return 'Sending photo…';
+          return AppLocalizations.current.tr('ch.sendPhoto');
         case 'video':
-          return 'Sending video…';
+          return AppLocalizations.current.tr('ch.sendVideo');
         case 'document':
-          return 'Sending document…';
+          return AppLocalizations.current.tr('ch.sendDoc');
         default:
-          return 'Sending…';
+          return AppLocalizations.current.tr('ch.sending');
       }
     }
     switch (mediaType) {
       case 'voice':
-        return 'Voice message';
+        return AppLocalizations.current.tr('ch.voice');
       case 'image':
-        return 'Photo';
+        return AppLocalizations.current.tr('ch.photo');
       case 'video':
-        return 'Video';
+        return AppLocalizations.current.tr('ch.video');
       case 'document':
-        return 'Document';
+        return AppLocalizations.current.tr('ch.doc');
       default:
-        return hasMedia ? 'Attachment' : '';
+        return hasMedia ? AppLocalizations.current.tr('ch.attach') : '';
     }
   }
 

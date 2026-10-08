@@ -12,6 +12,7 @@ import '../../core/settings/app_settings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'change_password_screen.dart';
+import '../../core/errors/user_facing_error.dart';
 
 const _kHairline = Color(0xFFC6C6C8);
 
@@ -53,7 +54,7 @@ class _SettingsPageState extends State<SettingsPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-      AppSnackBars.error(context, e.toString());
+      AppSnackBars.error(context, friendlyError(e));
     }
   }
 
@@ -126,7 +127,7 @@ class _SettingsPageState extends State<SettingsPage> {
       setState(() => _deleting = false);
       AppSnackBars.error(
         context,
-        e.toString().replaceFirst('Exception: ', ''),
+        friendlyError(e),
       );
     }
   }

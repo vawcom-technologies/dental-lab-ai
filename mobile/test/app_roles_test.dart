@@ -25,10 +25,10 @@ void main() {
       expect(AppRoles.isLaboratory('dentist'), isFalse);
     });
 
-    test('label uses Admin for the admin role', () {
+    test('label uses the German role names', () {
       expect(AppRoles.label('admin'), 'Admin');
-      expect(AppRoles.label('dentist'), 'Dentist');
-      expect(AppRoles.label('laboratory'), 'Laboratory');
+      expect(AppRoles.label('dentist'), 'Zahnarzt');
+      expect(AppRoles.label('laboratory'), 'Labor');
     });
   });
 }

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../core/api/api_client.dart';
 import '../../core/errors/user_facing_error.dart';
 import 'admin_user.dart';
+import '../../core/l10n/app_localizations.dart';
 
 enum AdminUserFilter { all, unverified, verified }
 
@@ -109,7 +110,7 @@ class AdminUsersController extends ChangeNotifier {
 
   Future<String> verifyUser(String userId) async {
     if (_actionBusy) {
-      throw StateError('Another laboratory action is already in progress');
+      throw StateError(AppLocalizations.current.tr('lab.busy'));
     }
     _actionBusy = true;
     _error = null;
@@ -121,7 +122,7 @@ class AdminUsersController extends ChangeNotifier {
       }
       return result.message;
     } catch (e) {
-      final msg = e.toString().replaceFirst('Exception: ', '');
+      final msg = friendlyError(e);
       _error = msg;
       rethrow;
     } finally {
@@ -132,7 +133,7 @@ class AdminUsersController extends ChangeNotifier {
 
   Future<String> softDeleteUser(String userId) async {
     if (_actionBusy) {
-      throw StateError('Another laboratory action is already in progress');
+      throw StateError(AppLocalizations.current.tr('lab.busy'));
     }
     _actionBusy = true;
     _error = null;
@@ -143,7 +144,7 @@ class AdminUsersController extends ChangeNotifier {
       if (_count > 0) _count -= 1;
       return result.message;
     } catch (e) {
-      final msg = e.toString().replaceFirst('Exception: ', '');
+      final msg = friendlyError(e);
       _error = msg;
       rethrow;
     } finally {
@@ -154,7 +155,7 @@ class AdminUsersController extends ChangeNotifier {
 
   Future<String> hardDeleteUser(String userId) async {
     if (_actionBusy) {
-      throw StateError('Another laboratory action is already in progress');
+      throw StateError(AppLocalizations.current.tr('lab.busy'));
     }
     _actionBusy = true;
     _error = null;
@@ -165,7 +166,7 @@ class AdminUsersController extends ChangeNotifier {
       if (_count > 0) _count -= 1;
       return result.message;
     } catch (e) {
-      final msg = e.toString().replaceFirst('Exception: ', '');
+      final msg = friendlyError(e);
       _error = msg;
       rethrow;
     } finally {

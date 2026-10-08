@@ -5,6 +5,7 @@ import '../../core/errors/user_facing_error.dart';
 import '../../core/theme/app_theme.dart';
 import 'patient_models.dart';
 import 'patients_api_service.dart';
+import '../../core/l10n/app_localizations.dart';
 
 /// Client state for the GDPR Patients module.
 class PatientsController extends ChangeNotifier {
@@ -176,7 +177,7 @@ class PatientsController extends ChangeNotifier {
     String status = 'pending',
   }) async {
     if (_mutating) {
-      throw StateError('Another patient change is already in progress');
+      throw StateError(AppLocalizations.current.tr('p.busy'));
     }
     _mutating = true;
     notifyListeners();
@@ -204,7 +205,7 @@ class PatientsController extends ChangeNotifier {
     Map<String, dynamic> fields,
   ) async {
     if (_mutating) {
-      throw StateError('Another patient change is already in progress');
+      throw StateError(AppLocalizations.current.tr('p.busy'));
     }
     _mutating = true;
     notifyListeners();
@@ -245,7 +246,7 @@ class PatientsController extends ChangeNotifier {
     required String targetUserId,
   }) async {
     if (_mutating) {
-      throw StateError('Another patient change is already in progress');
+      throw StateError(AppLocalizations.current.tr('p.busy'));
     }
     GdprPatient? patient;
     for (final p in _patients) {
@@ -426,7 +427,7 @@ class PatientsController extends ChangeNotifier {
     required String content,
   }) async {
     if (_mutating) {
-      throw StateError('Another patient change is already in progress');
+      throw StateError(AppLocalizations.current.tr('p.busy'));
     }
     _mutating = true;
     notifyListeners();
@@ -448,7 +449,7 @@ class PatientsController extends ChangeNotifier {
     required String content,
   }) async {
     if (_mutating) {
-      throw StateError('Another patient change is already in progress');
+      throw StateError(AppLocalizations.current.tr('p.busy'));
     }
     _mutating = true;
     notifyListeners();

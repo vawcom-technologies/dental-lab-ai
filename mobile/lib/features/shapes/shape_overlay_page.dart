@@ -15,6 +15,7 @@ import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
+import '../../core/errors/user_facing_error.dart';
 
 /// Single entry in the smile-shape library.
 class ShapeLibraryItem {
@@ -311,7 +312,7 @@ class _BatemModelAccordionState extends State<BatemModelAccordion> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        item.label,
+                        shapeLabel(context, item),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -600,7 +601,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       }
       await _consumeSmileHandoff();
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -722,7 +723,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
+        _error = friendlyError(e);
       });
     }
   }
@@ -746,19 +747,19 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
       return;
     }
     if (!mounted) return;
     if (photo == null) {
-      setState(() => _error = 'Photo not found for this patient.');
+      setState(() => _error = AppLocalizations.of(context).tr('sh.photoNF'));
       return;
     }
     await _openOnCanvas(
       '${photo['file_url'] ?? ''}',
       basePhotoId: photoId,
       filename: '${photo['filename'] ?? 'smile.jpg'}',
-      status: 'Opened from Camera — select a shape from the library.',
+      status: AppLocalizations.of(context).tr('sp.fromCam'),
     );
   }
 
@@ -782,7 +783,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       base,
       smileId: id,
       overlay: Map<String, dynamic>.from(overlay),
-      status: 'Reopened saved smile — adjust and Save changes.',
+      status: AppLocalizations.of(context).tr('sp.reopened'),
     );
   }
 
@@ -795,7 +796,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     String? status,
   }) async {
     if (url.trim().isEmpty) {
-      setState(() => _error = 'This photo has no file to open.');
+      setState(() => _error = AppLocalizations.of(context).tr('sp.noFile'));
       return;
     }
     setState(() {
@@ -815,7 +816,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -977,7 +978,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
         _openBatemIds
           ..clear()
           ..addAll([for (final (_, it) in _chosen) it.id]);
-        _status = 'Restored ${_chosen.map((c) => c.$2.label).join(' + ')}';
+        _status = AppLocalizations.of(context).trp('sh.restoredShape', {'n': _chosen.map((c) => shapeLabel(context, c.$2)).join(' + ')});
         _centeredOnce = true;
         _dirty = false;
       });
@@ -1032,7 +1033,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
 
   Future<void> _pickPhoto() async {
     if (_patient == null) {
-      setState(() => _error = 'Select a patient first.');
+      setState(() => _error = AppLocalizations.of(context).tr('sh.selPat'));
       return;
     }
     setState(() => _error = null);
@@ -1045,7 +1046,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       if (picked == null || picked.files.isEmpty) return;
       final bytes = picked.files.first.bytes;
       if (bytes == null || bytes.isEmpty) {
-        setState(() => _error = 'Could not read image bytes.');
+        setState(() => _error = AppLocalizations.of(context).tr('sp.bytes'));
         return;
       }
 
@@ -1060,11 +1061,11 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       await _applyPhotoBytes(
         Uint8List.fromList(bytes),
         filename: name,
-        status: 'Photo loaded — select a shape from the library.',
+        status: AppLocalizations.of(context).tr('sp.loaded'),
       );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     }
   }
 
@@ -1083,11 +1084,11 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       }
       if (remove) {
         _lowerActive = !lower && _lowerIndex != null;
-        _status = 'Removed ${item.label}';
+        _status = AppLocalizations.of(context).trp('sh.rm', {'n': shapeLabel(context, item)});
       } else {
         _lowerActive = lower;
         _openBatemIds.add(item.id);
-        _status = 'Selected ${item.label}';
+        _status = AppLocalizations.of(context).trp('sh.sel', {'n': shapeLabel(context, item)});
         _showOverlay = true;
       }
       _dirty = true;
@@ -1197,7 +1198,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     if (_saving) return;
     final patient = _patient;
     if (patient == null) {
-      setState(() => _error = 'Select a patient first');
+      setState(() => _error = AppLocalizations.of(context).tr('c.selPatFirst'));
       return;
     }
     if (_photoBytes == null) {
@@ -1206,7 +1207,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       return;
     }
     if (_chosen.isEmpty) {
-      setState(() => _error = 'Select a model first');
+      setState(() => _error = AppLocalizations.of(context).tr('sp.selModel'));
       return;
     }
     final canvas = _lastCanvas;
@@ -1259,15 +1260,15 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
             if ('${row['id']}' != id) row,
         ];
       });
-      final shapes = _chosen.map((c) => '“${c.$2.label}”').join(' + ');
+      final shapes = _chosen.map((c) => '“${shapeLabel(context, c.$2)}”').join(' + ');
       AppSnackBars.success(
         context,
         caseId is int
-            ? 'Saved $shapes to case #$caseId'
-            : 'Smile preview saved ($shapes)',
+            ? AppLocalizations.of(context).trp('sp.savedCase', {'s': shapes, 'c': caseId})
+            : AppLocalizations.of(context).trp('sp.saved', {'s': shapes}),
       );
     } catch (e) {
-      final msg = e.toString().replaceFirst('Exception: ', '');
+      final msg = friendlyError(e);
       setState(() => _error = msg);
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -1377,9 +1378,9 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     if (id.isEmpty) return;
     final ok = await AppDialogs.confirm(
       context,
-      title: 'Delete saved smile?',
-      message: 'This removes it from the patient record.',
-      confirmLabel: 'Delete',
+      title: AppLocalizations.of(context).tr('sp.delQ'),
+      message: AppLocalizations.of(context).tr('sp.delMsg'),
+      confirmLabel: AppLocalizations.of(context).commonDelete,
       isDestructive: true,
     );
     if (!ok || !mounted) return;
@@ -1403,11 +1404,11 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
           _pendingOverlay = null;
           _dirty = false;
         }
-        _status = 'Saved smile deleted';
+        _status = AppLocalizations.of(context).tr('sp.deleted');
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -1434,7 +1435,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    'Saved smiles (${_smileItems.length})',
+                    AppLocalizations.of(context).trp('sp.savedN', {'n': _smileItems.length}),
                     style: const TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: 13,
@@ -1488,7 +1489,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                           top: 0,
                           right: 0,
                           child: IconButton(
-                            tooltip: 'Delete saved smile',
+                            tooltip: AppLocalizations.of(context).tr('sp.delTip'),
                             visualDensity: VisualDensity.compact,
                             padding: EdgeInsets.zero,
                             constraints: const BoxConstraints.tightFor(
@@ -1534,7 +1535,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
           onAdd: _openNewPatientPage,
           onRefresh: _reloadPatients,
           enabled: !_saving,
-          emptyHint: 'No patients yet — add one to save the try-on.',
+          emptyHint: AppLocalizations.of(context).tr('sp.noPat'),
         ),
         OutlinedButton.icon(
           onPressed: _saving || _patient == null ? null : _pickPhoto,
@@ -1552,10 +1553,10 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
               : Icon(_dirty ? Icons.save : Icons.save_outlined, size: 18),
           label: Text(
             _saving
-                ? 'Saving…'
+                ? AppLocalizations.of(context).tr('sp.saving')
                 : _dirty
-                    ? 'Save changes'
-                    : (_case?['id'] is int ? 'Save to case' : 'Save'),
+                    ? AppLocalizations.of(context).tr('sp.saveChanges')
+                    : (_case?['id'] is int ? AppLocalizations.of(context).tr('sp.saveToCase') : AppLocalizations.of(context).save),
           ),
         ),
       ],
@@ -1646,8 +1647,8 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                 ? Icons.fullscreen_exit
                 : Icons.fullscreen,
             tip: _fsController.value > 0.5
-                ? 'Exit fullscreen'
-                : 'Fullscreen',
+                ? AppLocalizations.of(context).tr('sp.exitFs')
+                : AppLocalizations.of(context).tr('sp.fs'),
             onTap: _toggleFullscreen,
           ),
         ),
@@ -1820,7 +1821,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              '${item.id} · ${item.label}',
+                              '${item.id} · ${shapeLabel(context, item)}',
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.w700,
@@ -1841,7 +1842,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                 children: [
                   _StageIconBtn(
                     icon: _comparing ? Icons.visibility_off : Icons.visibility,
-                    tip: 'Hold to compare original',
+                    tip: AppLocalizations.of(context).tr('sp.compare'),
                     onTapDown: () => setState(() => _comparing = true),
                     onTapUp: () => setState(() => _comparing = false),
                     onTapCancel: () => setState(() => _comparing = false),
@@ -1851,7 +1852,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                     icon: _showOverlay
                         ? Icons.layers_outlined
                         : Icons.layers_clear_outlined,
-                    tip: _showOverlay ? 'Hide overlay' : 'Show overlay',
+                    tip: _showOverlay ? AppLocalizations.of(context).tr('sp.hideOv') : AppLocalizations.of(context).tr('sp.showOv'),
                     onTap: () => setState(() => _showOverlay = !_showOverlay),
                   ),
                   const SizedBox(width: 6),
@@ -1891,8 +1892,8 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                     ? Icons.fullscreen_exit
                     : Icons.fullscreen,
                 tip: _fsController.value > 0.5
-                    ? 'Exit fullscreen'
-                    : 'Fullscreen',
+                    ? AppLocalizations.of(context).tr('sp.exitFs')
+                    : AppLocalizations.of(context).tr('sp.fs'),
                 onTap: _toggleFullscreen,
               ),
             ),
@@ -1907,7 +1908,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     final loc = AppLocalizations.of(context);
     final sel = _selected;
     if (sel == null) return '—';
-    return '${_lowerActive ? loc.smileLowerJaw : loc.smileUpperJaw} · ${sel.label}';
+    return '${_lowerActive ? loc.smileLowerJaw : loc.smileUpperJaw} · ${shapeLabel(context, sel)}';
   }
 
   Widget _libraryHeader() {
@@ -2540,3 +2541,7 @@ class _SliderRow extends StatelessWidget {
     );
   }
 }
+
+/// Localized display name of a library shape (keyed by its English label).
+String shapeLabel(BuildContext context, ShapeLibraryItem it) =>
+    AppLocalizations.of(context).tr('shape.${it.label}');

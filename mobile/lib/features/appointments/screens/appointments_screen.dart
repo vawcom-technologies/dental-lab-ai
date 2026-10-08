@@ -1633,7 +1633,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                                         vertical: 10,
                                       ),
                                       child: Text(
-                                        '$m min',
+                                        AppLocalizations.current.trp('ap.min', {'m': m}),
                                         style: AppFonts.style(
                                           fontSize: 13,
                                           fontWeight: FontWeight.w600,

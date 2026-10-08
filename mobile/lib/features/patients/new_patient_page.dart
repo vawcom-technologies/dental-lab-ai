@@ -6,6 +6,7 @@ import '../../core/layout/adaptive.dart';
 import '../../core/session/patient_session.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'patient_models.dart';
+import '../../core/errors/user_facing_error.dart';
 
 class NewPatientPage extends StatefulWidget {
   const NewPatientPage({
@@ -58,7 +59,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
       widget.onCreated();
     } catch (e) {
       if (!mounted) return;
-      AppSnackBars.error(context, e.toString());
+      AppSnackBars.error(context, friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -102,12 +103,12 @@ class _NewPatientPageState extends State<NewPatientPage> {
                         _address.clear();
                         _insurance.clear();
                       },
-                label: 'Clear',
+                label: AppLocalizations.of(context).tr('p.clear'),
               ),
               AppButtons.primary(
                 onPressed: _loading ? null : _save,
                 icon: Icons.check_rounded,
-                label: _loading ? 'Saving…' : loc.createPatient,
+                label: _loading ? AppLocalizations.of(context).tr('p.saving') : loc.createPatient,
                 busy: _loading,
               ),
             ],
@@ -119,7 +120,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
               child: SectionCard(
                 child: ListView(
                   children: [
-                    const SectionLabel('Identity'),
+                    SectionLabel(AppLocalizations.of(context).tr('p.identity')),
                     const SizedBox(height: 14),
                     Row(
                       children: [
@@ -132,7 +133,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
                             ),
                             validator: (v) =>
                                 (v == null || v.trim().isEmpty)
-                                    ? 'Required'
+                                    ? AppLocalizations.of(context).tr('p.required')
                                     : null,
                           ),
                         ),
@@ -146,7 +147,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
                             ),
                             validator: (v) =>
                                 (v == null || v.trim().isEmpty)
-                                    ? 'Required'
+                                    ? AppLocalizations.of(context).tr('p.required')
                                     : null,
                           ),
                         ),
@@ -163,15 +164,15 @@ class _NewPatientPageState extends State<NewPatientPage> {
                       controller: _email,
                       keyboardType: TextInputType.emailAddress,
                       autofillHints: const [AutofillHints.email],
-                      decoration: const InputDecoration(
-                        labelText: 'Email Address *',
+                      decoration: InputDecoration(
+                        labelText: AppLocalizations.of(context).tr('p.emailLabel'),
                       ),
-                      validator: validatePatientEmail,
+                      validator: (v) => validatePatientEmail(v, AppLocalizations.of(context)),
                     ),
                     const SizedBox(height: 14),
                     PhoneField(
                       controller: _phone,
-                      labelText: 'Phone *',
+                      labelText: AppLocalizations.of(context).phone,
                     ),
                     const SizedBox(height: 14),
                     TextFormField(
@@ -180,7 +181,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
                         labelText: '${loc.healthInsurance} *',
                       ),
                       validator: (v) =>
-                          (v == null || v.trim().isEmpty) ? 'Required' : null,
+                          (v == null || v.trim().isEmpty) ? AppLocalizations.of(context).tr('p.required') : null,
                     ),
                     const SizedBox(height: 14),
                     TextFormField(
@@ -191,7 +192,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
                         labelText: '${loc.address} *',
                       ),
                       validator: (v) =>
-                          (v == null || v.trim().isEmpty) ? 'Required' : null,
+                          (v == null || v.trim().isEmpty) ? AppLocalizations.of(context).tr('p.required') : null,
                     ),
                   ],
                 ),

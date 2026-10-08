@@ -102,7 +102,7 @@ class _DashboardPageState extends State<DashboardPage> {
   String _patientName(Map<String, dynamic> c) {
     final name =
         '${c['first_name'] ?? ''} ${c['last_name'] ?? ''}'.trim();
-    return name.isEmpty ? 'Unknown' : name;
+    return name.isEmpty ? AppLocalizations.current.tr('c.unknown') : name;
   }
 
   int get _completed =>

@@ -59,6 +59,9 @@ class ShadePhotoPane extends StatelessWidget {
     required this.onRedo,
     this.guideLines = const {},
     this.symmetryView = false,
+    this.lipBottom,
+    this.onLipBottomChanged,
+    this.onLipBottomEnd,
     this.onToggleSymmetry,
     this.focusSelected = false,
     this.onToggleFocus,
@@ -75,6 +78,10 @@ class ShadePhotoPane extends StatelessWidget {
   final String focusZone;
   final Map<String, List<List<double>>> guideLines;
   final bool symmetryView;
+  /// Symmetry view: draggable height of the lower-lip line.
+  final ValueNotifier<double?>? lipBottom;
+  final ValueChanged<double>? onLipBottomChanged;
+  final VoidCallback? onLipBottomEnd;
   final VoidCallback? onToggleSymmetry;
   /// Photo shows only the selected tooth; null [onToggleFocus] = disabled.
   final bool focusSelected;
@@ -233,6 +240,7 @@ class ShadePhotoPane extends StatelessWidget {
                                           painter: ToothOverlayPainter(
                                             repaint: Listenable.merge([
                                               dragTick,
+                                              if (lipBottom != null) lipBottom!,
                                               photoTransformController,
                                             ]),
                                             teeth: teeth,
@@ -242,6 +250,7 @@ class ShadePhotoPane extends StatelessWidget {
                                             focusZone: focusZone,
                                             guideLines: guideLines,
                                             symmetryView: symmetryView,
+                                            lipBottom: lipBottom,
                                             focusSelected: focusSelected,
                                             editMode: editOutlineMode,
                                             editOutline: editOutline,
@@ -254,6 +263,74 @@ class ShadePhotoPane extends StatelessWidget {
                                         ),
                                       );
 
+                                      if (!editOutlineMode &&
+                                          symmetryView &&
+                                          lipBottom != null &&
+                                          onLipBottomChanged != null) {
+                                        final dest = containRect(box, imgSize);
+                                        final bottomY = lipBottom!.value ??
+                                            lipSymmetryLines(guideLines)
+                                                .bottomY;
+                                        ({String kind, int index})? hitLip(
+                                          Offset local,
+                                        ) {
+                                          final y = lipBottom!.value ??
+                                              lipSymmetryLines(guideLines)
+                                                  .bottomY;
+                                          if (y == null) return null;
+                                          final scale = photoTransformController
+                                              .value
+                                              .getMaxScaleOnAxis()
+                                              .clamp(1.0, 4.0);
+                                          final ly = normToLocal([0, y], dest).dy;
+                                          return (local.dy - ly).abs() <=
+                                                      28 / scale &&
+                                                  local.dx >= dest.left &&
+                                                  local.dx <= dest.right
+                                              ? (kind: 'l', index: 0)
+                                              : null;
+                                        }
+
+                                        if (bottomY == null) return paint;
+                                        return RawGestureDetector(
+                                          behavior: HitTestBehavior.translucent,
+                                          gestures: <Type,
+                                              GestureRecognizerFactory>{
+                                            OutlineEditDragRecognizer:
+                                                GestureRecognizerFactoryWithHandlers<
+                                                    OutlineEditDragRecognizer>(
+                                              OutlineEditDragRecognizer.new,
+                                              (r) => r
+                                                ..hitAt = hitLip
+                                                ..onStart = (d) {
+                                                  onLipBottomChanged!(
+                                                    localToNorm(
+                                                      d.localPosition,
+                                                      dest,
+                                                    )[1]
+                                                        .clamp(0.0, 1.0),
+                                                  );
+                                                }
+                                                ..onUpdate = (d) {
+                                                  onLipBottomChanged!(
+                                                    localToNorm(
+                                                      d.localPosition,
+                                                      dest,
+                                                    )[1]
+                                                        .clamp(0.0, 1.0),
+                                                  );
+                                                }
+                                                ..onEnd = (_) {
+                                                  onLipBottomEnd?.call();
+                                                }
+                                                ..onCancel = () {
+                                                  onLipBottomEnd?.call();
+                                                },
+                                            ),
+                                          },
+                                          child: paint,
+                                        );
+                                      }
                                       if (!editOutlineMode) return paint;
 
                                       return RawGestureDetector(
@@ -380,8 +457,8 @@ class ShadePhotoPane extends StatelessWidget {
                   bottom: 12,
                   child: Text(
                     editOutlineMode
-                        ? 'Hold inside the outline and drag to move it · corners reshape · mid-edge curves · Apply.'
-                        : 'Pinch to zoom · Tap to select · Press & hold for photo actions.',
+                        ? AppLocalizations.of(context).tr('sh.holdHelp')
+                        : AppLocalizations.of(context).tr('sh.pinchHelp'),
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.85),

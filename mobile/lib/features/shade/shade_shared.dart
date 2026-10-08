@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/l10n/app_localizations.dart';
 
 const kShadeCardGlow = [
   BoxShadow(
@@ -215,8 +216,12 @@ Widget shadeEnamelFill(String shade) {
   );
 }
 
-String capitalizeZone(String zone) =>
-    zone.isEmpty ? zone : zone[0].toUpperCase() + zone.substring(1);
+String capitalizeZone(String zone) {
+  if (zone.isEmpty) return zone;
+  final k = 'z.$zone';
+  final t = AppLocalizations.current.tr(k);
+  return t == k ? zone[0].toUpperCase() + zone.substring(1) : t;
+}
 
 /// ISO 3950 / FDI number stored on a detected tooth, if the backend assigned one.
 int? toothFdi(Map tooth) {
@@ -238,7 +243,7 @@ String toothDisplayLabel(Map tooth) {
   final label = tooth['label']?.toString();
   if (label != null && label.isNotEmpty) return label;
   final idx = (tooth['tooth_index'] as num?)?.toInt() ?? 0;
-  return 'Tooth ${idx + 1}';
+  return AppLocalizations.current.trp('sh.tooth', {'n': idx + 1});
 }
 
 /// FDI from a (possibly user-moved) [midline] `[[x, top], [x, bottom]]`:

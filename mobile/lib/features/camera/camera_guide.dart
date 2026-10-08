@@ -4,15 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 
 import 'camera_preview_fit.dart';
+import '../../core/l10n/app_localizations.dart';
 
 /// Which dental arch the dentist wants in frame.
 enum JawFocus { both, top, bottom }
 
 extension JawFocusLabel on JawFocus {
   String get label => switch (this) {
-        JawFocus.both => 'Both jaws',
-        JawFocus.top => 'Upper teeth',
-        JawFocus.bottom => 'Lower teeth',
+        JawFocus.both => AppLocalizations.current.tr('lc.both'),
+        JawFocus.top => AppLocalizations.current.tr('lc.upper'),
+        JawFocus.bottom => AppLocalizations.current.tr('lc.lower'),
       };
 }
 

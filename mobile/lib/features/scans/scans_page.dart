@@ -113,10 +113,10 @@ class _ScansPageState extends State<ScansPage>
       showDragHandle: true,
       builder: (ctx) => SafeArea(
         child: _inbox.isEmpty
-            ? const Padding(
+            ? Padding(
                 padding: EdgeInsets.all(32),
                 child: Text(
-                  'No incoming scans. Send scans from a PC at /scan-upload on your server (photos arrive on the Camera tab).',
+                  AppLocalizations.of(context).tr('s.noIncoming'),
                   textAlign: TextAlign.center,
                 ),
               )
@@ -169,9 +169,9 @@ class _ScansPageState extends State<ScansPage>
     if (item == null || patient == null || _busy) return;
     final ok = await AppDialogs.confirm(
       context,
-      title: 'Assign scan',
-      message: 'Add "${item['file_name']}" to $_patientLabel?',
-      confirmLabel: 'Assign',
+      title: AppLocalizations.of(context).tr('s.assignTitle'),
+      message: AppLocalizations.of(context).trp('s.assignMsg', {'f': item['file_name'], 'p': _patientLabel}),
+      confirmLabel: AppLocalizations.of(context).tr('s.assign'),
     );
     if (!ok || !mounted) return;
     setState(() => _busy = true);
@@ -183,7 +183,7 @@ class _ScansPageState extends State<ScansPage>
       });
       await _loadInbox();
       await _selectPatient(patient, publish: false);
-      if (mounted) AppSnackBars.success(context, 'Scan added to $_patientLabel');
+      if (mounted) AppSnackBars.success(context, AppLocalizations.of(context).trp('s.added', {'p': _patientLabel}));
     } catch (e) {
       if (mounted) AppSnackBars.error(context, friendlyError(e));
     } finally {
@@ -389,7 +389,7 @@ class _ScansPageState extends State<ScansPage>
         _vertices = sampled.vertices;
         _vertexCount = sampled.vertexCount;
         _previewError = sampled.vertices.isEmpty
-            ? (sampled.error ?? 'Preview has no points')
+            ? (sampled.error ?? AppLocalizations.of(context).tr('s.noPoints'))
             : null;
         _previewLoading = false;
       });
@@ -409,7 +409,7 @@ class _ScansPageState extends State<ScansPage>
       if (!mounted || _previewScanId != scanId) return;
       setState(() {
         _vertices = const [];
-        _previewError = e.toString().replaceFirst('Exception: ', '');
+        _previewError = friendlyError(e);
         _previewLoading = false;
       });
     }
@@ -487,7 +487,7 @@ class _ScansPageState extends State<ScansPage>
         _previewBytes = null;
         _previewFilename = null;
         _vertices = const [];
-        _previewError = 'Scan preview unavailable';
+        _previewError = AppLocalizations.of(context).tr('s.prevUnavail');
         _previewLoading = false;
         _previewScanId = scanId;
       });
@@ -515,7 +515,7 @@ class _ScansPageState extends State<ScansPage>
       if (!mounted || _previewScanId != scanId) return;
       setState(() {
         _vertices = const [];
-        _previewError = e.toString().replaceFirst('Exception: ', '');
+        _previewError = friendlyError(e);
         _previewLoading = false;
       });
     }
@@ -528,7 +528,7 @@ class _ScansPageState extends State<ScansPage>
       if (picked == null) return;
       final bytes = picked.bytes;
       if (bytes.isEmpty) {
-        if (mounted) AppSnackBars.error(context, 'Could not read file bytes');
+        if (mounted) AppSnackBars.error(context, AppLocalizations.of(context).tr('s.readFail'));
         return;
       }
 
@@ -584,7 +584,7 @@ class _ScansPageState extends State<ScansPage>
       if (mounted) {
         AppSnackBars.success(
           context,
-          '${_formatOf(name).toUpperCase()} scan uploaded',
+          AppLocalizations.current.trp('s.uploaded', {'f': _formatOf(name).toUpperCase()}),
         );
       }
     } catch (e) {
@@ -659,7 +659,7 @@ class _ScansPageState extends State<ScansPage>
     required AppLocalizations loc,
   }) {
     final selected = index == _selected;
-    final file = '${scan['filename'] ?? 'Scan #${scan['id']}'}';
+    final file = '${scan['filename'] ?? '${AppLocalizations.current.tr('s.scan')} #${scan['id']}'}';
     final short = file.length > 28 ? '${file.substring(0, 26)}…' : file;
     final subtitle =
         '${scan['patient_name'] ?? _patientLabel}'
@@ -820,8 +820,8 @@ class _ScansPageState extends State<ScansPage>
                                 icon: const Icon(Icons.inbox_outlined, size: 18),
                                 label: Text(
                                   _inbox.isEmpty
-                                      ? 'Incoming'
-                                      : 'Incoming (${_inbox.length})',
+                                      ? AppLocalizations.of(context).tr('c.incoming')
+                                      : '${AppLocalizations.of(context).tr('c.incoming')} (${_inbox.length})',
                                 ),
                               ),
                               FilledButton.icon(
@@ -854,7 +854,7 @@ class _ScansPageState extends State<ScansPage>
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Text(
-                                      'Incoming: ${_incoming!['file_name']}',
+                                      AppLocalizations.of(context).trp('s.incomingName', {'n': _incoming!['file_name']}),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(
@@ -866,16 +866,16 @@ class _ScansPageState extends State<ScansPage>
                                         ? null
                                         : _assignIncoming,
                                     child: Text(_patient == null
-                                        ? 'Select a patient'
-                                        : 'Assign to $_patientLabel'),
+                                        ? AppLocalizations.of(context).tr('c.selPatFirst')
+                                        : AppLocalizations.of(context).trp('s.assignTo', {'p': _patientLabel})),
                                   ),
                                   IconButton(
-                                    tooltip: 'Delete',
+                                    tooltip: AppLocalizations.of(context).commonDelete,
                                     onPressed: _busy ? null : _deleteIncoming,
                                     icon: const Icon(Icons.delete_outline),
                                   ),
                                   IconButton(
-                                    tooltip: 'Close',
+                                    tooltip: AppLocalizations.of(context).commonClose,
                                     onPressed: _closeIncoming,
                                     icon: const Icon(Icons.close),
                                   ),
@@ -952,10 +952,10 @@ class _ScansPageState extends State<ScansPage>
                                         vertical: 8,
                                       ),
                                       child: _mediaLoading
-                                          ? const Center(
+                                          ? Center(
                                               child: ToothLoadingIndicator(
                                                 size: 40,
-                                                loadingText: 'Loading scans…',
+                                                loadingText: AppLocalizations.of(context).tr('s.loading'),
                                               ),
                                             )
                                           : _scans.isEmpty
@@ -1014,7 +1014,7 @@ class _ScansPageState extends State<ScansPage>
                                       child: Text(
                                         scan == null
                                             ? loc.scansNoneSelected
-                                            : '${scan['filename'] ?? 'Scan #${scan['id']}'}'
+                                            : '${scan['filename'] ?? '${AppLocalizations.current.tr('s.scan')} #${scan['id']}'}'
                                                 ' · ${scan['patient_name'] ?? _patientLabel}',
                                         style: const TextStyle(
                                           fontWeight: FontWeight.w700,

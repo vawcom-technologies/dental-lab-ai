@@ -43,7 +43,7 @@ class InboxScreen extends StatelessWidget {
             icon: Icons.chat_bubble_outline,
             title: loc.messagesTitle,
             subtitle: controller.socketConnected
-                ? 'Live · ${controller.totalUnread} unread'
+                ? AppLocalizations.current.trp('ch.live', {'n': controller.totalUnread})
                 : loc.messagesReconnecting,
             chromeActions: [
               AppButtons.icon(
@@ -310,7 +310,7 @@ class _ConversationTile extends StatelessWidget {
     final partner = conversation.partner;
     final preview = conversation.lastMessage?.previewText.isNotEmpty == true
         ? conversation.lastMessage!.previewText
-        : 'No messages yet';
+        : AppLocalizations.current.tr('ch.noMsgs');
     final time = conversation.lastMessage?.createdAt ??
         conversation.updatedAt ??
         conversation.createdAt;

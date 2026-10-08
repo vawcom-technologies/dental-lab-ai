@@ -5,6 +5,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'patient_models.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/errors/user_facing_error.dart';
 
 class PatientFormScreen extends StatefulWidget {
   const PatientFormScreen({super.key, required this.api});
@@ -49,7 +50,7 @@ class _PatientFormScreenState extends State<PatientFormScreen> {
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
-      if (mounted) AppSnackBars.error(context, e.toString());
+      if (mounted) AppSnackBars.error(context, friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -101,7 +102,7 @@ class _PatientFormScreenState extends State<PatientFormScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Email Address *',
                     ),
-                    validator: validatePatientEmail,
+                    validator: (v) => validatePatientEmail(v, AppLocalizations.of(context)),
                   ),
                   const SizedBox(height: 12),
                   PhoneField(

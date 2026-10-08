@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../models/chat_models.dart';
+import '../../../core/l10n/app_localizations.dart';
 
 /// Persistent WebSocket client for `/ws/chat`.
 ///
@@ -156,7 +157,7 @@ class ChatSocketService {
           _reads.add(MessagesReadEvent.fromJson(map));
           break;
         case 'error':
-          final detail = '${map['detail'] ?? 'WebSocket error'}';
+          final detail = '${map['detail'] ?? AppLocalizations.current.tr('err.network')}';
           _errors.add(detail);
           break;
         case 'pong':
@@ -186,13 +187,13 @@ class ChatSocketService {
   void _send(Map<String, dynamic> payload) {
     final channel = _channel;
     if (channel == null) {
-      _errors.add('Not connected to chat');
+      _errors.add(AppLocalizations.current.tr('err.network'));
       return;
     }
     try {
       channel.sink.add(jsonEncode(payload));
     } catch (e) {
-      _errors.add('Failed to send: $e');
+      _errors.add(AppLocalizations.current.tr('err.network'));
     }
   }
 

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/widgets/ui_kit.dart';
+import '../../core/l10n/app_localizations.dart';
 
 /// Camera tab "Incoming (n)": photos sent from the PC page (/scan-upload).
 /// Pick one, check it, add it to the selected patient's photos. Scans arrive on
@@ -73,10 +74,10 @@ class _IncomingPhotosButtonState extends State<IncomingPhotosButton> {
       showDragHandle: true,
       builder: (ctx) => SafeArea(
         child: _items.isEmpty
-            ? const Padding(
+            ? Padding(
                 padding: EdgeInsets.all(32),
                 child: Text(
-                  'No incoming photos. Send photos from a PC at /scan-upload on your server.',
+                  AppLocalizations.of(context).tr('c.noIncoming'),
                   textAlign: TextAlign.center,
                 ),
               )
@@ -135,10 +136,10 @@ class _IncomingPhotosButtonState extends State<IncomingPhotosButton> {
               const SizedBox(height: 12),
               StatefulBuilder(
                 builder: (ctx, setInner) => SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(value: 'frontal', label: Text('Frontal')),
-                    ButtonSegment(value: 'left', label: Text('Left')),
-                    ButtonSegment(value: 'right', label: Text('Right')),
+                  segments: [
+                    ButtonSegment(value: 'frontal', label: Text(AppLocalizations.of(context).cameraAngleLabel('frontal'))),
+                    ButtonSegment(value: 'left', label: Text(AppLocalizations.of(context).cameraAngleLabel('left'))),
+                    ButtonSegment(value: 'right', label: Text(AppLocalizations.of(context).cameraAngleLabel('right'))),
                   ],
                   selected: {angle},
                   onSelectionChanged: (v) => setInner(() => angle = v.first),
@@ -150,12 +151,12 @@ class _IncomingPhotosButtonState extends State<IncomingPhotosButton> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, 'delete'),
-            child: const Text('Delete'),
+            child: Text(AppLocalizations.of(context).commonDelete),
           ),
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(AppLocalizations.of(context).commonClose)),
           FilledButton(
             onPressed: pid == null ? null : () => Navigator.pop(ctx, 'assign'),
-            child: Text(pid == null ? 'Select a patient first' : 'Add to ${widget.patientLabel}'),
+            child: Text(pid == null ? AppLocalizations.of(context).tr('c.selPatFirst') : AppLocalizations.of(context).trp('c.addTo', {'n': widget.patientLabel})),
           ),
         ],
       ),
@@ -183,17 +184,17 @@ class _IncomingPhotosButtonState extends State<IncomingPhotosButton> {
     final choice = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Photo added'),
-        content: Text("Saved to ${widget.patientLabel}'s photos. Open it now?"),
+        title: Text(AppLocalizations.of(context).tr('c.photoAdded')),
+        content: Text(AppLocalizations.of(context).trp('c.savedTo', {'n': widget.patientLabel})),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Later')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(AppLocalizations.of(context).tr('c.later'))),
           TextButton(
             onPressed: () => Navigator.pop(ctx, 'smile'),
-            child: const Text('Smile Preview'),
+            child: Text(AppLocalizations.of(context).navSmilePreview),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, 'shade'),
-            child: const Text('Shade Detection'),
+            child: Text(AppLocalizations.of(context).navShade),
           ),
         ],
       ),
@@ -221,7 +222,7 @@ class _IncomingPhotosButtonState extends State<IncomingPhotosButton> {
     return OutlinedButton.icon(
       onPressed: widget.enabled && !_busy ? _open : null,
       icon: const Icon(Icons.inbox_outlined, size: 18),
-      label: Text(_items.isEmpty ? 'Incoming' : 'Incoming (${_items.length})'),
+      label: Text(_items.isEmpty ? AppLocalizations.of(context).tr('c.incoming') : '${AppLocalizations.of(context).tr('c.incoming')} (${_items.length})'),
     );
   }
 }

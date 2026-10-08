@@ -9,6 +9,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'admin_user.dart';
 import 'admin_users_controller.dart';
+import '../../core/errors/user_facing_error.dart';
 
 class LaboratoriesPage extends StatefulWidget {
   const LaboratoriesPage({
@@ -69,7 +70,7 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
       if (!mounted) return;
       AppSnackBars.error(
         context,
-        e.toString().replaceFirst('Exception: ', ''),
+        friendlyError(e),
       );
     } finally {
       if (mounted) setState(() => _openingChat = false);
@@ -108,7 +109,7 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
       if (!mounted) return;
       AppSnackBars.error(
         context,
-        e.toString().replaceFirst('Exception: ', ''),
+        friendlyError(e),
       );
     }
   }
@@ -152,7 +153,7 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
       if (!mounted) return;
       AppSnackBars.error(
         context,
-        e.toString().replaceFirst('Exception: ', ''),
+        friendlyError(e),
       );
     }
   }

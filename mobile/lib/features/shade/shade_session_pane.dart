@@ -149,7 +149,7 @@ class ShadeSessionPane extends StatelessWidget {
                                           '${h['shade'] ?? '—'}';
                                       return SessionRecent(
                                         key: ValueKey('session-$sessionKey'),
-                                        name: h['name'] as String? ?? 'Patient',
+                                        name: h['name'] as String? ?? AppLocalizations.of(context).tr('sh.patient'),
                                         shade: shade,
                                         conf: (h['conf'] as num?)?.toDouble() ??
                                             0,
@@ -161,7 +161,7 @@ class ShadeSessionPane extends StatelessWidget {
                                         swatch: swatch,
                                         thumbnail: thumbnail?.call(h),
                                         note: h['not_analysed'] == true
-                                            ? 'Not analysed yet'
+                                            ? AppLocalizations.of(context).tr('sh.notAnalysed')
                                             : null,
                                         onOpen: () => onOpen(i),
                                         onDelete: () => onDelete(i),
@@ -223,7 +223,7 @@ class _SessionRecentState extends State<SessionRecent> {
     final teeth = widget.teeth;
     final countLabel = teeth.isEmpty
         ? null
-        : (teeth.length == 1 ? '1 tooth' : '${teeth.length} teeth');
+        : (teeth.length == 1 ? AppLocalizations.current.tr('sh.oneTooth') : AppLocalizations.current.trp('sh.nTeeth', {'n': teeth.length}));
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -312,7 +312,7 @@ class _SessionRecentState extends State<SessionRecent> {
                                       [
                                         widget.shade,
                                         ?countLabel,
-                                        if (widget.isOverride) 'Override',
+                                        if (widget.isOverride) AppLocalizations.of(context).tr('sh.override'),
                                       ].join(' · '),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
@@ -349,7 +349,7 @@ class _SessionRecentState extends State<SessionRecent> {
                       child: Align(
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          widget.selected ? 'Editing now' : 'Tap to edit',
+                          widget.selected ? AppLocalizations.of(context).tr('sh.editingNow') : AppLocalizations.of(context).tr('sh.tapEdit'),
                           style: AppFonts.style(
                             fontSize: 14,
                             fontWeight: FontWeight.w700,
@@ -374,7 +374,7 @@ class _SessionRecentState extends State<SessionRecent> {
                         child: Row(
                           children: [
                             Text(
-                              _expanded ? 'Hide' : 'Teeth',
+                              _expanded ? AppLocalizations.of(context).tr('sh.hideTeeth') : AppLocalizations.of(context).tr('sh.teeth'),
                               style: AppFonts.style(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
@@ -418,7 +418,7 @@ class _SessionRecentState extends State<SessionRecent> {
                           children: [
                             for (final z in kShadeZones)
                               SessionZoneChip(
-                                zone: z[0].toUpperCase(),
+                                zone: capitalizeZone(z)[0],
                                 shade: (t['zones'] is Map)
                                     ? (t['zones'] as Map)[z]?.toString()
                                     : null,
@@ -444,8 +444,8 @@ class _SessionRecentState extends State<SessionRecent> {
                 const SizedBox(height: 6),
                 Text(
                   widget.conf > 0
-                      ? '${(widget.conf * 100).round()}% confidence'
-                      : 'Manual selection',
+                      ? AppLocalizations.of(context).trp('sh.conf', {'n': (widget.conf * 100).round()})
+                      : AppLocalizations.of(context).tr('sh.manual'),
                   style: AppFonts.style(
                     fontSize: 12,
                     color: AppColors.muted,

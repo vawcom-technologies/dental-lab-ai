@@ -566,7 +566,7 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
                               const SizedBox(height: 2),
                               Text(
                                 confidence > 0
-                                    ? '${(confidence * 100).round()}% match · $focusZone'
+                                    ? '${(confidence * 100).round()}% ${AppLocalizations.of(context).tr('sh.match')} · $focusZone'
                                     : AppLocalizations.of(context)
                                         .shadeUploadToAnalyze,
                                 style: const TextStyle(
@@ -619,7 +619,7 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
                   if (finalShade != null) ...[
                     const SizedBox(height: 8),
                     Text(
-                      'Saved final: $finalShade',
+                      AppLocalizations.of(context).trp('sh.savedFinal', {'s': finalShade}),
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
@@ -844,8 +844,8 @@ class ShadeOutlineLoupe extends StatelessWidget {
                     color: Colors.black45,
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Text(
-                    'Edge view',
+                  child: Text(
+                    AppLocalizations.of(context).tr('sh.edgeView'),
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 12,
@@ -1191,7 +1191,7 @@ class GumShadeCard extends StatelessWidget {
                             ? loc.shadeOverrideSelected(pendingShade!)
                             : (overridden && detected != null
                                 ? '${loc.shadeOverride} · $detected → $effective'
-                                : '${(conf * 100).round()}% match'),
+                                : '${(conf * 100).round()}% ${AppLocalizations.of(context).tr('sh.match')}'),
                         style: const TextStyle(
                           fontSize: 12,
                           color: AppColors.muted,

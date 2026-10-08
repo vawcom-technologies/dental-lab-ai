@@ -1,6 +1,8 @@
 /// GDPR patient domain models + AgentResponse envelope.
 library;
 
+import '../../core/l10n/app_localizations.dart';
+
 class AgentApiException implements Exception {
   AgentApiException({
     required this.httpCode,
@@ -92,7 +94,7 @@ class AgentEnvelope {
     throw AgentApiException(
       httpCode: httpCode == 0 ? 400 : httpCode,
       code: errorCode ?? 'UNKNOWN_ERROR',
-      message: errorMessage ?? 'An unexpected error occurred.',
+      message: errorMessage ?? AppLocalizations.current.tr('err.unexpected'),
       action: action,
     );
   }
@@ -133,7 +135,7 @@ class GdprPatient {
 
   String get fullName {
     final n = '$firstName $lastName'.trim();
-    return n.isEmpty ? 'Unnamed patient' : n;
+    return n.isEmpty ? AppLocalizations.current.tr('p.unnamed') : n;
   }
 
   bool isOwnedBy(String? userId) =>
@@ -223,13 +225,13 @@ class GdprPatient {
 }
 
 /// Strict patient email validation for create/edit forms.
-String? validatePatientEmail(String? value) {
+String? validatePatientEmail(String? value, AppLocalizations l) {
   if (value == null || value.trim().isEmpty) {
-    return 'Email address is required';
+    return l.tr('p.emailReq');
   }
   final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
   if (!emailRegex.hasMatch(value.trim())) {
-    return 'Enter a valid email address';
+    return l.tr('p.emailInvalid');
   }
   return null;
 }
@@ -256,7 +258,7 @@ class PatientNote {
   String get displayAuthorName {
     final name = authorName?.trim();
     if (name != null && name.isNotEmpty) return name;
-    return 'Unknown Practitioner';
+    return AppLocalizations.current.tr('p.unknownPr');
   }
 
   factory PatientNote.fromJson(Map<String, dynamic> json) {
@@ -309,11 +311,11 @@ extension PatientAccessStatusX on PatientAccessStatus {
         PatientAccessStatus.rejected => 'rejected',
       };
 
-  String get label => switch (this) {
-        PatientAccessStatus.pending => 'Pending Approval',
-        PatientAccessStatus.approved => 'Active Access',
-        PatientAccessStatus.rejected => 'Denied',
-      };
+  String labelOf(AppLocalizations l) => l.tr(switch (this) {
+        PatientAccessStatus.pending => 'p.stPending',
+        PatientAccessStatus.approved => 'p.stActive',
+        PatientAccessStatus.rejected => 'p.stDenied',
+      });
 }
 
 class EligibleAccessUser {
@@ -355,7 +357,7 @@ class PatientAccessOwner {
     final name = (json['full_name'] as String?)?.trim() ?? '';
     return PatientAccessOwner(
       userId: id,
-      fullName: name.isNotEmpty ? name : 'Owner',
+      fullName: name.isNotEmpty ? name : AppLocalizations.current.tr('p.owner'),
     );
   }
 }
@@ -408,7 +410,7 @@ class PatientAccessEntry {
       id: id,
       patientId: '${json['patient_id'] ?? ''}',
       userId: '${json['user_id'] ?? ''}',
-      userName: name.isNotEmpty ? name : '${json['user_id'] ?? 'Staff'}',
+      userName: name.isNotEmpty ? name : '${json['user_id'] ?? AppLocalizations.current.tr('p.staffMember')}',
       status: parsePatientAccessStatus(json['status']),
       requestedBy: _optString(json['requested_by']),
       requestedByName: _optString(json['requested_by_name']),
@@ -456,12 +458,12 @@ class PendingAccessRequest {
       patientId: '${json['patient_id'] ?? ''}',
       patientName: (json['patient_name'] as String?)?.trim().isNotEmpty == true
           ? (json['patient_name'] as String).trim()
-          : 'Patient',
+          : AppLocalizations.current.tr('sh.patient'),
       targetUserId: '${json['target_user_id'] ?? ''}',
       targetUserName:
           (json['target_user_name'] as String?)?.trim().isNotEmpty == true
               ? (json['target_user_name'] as String).trim()
-              : '${json['target_user_id'] ?? 'Staff'}',
+              : '${json['target_user_id'] ?? AppLocalizations.current.tr('p.staffMember')}',
       requestingUserId: requestingId,
       requestingUserName: requestingName.isNotEmpty ? requestingName : requestingId,
       status: parsePatientAccessStatus(json['status']),

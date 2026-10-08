@@ -1,4 +1,6 @@
 import 'package:flutter/cupertino.dart';
+
+import '../l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 
 import 'glass_surface.dart';
@@ -12,7 +14,7 @@ class AppDialogs {
     BuildContext context, {
     required String title,
     String? message,
-    String okLabel = 'OK',
+    String? okLabel,
   }) {
     return showCupertinoDialog<void>(
       context: context,
@@ -28,7 +30,7 @@ class AppDialogs {
           CupertinoDialogAction(
             isDefaultAction: true,
             onPressed: () => Navigator.of(ctx).pop(),
-            child: Text(okLabel),
+            child: Text(okLabel ?? AppLocalizations.of(context).ok),
           ),
         ],
       ),
@@ -40,8 +42,8 @@ class AppDialogs {
     BuildContext context, {
     required String title,
     String? message,
-    String cancelLabel = 'Cancel',
-    String confirmLabel = 'OK',
+    String? cancelLabel,
+    String? confirmLabel,
     bool isDestructive = false,
   }) async {
     final result = await showCupertinoDialog<bool>(
@@ -57,13 +59,13 @@ class AppDialogs {
         actions: [
           CupertinoDialogAction(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text(cancelLabel),
+            child: Text(cancelLabel ?? AppLocalizations.of(context).cancel),
           ),
           CupertinoDialogAction(
             isDefaultAction: !isDestructive,
             isDestructiveAction: isDestructive,
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(confirmLabel),
+            child: Text(confirmLabel ?? AppLocalizations.of(context).ok),
           ),
         ],
       ),
@@ -78,8 +80,8 @@ class AppDialogs {
     String? message,
     String? initial,
     String placeholder = '',
-    String cancelLabel = 'Cancel',
-    String confirmLabel = 'OK',
+    String? cancelLabel,
+    String? confirmLabel,
     bool obscureText = false,
     int maxLines = 1,
     /// When set, confirm stays disabled until the field equals this (trimmed).
@@ -122,14 +124,14 @@ class AppDialogs {
               actions: [
                 CupertinoDialogAction(
                   onPressed: () => Navigator.of(ctx).pop(),
-                  child: Text(cancelLabel),
+                  child: Text(cancelLabel ?? AppLocalizations.of(context).cancel),
                 ),
                 CupertinoDialogAction(
                   isDefaultAction: true,
                   onPressed: matches
                       ? () => Navigator.of(ctx).pop(controller.text)
                       : null,
-                  child: Text(confirmLabel),
+                  child: Text(confirmLabel ?? AppLocalizations.of(context).ok),
                 ),
               ],
             );
@@ -149,7 +151,7 @@ class AppDialogs {
   static Future<T> runWithLoading<T>(
     BuildContext context, {
     required Future<T> Function() action,
-    String message = 'Please wait…',
+    String? message,
   }) async {
     final navigator = Navigator.of(context, rootNavigator: true);
     showCupertinoDialog<void>(
@@ -165,7 +167,7 @@ class AppDialogs {
               children: [
                 const CupertinoActivityIndicator(radius: 14),
                 const SizedBox(height: 14),
-                Text(message),
+                Text(message ?? AppLocalizations.of(context).tr('c.pleaseWait')),
               ],
             ),
           ),
@@ -236,7 +238,7 @@ class AppLoadingDialog {
   static Future<T> show<T>(
     BuildContext context, {
     required Future<T> Function() action,
-    String message = 'Loading…',
+    String? message,
   }) {
     return AppDialogs.runWithLoading(
       context,
@@ -247,7 +249,7 @@ class AppLoadingDialog {
 }
 
 /// Kept for callers that still want the tooth spinner in a Cupertino alert.
-Widget toothLoadingDialogContent({String message = 'Uploading…'}) {
+Widget toothLoadingDialogContent({required String message}) {
   return Padding(
     padding: const EdgeInsets.symmetric(vertical: 8),
     child: ToothLoadingIndicator(size: 40, loadingText: message),

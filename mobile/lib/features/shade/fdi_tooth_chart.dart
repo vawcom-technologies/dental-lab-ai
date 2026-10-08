@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/l10n/app_localizations.dart';
 
 /// FDI chart asset (patient view). Molars (x6–x8) are not selectable.
 const kFdiChartAsset = 'assets/clinical/fdi_chart.png';
@@ -150,8 +151,8 @@ class FdiToothChart extends StatelessWidget {
       children: [
         Text(
           selectedFdi == null
-              ? 'Pinch to zoom · tap a numbered circle'
-              : 'Selected FDI $selectedFdi · pinch to zoom',
+              ? AppLocalizations.of(context).tr('sh.pinchTap')
+              : AppLocalizations.of(context).trp('sh.selFdi', {'n': selectedFdi}),
           style: const TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w600,
@@ -207,10 +208,10 @@ class FdiToothChart extends StatelessWidget {
           ),
         ),
         if (fdiMap.isEmpty)
-          const Padding(
+          Padding(
             padding: EdgeInsets.only(top: 6),
             child: Text(
-              'Upload & detect a smile first — only found teeth are selectable.',
+              AppLocalizations.of(context).tr('sh.uploadDetect'),
               style: TextStyle(fontSize: 11, color: AppColors.muted),
             ),
           ),
@@ -260,7 +261,7 @@ class _FdiCircleButton extends StatelessWidget {
       width: hit * 2,
       height: hit * 2,
       child: Tooltip(
-        message: enabled ? 'FDI $fdi' : 'FDI $fdi (not detected)',
+        message: enabled ? 'FDI $fdi' : AppLocalizations.of(context).trp('sh.fdiND', {'n': fdi}),
         child: Material(
           color: Colors.transparent,
           child: InkWell(

@@ -10,6 +10,7 @@ import 'core/theme/app_theme.dart';
 import 'core/widgets/touchable.dart';
 import 'features/auth/login_screen.dart';
 import 'shell/app_shell.dart';
+import 'core/l10n/app_localizations.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -101,7 +102,7 @@ class _DentalLabAppState extends State<DentalLabApp> {
                 : _signedIn
                     ? AppShell(
                         api: widget.api,
-                        dentistName: widget.api.userName ?? 'Dentist',
+                        dentistName: widget.api.userName ?? AppLocalizations.current.tr('p.dentist'),
                       )
                     : LoginScreen(api: widget.api),
           );

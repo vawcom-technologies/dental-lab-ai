@@ -21,6 +21,7 @@ import 'shade_result_pane.dart';
 import 'shade_session_pane.dart';
 import 'shade_shared.dart';
 import 'tooth_overlay.dart';
+import '../../core/errors/user_facing_error.dart';
 
 class ShadePage extends StatefulWidget {
   const ShadePage({
@@ -98,8 +99,9 @@ class _ShadePageState extends State<ShadePage> {
       _symmetryView = !_symmetryView;
       if (_symmetryView) _focusView = false;
       if (_symmetryView && !_lipsOn && _lipSuggestions.isEmpty) {
-        _saveStatus = 'No lip border found in this photo — showing the '
-            'midline only. Add lips in Adjust edges to place them.';
+        _saveStatus = AppLocalizations.of(context).tr('sh.noLip');
+      } else if (_symmetryView) {
+        _saveStatus = AppLocalizations.of(context).tr('sh.dragBottomLip');
       }
     });
   }
@@ -153,6 +155,8 @@ class _ShadePageState extends State<ShadePage> {
   /// Ticks on every handle move so only the overlay and loupe repaint —
   /// a page-level setState per pointer move rebuilds the whole shade screen.
   final _dragTick = ValueNotifier<int>(0);
+  /// User-set height of the lower-lip line in symmetry view (null = auto).
+  final _lipBottom = ValueNotifier<double?>(null);
   final _photoTransformController = TransformationController();
 
   Map<String, dynamic>? get _selectedTooth {
@@ -169,7 +173,7 @@ class _ShadePageState extends State<ShadePage> {
         return toothDisplayLabel(t);
       }
     }
-    return 'Tooth ${index + 1}';
+    return AppLocalizations.of(context).trp('sh.tooth', {'n': index + 1});
   }
 
   List<Map<String, dynamic>> _cloneTeeth(List<Map<String, dynamic>> src) =>
@@ -284,6 +288,7 @@ class _ShadePageState extends State<ShadePage> {
       'gum': _gum == null ? null : Map<String, dynamic>.from(_gum!),
       'lines': _guideLines,
       'lip_suggestions': _lipSuggestions,
+      'lip_bottom_y': _lipBottom.value,
     };
   }
 
@@ -388,6 +393,7 @@ class _ShadePageState extends State<ShadePage> {
     _gum = _parseGum(ws['gum']);
     _guideLines = parseGuideLines(ws['lines']);
     _lipSuggestions = parseGuideLines(ws['lip_suggestions']);
+    _lipBottom.value = (ws['lip_bottom_y'] as num?)?.toDouble();
     _exitOutlineEdit(clearStatus: false);
     _photoTransformController.value = Matrix4.identity();
   }
@@ -469,6 +475,7 @@ class _ShadePageState extends State<ShadePage> {
         _gum = _parseGum(entry['gum'] ?? entry['analysis']);
         _guideLines = const {};
         _lipSuggestions = const {};
+        _lipBottom.value = null;
         _symmetryView = false;
         _focusView = false;
         if (_fullscreenPortal.isShowing) _fullscreenPortal.hide();
@@ -477,8 +484,7 @@ class _ShadePageState extends State<ShadePage> {
       }
 
       _error = null;
-      _saveStatus =
-          'Editing ${entry['name'] ?? 'patient'} · ${entry['shade'] ?? '—'}';
+      _saveStatus = null;
       _history = [
         entry,
         for (final h in _history)
@@ -533,7 +539,7 @@ class _ShadePageState extends State<ShadePage> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     }
   }
 
@@ -783,7 +789,7 @@ class _ShadePageState extends State<ShadePage> {
   void _commitPendingOverride({required int index, required String zone}) {
     final shade = _pendingShade;
     if (shade == null || shade == '—' || !kAllowedShades.contains(shade)) {
-      _toast('Choose a shade first, then tap Override');
+      _toast(AppLocalizations.of(context).tr('sh.chooseShade'));
       return;
     }
     setState(() {
@@ -820,7 +826,7 @@ class _ShadePageState extends State<ShadePage> {
       _error = null;
     });
     _toast(
-      '$shade selected — tap Override on Gum shade to apply',
+      AppLocalizations.of(context).trp('sh.selGum', {'s': shade}),
       bg: AppColors.navy,
     );
   }
@@ -828,7 +834,7 @@ class _ShadePageState extends State<ShadePage> {
   void _commitPendingGumOverride() {
     final shade = _pendingGumShade;
     if (shade == null || !kGingivaShades.contains(shade)) {
-      _toast('Choose a gum shade first, then tap Override');
+      _toast(AppLocalizations.of(context).tr('sh.chooseGum'));
       return;
     }
     setState(() {
@@ -838,7 +844,7 @@ class _ShadePageState extends State<ShadePage> {
       _pendingGumShade = null;
       _saveStatus = null;
     });
-    _toast('Gum shade → $shade', bg: AppColors.success);
+    _toast(AppLocalizations.of(context).trp('sh.gumShade', {'s': shade}), bg: AppColors.success);
     _persist(acceptAi: false, gumOnly: true);
   }
 
@@ -855,7 +861,7 @@ class _ShadePageState extends State<ShadePage> {
       return;
     }
     _toast(
-      'Choose a gum shade (G1–G5), then tap Override',
+      AppLocalizations.of(context).tr('sh.chooseGum5'),
       bg: AppColors.navy,
     );
   }
@@ -871,7 +877,7 @@ class _ShadePageState extends State<ShadePage> {
     _selectTooth(index, zone: zone);
     if (!mounted) return;
     _toast(
-      '${_toothLabelFor(index)} · ${capitalizeZone(zone)} — choose a shade, then tap Override',
+      AppLocalizations.of(context).trp('sh.chooseFor', {'t': '${_toothLabelFor(index)} · ${capitalizeZone(zone)}'}),
       bg: AppColors.navy,
     );
   }
@@ -903,14 +909,14 @@ class _ShadePageState extends State<ShadePage> {
         _confidence = 0;
         _topMatches = [];
         _selected = '—';
-        _saveStatus = 'Removed tooth — tap Undo to restore, or re-detect.';
+        _saveStatus = AppLocalizations.of(context).tr('sh.removed');
       } else {
         // Prefer the neighbor that was to the right, else the new last.
         final next = idx.clamp(0, remaining.length - 1);
         _selectedToothIndex = next;
         _syncUiFromSelection();
         _saveStatus =
-            'Removed tooth. ${remaining.length} remaining — tap Undo to restore.';
+            AppLocalizations.of(context).trp('sh.removedN', {'n': remaining.length});
       }
       _upsertSessionEntry(onlyIfExists: true);
     });
@@ -925,7 +931,7 @@ class _ShadePageState extends State<ShadePage> {
       _rememberTeeth();
       _selectedToothIndex = snap.selected;
       _syncUiFromSelection();
-      _saveStatus = 'Restored deleted tooth.';
+      _saveStatus = AppLocalizations.of(context).tr('sh.restored');
       _upsertSessionEntry(onlyIfExists: true);
     });
     AppHaptics.success();
@@ -970,7 +976,7 @@ class _ShadePageState extends State<ShadePage> {
   void _addTooth() {
     if (_editOutlineMode || _busy) return;
     if (_previewBytes == null) {
-      setState(() => _error = 'Upload a photo before adding a tooth.');
+      setState(() => _error = AppLocalizations.of(context).tr('sh.uploadFirst'));
       return;
     }
     final reference = _selectedTooth ?? (_teeth.isNotEmpty ? _teeth.last : null);
@@ -1063,7 +1069,7 @@ class _ShadePageState extends State<ShadePage> {
       _error = null;
       _syncUiFromSelection();
       _saveStatus =
-          'Added tooth — hold inside the outline and drag it onto the tooth, then Apply.';
+          AppLocalizations.of(context).tr('sh.addedTooth');
       _upsertSessionEntry(onlyIfExists: true);
     });
     _startOutlineEdit();
@@ -1114,8 +1120,7 @@ class _ShadePageState extends State<ShadePage> {
       _outlineBeforeDrag = null;
       _outlineHistory.clear();
       _saveStatus =
-          'Drag inside to move · drag corners · hold mid-edge to curve · '
-          'drag the midline · Apply.';
+          AppLocalizations.of(context).tr('sh.dragHelp');
     });
   }
 
@@ -1166,8 +1171,8 @@ class _ShadePageState extends State<ShadePage> {
       }
       _guideLines = next;
       _saveStatus = _lipsOn
-          ? 'Drag the pink points onto the edge where each lip meets the skin.'
-          : 'Lip outline removed.';
+          ? AppLocalizations.of(context).tr('sh.dragLip')
+          : AppLocalizations.of(context).tr('sh.lipRemoved');
     });
   }
 
@@ -1271,7 +1276,7 @@ class _ShadePageState extends State<ShadePage> {
   void _clearUploadedPhoto() {
     setState(() {
       _resetWorkspace();
-      _saveStatus = 'Photo removed';
+      _saveStatus = AppLocalizations.of(context).tr('sh.photoRemoved');
       _upsertSessionEntry(onlyIfExists: true);
     });
   }
@@ -1299,6 +1304,7 @@ class _ShadePageState extends State<ShadePage> {
     _gum = null;
     _guideLines = const {};
     _lipSuggestions = const {};
+    _lipBottom.value = null;
     _symmetryView = false;
     _focusView = false;
     if (_fullscreenPortal.isShowing) _fullscreenPortal.hide();
@@ -1377,7 +1383,7 @@ class _ShadePageState extends State<ShadePage> {
       // Only the midline / lips moved — no need to re-match tooth shades.
       setState(() {
         _exitOutlineEdit(clearStatus: false);
-        _saveStatus = 'Midline and lip guides updated.';
+        _saveStatus = AppLocalizations.of(context).tr('sh.guidesUpdated');
       });
       return;
     }
@@ -1388,7 +1394,7 @@ class _ShadePageState extends State<ShadePage> {
     setState(() {
       _busy = true;
       _error = null;
-      _saveStatus = 'Updating shade from edited outline…';
+      _saveStatus = AppLocalizations.of(context).tr('sh.updating');
     });
     try {
       final result = await widget.api.resampleShadeOutline(
@@ -1442,12 +1448,12 @@ class _ShadePageState extends State<ShadePage> {
         _exitOutlineEdit(clearStatus: false);
         _syncUiFromSelection();
         _saveStatus =
-            'Outline applied — zone shades refreshed for ${_toothLabelFor(idx)}.';
+            AppLocalizations.of(context).trp('sh.outlineApplied', {'t': _toothLabelFor(idx)});
       });
       AppHaptics.success();
     } catch (e) {
       setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
+        _error = friendlyError(e);
         _saveStatus = null;
       });
     } finally {
@@ -1470,15 +1476,15 @@ class _ShadePageState extends State<ShadePage> {
     });
     if (!mounted) return;
     if (overall) {
-      _toast('$shade selected — tap Save override to apply', bg: AppColors.navy);
+      _toast(AppLocalizations.of(context).trp('sh.selSave', {'s': shade}), bg: AppColors.navy);
       return;
     }
     if (_selectedToothIndex == null) {
-      _toast('Select a tooth zone first');
+      _toast(AppLocalizations.of(context).tr('sh.selZone'));
       return;
     }
     _toast(
-      '$shade selected — tap Override on ${_toothLabelFor(_selectedToothIndex!)} · ${capitalizeZone(_focusZone)} to apply',
+      AppLocalizations.of(context).trp('sh.selOn', {'s': shade, 't': '${_toothLabelFor(_selectedToothIndex!)} · ${capitalizeZone(_focusZone)}'}),
       bg: AppColors.navy,
     );
   }
@@ -1528,6 +1534,7 @@ class _ShadePageState extends State<ShadePage> {
   void dispose() {
     _shadeScroll.dispose();
     _dragTick.dispose();
+    _lipBottom.dispose();
     _magnifierFocal.dispose();
     _photoTransformController.dispose();
     super.dispose();
@@ -1551,7 +1558,7 @@ class _ShadePageState extends State<ShadePage> {
       }
       await _consumeShadeHandoff();
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -1708,7 +1715,7 @@ class _ShadePageState extends State<ShadePage> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
+        _error = friendlyError(e);
       });
     }
   }
@@ -1732,12 +1739,12 @@ class _ShadePageState extends State<ShadePage> {
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
       return;
     }
     if (!mounted) return;
     if (photo == null) {
-      setState(() => _error = 'Photo not found for this patient.');
+      setState(() => _error = AppLocalizations.of(context).tr('sh.photoNF'));
       return;
     }
     await _openAndAnalyse(
@@ -1761,7 +1768,7 @@ class _ShadePageState extends State<ShadePage> {
     setState(() {
       _busy = true;
       _error = null;
-      _saveStatus = 'Mapping teeth…';
+      _saveStatus = AppLocalizations.of(context).tr('sh.mapping');
       _shadeDetectionId = shadeId;
       _sourcePhotoId = photoId;
     });
@@ -1789,6 +1796,7 @@ class _ShadePageState extends State<ShadePage> {
         _gum = null;
         _guideLines = const {};
         _lipSuggestions = const {};
+        _lipBottom.value = null;
         _symmetryView = false;
         _focusView = false;
         if (_fullscreenPortal.isShowing) _fullscreenPortal.hide();
@@ -1797,7 +1805,7 @@ class _ShadePageState extends State<ShadePage> {
       await _applySuggestFromBytes(baked.bytes, name);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -1844,6 +1852,7 @@ class _ShadePageState extends State<ShadePage> {
       _gum = _parseGum(result['gum']);
       _guideLines = parseGuideLines(result['lines']);
       _lipSuggestions = parseGuideLines(result['lip_suggestions']);
+      _lipBottom.value = null;
       _symmetryView = false;
       _focusView = false;
       if (_fullscreenPortal.isShowing) _fullscreenPortal.hide();
@@ -1855,15 +1864,15 @@ class _ShadePageState extends State<ShadePage> {
               final note = '${result['note'] ?? ''}'.trim();
               return note.isNotEmpty
                   ? note
-                  : 'No teeth detected — try another photo';
+                  : AppLocalizations.of(context).tr('sh.noTeeth');
             }()
-          : 'Mapped ${teeth.length} tooth${teeth.length == 1 ? '' : 'teeth'} — Accept or Save override to session';
+          : AppLocalizations.of(context).trp('sh.mapped', {'n': teeth.length});
     });
   }
 
   Future<void> _runAiFromGallery() async {
     if (_patient == null) {
-      setState(() => _error = 'Select a patient first.');
+      setState(() => _error = AppLocalizations.of(context).tr('sh.selPat'));
       return;
     }
     setState(() {
@@ -1884,7 +1893,7 @@ class _ShadePageState extends State<ShadePage> {
 
       final bytes = await picked.readAsBytes();
       if (bytes.isEmpty) {
-        setState(() => _error = 'Could not read image bytes. Try another photo.');
+        setState(() => _error = AppLocalizations.of(context).tr('sh.imgBytes'));
         return;
       }
 
@@ -1921,6 +1930,7 @@ class _ShadePageState extends State<ShadePage> {
         _gum = null;
         _guideLines = const {};
         _lipSuggestions = const {};
+        _lipBottom.value = null;
         _symmetryView = false;
         _focusView = false;
         if (_fullscreenPortal.isShowing) _fullscreenPortal.hide();
@@ -1939,7 +1949,7 @@ class _ShadePageState extends State<ShadePage> {
       setState(() {
         _busy = false;
         _saveStatus = null;
-        _error = e.toString().replaceFirst('Exception: ', '');
+        _error = friendlyError(e);
       });
     } finally {
       if (mounted && _busy) setState(() => _busy = false);
@@ -1954,8 +1964,8 @@ class _ShadePageState extends State<ShadePage> {
     if (_patient == null) {
       setState(
         () => _error = _patients.isEmpty
-            ? 'Add a patient first, then save the shade to their record.'
-            : 'Select a patient from the list first.',
+            ? AppLocalizations.of(context).tr('sh.addPatFirst')
+            : AppLocalizations.of(context).tr('sh.selFromList'),
       );
       return;
     }
@@ -1966,7 +1976,7 @@ class _ShadePageState extends State<ShadePage> {
     final finalShade = acceptAi ? _detected : _selected;
     if (!gumOnly &&
         (finalShade == '—' || !kAllowedShades.contains(finalShade))) {
-      setState(() => _error = 'Pick a shade before saving.');
+      setState(() => _error = AppLocalizations.of(context).tr('sh.pickShade'));
       return;
     }
     if (!gumOnly &&
@@ -1980,7 +1990,7 @@ class _ShadePageState extends State<ShadePage> {
       if (committed != _pendingShade) {
         setState(
           () => _error =
-              'Tap Override on the zone chip to confirm $_pendingShade first.',
+              AppLocalizations.of(context).trp('sh.tapOverride', {'s': _pendingShade}),
         );
         return;
       }
@@ -2140,12 +2150,12 @@ class _ShadePageState extends State<ShadePage> {
         AppSnackBars.success(
           context,
           overridden
-              ? 'Saved override $finalShade${who.isEmpty ? '' : ' for $who'}'
-              : 'Accepted AI $finalShade${who.isEmpty ? '' : ' for $who'}',
+              ? AppLocalizations.of(context).trp(who.isEmpty ? 'sh.savedOv' : 'sh.savedOvFor', {'s': finalShade, 'w': who})
+              : AppLocalizations.of(context).trp(who.isEmpty ? 'sh.accAi' : 'sh.accAiFor', {'s': finalShade, 'w': who}),
         );
       }
     } catch (e) {
-      final msg = e.toString().replaceFirst('Exception: ', '');
+      final msg = friendlyError(e);
       setState(() => _error = msg);
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -2160,7 +2170,7 @@ class _ShadePageState extends State<ShadePage> {
       context,
       title: AppLocalizations.of(context).shadeRemoveSave,
       message: AppLocalizations.of(context).shadeDeleteFromSession(shade),
-      confirmLabel: 'Delete',
+      confirmLabel: AppLocalizations.of(context).commonDelete,
       isDestructive: true,
     );
     if (!ok || !mounted) return;
@@ -2201,10 +2211,10 @@ class _ShadePageState extends State<ShadePage> {
         _saveStatus = null;
         _error = null;
       });
-      if (mounted) AppSnackBars.success(context, 'Removed $shade from session');
+      if (mounted) AppSnackBars.success(context, AppLocalizations.of(context).trp('sh.removedSess', {'s': shade}));
     } catch (e) {
       if (!mounted) return;
-      final msg = e.toString().replaceFirst('Exception: ', '');
+      final msg = friendlyError(e);
       setState(() => _error = msg);
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -2372,7 +2382,7 @@ class _ShadePageState extends State<ShadePage> {
       bulges.insert(ei + 1, 0);
       _activeHandleIndex = ei + 1;
       _activeEdgeIndex = null;
-      _saveStatus = 'Point added — drag to refine, or curve the new edges.';
+      _saveStatus = AppLocalizations.of(context).tr('sh.pointAdded');
     });
     AppHaptics.selection();
   }
@@ -2398,6 +2408,9 @@ class _ShadePageState extends State<ShadePage> {
       focusZone: _focusZone,
       guideLines: _viewGuides,
       symmetryView: _symmetryView,
+      lipBottom: _lipBottom,
+      onLipBottomChanged: (v) => _lipBottom.value = v,
+      onLipBottomEnd: () => setState(() => _upsertSessionEntry(onlyIfExists: true)),
       onToggleSymmetry: _toggleSymmetryView,
       focusSelected: _focusView,
       // Never disable while on — that would strand it.

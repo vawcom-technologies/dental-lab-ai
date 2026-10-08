@@ -365,8 +365,8 @@ class _ReplyPreviewBar extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Replying',
+                Text(
+                  AppLocalizations.current.tr('ch.replying'),
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,

@@ -13,13 +13,13 @@ class AppRoles {
     final r = role?.trim().toLowerCase() ?? '';
     switch (r) {
       case admin:
-        return loc?.roleAdmin ?? 'Admin';
+        return (loc ?? AppLocalizations.current).roleAdmin;
       case dentist:
-        return loc?.roleDentist ?? 'Dentist';
+        return (loc ?? AppLocalizations.current).roleDentist;
       case laboratory:
       case 'clinic': // legacy
       case 'lab': // legacy
-        return loc?.roleLaboratory ?? 'Laboratory';
+        return (loc ?? AppLocalizations.current).roleLaboratory;
       default:
         return role?.trim() ?? '';
     }

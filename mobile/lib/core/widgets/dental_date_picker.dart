@@ -27,8 +27,8 @@ class DobPickerField extends StatelessWidget {
         : formatAppDate(context, dob, 'MMM d, yyyy');
     final loc = context != null ? AppLocalizations.of(context) : null;
     final ageLabel = age == 1
-        ? (loc?.commonOneYearOld ?? '1 year old')
-        : (loc?.commonYearsOld(age) ?? '$age years old');
+        ? (loc ?? AppLocalizations.current).commonOneYearOld
+        : (loc ?? AppLocalizations.current).commonYearsOld(age);
     return '$date · $ageLabel';
   }
 
@@ -647,7 +647,7 @@ class _DentalDatePickerDialogState extends State<DentalDatePickerDialog> {
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    'Choose birth year',
+                    AppLocalizations.current.tr('dp.year'),
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
@@ -662,7 +662,7 @@ class _DentalDatePickerDialogState extends State<DentalDatePickerDialog> {
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    'Choose birth month · ${_focusedMonth.year}',
+                    AppLocalizations.current.trp('dp.month', {'y': _focusedMonth.year}),
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
@@ -767,7 +767,7 @@ class _DobStepBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const labels = ['Year', 'Month', 'Day'];
+    final labels = [AppLocalizations.current.tr('dp.y'), AppLocalizations.current.tr('dp.m'), AppLocalizations.current.tr('dp.d')];
     return Row(
       children: [
         for (var i = 0; i < labels.length; i++) ...[
