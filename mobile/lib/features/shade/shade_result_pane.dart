@@ -46,6 +46,7 @@ class ShadeResultPane extends StatefulWidget {
     required this.editBulges,
     required this.activeHandleIndex,
     required this.activeEdgeIndex,
+    this.portrait = false,
   });
 
   final List<Map<String, dynamic>> teeth;
@@ -67,6 +68,7 @@ class ShadeResultPane extends StatefulWidget {
   final void Function(int index, {String? zone}) onSelectTooth;
   final VoidCallback onDeleteTooth;
   final void Function(int index, String zone) onBeginZoneOverride;
+
   /// Switch Manual Override to the gum tab (card tap). Distinct from Override.
   final VoidCallback? onSelectGum;
   final VoidCallback? onBeginGumOverride;
@@ -82,6 +84,9 @@ class ShadeResultPane extends StatefulWidget {
   final List<double>? editBulges;
   final int? activeHandleIndex;
   final int? activeEdgeIndex;
+
+  /// Portrait: content-sized card (tooth grid + detail) under the action bar.
+  final bool portrait;
 
   @override
   State<ShadeResultPane> createState() => _ShadeResultPaneState();
@@ -111,6 +116,7 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.portrait) return _buildPortrait(context);
     final loc = AppLocalizations.of(context);
     return Stack(
       fit: StackFit.expand,
@@ -142,8 +148,8 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
                   visualDensity: VisualDensity.compact,
                   textStyle: WidgetStatePropertyAll(
                     Theme.of(context).textTheme.labelMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ),
@@ -179,6 +185,543 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
               activeEdgeIndex: widget.activeEdgeIndex,
             ),
           ),
+      ],
+    );
+  }
+
+  // ── Portrait layout ──────────────────────────────────────────────────────
+
+  Widget _buildPortrait(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+    return SectionCard(
+      depth: 0,
+      color: Colors.white,
+      boxShadow: kShadeCardGlow,
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 12,
+            runSpacing: 10,
+            children: [
+              SegmentedButton<int>(
+                segments: [
+                  ButtonSegment(value: 0, label: Text(loc.shadeResult)),
+                  ButtonSegment(value: 1, label: Text(loc.shadeToothSelection)),
+                ],
+                selected: {_tab},
+                onSelectionChanged: (s) => setState(() => _tab = s.first),
+              ),
+              if (widget.gum != null) _portraitGumChip(context),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (_tab == 1)
+            SizedBox(
+              height: 320,
+              child: FdiToothChart(
+                teeth: widget.teeth,
+                selectedToothIndex: widget.selectedToothIndex,
+                onSelectTooth: (index) => widget.onSelectTooth(index),
+              ),
+            )
+          else
+            LayoutBuilder(
+              builder: (context, c) {
+                final grid = _portraitToothGrid(context);
+                final detail = _portraitToothDetail(context);
+                // Phones: grid above detail; tablets: side by side.
+                if (c.maxWidth < 600) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [grid, const SizedBox(height: 16), detail],
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(flex: 115, child: grid),
+                    const SizedBox(width: 18),
+                    Expanded(flex: 100, child: detail),
+                  ],
+                );
+              },
+            ),
+          const SizedBox(height: 16),
+          _portraitSaveRow(context),
+        ],
+      ),
+    );
+  }
+
+  Widget _portraitGumChip(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+    final gum = widget.gum!;
+    final pending = widget.pendingGumShade;
+    final shade = pending ?? gumEffectiveShade(gum);
+    final conf = (gum['confidence'] as num?)?.toDouble() ?? 0;
+    return Material(
+      color: _gumRoseSoft,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: _gumRose.withValues(alpha: 0.45)),
+      ),
+      child: InkWell(
+        onTap: widget.onSelectGum,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 6, 6, 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  color: pending != null
+                      ? gingivaSwatch(pending)
+                      : gumSampledColor(gum),
+                  borderRadius: BorderRadius.circular(7),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                loc.shadeGumShade,
+                style: const TextStyle(fontSize: 13, color: AppColors.muted),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                shade ?? '—',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.navy,
+                ),
+              ),
+              if (conf > 0) ...[
+                const SizedBox(width: 6),
+                Text(
+                  '${(conf * 100).round()}%',
+                  style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                ),
+              ],
+              if (widget.onBeginGumOverride != null) ...[
+                const SizedBox(width: 10),
+                FilledButton(
+                  onPressed: widget.onBeginGumOverride,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.navy,
+                    minimumSize: const Size(0, 30),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    textStyle: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: Text(loc.shadeOverride),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Teeth in snake order (upper left→right, lower right→left) for ‹ ›.
+  List<int> _portraitOrder(Map<int, int> fdiMap) => [
+    for (final f in kUpperFdiSelectableLtr)
+      if (fdiMap.containsKey(f)) fdiMap[f]!,
+    for (final f in kLowerFdiSelectableLtr.reversed)
+      if (fdiMap.containsKey(f)) fdiMap[f]!,
+  ];
+
+  Map<String, dynamic>? _toothByIndex(int? idx) {
+    if (idx == null) return null;
+    for (final t in widget.teeth) {
+      if ((t['tooth_index'] as num?)?.toInt() == idx) return t;
+    }
+    return null;
+  }
+
+  Widget _portraitToothGrid(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+    final fdiMap = mapFdiToToothIndex(widget.teeth);
+    const capStyle = TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.w700,
+      letterSpacing: .6,
+      color: AppColors.muted,
+    );
+    const line = Color(0xFFC9D4E5);
+
+    Widget chip(int fdi, {required bool upper}) {
+      final idx = fdiMap[fdi]!;
+      final t = _toothByIndex(idx);
+      final active = widget.selectedToothIndex == idx;
+      final shade = t == null
+          ? null
+          : _zoneShadeForTooth(t, zone: 'middle', active: active);
+      const big = Radius.circular(12);
+      const small = Radius.circular(8);
+      return Expanded(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 3),
+          child: Material(
+            color: shade == null ? AppColors.neo : widget.swatch(shade),
+            elevation: active ? 3 : 0,
+            shadowColor: AppColors.navy.withValues(alpha: 0.4),
+            shape: RoundedRectangleBorder(
+              borderRadius: upper
+                  ? const BorderRadius.vertical(top: big, bottom: small)
+                  : const BorderRadius.vertical(top: small, bottom: big),
+              side: BorderSide(
+                color: active ? AppColors.navy : const Color(0xFFD9CFAE),
+                width: active ? 3 : 1,
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () => widget.onSelectTooth(idx),
+              child: SizedBox(
+                height: 66,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '$fdi',
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.navy,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        shade ?? '—',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF5D4C22),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    Widget arch(List<int> ltr, {required bool upper}) {
+      final present = [
+        for (final f in ltr)
+          if (fdiMap.containsKey(f)) f,
+      ];
+      final right = [
+        for (final f in present)
+          if (f % 40 < 20) f,
+      ];
+      final left = [
+        for (final f in present)
+          if (f % 40 >= 20) f,
+      ];
+      return Row(
+        crossAxisAlignment: upper
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [for (final f in right) chip(f, upper: upper)],
+            ),
+          ),
+          Container(width: 2, height: 66, color: line),
+          Expanded(
+            child: Row(children: [for (final f in left) chip(f, upper: upper)]),
+          ),
+        ],
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F6FB),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: fdiMap.isEmpty
+          ? Padding(
+              padding: const EdgeInsets.symmetric(vertical: 40),
+              child: Text(
+                loc.shadeUploadToAnalyze,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12, color: AppColors.muted),
+              ),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  loc.smileUpperJaw.toUpperCase(),
+                  textAlign: TextAlign.center,
+                  style: capStyle,
+                ),
+                const SizedBox(height: 8),
+                arch(kUpperFdiSelectableLtr, upper: true),
+                Container(
+                  height: 1,
+                  margin: const EdgeInsets.symmetric(vertical: 10),
+                  color: line,
+                ),
+                arch(kLowerFdiSelectableLtr, upper: false),
+                const SizedBox(height: 8),
+                Text(
+                  loc.smileLowerJaw.toUpperCase(),
+                  textAlign: TextAlign.center,
+                  style: capStyle,
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget _portraitToothDetail(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+    final order = _portraitOrder(mapFdiToToothIndex(widget.teeth));
+    final idx = widget.selectedToothIndex;
+    final t = _toothByIndex(idx);
+
+    void step(int d) {
+      if (order.isEmpty) return;
+      final i = idx == null ? -1 : order.indexOf(idx);
+      final n = i < 0 ? 0 : (i + d + order.length) % order.length;
+      widget.onSelectTooth(order[n]);
+    }
+
+    Widget navBtn(IconData icon, int d) => SizedBox(
+      width: 44,
+      height: 44,
+      child: OutlinedButton(
+        onPressed: order.isEmpty ? null : () => step(d),
+        style: OutlinedButton.styleFrom(
+          padding: EdgeInsets.zero,
+          side: const BorderSide(color: Color(0xFFD5DDE9)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        child: Icon(icon, color: AppColors.navy),
+      ),
+    );
+
+    final zoneShades = t == null
+        ? const <String, String?>{}
+        : {
+            for (final z in kShadeZones)
+              z: _zoneShadeForTooth(t, zone: z, active: true),
+          };
+    final overall = zoneShades['middle'];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            navBtn(Icons.chevron_left_rounded, -1),
+            Expanded(
+              child: Column(
+                children: [
+                  if (t != null)
+                    Text(
+                      _isLowerArch(t) ? loc.smileLowerJaw : loc.smileUpperJaw,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.muted,
+                      ),
+                    ),
+                  Text(
+                    t == null ? '—' : toothDisplayLabel(t),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.navy,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            navBtn(Icons.chevron_right_rounded, 1),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (t != null)
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  width: 96,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: overall == null
+                        ? AppColors.neo
+                        : widget.swatch(overall),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Text(
+                    overall ?? '—',
+                    style: const TextStyle(
+                      fontSize: 30,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF3F3214),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    children: [
+                      for (final z in kShadeZones) ...[
+                        if (z != kShadeZones.first) const SizedBox(height: 6),
+                        _portraitZoneRow(t, idx!, z, zoneShades[z]),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _portraitZoneRow(
+    Map<String, dynamic> t,
+    int idx,
+    String zone,
+    String? shade,
+  ) {
+    final focused = widget.focusZone == zone;
+    final overridden = widget.zoneOverridden(widget.zoneOf(t, zone));
+    return Material(
+      color: focused ? const Color(0xFFE4EBF6) : const Color(0xFFF6F8FB),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(
+          color: focused ? AppColors.dentalBlue : const Color(0xFFE3E8F0),
+          width: focused ? 2 : 1,
+        ),
+      ),
+      child: InkWell(
+        onTap: () => widget.onSelectTooth(idx, zone: zone),
+        onLongPress: () => widget.onBeginZoneOverride(idx, zone),
+        borderRadius: BorderRadius.circular(10),
+        child: SizedBox(
+          height: 40,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    capitalizeZone(zone),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.navy,
+                    ),
+                  ),
+                ),
+                if (overridden)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 6),
+                    child: Icon(Icons.edit, size: 14, color: AppColors.warning),
+                  ),
+                Container(
+                  constraints: const BoxConstraints(minWidth: 40),
+                  height: 26,
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: shade == null
+                        ? AppColors.border
+                        : widget.swatch(shade),
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: Text(
+                    shade ?? '—',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF3F3214),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Same accept / save actions as the landscape results list.
+  Widget _portraitSaveRow(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+    final detected = widget.detected;
+    final selected = widget.selected;
+    final saving = widget.saving;
+    return Row(
+      children: [
+        Expanded(
+          child: OutlinedButton(
+            onPressed: saving ? null : widget.onSaveOverride,
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(44),
+            ),
+            child: Text(
+              selected == '—' || selected == detected
+                  ? loc.shadeSaveOverride
+                  : loc.shadeSaveOverrideShade(selected),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: FilledButton(
+            onPressed: saving || detected == '—' ? null : widget.onAcceptAi,
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.navy,
+              minimumSize: const Size.fromHeight(44),
+            ),
+            child: saving
+                ? const ToothLoadingIndicator(
+                    size: 18,
+                    compact: true,
+                    color: Colors.white,
+                  )
+                : Text(
+                    detected == '—'
+                        ? loc.shadeAcceptAi
+                        : loc.shadeAcceptShade(detected),
+                  ),
+          ),
+        ),
       ],
     );
   }
@@ -270,9 +813,7 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
     required String zone,
     required bool active,
   }) {
-    if (active &&
-        widget.focusZone == zone &&
-        widget.pendingShade != null) {
+    if (active && widget.focusZone == zone && widget.pendingShade != null) {
       return widget.pendingShade;
     }
     return widget.zoneEffective(widget.zoneOf(t, zone));
@@ -290,9 +831,8 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
       for (final z in kShadeZones)
         z: _zoneShadeForTooth(t, zone: z, active: active),
     };
-    final summaryShade = zoneShades['middle'] ??
-        zoneShades['cervical'] ??
-        zoneShades['incisal'];
+    final summaryShade =
+        zoneShades['middle'] ?? zoneShades['cervical'] ?? zoneShades['incisal'];
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: DecoratedBox(
@@ -448,7 +988,8 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
                                   overridden: widget.zoneOverridden(
                                     widget.zoneOf(t, zName),
                                   ),
-                                  pending: active &&
+                                  pending:
+                                      active &&
                                       focusZone == zName &&
                                       pendingShade != null,
                                   focused: active && focusZone == zName,
@@ -499,221 +1040,223 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-                  if (widget.gum != null ||
-                      teeth.isNotEmpty ||
-                      detected != '—') ...[
-                    GumShadeCard(
-                      gum: widget.gum,
-                      pendingShade: widget.pendingGumShade,
-                      onTap: widget.onSelectGum,
-                      onOverride: widget.onBeginGumOverride,
-                    ),
-                    const SizedBox(height: 10),
-                  ],
-                  if (teeth.isNotEmpty) ..._jawAccordion(context, teeth),
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: detected == '—'
-                          ? AppColors.neo
-                          : AppColors.aiPurpleSoft,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: detected == '—'
-                            ? AppColors.border
-                            : AppColors.aiPurple.withValues(alpha: 0.35),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 52,
-                          height: 52,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          clipBehavior: Clip.antiAlias,
-                          child: detected == '—'
-                              ? const ColoredBox(
-                                  color: AppColors.border,
-                                  child: Icon(
-                                    Icons.image_search_outlined,
-                                    color: AppColors.muted,
-                                    size: 26,
-                                  ),
-                                )
-                              : ColoredBox(color: swatch(detected)),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                detected == '—'
-                                    ? AppLocalizations.of(context)
-                                        .shadeNoDetectionYet
-                                    : detected,
-                                style: TextStyle(
-                                  fontSize: detected == '—' ? 18 : 28,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.navy,
-                                  height: 1.1,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                confidence > 0
-                                    ? '${(confidence * 100).round()}% ${AppLocalizations.of(context).tr('sh.match')} · $focusZone'
-                                    : AppLocalizations.of(context)
-                                        .shadeUploadToAnalyze,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.muted,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+              if (widget.gum != null ||
+                  teeth.isNotEmpty ||
+                  detected != '—') ...[
+                GumShadeCard(
+                  gum: widget.gum,
+                  pendingShade: widget.pendingGumShade,
+                  onTap: widget.onSelectGum,
+                  onOverride: widget.onBeginGumOverride,
+                ),
+                const SizedBox(height: 10),
+              ],
+              if (teeth.isNotEmpty) ..._jawAccordion(context, teeth),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: detected == '—'
+                      ? AppColors.neo
+                      : AppColors.aiPurpleSoft,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: detected == '—'
+                        ? AppColors.border
+                        : AppColors.aiPurple.withValues(alpha: 0.35),
                   ),
-                  if (confidence > 0) ...[
-                    const SizedBox(height: 10),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: LinearProgressIndicator(
-                        value: confidence.clamp(0, 1),
-                        minHeight: 6,
-                        backgroundColor: AppColors.border,
-                        color: AppColors.aiPurple,
-                      ),
-                    ),
-                  ],
-                  if (pendingShade == null &&
-                      selected != '—' &&
-                      selected != detected) ...[
-                    const SizedBox(height: 10),
+                ),
+                child: Row(
+                  children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 8,
-                      ),
+                      width: 52,
+                      height: 52,
                       decoration: BoxDecoration(
-                        color: AppColors.warningSoft,
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppColors.border),
                       ),
-                      child: Text(
-                        AppLocalizations.of(context)
-                            .shadeOverrideSelected(selected),
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.warning,
-                        ),
-                      ),
-                    ),
-                  ],
-                  if (finalShade != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      AppLocalizations.of(context).trp('sh.savedFinal', {'s': finalShade}),
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.success,
-                      ),
-                    ),
-                  ],
-                  if (overallTopMatches.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      AppLocalizations.of(context).shadeSimilarShades,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.muted,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      AppLocalizations.of(context).shadeAcrossAllTeeth,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppColors.muted,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: overallTopMatches.take(5).map((m) {
-                        final s = m['shade']?.toString() ?? '';
-                        if (s.isEmpty) {
-                          return const SizedBox.shrink();
-                        }
-                        final active =
-                            selected == s && pendingShade == null;
-                        final de = m['delta_e_2000'];
-                        return SimilarShadeChip(
-                          shade: s,
-                          deltaE: de,
-                          selected: active,
-                          swatch: swatch,
-                          onTap: () => onOverallShade(s),
-                        );
-                      }).toList(),
-                    ),
-                  ],
-                  const SizedBox(height: 14),
-                  FilledButton(
-                    onPressed:
-                        saving || detected == '—' ? null : onAcceptAi,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.navy,
-                      minimumSize: const Size.fromHeight(40),
-                    ),
-                    child: saving
-                        ? Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const ToothLoadingIndicator(
-                                size: 18,
-                                compact: true,
-                                color: Colors.white,
+                      clipBehavior: Clip.antiAlias,
+                      child: detected == '—'
+                          ? const ColoredBox(
+                              color: AppColors.border,
+                              child: Icon(
+                                Icons.image_search_outlined,
+                                color: AppColors.muted,
+                                size: 26,
                               ),
-                              const SizedBox(width: 10),
-                              Text(AppLocalizations.of(context).saving),
-                            ],
-                          )
-                        : Text(
+                            )
+                          : ColoredBox(color: swatch(detected)),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
                             detected == '—'
-                                ? AppLocalizations.of(context).shadeAcceptAi
-                                : AppLocalizations.of(context)
-                                    .shadeAcceptShade(detected),
+                                ? AppLocalizations.of(
+                                    context,
+                                  ).shadeNoDetectionYet
+                                : detected,
+                            style: TextStyle(
+                              fontSize: detected == '—' ? 18 : 28,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.navy,
+                              height: 1.1,
+                            ),
                           ),
-                  ),
-                  const SizedBox(height: 8),
-                  OutlinedButton(
-                    onPressed: saving ? null : onSaveOverride,
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(40),
+                          const SizedBox(height: 2),
+                          Text(
+                            confidence > 0
+                                ? '${(confidence * 100).round()}% ${AppLocalizations.of(context).tr('sh.match')} · $focusZone'
+                                : AppLocalizations.of(
+                                    context,
+                                  ).shadeUploadToAnalyze,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppColors.muted,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    child: Text(
-                      selected == '—' || selected == detected
-                          ? AppLocalizations.of(context).shadeSaveOverride
-                          : AppLocalizations.of(context)
-                              .shadeSaveOverrideShade(selected),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            );
-          },
+              if (confidence > 0) ...[
+                const SizedBox(height: 10),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: LinearProgressIndicator(
+                    value: confidence.clamp(0, 1),
+                    minHeight: 6,
+                    backgroundColor: AppColors.border,
+                    color: AppColors.aiPurple,
+                  ),
+                ),
+              ],
+              if (pendingShade == null &&
+                  selected != '—' &&
+                  selected != detected) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.warningSoft,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    AppLocalizations.of(
+                      context,
+                    ).shadeOverrideSelected(selected),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.warning,
+                    ),
+                  ),
+                ),
+              ],
+              if (finalShade != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  AppLocalizations.of(
+                    context,
+                  ).trp('sh.savedFinal', {'s': finalShade}),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.success,
+                  ),
+                ),
+              ],
+              if (overallTopMatches.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  AppLocalizations.of(context).shadeSimilarShades,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.muted,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  AppLocalizations.of(context).shadeAcrossAllTeeth,
+                  style: const TextStyle(fontSize: 11, color: AppColors.muted),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: overallTopMatches.take(5).map((m) {
+                    final s = m['shade']?.toString() ?? '';
+                    if (s.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    final active = selected == s && pendingShade == null;
+                    final de = m['delta_e_2000'];
+                    return SimilarShadeChip(
+                      shade: s,
+                      deltaE: de,
+                      selected: active,
+                      swatch: swatch,
+                      onTap: () => onOverallShade(s),
+                    );
+                  }).toList(),
+                ),
+              ],
+              const SizedBox(height: 14),
+              FilledButton(
+                onPressed: saving || detected == '—' ? null : onAcceptAi,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.navy,
+                  minimumSize: const Size.fromHeight(40),
+                ),
+                child: saving
+                    ? Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const ToothLoadingIndicator(
+                            size: 18,
+                            compact: true,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(width: 10),
+                          Text(AppLocalizations.of(context).saving),
+                        ],
+                      )
+                    : Text(
+                        detected == '—'
+                            ? AppLocalizations.of(context).shadeAcceptAi
+                            : AppLocalizations.of(
+                                context,
+                              ).shadeAcceptShade(detected),
+                      ),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton(
+                onPressed: saving ? null : onSaveOverride,
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(40),
+                ),
+                child: Text(
+                  selected == '—' || selected == detected
+                      ? AppLocalizations.of(context).shadeSaveOverride
+                      : AppLocalizations.of(
+                          context,
+                        ).shadeSaveOverrideShade(selected),
+                ),
+              ),
+            ],
+          ),
         );
+      },
+    );
   }
 }
 
@@ -751,8 +1294,9 @@ class ShadeOutlineLoupe extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final imgSize =
-        analysisImageSize == Size.zero ? viewSize : analysisImageSize;
+    final imgSize = analysisImageSize == Size.zero
+        ? viewSize
+        : analysisImageSize;
 
     // Image + overlay built once as AnimatedBuilder child — no LayoutBuilder
     // (breaks under IntrinsicWidth from Material buttons in this column).
@@ -803,10 +1347,7 @@ class ShadeOutlineLoupe extends StatelessWidget {
               ClipRect(
                 child: AnimatedBuilder(
                   animation: focalListenable,
-                  child: FittedBox(
-                    fit: BoxFit.fill,
-                    child: scene,
-                  ),
+                  child: FittedBox(fit: BoxFit.fill, child: scene),
                   builder: (context, child) {
                     final focal = focalListenable.value;
                     if (focal == null) return const SizedBox.shrink();
@@ -827,19 +1368,17 @@ class ShadeOutlineLoupe extends StatelessWidget {
               ),
               const IgnorePointer(
                 child: Center(
-                  child: Icon(
-                    Icons.add,
-                    size: 22,
-                    color: Colors.white70,
-                  ),
+                  child: Icon(Icons.add, size: 22, color: Colors.white70),
                 ),
               ),
               Positioned(
                 left: 12,
                 top: 10,
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.black45,
                     borderRadius: BorderRadius.circular(8),
@@ -924,8 +1463,8 @@ class MiniZoneChip extends StatelessWidget {
     final borderColor = pending
         ? AppColors.warning
         : (overridden
-            ? AppColors.warning
-            : (focused ? AppColors.dentalBlue : AppColors.border));
+              ? AppColors.warning
+              : (focused ? AppColors.dentalBlue : AppColors.border));
     final hasShade = shade != null && shade!.isNotEmpty;
 
     return Material(
@@ -1072,8 +1611,8 @@ class _CollapsedShadePreview extends StatelessWidget {
                       child: Text(
                         zoneShades[z] ?? '—',
                         style: TextStyle(
-                          fontSize: zoneShades[z] != null &&
-                                  zoneShades[z]!.length > 2
+                          fontSize:
+                              zoneShades[z] != null && zoneShades[z]!.length > 2
                               ? 6.5
                               : 8,
                           fontWeight: FontWeight.w800,
@@ -1135,7 +1674,9 @@ class GumShadeCard extends StatelessWidget {
             color: _gumRoseSoft,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: accent.withValues(alpha: pending || overridden ? 0.9 : 0.45),
+              color: accent.withValues(
+                alpha: pending || overridden ? 0.9 : 0.45,
+              ),
               width: pending || overridden ? 1.8 : 1,
             ),
           ),
@@ -1190,8 +1731,8 @@ class GumShadeCard extends StatelessWidget {
                         pending
                             ? loc.shadeOverrideSelected(pendingShade!)
                             : (overridden && detected != null
-                                ? '${loc.shadeOverride} · $detected → $effective'
-                                : '${(conf * 100).round()}% ${AppLocalizations.of(context).tr('sh.match')}'),
+                                  ? '${loc.shadeOverride} · $detected → $effective'
+                                  : '${(conf * 100).round()}% ${AppLocalizations.of(context).tr('sh.match')}'),
                         style: const TextStyle(
                           fontSize: 12,
                           color: AppColors.muted,

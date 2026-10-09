@@ -706,12 +706,16 @@ class _PatientRow extends StatelessWidget {
           ),
           Expanded(
             flex: 3,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: PatientStatusMenu(
-                status: status,
-                enabled: canEditStatus && onStatusChanged != null,
-                onSelected: onStatusChanged,
+            // Gutter so long labels (ellipsized) never touch the next column.
+            child: Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: PatientStatusMenu(
+                  status: status,
+                  enabled: canEditStatus && onStatusChanged != null,
+                  onSelected: onStatusChanged,
+                ),
               ),
             ),
           ),
