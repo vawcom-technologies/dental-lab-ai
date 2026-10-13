@@ -55,3 +55,45 @@ class MeshViewerHint extends StatelessWidget {
     );
   }
 }
+
+/// Red overlay colour for rough-surface patches flagged by the validator.
+const meshRoughColor = Color(0xFFE53935);
+
+/// Legend shown while rough patches are painted on the mesh.
+class MeshViewerRoughLegend extends StatelessWidget {
+  const MeshViewerRoughLegend(this.label, {super.key});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black38,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 10,
+              height: 10,
+              decoration: const BoxDecoration(
+                color: meshRoughColor,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

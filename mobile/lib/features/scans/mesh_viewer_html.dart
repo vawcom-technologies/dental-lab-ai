@@ -14,6 +14,8 @@ class MeshViewer extends StatelessWidget {
     this.loading = false,
     this.error,
     this.vertexCount,
+    this.roughPoints = const [],
+    this.roughRadius = 0,
   });
 
   final Uint8List? bytes;
@@ -22,6 +24,9 @@ class MeshViewer extends StatelessWidget {
   final bool loading;
   final String? error;
   final int? vertexCount;
+  // Rough-surface patch locations (file coordinates) to paint red.
+  final List<List<double>> roughPoints;
+  final double roughRadius;
 
   @override
   Widget build(BuildContext context) {
@@ -32,6 +37,8 @@ class MeshViewer extends StatelessWidget {
       loading: loading,
       error: error,
       vertexCount: vertexCount,
+      roughPoints: roughPoints,
+      roughRadius: roughRadius,
     );
   }
 }

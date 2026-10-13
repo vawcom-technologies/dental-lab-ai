@@ -45,7 +45,6 @@ class _ScansPageState extends State<ScansPage>
   bool _busy = false;
   bool _previewLoading = false;
   String? _previewError;
-  Map<String, dynamic>? _lastResult;
   List<List<double>> _vertices = const [];
   Uint8List? _previewBytes;
   String? _previewFilename;
@@ -316,10 +315,10 @@ class _ScansPageState extends State<ScansPage>
       'format': row['format'] ?? _formatOf(name),
       'uploaded_at': row['created_at'] ?? row['uploaded_at'],
       'patient_name': _patientLabel,
-      'validation_result': row['validation_result'] ?? 'pending',
-      'quality_score': row['quality_score'] ?? 1.0,
+      // Quality state: null (not checked) → checking → done | error.
+      '_q': null,
       '_bytes': ?bytes,
-    };
+    }..addAll(row['validation_result'] == null ? const {} : _qualityFields(row));
   }
 
   Future<List<Map<String, dynamic>>> _scansForPatient(String patientId) async {
@@ -337,7 +336,6 @@ class _ScansPageState extends State<ScansPage>
       _incoming = null;
       _scans = [];
       _mediaLoading = true;
-      _lastResult = null;
       _vertices = const [];
       _previewBytes = null;
       _previewFilename = null;
@@ -358,6 +356,8 @@ class _ScansPageState extends State<ScansPage>
         _mediaLoading = false;
       });
       if (scans.isNotEmpty) {
+        // Quality runs on its own: a preview that fails must not leave it unchecked.
+        unawaited(_checkAll(scans, patient));
         await _loadPreviewFor(scans.first);
       }
     } catch (e) {
@@ -393,18 +393,6 @@ class _ScansPageState extends State<ScansPage>
             : null;
         _previewLoading = false;
       });
-      Map<String, dynamic>? target = scan;
-      if (target == null) {
-        for (final s in _scans) {
-          if ('${s['id']}' == '$scanId') {
-            target = s;
-            break;
-          }
-        }
-      }
-      if (target != null) {
-        _ensureQuality(target, bytes);
-      }
     } catch (e) {
       if (!mounted || _previewScanId != scanId) return;
       setState(() {
@@ -415,55 +403,52 @@ class _ScansPageState extends State<ScansPage>
     }
   }
 
-  Future<void> _ensureQuality(
-    Map<String, dynamic> scan,
-    Uint8List bytes,
-  ) async {
-    if (scan['_qualityChecked'] == true) {
-      if (mounted) {
-        setState(() => _lastResult = _resultFromScan(scan));
-      }
-      return;
-    }
-    Map<String, dynamic> validation;
-    try {
-      validation = await widget.api.validateScan(
-        bytes,
-        '${scan['filename'] ?? 'scan.ply'}',
-      );
-    } catch (_) {
-      validation = assessScanQuality(
-        bytes,
-        '${scan['filename'] ?? 'scan.ply'}',
-      );
-    }
-    scan['_qualityChecked'] = true;
-    scan['validation_result'] =
-        validation['result'] ?? scan['validation_result'];
-    scan['issues'] = validation['issues'] ?? const [];
-    scan['reasons'] = validation['reasons'] ?? const [];
-    scan['prompt_rescan'] = validation['prompt_rescan'] == true;
-    scan['note'] = validation['note'];
-    if (!mounted) return;
-    final selected = _scans.isEmpty
-        ? null
-        : _scans[_selected.clamp(0, _scans.length - 1)];
-    if (selected != null && '${selected['id']}' == '${scan['id']}') {
-      setState(() => _lastResult = validation);
-    } else {
-      setState(() {});
-    }
+  /// Server quality fields → scan map. Rough points are parsed once so the
+  /// viewer gets a stable list identity.
+  Map<String, dynamic> _qualityFields(Map<String, dynamic> v) {
+    final raw = v['rough_points'];
+    return {
+      '_q': 'done',
+      'validation_result': v['validation_result'],
+      'issues': v['issues'] ?? const [],
+      'reasons': v['reasons'] ?? const [],
+      'prompt_rescan': v['prompt_rescan'] == true,
+      'note': v['note'],
+      'rough_points': raw is List
+          ? [
+              for (final p in raw)
+                if (p is List && p.length >= 3)
+                  [for (final c in p.take(3)) (c as num).toDouble()],
+            ]
+          : const <List<double>>[],
+      'rough_radius': (v['rough_radius'] as num?)?.toDouble() ?? 0.0,
+    };
   }
 
-  Map<String, dynamic>? _resultFromScan(Map<String, dynamic> scan) {
-    return {
-      'result': scan['validation_result'],
-      'validation_result': scan['validation_result'],
-      'issues': scan['issues'] ?? const [],
-      'reasons': scan['reasons'] ?? const [],
-      'prompt_rescan': scan['prompt_rescan'] == true,
-      'note': scan['note'],
-    };
+  /// Ask the server for this scan's result (it reads the stored file and
+  /// caches the answer). Every outcome lands in a visible state.
+  Future<void> _checkQuality(Map<String, dynamic> scan) async {
+    final id = '${scan['id'] ?? ''}';
+    if (id.isEmpty || scan['_q'] == 'done' || scan['_q'] == 'checking') return;
+    setState(() => scan['_q'] = 'checking');
+    try {
+      final v = await widget.api.validatePatientScan(id);
+      scan.addAll(_qualityFields(v));
+    } catch (_) {
+      scan['_q'] = 'error';
+    }
+    if (mounted) setState(() {});
+  }
+
+  /// One at a time so a patient with many old scans doesn't flood the server.
+  Future<void> _checkAll(
+    List<Map<String, dynamic>> scans,
+    Map<String, dynamic> patient,
+  ) async {
+    for (final scan in scans) {
+      if (!mounted || !identical(_patient, patient)) return;
+      await _checkQuality(scan);
+    }
   }
 
   Future<void> _loadPreviewFor(Map<String, dynamic> scan) async {
@@ -552,34 +537,15 @@ class _ScansPageState extends State<ScansPage>
       );
       if (!mounted) return;
 
-      late final Map<String, dynamic> validation;
-      try {
-        validation = await widget.api.validateScan(data, name);
-      } catch (_) {
-        validation = assessScanQuality(data, name);
-      }
-
-      final item = _normalizeScan(
-        {
-          ...uploaded,
-          'validation_result':
-              validation['result'] ?? validation['validation_result'] ?? 'ok',
-          'quality_score': validation['quality_score'] ?? 0.85,
-          'reasons': validation['reasons'] ?? const [],
-          'issues': validation['issues'] ?? const [],
-          'prompt_rescan': validation['prompt_rescan'] == true,
-          'note': validation['note'],
-          '_qualityChecked': true,
-        },
-        bytes: data,
-      );
+      // The upload response already carries the server's quality result.
+      final item = _normalizeScan(uploaded, bytes: data);
 
       setState(() {
         _scans = [item, ..._scans];
         _selected = 0;
-        _lastResult = validation;
         _busy = false;
       });
+      unawaited(_checkQuality(item)); // no-op unless the result was missing
       await _loadPreviewFor(item);
       if (mounted) {
         AppSnackBars.success(
@@ -619,7 +585,6 @@ class _ScansPageState extends State<ScansPage>
       setState(() {
         _scans = next;
         _selected = 0;
-        _lastResult = null;
         if (next.isEmpty) {
           _vertices = const [];
           _previewBytes = null;
@@ -641,7 +606,9 @@ class _ScansPageState extends State<ScansPage>
     }
   }
 
-  Widget _meshViewer() {
+  Widget _meshViewer(Map<String, dynamic>? scan) {
+    // Only the scan actually on screen (not an inbox preview) gets its patches.
+    final shown = scan != null && '${scan['id']}' == '$_previewScanId';
     return MeshViewer(
       key: _meshViewerKey,
       bytes: _previewBytes,
@@ -650,6 +617,10 @@ class _ScansPageState extends State<ScansPage>
       loading: _previewLoading,
       error: _previewError,
       vertexCount: _vertexCount,
+      roughPoints: shown
+          ? scan['rough_points'] as List<List<double>>? ?? const []
+          : const [],
+      roughRadius: shown ? scan['rough_radius'] as double? ?? 0 : 0,
     );
   }
 
@@ -663,7 +634,7 @@ class _ScansPageState extends State<ScansPage>
     final short = file.length > 28 ? '${file.substring(0, 26)}…' : file;
     final subtitle =
         '${scan['patient_name'] ?? _patientLabel}'
-        ' · ${scan['validation_result'] ?? 'pending'}'
+        ' · ${scan['validation_result'] ?? (scan['_q'] == 'error' ? '—' : '…')}'
         ' · #${scan['id']}';
 
     return LayoutBuilder(
@@ -675,10 +646,8 @@ class _ScansPageState extends State<ScansPage>
           color: selected ? AppColors.sidebarActive : Colors.transparent,
           child: InkWell(
             onTap: () {
-              setState(() {
-                _selected = index;
-                _lastResult = _resultFromScan(scan);
-              });
+              setState(() => _selected = index);
+              unawaited(_checkQuality(scan)); // retries a failed check
               _loadPreviewFor(scan);
             },
             child: Padding(
@@ -749,10 +718,7 @@ class _ScansPageState extends State<ScansPage>
     }
 
     final scan = _scans.isEmpty ? null : _scans[_selected.clamp(0, _scans.length - 1)];
-    final result = scan?['validation_result'] as String? ??
-        _lastResult?['validation_result'] as String? ??
-        _lastResult?['result'] as String? ??
-        'unknown';
+    final result = scan?['validation_result'] as String? ?? 'unknown';
     final needsRescan = scan?['prompt_rescan'] == true ||
         result == 'bad' ||
         result == 'blurry' ||
@@ -1044,7 +1010,7 @@ class _ScansPageState extends State<ScansPage>
                               fit: StackFit.expand,
                               clipBehavior: Clip.hardEdge,
                               children: [
-                                _meshViewer(),
+                                _meshViewer(scan),
                                 Positioned(
                                   right: 12,
                                   bottom: 12,
@@ -1092,15 +1058,15 @@ class _ScansPageState extends State<ScansPage>
                                       ),
                                     ] else ...[
                                       const SizedBox(height: 12),
-                                      if (_issuesFor(scan, _lastResult)
-                                          .isNotEmpty) ...[
+                                      _qualityStatus(scan, loc),
+                                      if (_incoming == null &&
+                                          _issuesFor(scan).isNotEmpty) ...[
+                                        const SizedBox(height: 10),
                                         Wrap(
                                           spacing: 6,
                                           runSpacing: 6,
-                                          children: _issuesFor(
-                                            scan,
-                                            _lastResult,
-                                          ).map((issue) {
+                                          children: _issuesFor(scan)
+                                              .map((issue) {
                                             final sev = issue['severity']
                                                     ?.toString() ??
                                                 'medium';
@@ -1138,12 +1104,10 @@ class _ScansPageState extends State<ScansPage>
                                             );
                                           }).toList(),
                                         ),
-                                        if (_reasonsFor(scan, _lastResult)
-                                            .isNotEmpty) ...[
+                                        if (_reasonsFor(scan).isNotEmpty) ...[
                                           const SizedBox(height: 8),
                                           Text(
-                                            _reasonsFor(scan, _lastResult)
-                                                .join('\n'),
+                                            _reasonsFor(scan).join('\n'),
                                             style: const TextStyle(
                                               color: AppColors.muted,
                                               fontSize: 12,
@@ -1153,7 +1117,7 @@ class _ScansPageState extends State<ScansPage>
                                         ],
                                         const SizedBox(height: 12),
                                       ],
-                                      if (needsRescan) ...[
+                                      if (_incoming == null && needsRescan) ...[
                                         const SizedBox(height: 10),
                                         SizedBox(
                                           width: double.infinity,
@@ -1188,11 +1152,46 @@ class _ScansPageState extends State<ScansPage>
     );
   }
 
-  List<Map<String, dynamic>> _issuesFor(
-    Map<String, dynamic>? scan,
-    Map<String, dynamic>? last,
-  ) {
-    final raw = last?['issues'] ?? scan?['issues'];
+  /// One line that is never blank: incoming / checking / couldn't check / good / issues found.
+  Widget _qualityStatus(Map<String, dynamic> scan, AppLocalizations loc) {
+    final q = scan['_q'];
+    final (IconData? icon, Color color, String text) = _incoming != null
+        ? (Icons.info_outline, AppColors.muted, loc.tr('s.qIncoming'))
+        : q == 'error'
+            ? (Icons.error_outline, AppColors.danger, loc.tr('s.qError'))
+            : q != 'done'
+                ? (null, AppColors.muted, loc.tr('s.qChecking'))
+                : _issuesFor(scan).isEmpty
+                    ? (Icons.check_circle_outline, AppColors.success, loc.tr('s.qGood'))
+                    : (Icons.warning_amber_rounded, AppColors.warning, loc.tr('s.qIssues'));
+    return Row(
+      children: [
+        if (icon != null)
+          Icon(icon, size: 18, color: color)
+        else
+          const SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(color: color, fontWeight: FontWeight.w600),
+          ),
+        ),
+        if (_incoming == null && q == 'error')
+          TextButton(
+            onPressed: () => _checkQuality(scan),
+            child: Text(loc.commonRetry),
+          ),
+      ],
+    );
+  }
+
+  List<Map<String, dynamic>> _issuesFor(Map<String, dynamic>? scan) {
+    final raw = scan?['issues'];
     if (raw is! List) return const [];
     return raw
         .whereType<Map>()
@@ -1201,11 +1200,8 @@ class _ScansPageState extends State<ScansPage>
         .toList();
   }
 
-  List<String> _reasonsFor(
-    Map<String, dynamic>? scan,
-    Map<String, dynamic>? last,
-  ) {
-    final raw = last?['reasons'] ?? scan?['reasons'];
+  List<String> _reasonsFor(Map<String, dynamic>? scan) {
+    final raw = scan?['reasons'];
     if (raw is! List) return const [];
     return raw.map((e) => e.toString()).where((s) => s.trim().isNotEmpty).toList();
   }

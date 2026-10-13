@@ -595,6 +595,51 @@ class _PlyElement {
   );
 }
 
+/// Flags each vertex (every [stride] floats, xyz first) lying within [radius]
+/// of any of [points]. Spatial hash on radius-sized cells: O(vertices).
+Uint8List markNearPoints(
+  Float32List data,
+  int stride,
+  List<List<double>> points,
+  double radius,
+) {
+  final out = Uint8List(data.length ~/ stride);
+  if (points.isEmpty || radius <= 0) return out;
+  int key(int x, int y, int z) =>
+      (x * 73856093) ^ (y * 19349663) ^ (z * 83492791);
+  final grid = <int, List<List<double>>>{};
+  for (final p in points) {
+    final k = key((p[0] / radius).floor(), (p[1] / radius).floor(),
+        (p[2] / radius).floor());
+    (grid[k] ??= []).add(p);
+  }
+  final r2 = radius * radius;
+  for (var v = 0; v < out.length; v++) {
+    final o = v * stride;
+    final x = data[o], y = data[o + 1], z = data[o + 2];
+    final cx = (x / radius).floor(),
+        cy = (y / radius).floor(),
+        cz = (z / radius).floor();
+    search:
+    for (var dx = -1; dx <= 1; dx++) {
+      for (var dy = -1; dy <= 1; dy++) {
+        for (var dz = -1; dz <= 1; dz++) {
+          final cell = grid[key(cx + dx, cy + dy, cz + dz)];
+          if (cell == null) continue;
+          for (final p in cell) {
+            final ex = p[0] - x, ey = p[1] - y, ez = p[2] - z;
+            if (ex * ex + ey * ey + ez * ez <= r2) {
+              out[v] = 1;
+              break search;
+            }
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+
 /// Downsample PLY / STL / OBJ into a point cloud + optional solid triangles.
 /// Chairside preview only — server validation still owns quality scores.
 ({
@@ -603,6 +648,9 @@ class _PlyElement {
   int vertexCount,
   int sampled,
   String? error,
+  // Normalisation applied to [vertices]/[triangles]: (xyz - center) / span.
+  List<double> center,
+  double span,
 }) sampleMeshBytes(Uint8List data, String filename, {int maxPoints = 8000}) {
   maxPoints = maxPoints.clamp(500, 20000);
   const maxTris = 60000;
@@ -625,6 +673,8 @@ class _PlyElement {
       triangles: null,
       vertexCount: parsed.total,
       sampled: 0,
+      center: const [0, 0, 0],
+      span: 1,
       error: parsed.error ?? 'No valid vertices found',
     );
   }
@@ -651,6 +701,8 @@ class _PlyElement {
       triangles: null,
       vertexCount: parsed.total,
       sampled: 0,
+      center: const [0, 0, 0],
+      span: 1,
       error: 'No valid vertices found',
     );
   }
@@ -710,6 +762,8 @@ class _PlyElement {
     vertexCount: parsed.total,
     sampled: out.length,
     error: null,
+    center: [cx, cy, cz],
+    span: span,
   );
 }
 
@@ -1450,306 +1504,4 @@ List<List<double>> _thin(List<List<double>> all, int maxPoints) {
     out.add(all[i]);
   }
   return out;
-}
-
-List<double> _powerEigen3(
-  double cxx,
-  double cxy,
-  double cxz,
-  double cyy,
-  double cyz,
-  double czz,
-  List<double>? orthogonalTo,
-) {
-  var x = 0.37, y = 0.73, z = 0.56;
-  if (orthogonalTo != null) {
-    x = 0.81;
-    y = -0.42;
-    z = 0.39;
-  }
-  for (var i = 0; i < 28; i++) {
-    if (orthogonalTo != null) {
-      final d = x * orthogonalTo[0] + y * orthogonalTo[1] + z * orthogonalTo[2];
-      x -= d * orthogonalTo[0];
-      y -= d * orthogonalTo[1];
-      z -= d * orthogonalTo[2];
-    }
-    final nx = cxx * x + cxy * y + cxz * z;
-    final ny = cxy * x + cyy * y + cyz * z;
-    final nz = cxz * x + cyz * y + czz * z;
-    final len = math.sqrt(nx * nx + ny * ny + nz * nz);
-    if (len < 1e-18) break;
-    x = nx / len;
-    y = ny / len;
-    z = nz / len;
-  }
-  return [x, y, z];
-}
-
-double _quadForm3(
-  double cxx,
-  double cxy,
-  double cxz,
-  double cyy,
-  double cyz,
-  double czz,
-  List<double> v,
-) {
-  final x = v[0], y = v[1], z = v[2];
-  return x * (cxx * x + cxy * y + cxz * z) +
-      y * (cxy * x + cyy * y + cyz * z) +
-      z * (cxz * x + cyz * y + czz * z);
-}
-
-/// Local fallback when `/api/ai/scan/validate` is unreachable.
-Map<String, dynamic> assessScanQuality(Uint8List data, String filename) {
-  final sampled = sampleMeshBytes(data, filename, maxPoints: 20000);
-  if (sampled.error != null || sampled.vertices.isEmpty) {
-    return {
-      'result': 'bad',
-      'reasons': [sampled.error ?? 'Unreadable mesh'],
-      'issues': [
-        {
-          'severity': 'high',
-          'code': 'parse_fail',
-          'message': sampled.error ?? 'Unreadable mesh',
-        }
-      ],
-      'prompt_rescan': true,
-      'note': 'Validated on device',
-    };
-  }
-
-  final issues = <Map<String, dynamic>>[];
-  final reasons = <String>[];
-  var score = 1.0;
-  final n = sampled.vertexCount;
-  if (n < 500) {
-    issues.add({
-      'severity': 'high',
-      'code': 'sparse',
-      'message': 'Only $n vertices',
-    });
-    reasons.add('Very low vertex count ($n) — incomplete scan.');
-    score -= 0.55;
-  } else if (n < 5000) {
-    issues.add({
-      'severity': 'medium',
-      'code': 'low_density',
-      'message': '$n vertices',
-    });
-    reasons.add('Low vertex count ($n) — sparse/grainy capture.');
-    score -= 0.25;
-  }
-
-  final cov = archCoverageGaps(sampled.vertices);
-  if (sampled.vertices.length >= 200) {
-    if (cov.angularGap >= 0.06) {
-      issues.add({
-        'severity': cov.angularGap >= 0.12 ? 'high' : 'medium',
-        'code': 'gaps',
-        'message': 'arch gap≈${cov.angularGap.toStringAsFixed(2)}',
-      });
-      reasons.add('Gaps in the arch — missing teeth or dropped scan frames.');
-      score -= cov.angularGap >= 0.12 ? 0.40 : 0.28;
-    }
-    if (cov.enclosedHole >= 0.015) {
-      issues.add({
-        'severity': cov.enclosedHole >= 0.04 ? 'high' : 'medium',
-        'code': 'holes',
-        'message': 'surface holes≈${cov.enclosedHole.toStringAsFixed(2)}',
-      });
-      reasons.add('Holes in the scanned surface — incomplete capture.');
-      score -= cov.enclosedHole >= 0.04 ? 0.35 : 0.26;
-    }
-  }
-
-  score = score.clamp(0.0, 1.0);
-  if (issues.any((i) => i['code'] == 'gaps' || i['code'] == 'holes')) {
-    score = math.min(score, 0.74);
-  }
-  final result = score >= 0.75
-      ? 'good'
-      : score >= 0.45
-          ? 'blurry'
-          : 'bad';
-  if (reasons.isEmpty) {
-    reasons.add('Checks passed for ${_detect(data, filename).toUpperCase()}.');
-  }
-  return {
-    'result': result,
-    'reasons': reasons,
-    'issues': issues,
-    'prompt_rescan': result != 'good' ||
-        issues.any((i) => i['code'] == 'gaps' || i['code'] == 'holes'),
-    'note': 'Validated on device',
-    'vertex_count': n,
-  };
-}
-
-class ArchCoverage {
-  const ArchCoverage({this.angularGap = 0, this.enclosedHole = 0});
-  final double angularGap;
-  final double enclosedHole;
-}
-
-/// Interior angular gaps of a U-shaped arch (tongue space is the largest opening).
-double archAngularGapFraction(List<List<double>> verts) =>
-    archCoverageGaps(verts).angularGap;
-
-/// PCA-plane coverage: missing sectors + enclosed surface holes.
-ArchCoverage archCoverageGaps(List<List<double>> verts) {
-  final n = verts.length;
-  if (n < 200) return const ArchCoverage();
-  var mx = 0.0, my = 0.0, mz = 0.0;
-  for (final v in verts) {
-    mx += v[0];
-    my += v[1];
-    mz += v[2];
-  }
-  mx /= n;
-  my /= n;
-  mz /= n;
-  var cxx = 0.0, cxy = 0.0, cxz = 0.0, cyy = 0.0, cyz = 0.0, czz = 0.0;
-  for (final v in verts) {
-    final x = v[0] - mx, y = v[1] - my, z = v[2] - mz;
-    cxx += x * x;
-    cxy += x * y;
-    cxz += x * z;
-    cyy += y * y;
-    cyz += y * z;
-    czz += z * z;
-  }
-  final d = math.max(n - 1, 1).toDouble();
-  cxx /= d;
-  cxy /= d;
-  cxz /= d;
-  cyy /= d;
-  cyz /= d;
-  czz /= d;
-  final e0 = _powerEigen3(cxx, cxy, cxz, cyy, cyz, czz, null);
-  final lam0 = _quadForm3(cxx, cxy, cxz, cyy, cyz, czz, e0);
-  final e1 = _powerEigen3(
-    cxx - lam0 * e0[0] * e0[0],
-    cxy - lam0 * e0[0] * e0[1],
-    cxz - lam0 * e0[0] * e0[2],
-    cyy - lam0 * e0[1] * e0[1],
-    cyz - lam0 * e0[1] * e0[2],
-    czz - lam0 * e0[2] * e0[2],
-    e0,
-  );
-
-  const nBins = 72;
-  final counts = List<int>.filled(nBins, 0);
-  final us = List<double>.filled(n, 0);
-  final ws = List<double>.filled(n, 0);
-  var minU = double.infinity, minW = double.infinity;
-  var maxU = -double.infinity, maxW = -double.infinity;
-  for (var i = 0; i < n; i++) {
-    final v = verts[i];
-    final x = v[0] - mx, y = v[1] - my, z = v[2] - mz;
-    final u = x * e0[0] + y * e0[1] + z * e0[2];
-    final w = x * e1[0] + y * e1[1] + z * e1[2];
-    us[i] = u;
-    ws[i] = w;
-    if (u < minU) minU = u;
-    if (u > maxU) maxU = u;
-    if (w < minW) minW = w;
-    if (w > maxW) maxW = w;
-    final ang = math.atan2(w, u);
-    var b = ((ang + math.pi) / (2 * math.pi) * nBins).floor();
-    if (b < 0) b = 0;
-    if (b >= nBins) b = nBins - 1;
-    counts[b]++;
-  }
-  final positive = [for (final c in counts) if (c > 0) c];
-  var angularGap = 0.0;
-  if (positive.length >= 6) {
-    positive.sort();
-    final med = positive[positive.length ~/ 2].toDouble();
-    final occupied = [
-      for (final c in counts) c >= math.max(med * 0.30, 4.0),
-    ];
-    final occIdx = <int>[
-      for (var i = 0; i < nBins; i++)
-        if (occupied[i]) i,
-    ];
-    if (occIdx.length >= 3) {
-      final gapLengths = <int>[];
-      for (var i = 0; i < occIdx.length; i++) {
-        final a = occIdx[i];
-        final b = occIdx[(i + 1) % occIdx.length];
-        final length = i + 1 < occIdx.length ? b - a - 1 : b + nBins - a - 1;
-        gapLengths.add(length < 0 ? 0 : length);
-      }
-      gapLengths.sort((a, b) => b.compareTo(a));
-      final opening = gapLengths.first;
-      final interior = opening < 0.18 * nBins
-          ? gapLengths.where((g) => g >= 1).fold<int>(0, (a, b) => a + b)
-          : gapLengths
-              .skip(1)
-              .where((g) => g >= 1)
-              .fold<int>(0, (a, b) => a + b);
-      final span = math.max(nBins - opening, 1);
-      angularGap = interior / span;
-    }
-  }
-
-  const gs = 64;
-  final spanU = math.max(maxU - minU, 1e-9);
-  final spanW = math.max(maxW - minW, 1e-9);
-  final grid = List<int>.filled(gs * gs, 0);
-  for (var i = 0; i < n; i++) {
-    final ix = ((us[i] - minU) / spanU * (gs - 1.000001)).floor().clamp(0, gs - 1);
-    final iy = ((ws[i] - minW) / spanW * (gs - 1.000001)).floor().clamp(0, gs - 1);
-    grid[iy * gs + ix] = 1;
-  }
-  final dilated = List<int>.from(grid);
-  for (var y = 0; y < gs; y++) {
-    for (var x = 0; x < gs; x++) {
-      if (grid[y * gs + x] == 0) continue;
-      if (y > 0) dilated[(y - 1) * gs + x] = 1;
-      if (y + 1 < gs) dilated[(y + 1) * gs + x] = 1;
-      if (x > 0) dilated[y * gs + x - 1] = 1;
-      if (x + 1 < gs) dilated[y * gs + x + 1] = 1;
-    }
-  }
-  final reached = List<bool>.filled(gs * gs, false);
-  final q = <int>[];
-  void push(int y, int x) {
-    final i = y * gs + x;
-    if (dilated[i] == 0 && !reached[i]) {
-      reached[i] = true;
-      q.add(i);
-    }
-  }
-
-  for (var x = 0; x < gs; x++) {
-    push(0, x);
-    push(gs - 1, x);
-  }
-  for (var y = 0; y < gs; y++) {
-    push(y, 0);
-    push(y, gs - 1);
-  }
-  var qi = 0;
-  while (qi < q.length) {
-    final i = q[qi++];
-    final y = i ~/ gs, x = i % gs;
-    if (y > 0) push(y - 1, x);
-    if (y + 1 < gs) push(y + 1, x);
-    if (x > 0) push(y, x - 1);
-    if (x + 1 < gs) push(y, x + 1);
-  }
-  var holeCells = 0;
-  var occCells = 0;
-  for (var i = 0; i < dilated.length; i++) {
-    if (dilated[i] == 1) {
-      occCells++;
-    } else if (!reached[i]) {
-      holeCells++;
-    }
-  }
-  final enclosedHole = holeCells / math.max(occCells, 1);
-  return ArchCoverage(angularGap: angularGap, enclosedHole: enclosedHole);
 }

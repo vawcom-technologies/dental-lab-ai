@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from typing import Any
+import base64
+import json
 import logging
+import time
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -76,6 +79,28 @@ def user_from_supabase(user: Any) -> AuthUser:
     return auth_user
 
 
+# token -> (valid_until, AuthUser). Skips the Supabase Auth + profiles round
+# trips on every request after the first.
+# ponytail: per-process cache, so a signed-out/deleted session stays usable for
+# up to _AUTH_TTL seconds; move to local JWKS verification if that matters.
+_AUTH_TTL = 60.0
+_auth_cache: dict[str, tuple[float, AuthUser]] = {}
+
+
+def _token_exp(token: str) -> float:
+    """`exp` claim of an already-verified JWT (0 when unreadable)."""
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        return float(json.loads(base64.urlsafe_b64decode(payload))["exp"])
+    except Exception:
+        return 0.0
+
+
+def clear_auth_cache() -> None:
+    _auth_cache.clear()
+
+
 def get_user_from_token(token: str) -> AuthUser:
     """Validate a JWT string (HTTP Bearer or WebSocket subprotocol). Raises HTTPException."""
     if not token or not token.strip():
@@ -84,8 +109,23 @@ def get_user_from_token(token: str) -> AuthUser:
             detail="Your session expired. Please sign in again.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    token = token.strip()
+    now = time.time()
+    hit = _auth_cache.get(token)
+    if hit and hit[0] > now:
+        return hit[1]
+    auth_user = _validate_token(token)
+    if len(_auth_cache) > 1000:
+        for key, (until, _) in list(_auth_cache.items()):
+            if until <= now:
+                _auth_cache.pop(key, None)
+    _auth_cache[token] = (min(now + _AUTH_TTL, _token_exp(token)), auth_user)
+    return auth_user
+
+
+def _validate_token(token: str) -> AuthUser:
     try:
-        response = get_supabase().auth.get_user(token.strip())
+        response = get_supabase().auth.get_user(token)
     except Exception as exc:
         logger.debug("get_user_from_token invalid detail=%s", exc)
         raise HTTPException(

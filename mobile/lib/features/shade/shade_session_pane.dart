@@ -19,10 +19,15 @@ class ShadeSessionPane extends StatelessWidget {
     required this.onCollapseChanged,
     required this.onOpen,
     required this.onDelete,
+    required this.wide,
     this.thumbnail,
   });
 
   final bool collapsed;
+
+  /// Workspace has room for the wider list (decided by the parent, which
+  /// knows the real width — screen width ignores the sidebar).
+  final bool wide;
   final List<Map<String, dynamic>> history;
   final String? activeSessionKey;
   final Color Function(String) swatch;
@@ -34,7 +39,6 @@ class ShadeSessionPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final wide = MediaQuery.sizeOf(context).width >= 1100;
     final phone = AppBreakpoints.isPhone(context);
     final sessionWidth = collapsed
         ? 52.0

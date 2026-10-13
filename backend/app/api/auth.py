@@ -4,7 +4,13 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
 from app.core.config import settings
-from app.core.security import AuthUser, canonicalize_role, get_current_user, user_from_supabase
+from app.core.security import (
+    AuthUser,
+    canonicalize_role,
+    clear_auth_cache,
+    get_current_user,
+    user_from_supabase,
+)
 from app.core.supabase_client import get_supabase, get_supabase_admin
 from app.schemas import (
     AuthMessageOut,
@@ -336,6 +342,7 @@ def logout(payload: LogoutRequest):
     """Revoke the current GoTrue session so the refresh token cannot be replayed."""
     refresh = (payload.refresh_token or "").strip()
     access = (payload.access_token or "").strip()
+    clear_auth_cache()
     if refresh:
         try:
             client = get_supabase()

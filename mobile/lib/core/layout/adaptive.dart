@@ -11,8 +11,10 @@ class AppBreakpoints {
   /// Below this content width, two-pane pages stack vertically.
   static const stack = 720.0;
 
-  /// Below this window width, the sidebar collapses to icons.
-  static const collapseSidebar = 1100.0;
+  /// Below this window width, the sidebar collapses to icons. Sits above
+  /// 11" landscape (1180–1210pt) so it gets the icon rail; 13" (1366–1376pt)
+  /// keeps labels.
+  static const collapseSidebar = 1250.0;
 
   /// Below this content width, Shade photo + result stack instead of 50/50.
   static const shadeStack = 680.0;

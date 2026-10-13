@@ -238,4 +238,6 @@ async def scan_validate(file: UploadFile = File(...)):
         note=result["note"],
         issues=result.get("issues", []),
         prompt_rescan=result.get("prompt_rescan", False),
+        rough_points=result.get("rough_points", []),
+        rough_radius=result.get("rough_radius", 0.0),
     )

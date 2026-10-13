@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -178,6 +179,27 @@ class PatientsApiService {
         headers: _headers,
       ),
     );
+  }
+
+  /// One zip with patient.xml plus every photo/scan/shade/smile (owner only).
+  Future<({Uint8List bytes, String filename})> exportPatient(
+    String patientId,
+  ) async {
+    final res = await _api.httpClient.get(
+      Uri.parse('$_base/api/patients/$patientId/export'),
+      headers: _headersFor(forceRefresh: true),
+    );
+    if (res.statusCode != 200) {
+      await _send(() async => res); // throws the envelope's error
+      throw AgentApiException(
+        httpCode: res.statusCode,
+        code: 'EXPORT_FAILED',
+        message: 'Request failed (${res.statusCode})',
+      );
+    }
+    final cd = res.headers['content-disposition'] ?? '';
+    final name = RegExp(r'filename="([^"]+)"').firstMatch(cd)?.group(1);
+    return (bytes: res.bodyBytes, filename: name ?? 'patient_export.zip');
   }
 
   /// Owner → immediate grant; approved shared user → pending request.

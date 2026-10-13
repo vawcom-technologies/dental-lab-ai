@@ -2507,10 +2507,16 @@ class _SliderRow extends StatelessWidget {
     return Row(
       children: [
         SizedBox(
-          width: 48,
-          child: Text(
-            label,
-            style: const TextStyle(fontSize: 11, color: AppColors.muted),
+          width: 80,
+          // One line; long labels ("Überblendung") shrink rather than wrap.
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              label,
+              maxLines: 1,
+              style: const TextStyle(fontSize: 11, color: AppColors.muted),
+            ),
           ),
         ),
         Expanded(

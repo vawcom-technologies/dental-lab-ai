@@ -375,8 +375,9 @@ class PageHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final phone = AppBreakpoints.isPhone(context);
-    final compact = phone || AppBreakpoints.isPortrait(context);
-    final titleBlock = Column(
+    // Compact type whenever the header stacks, so a landscape window that
+    // is too narrow for one row does not keep the 28pt title.
+    Widget titleBlock(bool compact) => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
@@ -448,7 +449,7 @@ class PageHeader extends StatelessWidget {
               NeoIconBadge(icon: icon!, size: stacked ? 40 : 44, iconSize: 20),
               const SizedBox(width: 12),
             ],
-            Expanded(child: titleBlock),
+            Expanded(child: titleBlock(stacked)),
           ],
         );
         if (stacked) {

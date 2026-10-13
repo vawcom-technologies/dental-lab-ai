@@ -16,10 +16,14 @@ class PatientScanOut(BaseModel):
     file_name: str
     format: str = ""
     created_at: datetime | str | None = None
+    # None = not checked yet (POST /api/scans/{id}/validate fills it in).
     validation_result: str | None = None
     prompt_rescan: bool = False
     reasons: list[str] = Field(default_factory=list)
     issues: list[dict] = Field(default_factory=list)
+    note: str | None = None
+    rough_points: list[list[float]] = Field(default_factory=list)
+    rough_radius: float = 0.0
 
 
 class ShadeDetectionOut(BaseModel):

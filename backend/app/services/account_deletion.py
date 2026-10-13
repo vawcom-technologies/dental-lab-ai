@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
+from app.core.security import clear_auth_cache
 from app.core.supabase_client import get_supabase_admin
 from app.services import patient_media as pm
 from app.services.r2 import (
@@ -225,6 +226,7 @@ def purge_user_account(user_id: str) -> None:
     try:
         get_supabase_admin().auth.admin.delete_user(uid)
         auth_deleted = True
+        clear_auth_cache()
         logger.info("account purge auth deleted user_id=%s", uid)
     except Exception as exc:
         msg = str(exc).strip().lower()

@@ -1239,14 +1239,11 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> validateScan(List<int> bytes, String filename) async {
-    final req = http.MultipartRequest(
-      'POST',
-      Uri.parse('$baseUrl/api/ai/scan/validate'),
-    );
-    req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
-    final streamed = await _http.send(req);
-    final res = await http.Response.fromStream(streamed);
+  /// Server checks the stored scan (cached on the row) — no re-upload.
+  Future<Map<String, dynamic>> validatePatientScan(String scanId) async {
+    final res = await _http
+        .post(Uri.parse('$baseUrl/api/scans/$scanId/validate'), headers: _jsonHeaders)
+        .timeout(const Duration(seconds: 120));
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return jsonDecode(res.body) as Map<String, dynamic>;
   }

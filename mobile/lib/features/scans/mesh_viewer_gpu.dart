@@ -20,6 +20,7 @@ import '../../core/errors/user_facing_error.dart';
 ///           files without color reuse the Solid mesh (identical look).
 /// Files with no faces (pure point clouds) render as [three.Points] on both tabs.
 /// Tab toggles only flip scene-graph membership — geometry is parsed once.
+/// Rough-surface patches from the validator draw as a red overlay mesh on top.
 class GpuMeshViewerHost extends StatefulWidget {
   const GpuMeshViewerHost({
     super.key,
@@ -29,6 +30,8 @@ class GpuMeshViewerHost extends StatefulWidget {
     this.loading = false,
     this.error,
     this.vertexCount,
+    this.roughPoints = const [],
+    this.roughRadius = 0,
   });
 
   final Uint8List? bytes;
@@ -37,6 +40,8 @@ class GpuMeshViewerHost extends StatefulWidget {
   final bool loading;
   final String? error;
   final int? vertexCount;
+  final List<List<double>> roughPoints;
+  final double roughRadius;
 
   @override
   State<GpuMeshViewerHost> createState() => _GpuMeshViewerHostState();
@@ -51,6 +56,10 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
   three.Mesh? _mesh;
   three.Mesh? _colorMesh;
   three.Points? _points;
+  three.Mesh? _roughMesh;
+  // Source arrays of the loaded mesh (file coordinates) for the rough overlay.
+  Float32List? _srcPositions;
+  Uint32List? _srcIndices;
   bool _hasVertexColors = false;
   int _loadedTris = 0;
 
@@ -195,6 +204,10 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
         !identical(oldWidget.previewVertices, widget.previewVertices);
     if (_sceneReady && (bytesChanged || vertsChanged)) {
       _loadCurrent();
+    } else if (!identical(oldWidget.roughPoints, widget.roughPoints) ||
+        oldWidget.roughRadius != widget.roughRadius) {
+      // Validation usually lands after the mesh is already on screen.
+      setState(_installRough);
     }
   }
 
@@ -226,16 +239,20 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
 
     try {
       three.BufferGeometry geometry;
+      Float32List? srcPositions;
+      Uint32List? srcIndices;
       if (widget.bytes != null && widget.bytes!.isNotEmpty) {
         final loaded = await _loadFromBytes(
           widget.bytes!,
           widget.filename ?? 'scan.ply',
         );
         if (!identical(_loadToken, token) || !mounted) {
-          loaded.dispose();
+          loaded.geometry.dispose();
           return;
         }
-        geometry = loaded;
+        geometry = loaded.geometry;
+        srcPositions = loaded.positions;
+        srcIndices = loaded.indices;
       } else {
         geometry = _geometryFromPreview(widget.previewVertices);
       }
@@ -249,6 +266,8 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
 
       _disposeMeshObjects(disposeGeometry: true);
       _geometry = geometry;
+      _srcPositions = srcPositions;
+      _srcIndices = srcIndices;
       _loadedTris = triCount;
       _installObjects(geometry, hasFaces: hasFaces);
 
@@ -262,6 +281,7 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
         _loadedVerts = nVerts;
         _meshLoading = false;
         _meshError = null;
+        _installRough();
       });
       _applyMode();
     } catch (e) {
@@ -275,7 +295,12 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
     }
   }
 
-  Future<three.BufferGeometry> _loadFromBytes(
+  Future<
+      ({
+        three.BufferGeometry geometry,
+        Float32List? positions,
+        Uint32List? indices,
+      })> _loadFromBytes(
     Uint8List bytes,
     String filename,
   ) async {
@@ -309,7 +334,7 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
         g.setIndex(idx);
         g.computeVertexNormals();
       }
-      return g;
+      return (geometry: g, positions: parsed.positions, indices: idx);
     }
 
     // Indexed PLY: segregate position / color / face index, then smooth normals.
@@ -342,14 +367,18 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
       'Index buffer lost after setIndex',
     );
 
-    return g;
+    return (geometry: g, positions: parsed.positions, indices: idx);
   }
 
   /// Triangle-soup → welded shared index buffer + smooth normals.
-  three.BufferGeometry _weldFaceSoup(three.BufferGeometry source) {
+  ({
+    three.BufferGeometry geometry,
+    Float32List? positions,
+    Uint32List? indices,
+  }) _weldFaceSoup(three.BufferGeometry source) {
     final posAttr = source.getAttribute(three.Attribute.position);
     if (posAttr is! three.BufferAttribute || posAttr.count < 3) {
-      return source;
+      return (geometry: source, positions: null, indices: null);
     }
     final raw = posAttr.array;
     final positions = raw is Float32List
@@ -389,7 +418,7 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
     }
     g.setIndex(welded.indices);
     g.computeVertexNormals();
-    return g;
+    return (geometry: g, positions: welded.positions, indices: welded.indices);
   }
 
   three.BufferGeometry _geometryFromPreview(List<List<double>> verts) {
@@ -479,6 +508,57 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
     }
     // Points only for face-less clouds, created in [_applyMode].
     _points = null;
+  }
+
+  /// Red overlay of every triangle touching a flagged rough patch. Separate
+  /// mesh so it shows on both Solid and Colored tabs; polygon offset keeps it
+  /// in front of the coplanar scan surface.
+  void _installRough() {
+    _disposeRough();
+    final scene = _three?.scene;
+    final pos = _srcPositions;
+    final idx = _srcIndices;
+    if (scene == null || pos == null || idx == null || idx.length < 3) return;
+    final near =
+        markNearPoints(pos, 3, widget.roughPoints, widget.roughRadius);
+    final tris = <double>[];
+    for (var t = 0; t + 2 < idx.length; t += 3) {
+      final a = idx[t], b = idx[t + 1], c = idx[t + 2];
+      if (near[a] == 0 && near[b] == 0 && near[c] == 0) continue;
+      for (final v in [a, b, c]) {
+        tris.addAll([pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]]);
+      }
+    }
+    if (tris.isEmpty) return;
+    final g = three.BufferGeometry();
+    g.setAttribute(
+      three.Attribute.position,
+      three.Float32BufferAttribute(Float32List.fromList(tris), 3),
+    );
+    _roughMesh = three.Mesh(
+      g,
+      three.MeshBasicMaterial({
+        three.MaterialProperty.color: meshRoughColor.toARGB32() & 0xffffff,
+        three.MaterialProperty.side: three.DoubleSide,
+        three.MaterialProperty.polygonOffset: true,
+        three.MaterialProperty.polygonOffsetFactor: -2.0,
+        three.MaterialProperty.polygonOffsetUnits: -2.0,
+      }),
+    );
+    scene.add(_roughMesh!);
+  }
+
+  void _disposeRough() {
+    final m = _roughMesh;
+    if (m == null) return;
+    _roughMesh = null;
+    try {
+      _three?.scene.remove(m);
+    } catch (_) {}
+    try {
+      m.material?.dispose();
+      m.geometry?.dispose();
+    } catch (_) {}
   }
 
   void _ensurePoints() {
@@ -576,6 +656,7 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
   }
 
   void _disposeMeshObjects({required bool disposeGeometry}) {
+    _disposeRough();
     final tj = _three;
     for (final m in [_mesh, _colorMesh]) {
       if (m == null) continue;
@@ -602,6 +683,8 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
         _geometry?.dispose();
       } catch (_) {}
       _geometry = null;
+      _srcPositions = null;
+      _srcIndices = null;
     }
   }
 
@@ -725,6 +808,14 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
                       ),
                     ),
                   ),
+                  if (_roughMesh != null)
+                    Positioned(
+                      top: 50,
+                      right: 10,
+                      child: MeshViewerRoughLegend(
+                        AppLocalizations.current.tr('ms.rough'),
+                      ),
+                    ),
                   Positioned(
                     left: 12,
                     bottom: 10,

@@ -7,7 +7,8 @@ import re
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.background import BackgroundTask
 
 from app.services.file_urls import client_file_url
 from app.core.security import AuthUser, get_current_user
@@ -30,6 +31,7 @@ from app.schemas_patients import (
 from app.services import patient_access as pa
 from app.services.notify import actor_label, notify_pair
 from app.services.patient_crypto import decrypt_note, encrypt_note
+from app.services.patient_export import build_patient_export
 from app.services.profiles import (
     fetch_profile,
     fetch_profiles_by_ids,
@@ -785,6 +787,36 @@ def get_patient(patient_id: str, user: AuthUser = Depends(get_current_user)):
         user_id=user.id,
         patient_id=patient_id,
         payload={"patient": _patient_public(patient)},
+    )
+
+
+@router.get(
+    "/{patient_id}/export",
+    summary="Export patient as one zip: patient.xml + files (owner only)",
+)
+def export_patient(patient_id: str, user: AuthUser = Depends(get_current_user)):
+    action = "export_patient"
+    try:
+        patient = pa.fetch_patient(patient_id)
+        if patient is None:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        pa.require_owner(patient, user.id)
+        out, filename, files = build_patient_export(patient)
+        pa.write_audit_log(
+            actor_id=user.id,
+            action="patient.export",
+            patient_id=patient_id,
+            details={"files": files},
+        )
+    except HTTPException as exc:
+        return _from_http(
+            action=action, user_id=user.id, exc=exc, patient_id=patient_id
+        )
+    return StreamingResponse(
+        iter(lambda: out.read(1024 * 1024), b""),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        background=BackgroundTask(out.close),
     )
 
 

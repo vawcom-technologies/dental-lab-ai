@@ -13,6 +13,13 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
+from scipy.spatial import cKDTree
+
+# Bump whenever the checks or thresholds change: stored results with an older
+# version are re-validated the next time the scan is opened.
+QUALITY_VERSION = 2
 
 
 def _parse_ply_ascii(text: str) -> dict[str, Any]:
@@ -581,6 +588,266 @@ def load_mesh_vertices(
     }
 
 
+_NP_TYPES = {
+    "char": "i1", "int8": "i1", "uchar": "u1", "uint8": "u1",
+    "short": "i2", "int16": "i2", "ushort": "u2", "uint16": "u2",
+    "int": "i4", "int32": "i4", "uint": "u4", "uint32": "u4",
+    "float": "f4", "float32": "f4", "double": "f8", "float64": "f8",
+}
+
+
+def _ply_triangles(data: bytes) -> tuple[np.ndarray, np.ndarray] | None:
+    """Full-resolution vertices + triangle faces from a PLY (binary LE or ASCII).
+
+    Returns None for layouts we don't handle (non-triangle faces, extra
+    elements before the faces, big-endian) — the roughness check is skipped.
+    """
+    end = data.find(b"end_header")
+    if end < 0:
+        return None
+    body_start = data.index(b"\n", end) + 1
+    elements: list[list[Any]] = []  # [name, count, props]
+    fmt = ""
+    for line in data[:body_start].decode("ascii", errors="ignore").splitlines():
+        p = line.split()
+        if not p:
+            continue
+        if p[0] == "format":
+            fmt = p[1]
+        elif p[0] == "element" and len(p) >= 3:
+            elements.append([p[1], int(p[2]), []])
+        elif p[0] == "property" and elements:
+            elements[-1][2].append(p[1:])
+    if [e[0] for e in elements[:2]] != ["vertex", "face"]:
+        return None
+    (_, nv, vprops), (_, nf, fprops) = elements[0], elements[1]
+    names = [p[-1] for p in vprops]
+    if any(p[0] == "list" for p in vprops) or not {"x", "y", "z"} <= set(names):
+        return None
+    if len(fprops) != 1 or fprops[0][0] != "list":
+        return None
+    if fmt == "ascii":
+        rows = data[body_start:].decode("ascii", errors="ignore").split("\n")
+        V = np.loadtxt(rows[:nv], dtype=np.float64, ndmin=2)
+        F = np.loadtxt(rows[nv : nv + nf], dtype=np.int64, ndmin=2)
+        if F.shape[1] != 4 or not (F[:, 0] == 3).all():
+            return None
+        xyz = [names.index(a) for a in "xyz"]
+        return V[:, xyz], F[:, 1:]
+    if fmt != "binary_little_endian":
+        return None
+    vdt = np.dtype([(n, "<" + _NP_TYPES[p[0]]) for p, n in zip(vprops, names)])
+    count_t, index_t = _NP_TYPES[fprops[0][1]], _NP_TYPES[fprops[0][2]]
+    fdt = np.dtype([("n", "<" + count_t), ("i", "<" + index_t, 3)])
+    try:
+        verts = np.frombuffer(data, vdt, nv, body_start)
+        faces = np.frombuffer(data, fdt, nf, body_start + nv * vdt.itemsize)
+    except ValueError:
+        return None
+    if not (faces["n"] == 3).all():
+        return None
+    V = np.column_stack([verts[a] for a in "xyz"]).astype(np.float64)
+    return V, faces["i"].astype(np.int64)
+
+
+def _stl_triangles(data: bytes) -> tuple[np.ndarray, np.ndarray] | None:
+    """Welded vertices + faces from a binary or ASCII STL."""
+    tri = None
+    if len(data) >= 84:
+        n = struct.unpack_from("<I", data, 80)[0]
+        if n and 84 + n * 50 <= len(data) + 2:
+            rec = np.dtype([("n", "<f4", 3), ("v", "<f4", (3, 3)), ("a", "<u2")])
+            try:
+                tri = np.frombuffer(data, rec, n, 84)["v"].astype(np.float64)
+            except ValueError:
+                tri = None
+    if tri is None:
+        pts = [
+            [float(t) for t in line.split()[1:4]]
+            for line in data.decode("utf-8", errors="ignore").splitlines()
+            if line.strip().lower().startswith("vertex")
+        ]
+        if not pts or len(pts) % 3:
+            return None
+        tri = np.asarray(pts, dtype=np.float64).reshape(-1, 3, 3)
+    V, inv = np.unique(tri.reshape(-1, 3), axis=0, return_inverse=True)
+    return V, inv.reshape(-1, 3)
+
+
+def _obj_triangles(data: bytes) -> tuple[np.ndarray, np.ndarray] | None:
+    """Vertices + fan-triangulated faces from an OBJ."""
+    verts: list[list[float]] = []
+    faces: list[list[int]] = []
+    for line in data.decode("utf-8", errors="ignore").splitlines():
+        if line.startswith("v "):
+            verts.append([float(t) for t in line.split()[1:4]])
+        elif line.startswith("f "):
+            idx = [int(t.split("/")[0]) for t in line.split()[1:]]
+            idx = [i - 1 if i > 0 else len(verts) + i for i in idx]
+            faces += [[idx[0], idx[j], idx[j + 1]] for j in range(1, len(idx) - 1)]
+    if not verts or not faces:
+        return None
+    return np.asarray(verts, dtype=np.float64), np.asarray(faces, dtype=np.int64)
+
+
+def load_mesh_triangles(data: bytes, filename: str = "") -> tuple[np.ndarray, np.ndarray] | None:
+    """(V, F) at full resolution, or None for point clouds / unhandled layouts."""
+    kind = detect_mesh_format(data, filename)
+    try:
+        mesh = {"ply": _ply_triangles, "stl": _stl_triangles, "obj": _obj_triangles}.get(
+            kind, lambda _d: None
+        )(data)
+    except (ValueError, IndexError, KeyError, struct.error):
+        return None
+    if mesh is None:
+        return None
+    V, F = mesh
+    ok = np.isfinite(V).all(axis=1)
+    if len(F) == 0 or F.min() < 0 or F.max() >= len(V) or not ok.all():
+        return None
+    return V, F
+
+
+# Rough-patch detector. Calibrated on 5 labelled IS ScanFlow arches (3 good,
+# 2 bad): rough-area share good ≤ 0.12 %, bad ≥ 1.03 %; the cut-off is their
+# geometric midpoint. Everything else is relative to the scan itself.
+# ponytail: 5-scan calibration; re-check stats["rough_area_pct"] as labelled
+# scans from other scanners arrive.
+_ROUGH_K = 16  # neighbours per local surface fit (~0.35 mm patch at 0.17 mm edges)
+_ROUGH_HOT_X = 6.0  # vertex is "rough" at > 6× the scan's own median deviation
+_ROUGH_MIN_PATCH_EDGES2 = 30.0  # patch must cover ≥ 30 edge² (≈1 mm² at 0.17 mm edges)
+_ROUGH_MAX_POINTS = 6000  # cap on patch points sent to the viewer for red highlighting
+_ROUGH_PCT_MEDIUM = 0.35
+_ROUGH_PCT_HIGH = 0.70
+# Whole-surface noise (median fit deviation / median edge length). The patch
+# test is relative to the scan's own median, so uniform noise needs this.
+# Real scans: 0.022–0.028. ponytail: no real uniformly-noisy scan seen yet;
+# cut-offs are ~2× / ~3.5× the good maximum.
+_NOISE_MEDIUM = 0.06
+_NOISE_HIGH = 0.10
+
+
+def _local_fit_residual(V: np.ndarray, nn: np.ndarray) -> np.ndarray:
+    """RMS deviation of each k-NN patch from its best-fit quadric surface.
+
+    Real anatomy (cusps, rugae, margins) is smooth at this sub-millimetre
+    scale; scanner noise, faceting and stitching ridges are not.
+    """
+    P = V[nn] - V[nn].mean(axis=1, keepdims=True)
+    _, W = np.linalg.eigh(np.einsum("nki,nkj->nij", P, P))  # ascending
+    x = np.einsum("nki,ni->nk", P, W[:, :, 2])
+    y = np.einsum("nki,ni->nk", P, W[:, :, 1])
+    z = np.einsum("nki,ni->nk", P, W[:, :, 0])
+    A = np.stack([x * x, x * y, y * y, x, y, np.ones_like(x)], axis=-1)
+    AtA = np.einsum("nki,nkj->nij", A, A) + 1e-12 * np.eye(6)
+    coef = np.linalg.solve(AtA, np.einsum("nki,nk->ni", A, z)[..., None])[..., 0]
+    return np.sqrt(((z - np.einsum("nki,ni->nk", A, coef)) ** 2).mean(axis=1))
+
+
+def _thin_points(P: np.ndarray, edge: float) -> tuple[np.ndarray, float]:
+    """Voxel-thin patch vertices to ≤ _ROUGH_MAX_POINTS; return them + the
+    radius a viewer should paint around each one to cover the patch."""
+    size = max(edge, 1e-9)
+    while True:
+        _, keep = np.unique(np.floor(P / size).astype(np.int64), axis=0, return_index=True)
+        if len(keep) <= _ROUGH_MAX_POINTS:
+            return P[np.sort(keep)], 1.75 * size  # > voxel diagonal (√3)
+        size *= 1.5
+
+
+def _rough_patches(V: np.ndarray, F: np.ndarray) -> dict[str, Any]:
+    """Share of the surface covered by connected patches of harsh roughness.
+
+    ``points`` / ``radius`` locate the patches (file coordinates) so the
+    viewer can paint them; they are not stats.
+    """
+    empty = {
+        "rough_area_pct": 0.0, "rough_largest_patch_pct": 0.0, "surface_noise": 0.0,
+        "points": [], "radius": 0.0,
+    }
+    if len(V) < 200:
+        return empty
+    k = min(_ROUGH_K, len(V))
+    _, nn = cKDTree(V).query(V, k=k)
+    # ponytail: all vertices, ~2 s per 200k; subsample if scans get much denser.
+    r = np.concatenate([
+        _local_fit_residual(V, nn[i : i + 20000]) for i in range(0, len(V), 20000)
+    ])
+
+    E = np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]])
+    edge = float(np.median(np.linalg.norm(V[E[:, 0]] - V[E[:, 1]], axis=1)))
+    # Floor stops a perfectly smooth (CAD/synthetic) mesh with ~0 median from
+    # flagging everything.
+    med = float(np.median(r))
+    noise = med / edge if edge > 0 else 0.0
+    hot = r > max(_ROUGH_HOT_X * med, 0.05 * edge)
+
+    tri_area = np.linalg.norm(np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]]), axis=1) / 2
+    v_area = np.zeros(len(V))
+    for j in range(3):
+        np.add.at(v_area, F[:, j], tri_area / 3)
+    total = float(v_area.sum())
+
+    E = E[hot[E[:, 0]] & hot[E[:, 1]]]
+    n_comp, label = connected_components(
+        coo_matrix((np.ones(len(E)), (E[:, 0], E[:, 1])), shape=(len(V), len(V))),
+        directed=False,
+    )
+    patch = np.bincount(label[hot], weights=v_area[hot], minlength=n_comp)
+    big = patch >= _ROUGH_MIN_PATCH_EDGES2 * edge * edge
+    if total <= 0 or not big.any():
+        return {**empty, "surface_noise": noise}
+    pts, radius = _thin_points(V[hot & big[label]], edge)
+    return {
+        "rough_area_pct": 100.0 * float(patch[big].sum()) / total,
+        "rough_largest_patch_pct": 100.0 * float(patch[big].max()) / total,
+        "surface_noise": noise,
+        "points": np.round(pts, 4).tolist(),
+        "radius": round(radius, 5),
+    }
+
+
+def _is_truncated(data: bytes, filename: str) -> bool:
+    """File shorter than its own header promises — an interrupted transfer.
+
+    The vertex parsers happily read the part that arrived, so without this a
+    half-uploaded scan can score as good.
+    """
+    kind = detect_mesh_format(data, filename)
+    if kind == "stl":
+        if b"facet" in data[:8192] or len(data) < 84:
+            return False  # ASCII STL has no declared size
+        return len(data) < 84 + 50 * struct.unpack_from("<I", data, 80)[0]
+    end = data.find(b"end_header", 0, 65536)
+    if kind != "ply" or end < 0:
+        return False
+    body_start = data.find(b"\n", end) + 1
+    header = data[:body_start].decode("ascii", errors="ignore").splitlines()
+    fmt = next((ln.split()[1] for ln in header if ln.startswith("format ")), "")
+    elements: list[list[Any]] = []  # [count, props]
+    for line in header:
+        p = line.split()
+        if p[:1] == ["element"] and len(p) >= 3 and p[2].isdigit():
+            elements.append([int(p[2]), []])
+        elif p[:1] == ["property"] and elements:
+            elements[-1][1].append(p[1:])
+    body = len(data) - body_start
+    if fmt == "ascii":
+        lines = data[body_start:].count(b"\n") + (0 if data.endswith(b"\n") else 1)
+        return lines < sum(c for c, _ in elements)
+    need = 0
+    for count, props in elements:
+        rec = 0
+        for p in props:
+            if p[0] == "list" and len(p) >= 3:
+                # Lower bound: a face list holds at least a triangle.
+                rec += _PLY_PROP_SIZES.get(p[1], 1) + 3 * _PLY_PROP_SIZES.get(p[2], 4)
+            else:
+                rec += _PLY_PROP_SIZES.get(p[0], 4)
+        need += count * rec
+    return body < need
+
+
 def validate_scan_bytes(data: bytes, filename: str = "scan.ply") -> dict[str, Any]:
     reasons: list[str] = []
     issues: list[dict[str, str]] = []
@@ -590,6 +857,7 @@ def validate_scan_bytes(data: bytes, filename: str = "scan.ply") -> dict[str, An
     if parsed.get("error") or not parsed.get("vertices"):
         kind = parsed.get("kind", "unknown")
         return {
+            "v": QUALITY_VERSION,
             "result": "bad",
             "reasons": [
                 parsed.get("error")
@@ -612,6 +880,16 @@ def validate_scan_bytes(data: bytes, filename: str = "scan.ply") -> dict[str, An
     n = int(parsed["vertex_count"])
     verts = parsed["vertices"]
     st = _stats(verts)
+
+    # 0. Incomplete file — everything below would grade only the part that arrived.
+    if _is_truncated(data, filename):
+        reasons.append("The file is incomplete — the upload or export was cut off.")
+        issues.append({
+            "severity": "high",
+            "code": "truncated",
+            "message": f"{len(data)} bytes, shorter than its header declares",
+        })
+        score -= 0.6
 
     # 1. Completeness. For a surface scan the vertex count is the scale-invariant
     #    density signal (points-per-area collapses to ~count for a fixed shape),
@@ -688,6 +966,38 @@ def validate_scan_bytes(data: bytes, filename: str = "scan.ply") -> dict[str, An
             })
             score -= 0.35 if cov["enclosed_hole"] >= 0.04 else 0.26
 
+    # 5. Harsh / ridged / uneven surface — needs triangles, so point clouds skip it.
+    rough_points: list[list[float]] = []
+    rough_radius = 0.0
+    mesh = load_mesh_triangles(data, filename)
+    if mesh is not None:
+        rough = _rough_patches(*mesh)
+        rough_points, rough_radius = rough.pop("points"), rough.pop("radius")
+        st.update(rough)
+        pct = rough["rough_area_pct"]
+        if pct >= _ROUGH_PCT_MEDIUM:
+            high = pct >= _ROUGH_PCT_HIGH
+            reasons.append(
+                "Rough, ridged or uneven patches on the scanned surface — "
+                "noise or stitching artefacts."
+            )
+            issues.append({
+                "severity": "high" if high else "medium",
+                "code": "rough_surface",
+                "message": f"rough patches≈{pct:.2f}% of surface",
+            })
+            score -= 0.45 if high else 0.30
+        noise = rough["surface_noise"]
+        if noise >= _NOISE_MEDIUM:
+            high = noise >= _NOISE_HIGH
+            reasons.append("Grainy surface overall — scanner noise across the whole scan.")
+            issues.append({
+                "severity": "high" if high else "medium",
+                "code": "noisy_surface",
+                "message": f"surface noise≈{noise:.3f}",
+            })
+            score -= 0.45 if high else 0.30
+
     score = max(0.0, min(1.0, score))
     if any(i["code"] in ("gaps", "holes") for i in issues):
         # Visible coverage defects must never pass as a good scan.
@@ -708,9 +1018,11 @@ def validate_scan_bytes(data: bytes, filename: str = "scan.ply") -> dict[str, An
         )
 
     prompt_rescan = result in ("bad", "blurry", "missing_margin") or any(
-        i["code"] in ("gaps", "holes") for i in issues
+        i["code"] in ("gaps", "holes", "rough_surface", "noisy_surface")
+        for i in issues
     )
     return {
+        "v": QUALITY_VERSION,
         "result": result,
         "reasons": reasons,
         "issues": issues,
@@ -720,11 +1032,15 @@ def validate_scan_bytes(data: bytes, filename: str = "scan.ply") -> dict[str, An
         "mesh_kind": parsed.get("kind"),
         "note": (
             "Mesh validator supports PLY / STL / OBJ. Scored on vertex "
-            "completeness, PCA shape (planarity, elongation), and arch "
-            "coverage (interior gaps / enclosed surface holes)."
+            "completeness, PCA shape (planarity, elongation), arch "
+            "coverage (interior gaps / enclosed surface holes) and, for "
+            "triangle meshes, rough-surface patches."
         ),
         "filename": filename,
         "prompt_rescan": prompt_rescan,
+        # Only paint patches when they actually failed the scan.
+        "rough_points": rough_points if any(i["code"] == "rough_surface" for i in issues) else [],
+        "rough_radius": rough_radius,
     }
 
 

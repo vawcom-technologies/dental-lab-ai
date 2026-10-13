@@ -2826,6 +2826,8 @@ class _ShadePageState extends State<ShadePage>
                     const SizedBox(width: 12),
                     ShadeSessionPane(
                       collapsed: sessionCollapsed,
+                      // 300pt list only when photo + result still get ≥688pt.
+                      wide: workspace.maxWidth >= 1000,
                       history: shown,
                       activeSessionKey: _sessionKey(),
                       swatch: shadeSwatch,
@@ -2883,18 +2885,27 @@ class _ShadePhotoResultSplit extends StatefulWidget {
 
 class _ShadePhotoResultSplitState extends State<_ShadePhotoResultSplit>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: AppMotion.page,
-    reverseDuration: AppMotion.normal,
-    value: widget.editing ? 1 : 0,
-  );
+  // Created in initState, not lazily: build skips it when there is no
+  // result, and a first touch in dispose() would make a ticker while the
+  // element is already deactivated.
+  late final AnimationController _controller;
 
   late final Animation<double> _expand = CurvedAnimation(
     parent: _controller,
     curve: AppMotion.spring,
     reverseCurve: AppMotion.easeOut,
   );
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: AppMotion.page,
+      reverseDuration: AppMotion.normal,
+      value: widget.editing ? 1 : 0,
+    );
+  }
 
   @override
   void didUpdateWidget(covariant _ShadePhotoResultSplit oldWidget) {

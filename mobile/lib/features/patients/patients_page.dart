@@ -1,4 +1,6 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
@@ -1988,6 +1990,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
   late final TabController _tabs;
   final _note = TextEditingController();
   bool _adding = false;
+  bool _exporting = false;
 
   @override
   void initState() {
@@ -2058,6 +2061,26 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
       widget.onToast(loc.patientsNoteUpdated);
     } catch (e) {
       widget.onToast(widget.friendlyError(e), error: true);
+    }
+  }
+
+  Future<void> _export() async {
+    if (_exporting) return;
+    final loc = AppLocalizations.of(context);
+    setState(() => _exporting = true);
+    try {
+      final file = await widget.controller.exportPatient(widget.patient.id);
+      final saved = await FilePicker.saveFile(
+        fileName: file.filename,
+        bytes: file.bytes,
+        type: FileType.custom,
+        allowedExtensions: const ['zip'],
+      );
+      if (saved != null || kIsWeb) widget.onToast(loc.tr('p.exported'));
+    } catch (e) {
+      widget.onToast(widget.friendlyError(e), error: true);
+    } finally {
+      if (mounted) setState(() => _exporting = false);
     }
   }
 
@@ -2258,6 +2281,14 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                               onPressed: blocked ? null : widget.onEdit,
                               icon: Icons.edit_outlined,
                               label: loc.commonEdit,
+                              compact: true,
+                            ),
+                          if (owner)
+                            AppButtons.ghost(
+                              onPressed:
+                                  blocked || _exporting ? null : _export,
+                              icon: Icons.download_outlined,
+                              label: loc.tr('p.export'),
                               compact: true,
                             ),
                           AppButtons.ghost(

@@ -221,6 +221,11 @@ class PatientsController extends ChangeNotifier {
     }
   }
 
+  Future<({Uint8List bytes, String filename})> exportPatient(
+    String patientId,
+  ) =>
+      _service.exportPatient(patientId);
+
   Future<void> deletePatient(String patientId, {required bool hard}) async {
     if (_mutating) return;
     _mutating = true;

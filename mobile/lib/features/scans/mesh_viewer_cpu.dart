@@ -23,6 +23,8 @@ class CpuMeshViewer extends StatefulWidget {
     this.loading = false,
     this.error,
     this.vertexCount,
+    this.roughPoints = const [],
+    this.roughRadius = 0,
   });
 
   final Uint8List? bytes;
@@ -31,6 +33,8 @@ class CpuMeshViewer extends StatefulWidget {
   final bool loading;
   final String? error;
   final int? vertexCount;
+  final List<List<double>> roughPoints;
+  final double roughRadius;
 
   @override
   State<CpuMeshViewer> createState() => _CpuMeshViewerState();
@@ -39,6 +43,10 @@ class CpuMeshViewer extends StatefulWidget {
 class _CpuMeshViewerState extends State<CpuMeshViewer> {
   List<List<double>> _vertices = const [];
   Float32List? _triangles;
+  // Sampler normalisation, to map file-space rough points into view space.
+  List<double> _center = const [0, 0, 0];
+  double _span = 1;
+  Uint8List? _roughTris;
   String? _sampleError;
   bool _sampling = false;
   bool _colored = true;
@@ -69,6 +77,9 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
         oldWidget.filename != widget.filename ||
         !identical(oldWidget.previewVertices, widget.previewVertices)) {
       _resync();
+    } else if (!identical(oldWidget.roughPoints, widget.roughPoints) ||
+        oldWidget.roughRadius != widget.roughRadius) {
+      setState(_markRough);
     }
   }
 
@@ -91,14 +102,18 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
           setState(() {
             _vertices = local.vertices;
             _triangles = local.triangles;
+            _center = local.center;
+            _span = local.span;
             _sampleError = local.error;
             _sampling = false;
+            _markRough();
           });
         } catch (e) {
           if (!identical(_token, token) || !mounted) return;
           setState(() {
             _vertices = const [];
             _triangles = null;
+            _roughTris = null;
             _sampleError = friendlyError(e);
             _sampling = false;
           });
@@ -109,9 +124,31 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
     setState(() {
       _vertices = widget.previewVertices;
       _triangles = null;
+      _roughTris = null;
       _sampleError = null;
       _sampling = false;
     });
+  }
+
+  /// Per-triangle flag: any corner within the validator's rough patches.
+  void _markRough() {
+    final t = _triangles;
+    if (t == null || widget.roughPoints.isEmpty || widget.roughRadius <= 0) {
+      _roughTris = null;
+      return;
+    }
+    final c = _center;
+    final pts = [
+      for (final p in widget.roughPoints)
+        [(p[0] - c[0]) / _span, (p[1] - c[1]) / _span, (p[2] - c[2]) / _span],
+    ];
+    // Triangles are 3 corners × [x, y, z, r, g, b].
+    final near = markNearPoints(t, 6, pts, widget.roughRadius / _span);
+    final tris = Uint8List(near.length ~/ 3);
+    for (var i = 0; i < tris.length; i++) {
+      tris[i] = near[i * 3] | near[i * 3 + 1] | near[i * 3 + 2];
+    }
+    _roughTris = tris.contains(1) ? tris : null;
   }
 
   @override
@@ -160,6 +197,7 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
                     pitch: _pitch,
                     zoom: _zoom,
                     colored: _colored,
+                    roughTris: _roughTris,
                   ),
                   child: const SizedBox.expand(),
                 ),
@@ -188,6 +226,14 @@ class _CpuMeshViewerState extends State<CpuMeshViewer> {
                   ),
                 ),
               ),
+              if (_roughTris != null)
+                Positioned(
+                  top: 50,
+                  right: 10,
+                  child: MeshViewerRoughLegend(
+                    AppLocalizations.current.tr('ms.rough'),
+                  ),
+                ),
               Positioned(
                 left: 12,
                 bottom: 10,
@@ -214,6 +260,7 @@ class _CpuMeshPainter extends CustomPainter {
     required this.pitch,
     required this.zoom,
     required this.colored,
+    this.roughTris,
   });
 
   final List<List<double>> vertices;
@@ -222,6 +269,7 @@ class _CpuMeshPainter extends CustomPainter {
   final double pitch;
   final double zoom;
   final bool colored;
+  final Uint8List? roughTris;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -287,7 +335,14 @@ class _CpuMeshPainter extends CustomPainter {
         final b = fileColor
             ? (t[o + 5] * lum * 255).round().clamp(0, 255)
             : r;
-        fill.color = Color.fromARGB(255, r, g, b);
+        fill.color = roughTris != null && roughTris![i] == 1
+            ? Color.fromARGB(
+                255,
+                ((meshRoughColor.r * 255) * lum).round().clamp(0, 255),
+                ((meshRoughColor.g * 255) * lum).round().clamp(0, 255),
+                ((meshRoughColor.b * 255) * lum).round().clamp(0, 255),
+              )
+            : Color.fromARGB(255, r, g, b);
 
         final p0 = project(ax, ay, az);
         final p1 = project(bx, by, bz);
@@ -336,6 +391,7 @@ class _CpuMeshPainter extends CustomPainter {
       old.pitch != pitch ||
       old.zoom != zoom ||
       old.colored != colored ||
+      !identical(old.roughTris, roughTris) ||
       !identical(old.vertices, vertices) ||
       !identical(old.triangles, triangles);
 }

@@ -287,3 +287,6 @@ class ScanValidateOut(BaseModel):
     note: str
     issues: list[dict] = []
     prompt_rescan: bool = False
+    # Rough-patch locations (file coordinates) + paint radius for the viewer.
+    rough_points: list[list[float]] = []
+    rough_radius: float = 0.0

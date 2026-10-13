@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -393,49 +392,25 @@ void main() {
     expect(g.indices!.length, 3);
   });
 
-  List<List<double>> torus({bool gap = false, bool narrowGap = false}) {
-    final pts = <List<double>>[];
-    for (var iu = 0; iu < 80; iu++) {
-      final u = iu / 79 * math.pi;
-      if (gap && u > 0.38 * math.pi && u < 0.62 * math.pi) continue;
-      if (narrowGap && u > 0.45 * math.pi && u < 0.55 * math.pi) continue;
-      for (var iv = 0; iv < 36; iv++) {
-        final v = iv / 35 * 2 * math.pi;
-        const bigR = 20.0, r = 6.0;
-        pts.add([
-          (bigR + r * math.cos(v)) * math.cos(u),
-          (bigR + r * math.cos(v)) * math.sin(u),
-          r * math.sin(v),
-        ]);
-      }
-    }
-    return pts;
-  }
-
-  test('archAngularGapFraction flags a missing mid-arch sector', () {
-    expect(archAngularGapFraction(torus()), lessThan(0.06));
-    expect(archAngularGapFraction(torus(gap: true)), greaterThanOrEqualTo(0.12));
+  test('markNearPoints flags only vertices within radius, honouring stride', () {
+    // Stride 6 like CPU triangles: xyz + rgb padding.
+    final data = Float32List.fromList([
+      0, 0, 0, 9, 9, 9, // on the point
+      0.9, 0, 0, 9, 9, 9, // inside radius 1
+      0, -1.1, 0, 9, 9, 9, // just outside, neighbouring cell
+      50, 50, 50, 9, 9, 9, // far away
+    ]);
+    final near = markNearPoints(data, 6, [
+      [0, 0, 0],
+    ], 1.0);
+    expect(near, [1, 1, 0, 0]);
+    expect(markNearPoints(data, 6, const [], 1.0), [0, 0, 0, 0]);
   });
 
-  test('archCoverageGaps flags a narrow missing-tooth gap', () {
-    final dense = archCoverageGaps(torus());
-    expect(dense.angularGap, lessThan(0.06));
-    expect(dense.enclosedHole, lessThan(0.015));
-    final gapped = archCoverageGaps(torus(narrowGap: true));
-    expect(gapped.angularGap, greaterThanOrEqualTo(0.06));
-  });
-
-  test('archCoverageGaps flags an enclosed occlusal hole', () {
-    final pts = <List<double>>[];
-    for (var ix = -20; ix <= 20; ix++) {
-      for (var iy = -12; iy <= 12; iy++) {
-        if (ix.abs() < 6 && iy.abs() < 5) continue;
-        for (var iz = -4; iz <= 4; iz++) {
-          pts.add([ix.toDouble(), iy.toDouble(), iz.toDouble()]);
-        }
-      }
-    }
-    final cov = archCoverageGaps(pts);
-    expect(cov.enclosedHole, greaterThanOrEqualTo(0.015));
+  test('sampleMeshBytes reports normalisation so file points map to view space', () {
+    final s = sampleMeshBytes(_binaryPlyWithNormals(), 'n.ply');
+    expect(s.error, isNull);
+    expect(s.span, greaterThan(0));
+    expect(s.center, hasLength(3));
   });
 }

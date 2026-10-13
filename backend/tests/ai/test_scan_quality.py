@@ -184,3 +184,69 @@ def test_reference_good_dense_arch_has_no_false_holes():
     res = validate_scan_bytes(path.read_bytes(), filename=path.name)
     assert "gaps" not in _codes(res)
     assert "holes" not in _codes(res)
+
+
+def _arch_mesh(noise: float = 0.0, patch_noise: float = 0.0, seed: int = 0) -> bytes:
+    """Triangulated half-torus arch as an ASCII PLY with faces.
+
+    ``noise`` is displacement along the normal everywhere (fraction of edge
+    length); ``patch_noise`` is extra displacement inside a 3 mm disc.
+    """
+    n_u, n_v, big_R, r = 300, 120, 20.0, 6.0
+    u = np.linspace(0.0, np.pi, n_u)
+    v = np.linspace(0.0, 2.0 * np.pi, n_v, endpoint=False)
+    uu, vv = np.meshgrid(u, v, indexing="ij")
+    ring = np.stack([np.cos(uu), np.sin(uu), np.zeros_like(uu)], -1)
+    normal = (np.cos(vv)[..., None] * ring + np.sin(vv)[..., None] * [0, 0, 1]).reshape(-1, 3)
+    pts = (big_R * ring).reshape(-1, 3) + r * normal
+    edge = big_R * np.pi / (n_u - 1)
+    rng = np.random.default_rng(seed)
+    disp = rng.normal(0.0, noise * edge, len(pts))
+    if patch_noise:
+        near = np.linalg.norm(pts - pts[len(pts) // 2], axis=1) < 3.0
+        disp += near * rng.normal(0.0, patch_noise * edge, len(pts))
+    pts = pts + normal * disp[:, None]
+    faces = []
+    for i in range(n_u - 1):
+        for j in range(n_v):
+            a, b = i * n_v + j, i * n_v + (j + 1) % n_v
+            c, d = a + n_v, b + n_v
+            faces += [(a, c, b), (b, c, d)]
+    lines = [
+        "ply", "format ascii 1.0", f"element vertex {len(pts)}",
+        "property float x", "property float y", "property float z",
+        f"element face {len(faces)}", "property list uchar int vertex_indices",
+        "end_header",
+    ]
+    lines += [f"{x:.5f} {y:.5f} {z:.5f}" for x, y, z in pts]
+    lines += [f"3 {a} {b} {c}" for a, b, c in faces]
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+def test_mesh_with_scanner_level_noise_is_not_flagged_rough():
+    res = validate_scan_bytes(_arch_mesh(noise=0.02), "arch.ply")
+    assert not _codes(res) & {"rough_surface", "noisy_surface"}
+    assert res["stats"]["rough_area_pct"] < 0.35
+    assert res["rough_points"] == []
+
+
+def test_local_rough_patch_flags_rough_surface():
+    res = validate_scan_bytes(_arch_mesh(noise=0.02, patch_noise=0.3), "arch.ply")
+    assert "rough_surface" in _codes(res)
+    assert res["prompt_rescan"] is True
+    assert res["result"] != "good"
+    # Highlight points cluster on the 6 mm noisy disc, not across the arch.
+    pts = np.asarray(res["rough_points"])
+    assert len(pts) > 0 and res["rough_radius"] > 0
+    assert np.ptp(pts, axis=0).max() < 8.0
+
+
+def test_uniform_noise_flags_noisy_surface():
+    res = validate_scan_bytes(_arch_mesh(noise=0.2), "arch.ply")
+    assert "noisy_surface" in _codes(res)
+    assert res["result"] != "good"
+
+
+def test_point_cloud_skips_roughness_checks():
+    res = validate_scan_bytes(_ply_ascii(_arch()), "arch.ply")
+    assert "rough_area_pct" not in res["stats"]
