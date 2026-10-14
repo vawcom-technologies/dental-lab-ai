@@ -6,6 +6,7 @@ import re
 import tempfile
 import unicodedata
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
 from typing import IO, Any
@@ -26,6 +27,7 @@ _MEDIA = (
     ("shades", "shade_detections", "shade_detection"),
     ("smiles", "smile_previews", "smile_preview"),
 )
+_PARALLEL_DOWNLOADS = 8
 # Storage internals; the export points at files inside the zip instead.
 _HIDDEN = frozenset({"file_url", "file_key", "base_file_key", "note_ciphertext"})
 _TAG = re.compile(r"^(?![Xx][Mm][Ll])[A-Za-z_][\w.-]*$")
@@ -80,8 +82,8 @@ def _add_row(parent: ET.Element, tag: str, row: dict[str, Any]) -> ET.Element:
     return el
 
 
-def _add_file(zf: zipfile.ZipFile, el: ET.Element, kind: str, row: dict[str, Any], tag: str = "file") -> int:
-    """Copy the row's stored file into the zip; a missing object is noted, not fatal."""
+def _file_job(el: ET.Element, kind: str, row: dict[str, Any], tag: str = "file") -> tuple:
+    """(element, kind, row, tag, zip path) for one stored file."""
     key = str(row.get("file_key") or row.get("file_url") or "")
     display = str(row.get("file_name") or row.get("filename") or kind)
     # Display names can lack an extension ("Upper smile"); the key never does.
@@ -89,16 +91,18 @@ def _add_file(zf: zipfile.ZipFile, el: ET.Element, kind: str, row: dict[str, Any
     path = f"{kind}/{safe_name(PurePosixPath(display).stem, kind)}_{str(row['id'])[:8]}"
     path += "_base" if tag == "base_file" else ""
     path += ext
+    return el, kind, row, tag, path
+
+
+def _fetch(job: tuple) -> bytes | None:
+    """The job's file bytes; None when the object is gone (noted, not fatal)."""
+    _, kind, row, _, _ = job
     try:
-        data = load_media_bytes(kind, row)
+        return load_media_bytes(kind, row)
     except HTTPException as exc:
         if exc.status_code != status.HTTP_404_NOT_FOUND:
             raise
-        ET.SubElement(el, tag, missing="true")
-        return 0
-    zf.writestr(path, data)
-    ET.SubElement(el, tag).text = path
-    return 1
+        return None
 
 
 def build_patient_export(patient: dict[str, Any]) -> tuple[IO[bytes], str, int]:
@@ -120,19 +124,35 @@ def build_patient_export(patient: dict[str, Any]) -> tuple[IO[bytes], str, int]:
     for appt in _rows("appointments", pid, order="start_time"):
         _add_row(appts_el, "appointment", appt)
 
-    # ponytail: each file passes through memory once; fine at scan sizes we take today.
+    jobs = []
+    for kind, table, tag in _MEDIA:
+        group = ET.SubElement(root, table)
+        for row in _rows(table, pid):
+            el = _add_row(group, tag, row)
+            jobs.append(_file_job(el, kind, row))
+            if row.get("base_file_key"):
+                jobs.append(_file_job(el, kind, {**row, "file_key": row["base_file_key"]}, "base_file"))
+
     out = tempfile.SpooledTemporaryFile(max_size=32 * 1024 * 1024)
     files = 0
-    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
-        for kind, table, tag in _MEDIA:
-            group = ET.SubElement(root, table)
-            for row in _rows(table, pid):
-                el = _add_row(group, tag, row)
-                files += _add_file(zf, el, kind, row)
-                if row.get("base_file_key"):
-                    files += _add_file(zf, el, kind, {**row, "file_key": row["base_file_key"]}, "base_file")
+    with zipfile.ZipFile(out, "w") as zf, ThreadPoolExecutor(_PARALLEL_DOWNLOADS) as pool:
+        # Downloads dominate (one at a time: 133 s for 96 files; 8 at once: 8 s).
+        # ponytail: map runs ahead of the writer, so a whole patient's files can
+        # sit in memory at once; bound the window if exports outgrow RAM.
+        for (el, kind, _, tag, path), data in zip(jobs, pool.map(_fetch, jobs)):
+            if data is None:
+                ET.SubElement(el, tag, missing="true")
+                continue
+            # Images are already compressed; only scans shrink (~40 %).
+            if kind == "scans":
+                zf.writestr(path, data, zipfile.ZIP_DEFLATED, compresslevel=1)
+            else:
+                zf.writestr(path, data, zipfile.ZIP_STORED)
+            ET.SubElement(el, tag).text = path
+            files += 1
         ET.indent(root)
-        zf.writestr("patient.xml", ET.tostring(root, encoding="utf-8", xml_declaration=True))
+        zf.writestr("patient.xml", ET.tostring(root, encoding="utf-8", xml_declaration=True),
+                    zipfile.ZIP_DEFLATED)
     out.seek(0)
 
     name = safe_name(f"{patient.get('last_name') or ''}_{patient.get('first_name') or ''}", "patient")

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dental_lab_ai/core/api/api_client.dart';
@@ -13,7 +14,12 @@ import 'package:http/testing.dart';
 
 /// One patient with one scan that has no stored result and no preview file
 /// (the case that used to show nothing at all).
-ApiClient _api(List<http.Response> validateReplies, List<String> calls) =>
+ApiClient _api(
+  List<http.Response> validateReplies,
+  List<String> calls, {
+  Map<String, Object?> row = const {},
+  Future<http.Response>? pendingValidate,
+}) =>
     ApiClient(
       baseUrl: 'http://test',
       httpClient: MockClient((req) async {
@@ -25,12 +31,12 @@ ApiClient _api(List<http.Response> validateReplies, List<String> calls) =>
         }
         if (path == '/api/patients/p1/scans') {
           return http.Response(jsonEncode([
-            {'id': 's1', 'patient_id': 'p1', 'file_name': 'a.ply', 'file_url': ''},
+            {'id': 's1', 'patient_id': 'p1', 'file_name': 'a.ply', 'file_url': '', ...row},
           ]), 200);
         }
         if (path == '/api/scans/s1/validate') {
           calls.add(path);
-          return validateReplies.removeAt(0);
+          return pendingValidate ?? validateReplies.removeAt(0);
         }
         return http.Response('[]', 200);
       }),
@@ -87,19 +93,43 @@ void main() {
     expect(find.text(_t('s.qError')), findsNothing);
   });
 
-  testWidgets('scan with issues shows the issue chips and Rescan', (tester) async {
+  testWidgets('bad scan explains each issue in plain German, never server text',
+      (tester) async {
     final api = _api([
       http.Response(jsonEncode({
         'id': 's1', 'patient_id': 'p1', 'uploaded_by': 'u1', 'file_key': 'k',
         'file_url': '', 'file_name': 'a.ply', 'validation_result': 'bad',
         'issues': [
-          {'severity': 'high', 'code': 'rough_surface', 'message': 'rough'},
+          {'severity': 'high', 'code': 'rough_surface', 'message': 'rough patches 1.2%'},
+          {'severity': 'medium', 'code': 'some_future_check', 'message': 'new thing'},
         ],
-        'reasons': ['Rough patches'], 'prompt_rescan': true,
+        'reasons': ['Rough, ridged or stepped patches'], 'prompt_rescan': true,
       }), 200),
     ], []);
     await _pump(tester, api);
-    expect(find.text(_t('s.qIssues')), findsOneWidget);
-    expect(find.text('rough_surface: rough'), findsOneWidget);
+    // German is the app default.
+    expect(find.text('Dieser Scan hat Probleme – bitte neu scannen, bevor der Patient geht.'),
+        findsOneWidget);
+    expect(find.text('Raue oder unebene Stellen'), findsOneWidget);
+    expect(find.textContaining('Speichel oder Blut'), findsOneWidget);
+    expect(find.text('Neu scannen'), findsWidgets); // severity label (+ list label)
+    expect(find.textContaining('rough patches'), findsNothing);
+    expect(find.textContaining('Rough, ridged'), findsNothing);
+    // A code this build doesn't know still shows, with a generic title.
+    expect(find.text('Scanproblem'), findsOneWidget);
+    expect(find.text('new thing'), findsOneWidget);
+  });
+
+  testWidgets('raw list row renders while its check is still running', (tester) async {
+    // The server lists unchecked scans with untyped empty highlight fields.
+    final reply = Completer<http.Response>();
+    final api = _api([], [],
+        row: {'validation_result': null, 'rough_points': [], 'rough_radius': 0},
+        pendingValidate: reply.future);
+    await _pump(tester, api);
+    expect(tester.takeException(), isNull);
+    expect(find.text(_t('s.qChecking')), findsOneWidget);
+    reply.complete(http.Response('{}', 500)); // let the request's timer finish
+    await tester.pump(const Duration(seconds: 1));
   });
 }

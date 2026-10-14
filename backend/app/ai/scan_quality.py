@@ -1,16 +1,16 @@
 """Scan mesh quality validation + 3D preview sampling (PLY / STL / OBJ).
 
-Heuristics calibrated against synthetic Medit-like PLY fixtures in
-references/scans/. STL/OBJ use the same vertex-based checks after parsing.
+Quality checks look only for recording / export failures (holes, filled-in
+areas, split or loose pieces, double layers, rough or noisy surface, bite
+overlap, broken files) — never for the shape of the teeth.
 """
 
 from __future__ import annotations
 
 import math
 import struct
-from collections import deque
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 from scipy.sparse import coo_matrix
@@ -19,7 +19,7 @@ from scipy.spatial import cKDTree
 
 # Bump whenever the checks or thresholds change: stored results with an older
 # version are re-validated the next time the scan is opened.
-QUALITY_VERSION = 2
+QUALITY_VERSION = 3
 
 
 def _parse_ply_ascii(text: str) -> dict[str, Any]:
@@ -182,198 +182,17 @@ def _finite_verts(
     return out
 
 
-def _stats(verts: list[tuple[float, float, float]]) -> dict[str, float]:
-    """Shape descriptors for a point cloud.
+def _planarity(verts: list[tuple[float, float, float]]) -> float:
+    """λ₂ / (λ₀+λ₁+λ₂) of the point covariance (smallest over total).
 
-    Everything used for scoring is **scale- and orientation-invariant** so the
-    same thresholds hold whether the export is in millimetres or centimetres and
-    regardless of how the mesh is oriented in space:
-
-    - ``planarity``  = λ₂ / (λ₀+λ₁+λ₂) from the covariance eigenvalues. ~0 means
-      the cloud collapses to a plane (missing arch depth / bad export); a real
-      arch has genuine 3-D relief.
-    - ``elongation`` = 1 − λ₁/λ₀. ~1 means a sliver / partial fragment.
-
-    ``span_*`` is reported for context only; the physical extent is not scored
-    (volumetric density on a thin surface scan is meaningless).
-    """
-    verts = _finite_verts(verts)
-    arr = np.asarray(verts, dtype=np.float64)
-    if arr.shape[0] == 0:
-        return {
-            "span_x": 0.0, "span_y": 0.0, "span_z": 0.0,
-            "planarity": 0.0, "elongation": 0.0,
-        }
-    spans = arr.max(axis=0) - arr.min(axis=0)
-
-    # PCA on centred points → eigenvalues (variance along principal axes).
-    planarity = 0.0
-    elongation = 0.0
-    if arr.shape[0] >= 3:
-        centred = arr - arr.mean(axis=0)
-        cov = (centred.T @ centred) / max(arr.shape[0] - 1, 1)
-        evals = np.clip(np.linalg.eigvalsh(cov)[::-1], 0.0, None)  # λ₀ ≥ λ₁ ≥ λ₂
-        total = float(evals.sum())
-        if total > 1e-12:
-            planarity = float(evals[2] / total)
-        if evals[0] > 1e-12:
-            elongation = float(1.0 - evals[1] / evals[0])
-
-    return {
-        "span_x": float(spans[0]) if math.isfinite(spans[0]) else 0.0,
-        "span_y": float(spans[1]) if math.isfinite(spans[1]) else 0.0,
-        "span_z": float(spans[2]) if math.isfinite(spans[2]) else 0.0,
-        "planarity": planarity if math.isfinite(planarity) else 0.0,
-        "elongation": elongation if math.isfinite(elongation) else 0.0,
-    }
-
-
-def _coverage_gaps(verts: list[tuple[float, float, float]]) -> dict[str, float]:
-    """Detect missing sectors and enclosed holes on a dental arch.
-
-    A U-shaped arch has empty tongue space that touches the bounding-box
-    border — that is *not* a scan hole. Interior empty pockets (missing
-    enamel patches) and angular gaps between populated sectors (missing
-    teeth / dropped frames) are.
-
-    Returns scale- and orientation-invariant fractions in ``[0, 1]``.
+    ≈0 only when an export collapsed to a plane; real arches are 0.027–0.047.
     """
     arr = np.asarray(_finite_verts(verts), dtype=np.float64)
-    n = int(arr.shape[0])
-    empty = {"angular_gap": 0.0, "enclosed_hole": 0.0, "gap_bins": 0.0}
-    if n < 200:
-        return empty
-
-    centred = arr - arr.mean(axis=0)
-    cov = (centred.T @ centred) / max(n - 1, 1)
-    evals, evecs = np.linalg.eigh(cov)  # ascending
-    if not np.all(np.isfinite(evals)):
-        return empty
-    axis0 = evecs[:, 2]
-    axis1 = evecs[:, 1]
-    uv = np.column_stack((centred @ axis0, centred @ axis1))
-    if not np.all(np.isfinite(uv)):
-        return empty
-
-    n_bins = 72
-    ang = np.arctan2(uv[:, 1], uv[:, 0])
-    bins = np.floor((ang + math.pi) / (2 * math.pi) * n_bins).astype(np.int32)
-    bins = np.clip(bins, 0, n_bins - 1)
-    counts = np.bincount(bins, minlength=n_bins).astype(np.float64)
-    positive = counts[counts > 0]
-    if positive.size < 6:
-        return empty
-    med = float(np.median(positive))
-    occupied = counts >= max(med * 0.30, 4.0)
-    occ_idx = np.flatnonzero(occupied)
-    angular_gap = 0.0
-    gap_bins = 0.0
-    if occ_idx.size >= 3:
-        gap_lengths: list[int] = []
-        for i, a in enumerate(occ_idx):
-            b = int(occ_idx[(i + 1) % occ_idx.size])
-            if i + 1 < occ_idx.size:
-                length = int(b - a - 1)
-            else:
-                length = int(b + n_bins - a - 1)
-            gap_lengths.append(max(0, length))
-        gap_lengths.sort(reverse=True)
-        opening = gap_lengths[0]
-        # Closed 360° scans have only tiny residual gaps — count them all.
-        # Skip length-0; count 1-bin dips so a missing tooth still flags.
-        if opening < 0.18 * n_bins:
-            interior = sum(g for g in gap_lengths if g >= 1)
-        else:
-            interior = sum(g for g in gap_lengths[1:] if g >= 1)
-        span = max(n_bins - opening, 1)
-        angular_gap = float(interior) / float(span)
-        gap_bins = float(interior)
-
-    gs = 64
-    mn = uv.min(axis=0)
-    span_uv = np.maximum(uv.max(axis=0) - mn, 1e-9)
-    ij = np.floor((uv - mn) / span_uv * (gs - 1.000001)).astype(np.int32)
-    ij = np.clip(ij, 0, gs - 1)
-    grid = np.zeros((gs, gs), dtype=np.uint8)
-    grid[ij[:, 1], ij[:, 0]] = 1
-    # Dilate occupancy to seal 1-cell leaks into tongue space and fill
-    # sampling specks. Measure holes on the same map so a U-arch opening
-    # stays connected to the border. A 64² grid keeps millimetre-scale
-    # occlusal voids after that 1-cell close.
-    dilated = grid.copy()
-    if gs >= 3:
-        dilated[1:, :] |= grid[:-1, :]
-        dilated[:-1, :] |= grid[1:, :]
-        dilated[:, 1:] |= grid[:, :-1]
-        dilated[:, :-1] |= grid[:, 1:]
-
-    reached = np.zeros_like(dilated, dtype=bool)
-    q: deque[tuple[int, int]] = deque()
-
-    def _push(y: int, x: int) -> None:
-        if dilated[y, x] == 0 and not reached[y, x]:
-            reached[y, x] = True
-            q.append((y, x))
-
-    for x in range(gs):
-        _push(0, x)
-        _push(gs - 1, x)
-    for y in range(gs):
-        _push(y, 0)
-        _push(y, gs - 1)
-    while q:
-        y, x = q.popleft()
-        if y > 0:
-            _push(y - 1, x)
-        if y + 1 < gs:
-            _push(y + 1, x)
-        if x > 0:
-            _push(y, x - 1)
-        if x + 1 < gs:
-            _push(y, x + 1)
-
-    enclosed = (dilated == 0) & (~reached)
-    enclosed = _filter_tiny_components(enclosed, min_size=2)
-    hole_cells = int(enclosed.sum())
-    occ_cells = int(dilated.sum())
-    enclosed_frac = hole_cells / max(occ_cells, 1)
-    return {
-        "angular_gap": angular_gap if math.isfinite(angular_gap) else 0.0,
-        "enclosed_hole": enclosed_frac if math.isfinite(enclosed_frac) else 0.0,
-        "gap_bins": gap_bins,
-    }
-
-
-def _filter_tiny_components(mask: np.ndarray, min_size: int = 2) -> np.ndarray:
-    """Keep enclosed blobs of at least [min_size] cells (drop sampling specks)."""
-    h, w = mask.shape
-    seen = np.zeros_like(mask, dtype=bool)
-    keep = np.zeros_like(mask, dtype=bool)
-    for y in range(h):
-        for x in range(w):
-            if not mask[y, x] or seen[y, x]:
-                continue
-            stack = [(y, x)]
-            seen[y, x] = True
-            cells = [(y, x)]
-            while stack:
-                cy, cx = stack.pop()
-                for ny, nx in (
-                    (cy - 1, cx),
-                    (cy + 1, cx),
-                    (cy, cx - 1),
-                    (cy, cx + 1),
-                ):
-                    if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] and not seen[ny, nx]:
-                        seen[ny, nx] = True
-                        stack.append((ny, nx))
-                        cells.append((ny, nx))
-            if len(cells) >= min_size:
-                for cy, cx in cells:
-                    keep[cy, cx] = True
-    return keep
-
-
+    if len(arr) < 3:
+        return 0.0
+    evals = np.clip(np.linalg.eigvalsh(np.cov((arr - arr.mean(axis=0)).T)), 0.0, None)
+    total = float(evals.sum())
+    return float(evals[0] / total) if total > 1e-12 else 0.0
 def detect_mesh_format(data: bytes, filename: str = "") -> str:
     """Return ply | stl | obj | unknown from filename + content sniff."""
     name = (filename or "").removesuffix(".enc")
@@ -708,23 +527,49 @@ def load_mesh_triangles(data: bytes, filename: str = "") -> tuple[np.ndarray, np
     return V, F
 
 
-# Rough-patch detector. Calibrated on 5 labelled IS ScanFlow arches (3 good,
-# 2 bad): rough-area share good ≤ 0.12 %, bad ≥ 1.03 %; the cut-off is their
-# geometric midpoint. Everything else is relative to the scan itself.
-# ponytail: 5-scan calibration; re-check stats["rough_area_pct"] as labelled
-# scans from other scanners arrive.
+# Every check below looks for a recording or export failure — something real
+# tissue cannot produce. None of them judge the anatomy, so missing teeth,
+# gaps, crowding or worn teeth never fail a scan. Lengths are in mm, the unit
+# intraoral scanners export.
+#
+# Calibrated on 6 labelled Medit "Anatomy" exports (3 good, 3 bad); the
+# observed good / bad ranges sit next to each threshold.
+# ponytail: 6-scan calibration; re-check result["stats"] as labelled scans
+# from other scanners arrive.
+_MIN_POINTS = 500  # fewer can't be a scan at all
+_FLAT_PLANARITY = 0.002  # real arches 0.027–0.047
+_SIZE_MM = (5.0, 150.0)  # largest extent: a single tooth … a full arch with room
+_LOW_RES_EDGE_MM = 0.4  # real scans 0.155–0.184 mm median edge
+_HOLE_MM = (0.5, 2.0)  # open hole width → review / rescan
+_SPLIT_SHARE = 0.05  # a second piece this big means the scan never joined up
+_FRAGMENT_MM2 = 1.0  # loose pieces smaller than this are ignored
+_PATCH_EDGE_X = 3.0  # triangles 3× the median size are the software's hole fill
+_PATCHED_PCT = (0.3, 0.6)  # good ≤ 0.13 %, bad ≥ 0.73 %
 _ROUGH_K = 16  # neighbours per local surface fit (~0.35 mm patch at 0.17 mm edges)
 _ROUGH_HOT_X = 6.0  # vertex is "rough" at > 6× the scan's own median deviation
 _ROUGH_MIN_PATCH_EDGES2 = 30.0  # patch must cover ≥ 30 edge² (≈1 mm² at 0.17 mm edges)
-_ROUGH_MAX_POINTS = 6000  # cap on patch points sent to the viewer for red highlighting
-_ROUGH_PCT_MEDIUM = 0.35
-_ROUGH_PCT_HIGH = 0.70
-# Whole-surface noise (median fit deviation / median edge length). The patch
+_ROUGH_PCT = (0.35, 0.70)  # good ≤ 0.14 %, bad ≥ 0.94 %
+# Whole-surface noise (median fit deviation / median spacing). The rough-patch
 # test is relative to the scan's own median, so uniform noise needs this.
-# Real scans: 0.022–0.028. ponytail: no real uniformly-noisy scan seen yet;
+# Real scans: 0.019–0.029. ponytail: no real uniformly-noisy scan seen yet;
 # cut-offs are ~2× / ~3.5× the good maximum.
-_NOISE_MEDIUM = 0.06
-_NOISE_HIGH = 0.10
+_NOISE = (0.06, 0.10)
+# Point clouds have no edges to scale by, and sampling density varies wildly,
+# so their noise is the median fit deviation in mm. Real scans read as clouds:
+# 0.004–0.014 mm.
+_CLOUD_NOISE_MM = (0.03, 0.05)
+_DOUBLE_MM2 = (1.0, 3.0)  # largest double-layer patch; real scans ≤ 0.8 mm²
+_BITE_OVERLAP_MM = 0.5  # good upper/lower pair overlaps ≤ 0.31 mm
+_HIGHLIGHT_MAX_POINTS = 6000  # cap on points sent to the viewer for red highlighting
+
+Flag = Callable[..., None]
+
+
+def _grade(value: float, limits: tuple[float, float]) -> str | None:
+    """None under limits[0], 'medium' under limits[1], else 'high'."""
+    if value < limits[0]:
+        return None
+    return "medium" if value < limits[1] else "high"
 
 
 def _local_fit_residual(V: np.ndarray, nn: np.ndarray) -> np.ndarray:
@@ -744,69 +589,233 @@ def _local_fit_residual(V: np.ndarray, nn: np.ndarray) -> np.ndarray:
     return np.sqrt(((z - np.einsum("nki,ni->nk", A, coef)) ** 2).mean(axis=1))
 
 
+def _fit_residuals(V: np.ndarray, nn: np.ndarray) -> np.ndarray:
+    # ponytail: all vertices, ~2 s per 200k; subsample if scans get much denser.
+    return np.concatenate([
+        _local_fit_residual(V, nn[i : i + 20000]) for i in range(0, len(V), 20000)
+    ])
+
+
 def _thin_points(P: np.ndarray, edge: float) -> tuple[np.ndarray, float]:
-    """Voxel-thin patch vertices to ≤ _ROUGH_MAX_POINTS; return them + the
-    radius a viewer should paint around each one to cover the patch."""
+    """Voxel-thin flagged vertices to ≤ _HIGHLIGHT_MAX_POINTS; return them + the
+    radius a viewer should paint around each one to cover the area."""
     size = max(edge, 1e-9)
     while True:
         _, keep = np.unique(np.floor(P / size).astype(np.int64), axis=0, return_index=True)
-        if len(keep) <= _ROUGH_MAX_POINTS:
+        if len(keep) <= _HIGHLIGHT_MAX_POINTS:
             return P[np.sort(keep)], 1.75 * size  # > voxel diagonal (√3)
         size *= 1.5
 
 
-def _rough_patches(V: np.ndarray, F: np.ndarray) -> dict[str, Any]:
-    """Share of the surface covered by connected patches of harsh roughness.
+def _vertex_normals(V: np.ndarray, F: np.ndarray) -> np.ndarray:
+    n = np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]])
+    N = np.zeros_like(V)
+    for j in range(3):
+        np.add.at(N, F[:, j], n)
+    return N / (np.linalg.norm(N, axis=1, keepdims=True) + 1e-12)
 
-    ``points`` / ``radius`` locate the patches (file coordinates) so the
-    viewer can paint them; they are not stats.
+
+def _components(edges: np.ndarray, n: int) -> np.ndarray:
+    """Connected-component label per node of an undirected edge list."""
+    graph = coo_matrix((np.ones(len(edges)), (edges[:, 0], edges[:, 1])), shape=(n, n))
+    return connected_components(graph, directed=False)[1]
+
+
+def _patch_area(E: np.ndarray, mask: np.ndarray, v_area: np.ndarray) -> np.ndarray:
+    """Per vertex: area of the connected patch of masked vertices it sits in (0 outside)."""
+    label = _components(E[mask[E[:, 0]] & mask[E[:, 1]]], len(mask))
+    area = np.bincount(label, weights=v_area * mask)
+    return np.where(mask, area[label], 0.0)
+
+
+def _double_layer(V: np.ndarray, N: np.ndarray, nn: np.ndarray, edge: float) -> np.ndarray:
+    """Vertices with a second surface facing the same way just above or below.
+
+    That is the ghost left when two passes were stitched out of line. Anatomy
+    never does it: the two sides of a thin incisor face opposite ways.
     """
-    empty = {
-        "rough_area_pct": 0.0, "rough_largest_patch_pct": 0.0, "surface_noise": 0.0,
-        "points": [], "radius": 0.0,
-    }
-    if len(V) < 200:
-        return empty
-    k = min(_ROUGH_K, len(V))
-    _, nn = cKDTree(V).query(V, k=k)
-    # ponytail: all vertices, ~2 s per 200k; subsample if scans get much denser.
-    r = np.concatenate([
-        _local_fit_residual(V, nn[i : i + 20000]) for i in range(0, len(V), 20000)
-    ])
+    hit = np.zeros(len(V), dtype=bool)
+    lo = max(0.03, 0.25 * edge)
+    for i in range(0, len(V), 20000):
+        idx = np.arange(i, min(i + 20000, len(V)))
+        n = N[idx]
+        D = V[nn[idx]] - V[idx, None]
+        t = np.einsum("nkj,nj->nk", D, n)
+        across = np.linalg.norm(D - t[..., None] * n[:, None], axis=2)
+        same = np.einsum("nkj,nj->nk", N[nn[idx]], n) > 0.8
+        off = np.abs(t)
+        hit[idx] = (same & (off > lo) & (off < 0.5) & (across < 0.5 * off)).any(axis=1)
+    return hit
 
+
+def _bite_overlap(V: np.ndarray, F: np.ndarray, other: np.ndarray) -> tuple[float, np.ndarray] | None:
+    """How deep the opposing arch reaches into this one, for a pair exported in
+    the bite position. Teeth can't share space, so overlap means the bite
+    registration or one arch's shape (warping over a long span) is off.
+
+    Returns (overlap mm, this scan's vertices at the overlap), or None when
+    the two scans aren't in a shared position.
+    """
+    N = _vertex_normals(V, F)
+    dist, i = cKDTree(V).query(other, distance_upper_bound=3.0)
+    near = np.isfinite(dist)
+    if near.sum() < 100:
+        return None
+    i = np.where(near, i, 0)  # misses come back as len(V)
+    # Point the normals at the opposing arch (exporters wind faces either way).
+    if np.median(N[i[near]] @ (other.mean(axis=0) - V.mean(axis=0))) < 0:
+        N = -N
+    D = other - V[i]
+    depth = -np.einsum("ij,ij->i", D, N[i])  # > 0: opposing point is inside this surface
+    across = np.linalg.norm(D + depth[:, None] * N[i], axis=1)
+    inside = near & (depth > 0) & (across < 0.5)
+    if inside.sum() < 20:
+        return 0.0, V[:0]
+    overlap = float(np.sort(depth[inside])[-20])  # 20th deepest: one stray vertex doesn't count
+    return overlap, V[i[inside & (depth > _BITE_OVERLAP_MM)]]
+
+
+def _mesh_checks(V: np.ndarray, F: np.ndarray, flag: Flag, opposing: np.ndarray | None) -> dict[str, float]:
+    """Checks that need triangles. Reports through ``flag``; returns stats."""
     E = np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]])
     edge = float(np.median(np.linalg.norm(V[E[:, 0]] - V[E[:, 1]], axis=1)))
-    # Floor stops a perfectly smooth (CAD/synthetic) mesh with ~0 median from
-    # flagging everything.
-    med = float(np.median(r))
-    noise = med / edge if edge > 0 else 0.0
-    hot = r > max(_ROUGH_HOT_X * med, 0.05 * edge)
-
     tri_area = np.linalg.norm(np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]]), axis=1) / 2
+    total = float(tri_area.sum())
+    if edge <= 0 or total <= 0:
+        return {}
     v_area = np.zeros(len(V))
     for j in range(3):
         np.add.at(v_area, F[:, j], tri_area / 3)
-    total = float(v_area.sum())
+    st: dict[str, float] = {"edge_mm": edge}
 
-    E = E[hot[E[:, 0]] & hot[E[:, 1]]]
-    n_comp, label = connected_components(
-        coo_matrix((np.ones(len(E)), (E[:, 0], E[:, 1])), shape=(len(V), len(V))),
-        directed=False,
-    )
-    patch = np.bincount(label[hot], weights=v_area[hot], minlength=n_comp)
-    big = patch >= _ROUGH_MIN_PATCH_EDGES2 * edge * edge
-    if total <= 0 or not big.any():
-        return {**empty, "surface_noise": noise}
-    pts, radius = _thin_points(V[hot & big[label]], edge)
-    return {
-        "rough_area_pct": 100.0 * float(patch[big].sum()) / total,
-        "rough_largest_patch_pct": 100.0 * float(patch[big].max()) / total,
-        "surface_noise": noise,
-        "points": np.round(pts, 4).tolist(),
-        "radius": round(radius, 5),
-    }
+    if edge > _LOW_RES_EDGE_MM:
+        flag("low_resolution", "medium",
+             "Low-resolution export — fine detail such as margins is lost. Export at full resolution.",
+             f"median edge {edge:.2f} mm")
+
+    # Pieces: a scan is one continuous surface.
+    label = _components(E, len(V))
+    piece = np.bincount(label[F[:, 0]], weights=tri_area, minlength=len(V))
+    main = int(piece.argmax())
+    others = np.flatnonzero(piece > 0)
+    others = others[others != main]
+    split = others[piece[others] >= _SPLIT_SHARE * total]
+    loose = others[(piece[others] >= _FRAGMENT_MM2) & (piece[others] < _SPLIT_SHARE * total)]
+    if len(split):
+        flag("split", "high",
+             "The scan is in separate pieces — the software never joined them up. "
+             "Rescan the area between them.",
+             f"{len(split) + 1} large pieces", V[np.isin(label, split)])
+    if len(loose):
+        flag("loose_fragments", "medium",
+             "Loose fragments float off the scan — tongue, cheek, a finger or debris was "
+             "captured. Trim them or rescan.",
+             f"{len(loose)} fragment(s)", V[np.isin(label, loose)])
+
+    # Open holes: every boundary loop of the main piece except its outer edge.
+    Es = np.sort(E, axis=1)
+    uniq, count = np.unique(Es, axis=0, return_counts=True)
+    if (count > 2).any():
+        flag("broken_mesh", "low",
+             "Some triangles are malformed — lab software usually repairs this automatically.",
+             f"{int((count > 2).sum())} non-manifold edges")
+    rim = uniq[count == 1]
+    rim = rim[label[rim[:, 0]] == main]
+    holes: list[np.ndarray] = []
+    if len(rim):
+        loop = _components(rim, len(V))[rim[:, 0]]
+        perim = np.bincount(loop, weights=np.linalg.norm(V[rim[:, 0]] - V[rim[:, 1]], axis=1))
+        for k in np.unique(loop):
+            P = V[np.unique(rim[loop == k])]
+            if k != perim.argmax() and np.ptp(P, axis=0).max() >= _HOLE_MM[0]:
+                holes.append(P)
+    if holes:
+        width = max(float(np.ptp(P, axis=0).max()) for P in holes)
+        flag("holes", _grade(width, _HOLE_MM),
+             "Open holes in the scanned surface — areas the scanner never captured. "
+             "Rescan them, especially near margins.",
+             f"{len(holes)} hole(s), widest {width:.1f} mm", np.vstack(holes))
+    st["hole_count"] = len(holes)
+
+    # Filled-in holes: scanner software bridges missed areas with big, coarse triangles.
+    T = V[F]
+    longest = np.linalg.norm(T - np.roll(T, 1, axis=1), axis=2).max(axis=1)
+    patched = longest > _PATCH_EDGE_X * np.median(longest)
+    st["patched_area_pct"] = pct = 100.0 * float(tri_area[patched].sum()) / total
+    if sev := _grade(pct, _PATCHED_PCT):
+        flag("patched_holes", sev,
+             "Areas the scanner missed were filled in by the software — the real shape "
+             "there is unknown. Rescan those areas.",
+             f"filled-in area ≈{pct:.2f}% of surface", V[np.unique(F[patched])])
+
+    if len(V) >= 200:
+        _, nn = cKDTree(V).query(V, k=min(_ROUGH_K, len(V)))
+        r = _fit_residuals(V, nn)
+        med = float(np.median(r))
+        st["surface_noise"] = noise = med / edge
+        # Floor stops a perfectly smooth (CAD/synthetic) mesh with ~0 median
+        # from flagging everything.
+        hot = r > max(_ROUGH_HOT_X * med, 0.05 * edge)
+        rough = _patch_area(E, hot, v_area) >= _ROUGH_MIN_PATCH_EDGES2 * edge * edge
+        st["rough_area_pct"] = pct = 100.0 * float(v_area[rough].sum()) / total
+        if sev := _grade(pct, _ROUGH_PCT):
+            flag("rough_surface", sev,
+                 "Rough, ridged or stepped patches — stitching errors, or saliva or blood "
+                 "distorting the surface.",
+                 f"rough patches ≈{pct:.2f}% of surface", V[rough])
+        if sev := _grade(noise, _NOISE):
+            flag("noisy_surface", sev,
+                 "Grainy surface overall — scanner noise across the whole scan.",
+                 f"surface noise≈{noise:.3f}")
+
+        double = _patch_area(E, _double_layer(V, _vertex_normals(V, F), nn, edge), v_area)
+        st["double_layer_mm2"] = largest = float(double.max())
+        if sev := _grade(largest, _DOUBLE_MM2):
+            flag("double_layer", sev,
+                 "Double surfaces (ghosting) — two scan passes were stitched out of line. "
+                 "Rescan that area.",
+                 f"largest doubled patch ≈{largest:.1f} mm²", V[double >= _DOUBLE_MM2[0]])
+
+    if opposing is not None and (bite := _bite_overlap(V, F, opposing)) is not None:
+        st["bite_overlap_mm"], at = bite
+        if bite[0] >= _BITE_OVERLAP_MM:
+            flag("bite_overlap", "medium",
+                 "This scan and the opposing arch overlap — teeth can't share space, so the "
+                 "bite registration or one arch's shape (warping over a long span) is off. "
+                 "Check both arches.",
+                 f"overlap ≈{bite[0]:.2f} mm", at)
+    return st
 
 
+def _cloud_checks(P: np.ndarray, n: int, flag: Flag) -> dict[str, float]:
+    """The subset that works without triangles (pieces, noise)."""
+    flag("point_cloud", "low",
+         "Point cloud without triangles — holes and filled-in areas can't be checked. "
+         "Export a mesh (STL, or PLY with faces) for the full check.",
+         f"{n} points")
+    if len(P) < 200:
+        return {}
+    dist, nn = cKDTree(P).query(P, k=min(_ROUGH_K, len(P)))
+    spacing = float(np.median(dist[:, 1]))
+    if spacing <= 0:
+        return {}
+    st: dict[str, float] = {"spacing_mm": spacing}
+    # Neighbours within 4× the spacing are the same surface.
+    E = np.column_stack([np.repeat(np.arange(len(P)), nn.shape[1]), nn.ravel()])
+    label = _components(E[(dist < 4 * spacing).ravel()], len(P))
+    share = np.bincount(label) / len(P)
+    if (share >= _SPLIT_SHARE).sum() > 1:
+        flag("split", "high",
+             "The scan is in separate pieces — the software never joined them up. "
+             "Rescan the area between them.",
+             f"{int((share >= _SPLIT_SHARE).sum())} large pieces",
+             P[label != share.argmax()])
+    st["surface_noise_mm"] = noise = float(np.median(_fit_residuals(P, nn)))
+    if sev := _grade(noise, _CLOUD_NOISE_MM):
+        flag("noisy_surface", sev,
+             "Grainy surface overall — scanner noise across the whole scan.",
+             f"surface noise≈{noise:.3f} mm")
+    return st
 def _is_truncated(data: bytes, filename: str) -> bool:
     """File shorter than its own header promises — an interrupted transfer.
 
@@ -848,11 +857,16 @@ def _is_truncated(data: bytes, filename: str) -> bool:
     return body < need
 
 
-def validate_scan_bytes(data: bytes, filename: str = "scan.ply") -> dict[str, Any]:
-    reasons: list[str] = []
-    issues: list[dict[str, str]] = []
-    score = 1.0
+def validate_scan_bytes(
+    data: bytes,
+    filename: str = "scan.ply",
+    opposing: tuple[bytes, str] | None = None,
+) -> dict[str, Any]:
+    """Grade a scan on recording / export failures only (see the thresholds above).
 
+    ``opposing`` is the other arch's (bytes, filename) from the same bite
+    export; when given, the two are checked for overlap.
+    """
     parsed = load_mesh_vertices(data, filename, max_points=50000)
     if parsed.get("error") or not parsed.get("vertices"):
         kind = parsed.get("kind", "unknown")
@@ -877,149 +891,54 @@ def validate_scan_bytes(data: bytes, filename: str = "scan.ply") -> dict[str, An
             "prompt_rescan": True,
         }
 
+    reasons: list[str] = []
+    issues: list[dict[str, str]] = []
+    marks: list[np.ndarray] = []
+
+    def flag(code: str, severity: str, reason: str, message: str, points: Any = None) -> None:
+        issues.append({"severity": severity, "code": code, "message": message})
+        reasons.append(reason)
+        if points is not None and len(points):
+            marks.append(np.asarray(points, dtype=np.float64))
+
     n = int(parsed["vertex_count"])
-    verts = parsed["vertices"]
-    st = _stats(verts)
+    verts = _finite_verts(parsed["vertices"])
+    P = np.asarray(verts, dtype=np.float64)
+    size = float(np.ptp(P, axis=0).max()) if len(P) else 0.0
+    st: dict[str, float] = {"size_mm": size, "planarity": _planarity(verts)}
 
-    # 0. Incomplete file — everything below would grade only the part that arrived.
     if _is_truncated(data, filename):
-        reasons.append("The file is incomplete — the upload or export was cut off.")
-        issues.append({
-            "severity": "high",
-            "code": "truncated",
-            "message": f"{len(data)} bytes, shorter than its header declares",
-        })
-        score -= 0.6
+        flag("truncated", "high",
+             "The file is incomplete — the upload or export was cut off.",
+             f"{len(data)} bytes, shorter than its header declares")
+    if n < _MIN_POINTS:
+        flag("sparse", "high",
+             f"Only {n} points — far too few for a scan; the export is incomplete.",
+             f"{n} vertices")
+    if not _SIZE_MM[0] <= size <= _SIZE_MM[1]:
+        flag("wrong_size", "high",
+             f"{size:.2f} units across — not the size of teeth in millimetres. "
+             "Check the export units, or that this is a dental scan.",
+             f"largest extent {size:.2f}")
+    if len(P) >= 50 and st["planarity"] < _FLAT_PLANARITY:
+        flag("flat_export", "high",
+             "The geometry is flat — the export collapsed or failed. Export the scan again.",
+             f"planarity≈{st['planarity']:.4f}")
 
-    # 1. Completeness. For a surface scan the vertex count is the scale-invariant
-    #    density signal (points-per-area collapses to ~count for a fixed shape),
-    #    so we grade on count directly instead of a bogus volumetric density.
-    if n < 500:
-        reasons.append(f"Very low vertex count ({n}) — incomplete scan.")
-        issues.append({"severity": "high", "code": "sparse", "message": f"Only {n} vertices"})
-        score -= 0.55
-    elif n < 5000:
-        reasons.append(f"Low vertex count ({n}) — sparse/grainy capture.")
-        issues.append({"severity": "medium", "code": "low_density", "message": f"{n} vertices"})
-        score -= 0.25
-    elif n < 15000:
-        reasons.append(f"Moderate vertex count ({n}) — fine margins may lack detail.")
-        issues.append({"severity": "low", "code": "moderate_density", "message": f"{n} vertices"})
-        score -= 0.08
-
-    # 2. Collapsed / degenerate surface — orientation- & scale-invariant via PCA.
-    #    A real arch has 3-D relief (planarity well above zero); a flat plane,
-    #    a single-axis export, or a collapsed mesh has planarity ≈ 0.
-    if len(verts) >= 50:
-        if st["planarity"] < 0.002:
-            reasons.append("Collapsed / near-flat geometry — missing arch depth or bad export.")
-            issues.append({
-                "severity": "high",
-                "code": "missing_margin",
-                "message": f"planarity≈{st['planarity']:.4f}",
-            })
-            score -= 0.45
-        elif st["planarity"] < 0.01:
-            reasons.append("Very thin capture — low surface relief; margin detail may be missing.")
-            issues.append({
-                "severity": "medium",
-                "code": "thin_capture",
-                "message": f"planarity≈{st['planarity']:.4f}",
-            })
-            score -= 0.2
-
-    # 3. Sliver / partial capture — one axis dominates the whole cloud.
-    if len(verts) >= 50 and st["elongation"] > 0.985:
-        reasons.append("Highly elongated fragment — likely a partial scan.")
-        issues.append({
-            "severity": "medium",
-            "code": "partial",
-            "message": f"elongation≈{st['elongation']:.3f}",
-        })
-        score -= 0.15
-
-    # 4. Holes / missing sectors — enclosed empty pockets and interior
-    #    angular gaps. Tongue space of a U-arch is connected to the bbox
-    #    border and is not scored (see test_dense_arch_scores_good).
-    cov = _coverage_gaps(verts)
-    st["angular_gap"] = cov["angular_gap"]
-    st["enclosed_hole"] = cov["enclosed_hole"]
-    if len(verts) >= 200:
-        if cov["angular_gap"] >= 0.06:
-            reasons.append(
-                "Gaps in the arch — missing teeth or dropped scan frames."
-            )
-            issues.append({
-                "severity": "high" if cov["angular_gap"] >= 0.12 else "medium",
-                "code": "gaps",
-                "message": f"arch gap≈{cov['angular_gap']:.2f}",
-            })
-            score -= 0.40 if cov["angular_gap"] >= 0.12 else 0.28
-        if cov["enclosed_hole"] >= 0.015:
-            reasons.append(
-                "Holes in the scanned surface — incomplete capture."
-            )
-            issues.append({
-                "severity": "high" if cov["enclosed_hole"] >= 0.04 else "medium",
-                "code": "holes",
-                "message": f"surface holes≈{cov['enclosed_hole']:.2f}",
-            })
-            score -= 0.35 if cov["enclosed_hole"] >= 0.04 else 0.26
-
-    # 5. Harsh / ridged / uneven surface — needs triangles, so point clouds skip it.
-    rough_points: list[list[float]] = []
-    rough_radius = 0.0
     mesh = load_mesh_triangles(data, filename)
     if mesh is not None:
-        rough = _rough_patches(*mesh)
-        rough_points, rough_radius = rough.pop("points"), rough.pop("radius")
-        st.update(rough)
-        pct = rough["rough_area_pct"]
-        if pct >= _ROUGH_PCT_MEDIUM:
-            high = pct >= _ROUGH_PCT_HIGH
-            reasons.append(
-                "Rough, ridged or uneven patches on the scanned surface — "
-                "noise or stitching artefacts."
-            )
-            issues.append({
-                "severity": "high" if high else "medium",
-                "code": "rough_surface",
-                "message": f"rough patches≈{pct:.2f}% of surface",
-            })
-            score -= 0.45 if high else 0.30
-        noise = rough["surface_noise"]
-        if noise >= _NOISE_MEDIUM:
-            high = noise >= _NOISE_HIGH
-            reasons.append("Grainy surface overall — scanner noise across the whole scan.")
-            issues.append({
-                "severity": "high" if high else "medium",
-                "code": "noisy_surface",
-                "message": f"surface noise≈{noise:.3f}",
-            })
-            score -= 0.45 if high else 0.30
-
-    score = max(0.0, min(1.0, score))
-    if any(i["code"] in ("gaps", "holes") for i in issues):
-        # Visible coverage defects must never pass as a good scan.
-        score = min(score, 0.74)
-    if any(i["code"] == "missing_margin" for i in issues):
-        result = "missing_margin"
-    elif score >= 0.75:
-        result = "good"
-    elif score >= 0.45:
-        result = "blurry"
+        other = load_mesh_triangles(*opposing) if opposing else None
+        st.update(_mesh_checks(*mesh, flag, other[0] if other else None))
     else:
-        result = "bad"
+        st.update(_cloud_checks(P, n, flag))
 
+    severities = {i["severity"] for i in issues}
+    result = "bad" if "high" in severities else "review" if "medium" in severities else "good"
     if not reasons:
-        reasons.append(
-            f"Checks passed for {parsed.get('kind', 'mesh').upper()} "
-            "(vertex heuristics; PLY fixtures in references/scans/)."
-        )
-
-    prompt_rescan = result in ("bad", "blurry", "missing_margin") or any(
-        i["code"] in ("gaps", "holes", "rough_surface", "noisy_surface")
-        for i in issues
+        reasons.append("No recording or export problems found.")
+    points, radius = (
+        _thin_points(np.vstack(marks), st.get("edge_mm") or st.get("spacing_mm") or size / 300)
+        if marks else (np.zeros((0, 3)), 0.0)
     )
     return {
         "v": QUALITY_VERSION,
@@ -1031,16 +950,15 @@ def validate_scan_bytes(data: bytes, filename: str = "scan.ply") -> dict[str, An
         "format": parsed.get("format"),
         "mesh_kind": parsed.get("kind"),
         "note": (
-            "Mesh validator supports PLY / STL / OBJ. Scored on vertex "
-            "completeness, PCA shape (planarity, elongation), arch "
-            "coverage (interior gaps / enclosed surface holes) and, for "
-            "triangle meshes, rough-surface patches."
+            "Checks for recording and export failures only — holes, filled-in areas, "
+            "split or loose pieces, double layers, rough or noisy surface, bite overlap, "
+            "file problems — never for the shape of the teeth."
         ),
         "filename": filename,
-        "prompt_rescan": prompt_rescan,
-        # Only paint patches when they actually failed the scan.
-        "rough_points": rough_points if any(i["code"] == "rough_surface" for i in issues) else [],
-        "rough_radius": rough_radius,
+        "prompt_rescan": result == "bad",
+        # Flagged areas (all findings with a location), for the viewer to paint.
+        "rough_points": np.round(points, 4).tolist(),
+        "rough_radius": round(radius, 5),
     }
 
 

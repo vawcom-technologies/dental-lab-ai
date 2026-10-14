@@ -2069,7 +2069,13 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     final loc = AppLocalizations.of(context);
     setState(() => _exporting = true);
     try {
-      final file = await widget.controller.exportPatient(widget.patient.id);
+      // Can take a while for patients with many scans — say so instead of a silent button.
+      final file = await runWithToothLoadingDialog(
+        context,
+        message: loc.tr('p.exporting'),
+        action: () => widget.controller.exportPatient(widget.patient.id),
+      );
+      if (!mounted) return;
       final saved = await FilePicker.saveFile(
         fileName: file.filename,
         bytes: file.bytes,

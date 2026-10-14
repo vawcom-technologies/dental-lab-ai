@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field
 
 from app.ai.interpreter import (
@@ -13,6 +13,7 @@ from app.ai.interpreter import (
     configured_providers,
     language_catalog,
     run_turn,
+    speak,
 )
 from app.core.security import AuthUser, require_dentist
 
@@ -25,6 +26,11 @@ class InterpreterTurnIn(BaseModel):
     source_lang: str = Field(min_length=2, max_length=8)
     target_lang: str = Field(min_length=2, max_length=8)
     formality: str | None = Field(default=None, max_length=16)
+
+
+class InterpreterSpeakIn(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+    lang: str = Field(min_length=2, max_length=8)
 
 
 def _http(exc: InterpreterError) -> HTTPException:
@@ -93,3 +99,16 @@ async def interpreter_turn_audio(
         len(result.get("original") or ""),
     )
     return result
+
+
+@router.post("/speak")
+async def interpreter_speak(
+    payload: InterpreterSpeakIn,
+    _: AuthUser = Depends(require_dentist),
+):
+    try:
+        audio = await asyncio.to_thread(speak, payload.text, language=payload.lang)
+    except InterpreterError as exc:
+        raise _http(exc) from exc
+    logger.info("interpreter tts lang=%s chars=%s", payload.lang, len(payload.text))
+    return Response(content=audio, media_type="audio/mpeg")

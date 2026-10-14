@@ -1738,6 +1738,22 @@ class ApiClient {
     return _mapBody(res, fallback: 'Voice translation failed');
   }
 
+  /// MP3 for interpreter languages without an Apple voice.
+  Future<List<int>> interpreterSpeak({
+    required String text,
+    required String lang,
+  }) async {
+    final res = await _http
+        .post(
+          Uri.parse('$baseUrl/api/interpreter/speak'),
+          headers: _jsonHeaders,
+          body: jsonEncode({'text': text, 'lang': lang}),
+        )
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return res.bodyBytes;
+  }
+
   Map<String, dynamic> _mapBody(http.Response res, {required String fallback}) {
     final decoded = jsonDecode(res.body);
     if (decoded is Map<String, dynamic>) return decoded;

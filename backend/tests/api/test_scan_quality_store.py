@@ -77,3 +77,18 @@ def test_failed_save_still_returns_the_result(env, monkeypatch):
 def test_missing_scan_is_404(env):
     client, *_ = env
     assert client.post("/api/scans/nope/validate").status_code == 404
+
+
+def test_opposing_arch_pairs_only_within_the_same_export(env):
+    _, rows, _, _ = env
+    rows.clear()
+    for i, name in enumerate(["WA943_Maxillary Anatomy.ply", "WA943_Mandibular Anatomy.ply",
+                              "S22T5_Mandibular Anatomy.ply", "Mandibular Anatomy (1).ply"]):
+        rows[f"r{i}"] = {"id": f"r{i}", "patient_id": "p1", "file_name": name, "file_key": KEY}
+    found = patient_scans._opposing_scan(rows["r0"])
+    assert found is not None and found[1] == "WA943_Mandibular Anatomy.ply"
+    # Fresh upload (no id yet) pairs the same way.
+    assert patient_scans._opposing_scan({"file_name": "S22T5_Maxillary.ply", "patient_id": "p1"})[1] \
+        == "S22T5_Mandibular Anatomy.ply"
+    # No case prefix → no pairing: it could be any visit's scan.
+    assert patient_scans._opposing_scan({"file_name": "Maxillary Anatomy (2).ply", "patient_id": "p1"}) is None

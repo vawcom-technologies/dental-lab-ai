@@ -92,3 +92,10 @@ def test_missing_key_is_a_clear_503(monkeypatch):
     with pytest.raises(InterpreterError) as err:
         translate_text("Hi", source_lang="en", target_lang="de")
     assert err.value.status_code == 503
+
+
+def test_stt_form_omits_language_openai_rejects():
+    kurdish = interpreter._stt_form(language_or_raise("ckb"))
+    assert "language" not in kurdish and "Kurdish (Sorani)" in kurdish["prompt"]
+    assert interpreter._stt_form(language_or_raise("so"))["language"] == "so"
+    assert interpreter._stt_form(language_or_raise("nb"))["language"] == "no"

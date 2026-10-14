@@ -138,8 +138,12 @@ def _llm_key() -> str:
 
 
 def configured_providers() -> dict[str, str]:
-    stt = "whisper" if (settings.openai_api_key or "").strip() else "none"
-    return {"translate": "llm" if _llm_key() else "none", "stt": stt}
+    openai = bool((settings.openai_api_key or "").strip())
+    return {
+        "translate": "llm" if _llm_key() else "none",
+        "stt": "whisper" if openai else "none",
+        "tts": "openai" if openai else "none",
+    }
 
 
 def translate_text(
@@ -188,6 +192,22 @@ def translate_text(
     return {**result, "translated": translated, "provider": "llm"}
 
 
+# Catalog codes OpenAI STT rejects as `language` (not in its ISO-639-1 list).
+# Those are steered with the prompt only.
+_STT_NO_LANG_PARAM = {"ku", "ckb", "ti", "ig"}
+
+
+def _stt_form(lang: dict[str, Any]) -> dict[str, str]:
+    form = {
+        "model": "gpt-4o-mini-transcribe",  # half the price of gpt-4o-transcribe
+        "prompt": f"A patient and dentist speaking {lang['name']} in a dental clinic.",
+    }
+    code = "no" if lang["code"] == "nb" else lang["code"]
+    if code not in _STT_NO_LANG_PARAM:
+        form["language"] = code
+    return form
+
+
 def transcribe_audio(
     data: bytes,
     *,
@@ -205,10 +225,10 @@ def transcribe_audio(
     if len(data) > _MAX_AUDIO:
         raise InterpreterError("Recording is too long. Speak a shorter sentence.")
 
-    lang = language_or_raise(language)["code"]
+    lang = language_or_raise(language)
     name = (filename or "speech.m4a").split("/")[-1] or "speech.m4a"
     files = {"file": (name, data, "application/octet-stream")}
-    form = {"model": "whisper-1", "language": lang}
+    form = _stt_form(lang)
     try:
         with httpx.Client(timeout=_HTTP_TIMEOUT) as client:
             res = client.post(
@@ -226,6 +246,38 @@ def transcribe_audio(
     if not text:
         raise InterpreterError("Nothing was heard. Hold the button and speak clearly.")
     return text
+
+
+def speak(text: str, *, language: str) -> bytes:
+    """MP3 for languages the iPad has no Apple voice for."""
+    key = (settings.openai_api_key or "").strip()
+    if not key:
+        raise InterpreterError("Voice output needs OPENAI_API_KEY.", 503)
+    spoken = (text or "").strip()
+    if not spoken:
+        raise InterpreterError("Nothing to speak.")
+    if len(spoken) > _MAX_TEXT:
+        raise InterpreterError(f"Text is too long (max {_MAX_TEXT} characters).")
+    lang = language_or_raise(language)
+    try:
+        res = _http().post(
+            "https://api.openai.com/v1/audio/speech",
+            headers={"Authorization": f"Bearer {key}"},
+            json={
+                "model": "gpt-4o-mini-tts",
+                "voice": "coral",
+                "input": spoken,
+                # Billed as input tokens on every call: keep it to the language.
+                "instructions": f"Speak {lang['name']}, calmly.",
+                "response_format": "mp3",
+            },
+        )
+    except httpx.HTTPError as exc:
+        raise InterpreterError("Could not reach the voice service.", 503) from exc
+    if res.status_code >= 400:
+        logger.info("interpreter tts status=%s", res.status_code)
+        raise InterpreterError("Could not create the voice.", 502)
+    return res.content
 
 
 def run_turn(

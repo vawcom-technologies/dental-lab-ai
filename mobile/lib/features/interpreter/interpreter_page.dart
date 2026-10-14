@@ -1,7 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:cross_file/cross_file.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:record/record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
@@ -15,6 +19,7 @@ import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/touchable.dart';
 import '../../core/widgets/ui_kit.dart';
+import '../chat/utils/voice_record_path.dart';
 import 'apple_translate.dart';
 import 'interpreter_languages.dart';
 import 'interpreter_phrases.dart';
@@ -68,6 +73,18 @@ class _InterpreterPageState extends State<InterpreterPage> {
   final _patientFocus = FocusNode();
   final _speech = SpeechToText();
   final _tts = FlutterTts();
+  // Languages without Apple Speech: record, backend transcribes + translates.
+  final _recorder = AudioRecorder();
+  bool _cloudStt = false;
+  Timer? _recordCap;
+  // Languages without an Apple voice: OpenAI TTS, cached on disk per sentence.
+  final _cloudPlayer = AudioPlayer();
+  bool _cloudTts = false;
+  // Doctor sentences repeat across visits; their translations are reused so
+  // the LLM (and then the cached voice) is paid for once.
+  static const _kTranslations = 'interpreter.translations';
+  static const _maxTranslations = 300;
+  Map<String, String> _translations = {};
 
   List<InterpreterLanguage> _languages = List.of(kInterpreterLanguages);
   String _doctorLang = 'de';
@@ -113,6 +130,7 @@ class _InterpreterPageState extends State<InterpreterPage> {
     if (oldWidget.active && !widget.active) {
       unawaited(_speech.stop());
       unawaited(_tts.stop());
+      unawaited(_cloudPlayer.stop());
       if (_listeningDoctor) unawaited(_stopHold(true, cancelled: true));
       if (_listeningPatient) unawaited(_stopHold(false, cancelled: true));
     }
@@ -128,6 +146,9 @@ class _InterpreterPageState extends State<InterpreterPage> {
     _patientFocus.dispose();
     unawaited(_speech.stop());
     unawaited(_tts.stop());
+    _recordCap?.cancel();
+    unawaited(_recorder.dispose().catchError((_) {}));
+    unawaited(_cloudPlayer.dispose().catchError((_) {}));
     super.dispose();
   }
 
@@ -156,6 +177,10 @@ class _InterpreterPageState extends State<InterpreterPage> {
     }
     _patientLang = _prefs?.getString(_kPatientLang) ?? 'ar';
     _autoSpeak = _prefs?.getBool(_kAutoSpeak) ?? true;
+    try {
+      final raw = jsonDecode(_prefs?.getString(_kTranslations) ?? '{}');
+      if (raw is Map) _translations = raw.map((k, v) => MapEntry('$k', '$v'));
+    } catch (_) {}
     _loadDoctorPhrases();
     if (mounted) setState(() {});
     await _loadPatientLanguage();
@@ -183,9 +208,12 @@ class _InterpreterPageState extends State<InterpreterPage> {
           }
         }
       }
+      final providers = raw['providers'];
       if (!mounted) return;
       setState(() {
         if (parsed.length >= 20) _languages = parsed;
+        _cloudStt = providers is Map && providers['stt'] == 'whisper';
+        _cloudTts = providers is Map && providers['tts'] == 'openai';
       });
     } catch (_) {
       // Local catalog is enough for the picker.
@@ -277,6 +305,7 @@ class _InterpreterPageState extends State<InterpreterPage> {
   Future<void> _ensureMicCapture() async {
     try {
       await _tts.stop();
+      await _cloudPlayer.stop();
     } catch (_) {}
     await _tryIosAudioCategory(
       IosTextToSpeechAudioCategory.playAndRecord,
@@ -501,8 +530,14 @@ class _InterpreterPageState extends State<InterpreterPage> {
       var translated = '';
       var toneChecked = true;
       Object? backendError;
+      final cacheKey = fromDoctor
+          ? _translationKey(source, target, original)
+          : null;
+      final cached = cacheKey == null ? null : _translations[cacheKey];
       if (source == target) {
         translated = original;
+      } else if (cached != null) {
+        translated = cached;
       } else if (targetNeedsRegister(target)) {
         // Politeness matters in this target language: one LLM call translates
         // and keeps the register. Apple has no formality control.
@@ -544,37 +579,106 @@ class _InterpreterPageState extends State<InterpreterPage> {
               AppLocalizations.of(context).interpreterAppleTranslateFailed,
             );
       }
-      final turn = InterpreterTurn(
-        fromDoctor: fromDoctor,
-        original: original,
-        translated: translated,
-        sourceLang: source,
-        targetLang: target,
-        toneChecked: toneChecked,
+      if (cacheKey != null && cached == null && toneChecked) {
+        _rememberTranslation(cacheKey, translated);
+      }
+      await _commitTurn(
+        InterpreterTurn(
+          fromDoctor: fromDoctor,
+          original: original,
+          translated: translated,
+          sourceLang: source,
+          targetLang: target,
+          toneChecked: toneChecked,
+        ),
       );
-      if (!mounted) return;
-      setState(() {
-        _turns.add(turn);
-        _busy = false;
-        (fromDoctor ? _doctorPhrases : _patientPhrases).add(original);
-      });
-      if (fromDoctor) {
-        unawaited(_prefs?.setString(_phrasesKey, _doctorPhrases.toJson()));
-      }
-      AppHaptics.success();
-      if (_autoSpeak && turn.translated.isNotEmpty) {
-        await _speak(
-          turn.translated,
-          lang: turn.targetLang,
-          announceIfSilent: true,
-        );
-      }
     } on _TurnAborted catch (e) {
       if (!mounted) return;
       setState(() => _busy = false);
       _fillInput(fromDoctor, text.trim());
       final msg = e.message;
       if (msg != null) AppSnackBars.error(context, msg);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      AppSnackBars.error(
+        context,
+        friendlyError(e, AppLocalizations.of(context)),
+      );
+    }
+  }
+
+  String _translationKey(String source, String target, String text) =>
+      '$source|$target|${text.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ')}';
+
+  void _rememberTranslation(String key, String translated) {
+    _translations.remove(key);
+    _translations[key] = translated;
+    while (_translations.length > _maxTranslations) {
+      _translations.remove(_translations.keys.first);
+    }
+    unawaited(_prefs?.setString(_kTranslations, jsonEncode(_translations)));
+  }
+
+  Future<void> _commitTurn(InterpreterTurn turn) async {
+    if (!mounted) return;
+    setState(() {
+      _turns.add(turn);
+      _busy = false;
+      (turn.fromDoctor ? _doctorPhrases : _patientPhrases).add(turn.original);
+    });
+    if (turn.fromDoctor) {
+      unawaited(_prefs?.setString(_phrasesKey, _doctorPhrases.toJson()));
+    }
+    AppHaptics.success();
+    if (_autoSpeak && turn.translated.isNotEmpty) {
+      await _speak(
+        turn.translated,
+        lang: turn.targetLang,
+        announceIfSilent: true,
+        // Auto-speak never buys OpenAI audio; it plays it only if cached.
+        // The speaker button fetches.
+        fetchCloud: false,
+      );
+    }
+  }
+
+  /// Backend transcribes (OpenAI) and translates (LLM, formal) in one call.
+  Future<void> _runAudioTurn(String path, {required bool fromDoctor}) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    AppHaptics.medium();
+    try {
+      final bytes = await XFile(path).readAsBytes();
+      unawaited(deleteVoiceRecord(path));
+      final source = fromDoctor ? _doctorLang : _patientLang;
+      final target = fromDoctor ? _patientLang : _doctorLang;
+      final raw = await widget.api
+          .interpreterTurnAudio(
+            bytes: bytes,
+            filename: 'speech.m4a',
+            sourceLang: source,
+            targetLang: target,
+            formality: 'formal',
+          )
+          .timeout(const Duration(seconds: 60));
+      final original = '${raw['original'] ?? ''}'.trim();
+      final translated = '${raw['translated'] ?? ''}'.trim();
+      if (!mounted) return;
+      if (original.isEmpty || translated.isEmpty) {
+        throw Exception(
+          AppLocalizations.of(context).interpreterAppleTranslateFailed,
+        );
+      }
+      await _commitTurn(
+        InterpreterTurn(
+          fromDoctor: fromDoctor,
+          original: original,
+          translated: translated,
+          sourceLang: source,
+          targetLang: target,
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _busy = false);
@@ -696,6 +800,7 @@ class _InterpreterPageState extends State<InterpreterPage> {
     String text, {
     required String lang,
     bool announceIfSilent = false,
+    bool fetchCloud = true,
   }) async {
     final spoken = text.trim();
     if (spoken.isEmpty) return;
@@ -704,6 +809,7 @@ class _InterpreterPageState extends State<InterpreterPage> {
         row?.ttsLocales ?? <String>[lang.replaceAll('_', '-'), lang];
     try {
       await _tts.stop();
+      await _cloudPlayer.stop();
       await _ensureTtsPlayback();
       await _tts.clearVoice();
       var bound = false;
@@ -725,9 +831,18 @@ class _InterpreterPageState extends State<InterpreterPage> {
             break;
           }
         }
-        if (!bound) {
+        if (!bound && !_cloudTts) {
           await _tts.setLanguage(locales.first);
         }
+      }
+      if (!bound && _cloudTts) {
+        await _speakCloud(
+          spoken,
+          lang,
+          fetch: fetchCloud,
+          announceIfSilent: announceIfSilent && fetchCloud,
+        );
+        return;
       }
       if (!bound && announceIfSilent) _announceNoVoice();
       await _tts.setSpeechRate(0.46);
@@ -744,6 +859,28 @@ class _InterpreterPageState extends State<InterpreterPage> {
           AppLocalizations.of(context).interpreterTtsFailed,
         );
       }
+    }
+  }
+
+  Future<void> _speakCloud(
+    String text,
+    String lang, {
+    required bool fetch,
+    required bool announceIfSilent,
+  }) async {
+    try {
+      final path = await ttsCachePath(_stableHash('$lang\n$text'));
+      if (path.isEmpty) throw StateError('no cache dir');
+      if (!await audioFileExists(path)) {
+        if (!fetch) return;
+        final bytes = await widget.api.interpreterSpeak(text: text, lang: lang);
+        await writeAudioFile(path, bytes);
+      }
+      await _cloudPlayer.setFilePath(path);
+      unawaited(_cloudPlayer.play());
+    } catch (e) {
+      debugPrint('interpreter cloud tts: $e');
+      if (announceIfSilent) _announceNoVoice();
     }
   }
 
@@ -806,7 +943,46 @@ class _InterpreterPageState extends State<InterpreterPage> {
 
   bool _canHold(bool fromDoctor) {
     if (_busy) return false;
-    return (fromDoctor ? _doctor : _patient).supportsSpeech;
+    return (fromDoctor ? _doctor : _patient).supportsSpeech || _cloudStt;
+  }
+
+  Future<void> _startRecording(bool fromDoctor, int epoch) async {
+    try {
+      if (await _recorder.hasPermission() && epoch == _holdEpoch) {
+        await _ensureMicCapture();
+        await _recorder.start(
+          const RecordConfig(
+            encoder: AudioEncoder.aacLc,
+            sampleRate: 16000,
+            numChannels: 1,
+            bitRate: 32000,
+          ),
+          path: await resolveVoiceRecordPath(extension: 'm4a'),
+        );
+        if (epoch != _holdEpoch) {
+          // Released while the recorder was still starting.
+          await _recorder.cancel();
+          return;
+        }
+        // Same cap as Apple's listenFor, so a forgotten tap stops on its own.
+        _recordCap = Timer(
+          const Duration(seconds: 30),
+          () => unawaited(_stopHold(fromDoctor)),
+        );
+        return;
+      }
+    } catch (e) {
+      debugPrint('interpreter record start: $e');
+    }
+    if (epoch != _holdEpoch || !mounted) return;
+    setState(() {
+      _listeningDoctor = false;
+      _listeningPatient = false;
+    });
+    AppSnackBars.info(
+      context,
+      AppLocalizations.of(context).interpreterAllowSpeech,
+    );
   }
 
   void _warmSpeechForSelection() {
@@ -848,7 +1024,7 @@ class _InterpreterPageState extends State<InterpreterPage> {
     if (epoch != _holdEpoch) return;
     if (_listeningDoctor || _listeningPatient) return;
     final lang = fromDoctor ? _doctor : _patient;
-    if (!lang.supportsSpeech) return;
+    if (!lang.supportsSpeech && !_cloudStt) return;
     FocusManager.instance.primaryFocus?.unfocus();
     _peakSoundLevel = -120;
     _speechError = null;
@@ -860,6 +1036,10 @@ class _InterpreterPageState extends State<InterpreterPage> {
       }
       _partial = '';
     });
+    if (!lang.supportsSpeech) {
+      await _startRecording(fromDoctor, epoch);
+      return;
+    }
     try {
       if (!_speechReady) {
         await _initSpeech();
@@ -913,6 +1093,26 @@ class _InterpreterPageState extends State<InterpreterPage> {
     _pressToStop = false;
     final listening = fromDoctor ? _listeningDoctor : _listeningPatient;
     if (!listening) return;
+    _recordCap?.cancel();
+    var recording = false;
+    try {
+      recording = await _recorder.isRecording();
+    } catch (_) {}
+    if (recording) {
+      final path = await _recorder.stop();
+      if (!mounted) return;
+      setState(() {
+        _listeningDoctor = false;
+        _listeningPatient = false;
+      });
+      if (path == null || path.isEmpty) return;
+      if (cancelled) {
+        unawaited(deleteVoiceRecord(path));
+        return;
+      }
+      await _runAudioTurn(path, fromDoctor: fromDoctor);
+      return;
+    }
     var spoken = _partial.trim();
     try {
       if (_speech.isListening || _speechStatus == 'listening') {
@@ -1670,4 +1870,20 @@ class _LanguagePickerDialogState extends State<_LanguagePickerDialog> {
       ),
     );
   }
+}
+
+/// Two 32-bit FNV-1a passes (different seeds), hex. Stable across launches
+/// (String.hashCode is not) and exact on web, so it can name cache files.
+String _stableHash(String value) {
+  final bytes = utf8.encode(value);
+  String fnv(int h) {
+    for (final b in bytes) {
+      h ^= b;
+      // h * 16777619 mod 2^32, split so it stays exact as a JS double.
+      h = (h * 403 + ((h << 24) & 0xffffffff)) & 0xffffffff;
+    }
+    return h.toRadixString(16).padLeft(8, '0');
+  }
+
+  return fnv(0x811c9dc5) + fnv(0x050c5d1f);
 }

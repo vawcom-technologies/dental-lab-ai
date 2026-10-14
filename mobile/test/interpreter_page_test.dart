@@ -468,4 +468,70 @@ void main() {
     expect(find.textContaining('Höflichkeit nicht geprüft'), findsOneWidget);
     expect(calls, ['status', 'translate']);
   });
+
+  testWidgets('a repeated doctor sentence is translated once', (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues({
+      'settings_language': 'de',
+      'interpreter.doctor_lang': 'de',
+      'interpreter.patient_lang': 'ar',
+      'interpreter.auto_speak': false,
+    });
+    var llmCalls = 0;
+    final client = MockClient((request) async {
+      if (request.url.path.endsWith('/patients')) {
+        return http.Response(
+          jsonEncode({
+            'status': 'SUCCESS',
+            'payload': {'patients': <Map<String, dynamic>>[]},
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      if (request.url.path.endsWith('/interpreter/turn')) {
+        llmCalls++;
+        return http.Response(
+          jsonEncode({'translated': 'افتح فمك من فضلك'}),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      return http.Response('not found', 404);
+    });
+    final api = ApiClient(
+      baseUrl: 'http://interpreter.test',
+      httpClient: client,
+    );
+    final locale = LocaleController();
+    await locale.load();
+    await tester.pumpWidget(
+      LocaleScope(
+        controller: locale,
+        child: MaterialApp(
+          home: Scaffold(
+            body: InterpreterPage(
+              api: api,
+              patientSession: PatientSession(api),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+
+    for (final text in ['Bitte den Mund öffnen', '  bitte den  Mund öffnen ']) {
+      await tester.enterText(
+        find.byKey(const ValueKey('interpreter-doctor-field')),
+        text,
+      );
+      await tester.tap(find.byKey(const ValueKey('interpreter-doctor-send')));
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+
+    expect(llmCalls, 1);
+    expect(find.text('افتح فمك من فضلك'), findsWidgets);
+  });
 }

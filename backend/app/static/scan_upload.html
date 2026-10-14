@@ -95,13 +95,16 @@
   const $ = (id) => document.getElementById(id);
   const MAX = 300 * 1024 * 1024;
   const OK = ['ply', 'stl', 'obj', 'jpg', 'jpeg', 'png', 'webp', 'heic', 'tif', 'tiff'];
+  // Shown at elite-d.de/scan-upload, the website only proxies this page: sign-in and uploads
+  // go straight to this server instead (filled in by the /scan-upload route).
+  const API = /(^|\.)elite-d\.de$/.test(location.hostname) ? '__API_ORIGIN__' : '';
 
   $('login').onsubmit = async (e) => {
     e.preventDefault();
     $('err').textContent = '';
     $('go').disabled = true;
     try {
-      const r = await fetch('/api/auth/signin', {
+      const r = await fetch(API + '/api/auth/signin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: $('email').value.trim(), password: $('pw').value }),
@@ -148,7 +151,7 @@
       if (f.size > MAX) { fail('Larger than 300 MB'); continue; }
       status.textContent = 'Uploading';
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/scan-inbox');
+      xhr.open('POST', API + '/api/scan-inbox');
       xhr.setRequestHeader('Authorization', 'Bearer ' + token);
       xhr.upload.onprogress = (e) => { if (e.lengthComputable) bar.firstChild.style.width = (100 * e.loaded / e.total) + '%'; };
       xhr.onload = () => {

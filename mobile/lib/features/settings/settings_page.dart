@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/auth/app_roles.dart';
@@ -10,6 +11,7 @@ import '../../core/layout/adaptive.dart';
 import '../../core/navigation/app_page_routes.dart';
 import '../../core/settings/app_settings.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/brand_logo.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'change_password_screen.dart';
 import '../../core/errors/user_facing_error.dart';
@@ -346,6 +348,23 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                   ],
                 );
+                final about = _GlassSettingsGroup(
+                  children: [
+                    _GlassNavRow(
+                      icon: CupertinoIcons.info_circle_fill,
+                      iconBg: AppColors.dentalBlue,
+                      title: loc.aboutTitle,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          AppPageRoutes.cupertino(
+                            AboutPage(api: api),
+                            title: loc.aboutTitle,
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                );
                 if (!wide) {
                   return SliverList(
                     delegate: SliverChildListDelegate([
@@ -358,6 +377,8 @@ class _SettingsPageState extends State<SettingsPage> {
                       notify,
                       const SizedBox(height: 20),
                       language,
+                      const SizedBox(height: 20),
+                      about,
                     ]),
                   );
                 }
@@ -382,13 +403,254 @@ class _SettingsPageState extends State<SettingsPage> {
                             ),
                           ),
                           const SizedBox(width: 20),
-                          Expanded(child: ai),
+                          Expanded(
+                            child: Column(
+                              children: [
+                                ai,
+                                const SizedBox(height: 20),
+                                about,
+                              ],
+                            ),
+                          ),
                         ],
                       ),
                     ],
                   ),
                 );
               },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// About Elite Dent: intro, features, website links and account details.
+class AboutPage extends StatelessWidget {
+  const AboutPage({super.key, required this.api});
+
+  final ApiClient api;
+
+  static Future<void> _open(String url) =>
+      launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+
+  @override
+  Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+    final wide = MediaQuery.sizeOf(context).width >= 900;
+
+    Widget section(String title, String body) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: AppFonts.style(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: AppColors.navy,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              body,
+              style: AppFonts.style(
+                fontSize: 15,
+                color: const Color(0xFF6B7C93),
+                height: 1.4,
+              ),
+            ),
+          ],
+        );
+    Widget divider() => Container(
+          height: 0.5,
+          margin: const EdgeInsets.only(left: 58),
+          color: Colors.black.withValues(alpha: 0.08),
+        );
+    List<Widget> divided(List<Widget> rows) => [
+          for (var i = 0; i < rows.length; i++) ...[
+            if (i > 0) divider(),
+            rows[i],
+          ],
+        ];
+    Widget feature(IconData icon, Color bg, String key) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              _GlassIcon(icon: icon, bg: bg),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      loc.tr('about.f.$key'),
+                      style: AppFonts.style(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.navy,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      loc.tr('about.f.${key}Sub'),
+                      style: AppFonts.style(
+                        fontSize: 13,
+                        color: const Color(0xFF6B7C93),
+                        height: 1.25,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+    Widget link(IconData icon, String title, String url) => _GlassNavRow(
+          icon: icon,
+          iconBg: AppColors.dentalBlue,
+          title: title,
+          onTap: () => _open(url),
+        );
+    Widget info(String label, String? value) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Text(
+                label,
+                style: AppFonts.style(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.navy,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: SelectableText(
+                  (value ?? '').trim().isEmpty ? '—' : value!.trim(),
+                  textAlign: TextAlign.end,
+                  maxLines: 1,
+                  style: AppFonts.style(
+                    fontSize: 15,
+                    color: const Color(0xFF6B7C93),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+
+    final what = section(loc.aboutWhatTitle, loc.aboutWhatBody);
+    final who = section(loc.aboutWhoTitle, loc.aboutWhoBody);
+    final intro = GlassSurface(
+      borderRadius: BorderRadius.circular(14),
+      blur: 20,
+      tint: Colors.white.withValues(alpha: 0.5),
+      padding: const EdgeInsets.fromLTRB(22, 22, 22, 22),
+      child: wide
+          ? Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const BrandLogo(height: 64, width: 150),
+                const SizedBox(width: 28),
+                Expanded(child: what),
+                const SizedBox(width: 28),
+                Expanded(child: who),
+              ],
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Center(child: BrandLogo(height: 56)),
+                const SizedBox(height: 20),
+                what,
+                const SizedBox(height: 18),
+                who,
+              ],
+            ),
+    );
+
+    return Scaffold(
+      backgroundColor: AppColors.surface,
+      appBar: AppBar(
+        backgroundColor: AppColors.surface,
+        foregroundColor: AppColors.navy,
+        elevation: 0,
+        centerTitle: true,
+        title: Text(loc.aboutTitle),
+      ),
+      body: ListView(
+        padding: AppBreakpoints.pagePadding(context).copyWith(top: 8, bottom: 36),
+        children: [
+          intro,
+          const SizedBox(height: 28),
+          _GlassSettingsGroup(
+            header: loc.aboutFeaturesTitle.toUpperCase(),
+            children: divided([
+              feature(CupertinoIcons.sparkles, AppColors.aiPurple, 'shade'),
+              feature(CupertinoIcons.checkmark_seal_fill, AppColors.dentalBlue,
+                  'scans'),
+              feature(CupertinoIcons.person_2_fill, const Color(0xFF34C759),
+                  'patients'),
+              feature(CupertinoIcons.chat_bubble_2_fill, const Color(0xFFFF9500),
+                  'messages'),
+              feature(CupertinoIcons.globe, const Color(0xFF5AC8FA),
+                  'interpreter'),
+            ]),
+          ),
+          const SizedBox(height: 28),
+          _GlassSettingsGroup(
+            header: loc.aboutLinksTitle.toUpperCase(),
+            children: divided([
+              link(CupertinoIcons.house_fill, loc.aboutWebsite,
+                  'https://www.elite-d.de'),
+              link(CupertinoIcons.question_circle_fill, loc.aboutSupport,
+                  'https://www.elite-d.de/support'),
+              link(CupertinoIcons.lock_shield_fill, loc.aboutPrivacy,
+                  'https://www.elite-d.de/privacy/'),
+              link(CupertinoIcons.doc_text_fill, loc.aboutImprint,
+                  'https://www.elite-d.de/impressum'),
+            ]),
+          ),
+          const SizedBox(height: 28),
+          _GlassSettingsGroup(
+            header: loc.aboutAccountTitle.toUpperCase(),
+            children: [
+              info(loc.fullName, api.userName),
+              info(loc.email, api.email),
+              info(loc.clinic, api.clinicName),
+              info(loc.role, AppRoles.label(api.role, loc)),
+              info(loc.aboutUserId, api.userId),
+            ],
+          ),
+          const SizedBox(height: 32),
+          Center(
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => _open('https://www.vawcom.com/'),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Text.rich(
+                  TextSpan(
+                    text: '${loc.aboutCredit} ',
+                    children: [
+                      TextSpan(
+                        text: 'VAWCOM',
+                        style: AppFonts.style(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.dentalBlue,
+                        ),
+                      ),
+                    ],
+                  ),
+                  style: AppFonts.style(
+                    fontSize: 13,
+                    color: const Color(0xFF6C6C70),
+                  ),
+                ),
+              ),
             ),
           ),
         ],

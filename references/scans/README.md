@@ -1,13 +1,12 @@
-# Scan fixtures (Week 3)
+# Scan fixtures
 
-Synthetic PLYs used to calibrate `backend/app/ai/scan_quality.py` until the client
-sends labeled Medit samples (good / bad / blurry / missing margin).
+Synthetic point clouds for `backend/app/ai/scan_quality.py` (see
+`test_reference_fixtures`). The real calibration set is the labelled Medit
+"Anatomy" exports noted next to each threshold in that file.
 
 | File | Expected |
 |------|----------|
-| `good_dense_arch.ply` | `good` |
-| `bad_sparse_incomplete.ply` | `bad` + `prompt_rescan` |
-| `blurry_noisy_surface.ply` | `blurry` / grainy + `prompt_rescan` |
-| `missing_margin_flat.ply` | `missing_margin` + `prompt_rescan` |
-
-Drop real client PLYs here and re-tune thresholds when they arrive.
+| `good_dense_arch.ply` | `good` (plus the low "point cloud" note) |
+| `bad_sparse_incomplete.ply` | `bad` — too few points, flat |
+| `blurry_noisy_surface.ply` | `bad` — noisy surface, flat |
+| `missing_margin_flat.ply` | `bad` — flat / collapsed export |

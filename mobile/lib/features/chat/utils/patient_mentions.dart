@@ -77,9 +77,8 @@ class MentionSpan {
 /// so "Jane Doe" wins over "Jane".
 List<MentionSpan> mentionSpansIn(String text, List<PatientMention> mentions) {
   if (text.isEmpty || mentions.isEmpty) return const [];
-  final ranked = [...mentions]..sort(
-      (a, b) => b.label.trim().length.compareTo(a.label.trim().length),
-    );
+  final ranked = [...mentions]
+    ..sort((a, b) => b.label.trim().length.compareTo(a.label.trim().length));
   final taken = List<bool>.filled(text.length, false);
   final spans = <MentionSpan>[];
   for (final mention in ranked) {

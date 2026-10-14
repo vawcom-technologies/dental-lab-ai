@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from typing import Literal
 
 from pydantic import BaseModel
@@ -75,11 +75,17 @@ def _own_item(item_id: str, user: AuthUser) -> dict:
     return row
 
 
+# The page is also shown at elite-d.de/scan-upload (the website on Vercel proxies just the page
+# and its logo here). Its sign-in and uploads must still come straight to this server, not
+# through Vercel, so on that host the page calls this origin directly (CORS is open, and auth
+# is a bearer token, not a cookie).
+_PUBLIC_ORIGIN = "https://dental-lab-ai-production.up.railway.app"
+
+
 @page_router.get("/scan-upload", include_in_schema=False)
 def scan_upload_page():
-    return FileResponse(
-        _PAGE,
-        media_type="text/html",
+    return HTMLResponse(
+        _PAGE.read_text(encoding="utf-8").replace("__API_ORIGIN__", _PUBLIC_ORIGIN),
         headers={
             "Strict-Transport-Security": "max-age=31536000",
             "Cache-Control": "no-store",
@@ -87,7 +93,7 @@ def scan_upload_page():
             # server, and no other site can frame it (clickjacking).
             "Content-Security-Policy": (
                 "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
-                "connect-src 'self'; img-src 'self'; form-action 'none'; "
+                f"connect-src 'self' {_PUBLIC_ORIGIN}; img-src 'self'; form-action 'none'; "
                 "frame-ancestors 'none'; base-uri 'none'"
             ),
             "X-Frame-Options": "DENY",

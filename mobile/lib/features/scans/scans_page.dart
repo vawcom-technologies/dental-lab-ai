@@ -317,6 +317,10 @@ class _ScansPageState extends State<ScansPage>
       'patient_name': _patientLabel,
       // Quality state: null (not checked) → checking → done | error.
       '_q': null,
+      // Typed empties until _qualityFields parses a result (raw JSON lists
+      // from `...row` would break the viewer's cast).
+      'rough_points': const <List<double>>[],
+      'rough_radius': 0.0,
       '_bytes': ?bytes,
     }..addAll(row['validation_result'] == null ? const {} : _qualityFields(row));
   }
@@ -634,7 +638,7 @@ class _ScansPageState extends State<ScansPage>
     final short = file.length > 28 ? '${file.substring(0, 26)}…' : file;
     final subtitle =
         '${scan['patient_name'] ?? _patientLabel}'
-        ' · ${scan['validation_result'] ?? (scan['_q'] == 'error' ? '—' : '…')}'
+        ' · ${scan['validation_result'] != null ? AppLocalizations.current.tr('sq.r.${scan['validation_result']}') : (scan['_q'] == 'error' ? '—' : '…')}'
         ' · #${scan['id']}';
 
     return LayoutBuilder(
@@ -719,10 +723,7 @@ class _ScansPageState extends State<ScansPage>
 
     final scan = _scans.isEmpty ? null : _scans[_selected.clamp(0, _scans.length - 1)];
     final result = scan?['validation_result'] as String? ?? 'unknown';
-    final needsRescan = scan?['prompt_rescan'] == true ||
-        result == 'bad' ||
-        result == 'blurry' ||
-        result == 'missing_margin';
+    final needsRescan = scan?['prompt_rescan'] == true || result == 'bad';
     final canUpload = !_busy && _patient != null;
     final loc = AppLocalizations.of(context);
 
@@ -1062,59 +1063,8 @@ class _ScansPageState extends State<ScansPage>
                                       if (_incoming == null &&
                                           _issuesFor(scan).isNotEmpty) ...[
                                         const SizedBox(height: 10),
-                                        Wrap(
-                                          spacing: 6,
-                                          runSpacing: 6,
-                                          children: _issuesFor(scan)
-                                              .map((issue) {
-                                            final sev = issue['severity']
-                                                    ?.toString() ??
-                                                'medium';
-                                            final color = sev == 'high'
-                                                ? AppColors.danger
-                                                : sev == 'medium'
-                                                    ? AppColors.warning
-                                                    : AppColors.muted;
-                                            return Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 10,
-                                                vertical: 6,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: color.withValues(
-                                                  alpha: 0.12,
-                                                ),
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
-                                                border: Border.all(
-                                                  color: color.withValues(
-                                                    alpha: 0.4,
-                                                  ),
-                                                ),
-                                              ),
-                                              child: Text(
-                                                '${issue['code']}: ${issue['message']}',
-                                                style: TextStyle(
-                                                  color: color,
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                            );
-                                          }).toList(),
-                                        ),
-                                        if (_reasonsFor(scan).isNotEmpty) ...[
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            _reasonsFor(scan).join('\n'),
-                                            style: const TextStyle(
-                                              color: AppColors.muted,
-                                              fontSize: 12,
-                                              height: 1.35,
-                                            ),
-                                          ),
-                                        ],
+                                        for (final issue in _issuesFor(scan))
+                                          _issueCard(issue, loc),
                                         const SizedBox(height: 12),
                                       ],
                                       if (_incoming == null && needsRescan) ...[
@@ -1153,6 +1103,7 @@ class _ScansPageState extends State<ScansPage>
   }
 
   /// One line that is never blank: incoming / checking / couldn't check / good / issues found.
+  /// "good" is the server's verdict: low-severity notes alone don't make a scan bad.
   Widget _qualityStatus(Map<String, dynamic> scan, AppLocalizations loc) {
     final q = scan['_q'];
     final (IconData? icon, Color color, String text) = _incoming != null
@@ -1161,9 +1112,11 @@ class _ScansPageState extends State<ScansPage>
             ? (Icons.error_outline, AppColors.danger, loc.tr('s.qError'))
             : q != 'done'
                 ? (null, AppColors.muted, loc.tr('s.qChecking'))
-                : _issuesFor(scan).isEmpty
-                    ? (Icons.check_circle_outline, AppColors.success, loc.tr('s.qGood'))
-                    : (Icons.warning_amber_rounded, AppColors.warning, loc.tr('s.qIssues'));
+                : switch (scan['validation_result']) {
+                    'good' => (Icons.check_circle_outline, AppColors.success, loc.tr('s.qGood')),
+                    'bad' => (Icons.error_outline, AppColors.danger, loc.tr('s.qBad')),
+                    _ => (Icons.warning_amber_rounded, AppColors.warning, loc.tr('s.qReview')),
+                  };
     return Row(
       children: [
         if (icon != null)
@@ -1190,6 +1143,56 @@ class _ScansPageState extends State<ScansPage>
     );
   }
 
+  /// One finding in plain language: what's wrong, why it matters, what to do.
+  /// Text comes from the app's translations by issue code; the server's
+  /// (English, technical) message is only a fallback for codes this build
+  /// doesn't know yet.
+  Widget _issueCard(Map<String, dynamic> issue, AppLocalizations loc) {
+    final code = '${issue['code']}';
+    final sev = '${issue['severity'] ?? 'medium'}';
+    final color = switch (sev) {
+      'high' => AppColors.danger,
+      'medium' => AppColors.warning,
+      _ => AppColors.muted,
+    };
+    final known = loc.tr('sq.$code.t') != 'sq.$code.t';
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  loc.tr(known ? 'sq.$code.t' : 'sq.unknown.t'),
+                  style: TextStyle(color: color, fontWeight: FontWeight.w700),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                loc.tr('sq.sev.$sev'),
+                style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            known ? loc.tr('sq.$code.d') : '${issue['message'] ?? ''}',
+            style: const TextStyle(fontSize: 13, height: 1.35),
+          ),
+        ],
+      ),
+    );
+  }
+
   List<Map<String, dynamic>> _issuesFor(Map<String, dynamic>? scan) {
     final raw = scan?['issues'];
     if (raw is! List) return const [];
@@ -1198,12 +1201,6 @@ class _ScansPageState extends State<ScansPage>
         .map((e) => e.map((k, v) => MapEntry(k.toString(), v)))
         .cast<Map<String, dynamic>>()
         .toList();
-  }
-
-  List<String> _reasonsFor(Map<String, dynamic>? scan) {
-    final raw = scan?['reasons'];
-    if (raw is! List) return const [];
-    return raw.map((e) => e.toString()).where((s) => s.trim().isNotEmpty).toList();
   }
 }
 

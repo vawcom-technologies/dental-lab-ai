@@ -14,7 +14,7 @@ class Scan(Base):
     file_path: Mapped[str] = mapped_column(String(512))  # encrypted at rest in prod
     format: Mapped[str] = mapped_column(String(16), default="PLY")
     scan_quality_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    # good | bad | blurry | missing_margin | unknown
+    # good | review | bad (see app/ai/scan_quality.py)
     validation_result: Mapped[str | None] = mapped_column(String(32), nullable=True)
     rescanned_from_id: Mapped[int | None] = mapped_column(ForeignKey("scans.id"), nullable=True)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
