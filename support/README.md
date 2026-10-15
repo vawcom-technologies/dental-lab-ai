@@ -23,7 +23,7 @@ Apple opens these in a browser. They must be:
 - on a real public host (not `localhost`, not `127.0.0.1`, not a LAN IP)
 - reachable without login, VPN, or basic-auth
 
-Host the folders `support/`, `privacy/`, `impressum/`, `forgot-password/`, and `confirm-email/` at the domain root (each `index.html` becomes `/support`, `/privacy`, `/impressum`, `/forgot-password`, `/confirm-email`). Production host: **elite-dent-website** on Vercel (`https://elite-d.de`).
+Host the folders `support/`, `privacy/`, and `impressum/` at the domain root (each `index.html` becomes `/support`, `/privacy`, `/impressum`). The existing `forgot-password/` page can live on the same host.
 
 ## 3. PLACEHOLDERS the client must replace before submit
 
@@ -48,14 +48,12 @@ Do **not** put demo passwords, API keys, or patient data on these pages.
 ## 4. Suggested production paths
 
 ```
-https://elite-d.de/support
-https://elite-d.de/privacy
-https://elite-d.de/impressum
-https://elite-d.de/forgot-password
-https://elite-d.de/confirm-email
+https://<their-domain>/support
+https://<their-domain>/privacy
+https://<their-domain>/impressum
 ```
 
-Auth landing pages (`forgot-password`, `confirm-email`) belong in the **elite-dent-website** repo so they deploy with the main site — not as separate GitHub Pages hosts.
+Optional same-host page already in this repo: `https://<their-domain>/forgot-password`
 
 Pages default to **German**, with an **EN** toggle (stored in `localStorage`). Append `?lang=en` or `?lang=de` to force a language.
 
@@ -66,7 +64,5 @@ Pages default to **German**, with an **EN** toggle (stored in `localStorage`). A
 | `/support` | `support/index.html` | Support URL — how to get help, FAQ, reviewer note |
 | `/privacy` | `privacy/index.html` | Privacy Policy URL — GDPR notice |
 | `/impressum` | `impressum/index.html` | TMG legal notice |
-| `/forgot-password` | `forgot-password/index.html` | Supabase password-reset landing page |
-| `/confirm-email` | `confirm-email/index.html` | Supabase signup email-confirmation landing page |
 
 Do not change the Flutter iOS app, `Info.plist`, or signing for these URLs. Paste the HTTPS links in App Store Connect after the client replaces placeholders and the host is live.

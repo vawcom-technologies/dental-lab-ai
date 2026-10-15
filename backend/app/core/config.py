@@ -10,8 +10,6 @@ class Settings(BaseSettings):
     supabase_service_role_key: str = ""
     # Where Supabase sends users after they click the password-reset email link
     password_reset_redirect_url: str = ""
-    # Where Supabase sends users after they click the signup confirmation email
-    email_confirm_redirect_url: str = ""
 
     resend_api_key: str = ""
     # Verified production domain. Override with RESEND_FROM_EMAIL.

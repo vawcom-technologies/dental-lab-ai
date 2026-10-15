@@ -193,17 +193,13 @@ def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
         "clinic_name": clinic_name,
         "phone": phone,
     }
-    email_redirect = _clean_optional(settings.email_confirm_redirect_url)
-    signup_options: dict[str, Any] = {"data": metadata}
-    if email_redirect:
-        signup_options["email_redirect_to"] = email_redirect
 
     try:
         result = get_supabase().auth.sign_up(
             {
                 "email": email,
                 "password": payload.password,
-                "options": signup_options,
+                "options": {"data": metadata},
             }
         )
     except Exception as exc:
