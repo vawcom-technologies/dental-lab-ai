@@ -6,7 +6,6 @@ import 'package:dental_lab_ai/core/session/patient_session.dart';
 import 'package:dental_lab_ai/features/shade/shade_page.dart';
 import 'package:dental_lab_ai/features/shade/tooth_overlay.dart';
 import 'package:dental_lab_ai/main.dart';
-import 'package:dental_lab_ai/shell/app_sidebar.dart';
 
 void main() {
   test('Outline edit history undoes and redoes a drag', () {
@@ -49,38 +48,6 @@ void main() {
     await tester.pumpWidget(DentalLabApp(localeController: LocaleController()));
     expect(find.byType(Image), findsWidgets);
     expect(find.text('Sign in'), findsWidgets);
-  });
-
-  testWidgets('Sidebar closes with left swipe and opens with right swipe',
-      (tester) async {
-    var collapsed = false;
-    await tester.pumpWidget(
-      LocaleScope(
-        controller: LocaleController(),
-        child: MaterialApp(
-          home: Scaffold(
-            body: StatefulBuilder(
-              builder: (context, setState) {
-                return AppSidebar(
-                  active: AppNavItem.shade,
-                  collapsed: collapsed,
-                  onSelect: (_) {},
-                  onToggle: () => setState(() => collapsed = !collapsed),
-                );
-              },
-            ),
-          ),
-        ),
-      ),
-    );
-
-    await tester.fling(find.byType(AppSidebar), const Offset(-300, 0), 800);
-    await tester.pumpAndSettle();
-    expect(collapsed, isTrue);
-
-    await tester.fling(find.byType(AppSidebar), const Offset(300, 0), 800);
-    await tester.pumpAndSettle();
-    expect(collapsed, isFalse);
   });
 
   testWidgets('Session panel collapses and reopens with swipes',

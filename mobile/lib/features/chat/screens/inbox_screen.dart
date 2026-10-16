@@ -353,7 +353,7 @@ class _ConversationTile extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              _GlassAvatar(name: partner.displayName),
+              UserAvatar(name: partner.displayName, url: partner.avatarUrl, size: 52),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -469,54 +469,6 @@ class _ConversationTile extends StatelessWidget {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _GlassAvatar extends StatelessWidget {
-  const _GlassAvatar({required this.name});
-
-  final String name;
-
-  @override
-  Widget build(BuildContext context) {
-    final initial = name.trim().isNotEmpty
-        ? name.trim().characters.first.toUpperCase()
-        : '?';
-    return Container(
-      width: 52,
-      height: 52,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppColors.dentalBlue.withValues(alpha: 0.28),
-            AppColors.navy.withValues(alpha: 0.18),
-          ],
-        ),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.75),
-          width: 1.2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.dentalBlue.withValues(alpha: 0.12),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Text(
-        initial,
-        style: AppFonts.style(
-          color: AppColors.navy,
-          fontWeight: FontWeight.w700,
-          fontSize: 18,
         ),
       ),
     );

@@ -61,6 +61,9 @@ class SignUpRequest(BaseModel):
     clinic_name: str | None = Field(default=None, max_length=255)
     phone: str = Field(min_length=1, max_length=64)
     role: Literal["dentist", "laboratory"] = "dentist"
+    # Profile photo, required: base64 (a data: URL prefix is accepted).
+    avatar: str = Field(min_length=1, max_length=7_200_000)
+    avatar_content_type: Literal["image/jpeg", "image/png"]
 
     @field_validator("phone")
     @classmethod
@@ -138,6 +141,7 @@ class TokenOut(BaseModel):
     email: str
     clinic_name: str | None = None
     phone: str | None = None
+    avatar_url: str | None = None
 
 
 class UserOut(BaseModel):
@@ -147,6 +151,7 @@ class UserOut(BaseModel):
     role: str
     clinic_name: str | None = None
     phone: str | None = None
+    avatar_url: str | None = None
 
 
 # ── Admin / profiles ───────────────────────────────────────────────────────────
@@ -161,13 +166,6 @@ class ProfileOut(BaseModel):
     verified: bool = False
     deleted: bool = False
     updated_at: datetime | None = None
-
-
-class ProfileListOut(BaseModel):
-    items: list[ProfileOut]
-    skip: int
-    limit: int
-    count: int
 
 
 class ProfileActionOut(BaseModel):

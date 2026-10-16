@@ -27,7 +27,7 @@ from app.schemas_chat import (
 )
 from app.services import chat_messages as cm
 from app.services.chat_manager import chat_manager
-from app.services.profiles import fetch_profile
+from app.services.profiles import fetch_profile, lab_name
 
 router = APIRouter()
 ws_router = APIRouter()
@@ -85,6 +85,8 @@ def _profile_out(row: dict[str, Any] | None) -> ChatProfileOut | None:
         role=row.get("role"),
         clinic_name=row.get("clinic_name"),
         phone=row.get("phone"),
+        avatar_url=row.get("avatar_url"),
+        lab_name=lab_name(row),
     )
 
 

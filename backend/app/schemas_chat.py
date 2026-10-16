@@ -20,6 +20,8 @@ class ChatProfileOut(BaseModel):
     role: str | None = None
     clinic_name: str | None = None
     phone: str | None = None
+    avatar_url: str | None = None
+    lab_name: str | None = None  # dentists only
 
 
 class PatientMentionOut(BaseModel):

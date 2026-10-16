@@ -5,7 +5,6 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import '../../features/appointments/models/appointment.dart';
-import '../../features/laboratories/admin_user.dart';
 import '../auth/app_roles.dart';
 import '../auth/auth_aware_http_client.dart';
 import '../auth/session_coordinator.dart';
@@ -15,6 +14,7 @@ import '../haptics/app_haptics.dart';
 import '../offline/sync_queue.dart';
 import 'api_host.dart';
 import 'cached_http_client.dart';
+import '../widgets/user_avatar.dart';
 
 class ApiClient {
   ApiClient({
@@ -36,6 +36,7 @@ class ApiClient {
           );
       _http = CachedHttpClient(inner: inner);
     }
+    AvatarSource.api = this;
   }
 
   final String baseUrl;
@@ -54,6 +55,7 @@ class ApiClient {
   String? _email;
   String? _clinicName;
   String? _phone;
+  String? _avatarUrl;
 
   String? get token => _token;
   String? get refreshToken => _refreshToken;
@@ -66,6 +68,9 @@ class ApiClient {
   String? get email => _email;
   String? get clinicName => _clinicName;
   String? get phone => _phone;
+
+  /// Profile photo path/URL; show with [UserAvatar].
+  String? get avatarUrl => _avatarUrl;
 
   void setToken(String? token) => _token = token;
 
@@ -108,6 +113,7 @@ class ApiClient {
     _email = data['email'] as String?;
     _clinicName = data['clinic_name'] as String?;
     _phone = data['phone'] as String?;
+    _avatarUrl = data['avatar_url'] as String?;
     unawaited(_persistTokens());
     _notifyAuthListeners();
   }
@@ -119,6 +125,7 @@ class ApiClient {
     _email = data['email'] as String? ?? _email;
     _clinicName = data['clinic_name'] as String?;
     _phone = data['phone'] as String?;
+    _avatarUrl = data['avatar_url'] as String? ?? _avatarUrl;
   }
 
   void logout() {
@@ -131,6 +138,7 @@ class ApiClient {
     _email = null;
     _clinicName = null;
     _phone = null;
+    _avatarUrl = null;
     unawaited(_tokens.clear());
     unawaited(LocalEncryptedStore.clearAll());
     _notifyAuthListeners();
@@ -272,6 +280,7 @@ class ApiClient {
     String? clinicName,
     String? phone,
     String? role,
+    ({Uint8List bytes, String contentType})? avatar,
   }) async {
     final res = await _http.post(
       Uri.parse('$baseUrl/api/auth/signup'),
@@ -283,6 +292,9 @@ class ApiClient {
         'clinic_name': clinicName,
         'phone': phone,
         if (role != null && role.trim().isNotEmpty) 'role': role.trim(),
+        // Small (≤ ~600px) photo, base64 so signup stays one JSON call.
+        if (avatar != null) 'avatar': base64Encode(avatar.bytes),
+        if (avatar != null) 'avatar_content_type': avatar.contentType,
       }),
     );
     if (res.statusCode != 200 && res.statusCode != 201) {
@@ -1598,87 +1610,139 @@ class ApiClient {
     AppHaptics.warn();
   }
 
-  // ── Admin users ──────────────────────────────────────────────────────────
+  // ── Admin (contract in docs/roadmap.md, Phase 1) ────────────────────────
 
-  Future<AdminUsersListResult> listAdminUsers({
-    int skip = 0,
-    int limit = 50,
-    bool forceRefresh = false,
+  /// Admin call; returns decoded JSON. GETs skip the cache: one admin action
+  /// changes counts on several screens.
+  Future<dynamic> _admin(
+    String method,
+    String path, {
+    Map<String, String>? query,
+    Object? body,
   }) async {
-    final uri = Uri.parse('$baseUrl/api/admin/users').replace(
-      queryParameters: {
-        'skip': '$skip',
-        'limit': '$limit',
-      },
-    );
-    final res = await _http.get(
-      uri,
-      headers: _getHeaders(forceRefresh: forceRefresh),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    final data = jsonDecode(res.body) as Map<String, dynamic>;
-    final rawItems = data['items'];
-    final items = <AdminUser>[];
-    if (rawItems is List) {
-      for (final item in rawItems) {
-        if (item is Map<String, dynamic>) {
-          items.add(AdminUser.fromJson(item));
-        } else if (item is Map) {
-          items.add(AdminUser.fromJson(Map<String, dynamic>.from(item)));
-        }
-      }
+    final q = {...?query}..removeWhere((_, v) => v.isEmpty);
+    final uri = Uri.parse('$baseUrl/api/admin/$path')
+        .replace(queryParameters: q.isEmpty ? null : q);
+    final req = http.Request(method, uri)
+      ..headers.addAll(method == 'GET' ? _getHeaders(forceRefresh: true) : _jsonHeaders);
+    if (body != null) req.body = jsonEncode(body);
+    final res = await http.Response.fromStream(await _http.send(req));
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception(_errorMessage(res));
     }
-    return AdminUsersListResult(
-      items: items,
-      skip: (data['skip'] as num?)?.toInt() ?? skip,
-      limit: (data['limit'] as num?)?.toInt() ?? limit,
-      count: (data['count'] as num?)?.toInt() ?? items.length,
-    );
+    if (method != 'GET') AppHaptics.success();
+    return res.body.isEmpty ? null : jsonDecode(res.body);
   }
 
-  Future<AdminUserActionResult> verifyAdminUser(String userId) async {
-    final res = await _http.patch(
-      Uri.parse('$baseUrl/api/admin/users/$userId/verify'),
-      headers: _jsonHeaders,
-    );
+  List<Map<String, dynamic>> _adminList(dynamic data) => data is List
+      ? data.whereType<Map>().map(Map<String, dynamic>.from).toList()
+      : const [];
+
+  Future<Map<String, dynamic>> adminSummary() async =>
+      Map<String, dynamic>.from(await _admin('GET', 'summary') as Map);
+
+  Future<List<Map<String, dynamic>>> adminSignups() async =>
+      _adminList(await _admin('GET', 'signups'));
+
+  Future<void> adminApproveSignup(String userId, {String? labId}) =>
+      _admin('POST', 'signups/$userId/approve',
+          body: {'lab_id': ?labId});
+
+  Future<void> adminRejectSignup(String userId, {String? reason}) =>
+      _admin('POST', 'signups/$userId/reject',
+          body: {if (reason != null && reason.isNotEmpty) 'reason': reason});
+
+  Future<List<Map<String, dynamic>>> adminRejected() async =>
+      _adminList(await _admin('GET', 'rejected'));
+
+  Future<void> adminRemoveRejected(String id) =>
+      _admin('DELETE', 'rejected/$id');
+
+  Future<List<Map<String, dynamic>>> adminLabs() async =>
+      _adminList(await _admin('GET', 'labs'));
+
+  Future<List<Map<String, dynamic>>> adminDentists({
+    String? labId,
+    bool unassigned = false,
+    String q = '',
+  }) async =>
+      _adminList(await _admin('GET', 'dentists', query: {
+        'lab_id': labId ?? '',
+        'unassigned': unassigned ? 'true' : '',
+        'q': q,
+      }));
+
+  Future<void> adminSetDentistLab(String dentistId, String? labId) =>
+      _admin('PUT', 'dentists/$dentistId/lab', body: {'lab_id': labId});
+
+  Future<List<Map<String, dynamic>>> adminRemovalRequests() async =>
+      _adminList(await _admin('GET', 'lab-requests',
+          query: {'kind': 'remove', 'status': 'pending'}));
+
+  /// [approve] false denies the request.
+  Future<void> adminDecideLabRequest(String id, {required bool approve}) =>
+      _admin('POST', 'lab-requests/$id/${approve ? 'approve' : 'deny'}');
+
+  Future<List<Map<String, dynamic>>> adminPatients({
+    String status = '',
+    String? labId,
+    bool unassigned = false,
+    String q = '',
+  }) async =>
+      _adminList(await _admin('GET', 'patients', query: {
+        'status': status,
+        'lab_id': labId ?? '',
+        'unassigned': unassigned ? 'true' : '',
+        'q': q,
+      }));
+
+  Future<Map<String, dynamic>> adminPatient(String id) async =>
+      Map<String, dynamic>.from(await _admin('GET', 'patients/$id') as Map);
+
+  Future<void> adminOverrideStatus(String patientId, String status, String note) =>
+      _admin('PATCH', 'patients/$patientId/status',
+          body: {'status': status, 'note': note});
+
+  /// Without [dentistId] the patient waits for [labId] to choose a dentist.
+  Future<void> adminReassignPatient(
+    String patientId,
+    String labId, {
+    String? dentistId,
+  }) =>
+      _admin('POST', 'patients/$patientId/reassign',
+          body: {'lab_id': labId, 'dentist_id': ?dentistId});
+
+  /// Soft = deactivate (can't sign in, everything kept, reversible).
+  /// Hard = delete permanently; the backend unassigns patients / dentists.
+  Future<void> adminDeleteUser(String userId, {bool hard = false}) =>
+      _admin('DELETE', 'users/$userId/${hard ? 'hard' : 'soft'}-delete');
+
+  /// Admin-only: replace any user's profile photo. Returns the new URL.
+  Future<String?> adminSetAvatar(
+    String userId, {
+    required Uint8List bytes,
+    required String contentType,
+  }) async {
+    final req = http.MultipartRequest(
+      'PUT',
+      Uri.parse('$baseUrl/api/admin/users/$userId/avatar'),
+    )
+      ..headers.addAll(_authHeaders)
+      ..files.add(http.MultipartFile.fromBytes(
+        'file',
+        bytes,
+        filename: 'avatar.${contentType.endsWith('png') ? 'png' : 'jpg'}',
+      ));
+    final res = await http.Response.fromStream(await _http.send(req));
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return _parseAdminUserAction(res.body);
+    final url = (jsonDecode(res.body) as Map)['avatar_url'] as String?;
+    if (userId == _userId) _avatarUrl = url;
+    AvatarSource.changed.value++;
+    return url;
   }
 
-  Future<AdminUserActionResult> softDeleteAdminUser(String userId) async {
-    final res = await _http.delete(
-      Uri.parse('$baseUrl/api/admin/users/$userId/soft-delete'),
-      headers: _jsonHeaders,
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    AppHaptics.warn();
-    return _parseAdminUserAction(res.body);
-  }
-
-  Future<AdminUserActionResult> hardDeleteAdminUser(String userId) async {
-    final res = await _http.delete(
-      Uri.parse('$baseUrl/api/admin/users/$userId/hard-delete'),
-      headers: _jsonHeaders,
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    AppHaptics.warn();
-    return _parseAdminUserAction(res.body);
-  }
-
-  AdminUserActionResult _parseAdminUserAction(String body) {
-    final data = jsonDecode(body) as Map<String, dynamic>;
-    final userRaw = data['user'];
-    AdminUser? user;
-    if (userRaw is Map<String, dynamic>) {
-      user = AdminUser.fromJson(userRaw);
-    } else if (userRaw is Map) {
-      user = AdminUser.fromJson(Map<String, dynamic>.from(userRaw));
-    }
-    return AdminUserActionResult(
-      message: (data['message'] as String?) ?? 'Done',
-      user: user,
-    );
-  }
+  Future<void> adminReactivateUser(String userId) =>
+      _admin('PATCH', 'users/$userId/reactivate');
 
   Future<Map<String, dynamic>> interpreterCatalog() async {
     final res = await _http.get(

@@ -516,17 +516,21 @@ class AboutPage extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           child: Row(
             children: [
-              Text(
-                label,
-                style: AppFonts.style(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.navy,
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppFonts.style(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.navy,
+                  ),
                 ),
               ),
               const SizedBox(width: 16),
               Expanded(
-                child: SelectableText(
+                child: CopyableText(
                   (value ?? '').trim().isEmpty ? '—' : value!.trim(),
                   textAlign: TextAlign.end,
                   maxLines: 1,
@@ -616,9 +620,9 @@ class AboutPage extends StatelessWidget {
           _GlassSettingsGroup(
             header: loc.aboutAccountTitle.toUpperCase(),
             children: [
-              info(loc.fullName, api.userName),
+              info(loc.aboutName, api.userName),
               info(loc.email, api.email),
-              info(loc.clinic, api.clinicName),
+              info(loc.aboutClinic, api.clinicName),
               info(loc.role, AppRoles.label(api.role, loc)),
               info(loc.aboutUserId, api.userId),
             ],

@@ -5,6 +5,13 @@ import 'package:dental_lab_ai/shell/app_sidebar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// The icon rail carries page names as tooltips.
+Finder _tooltipAny(List<String> values) {
+  return find.byWidgetPredicate(
+    (widget) => widget is Tooltip && values.contains(widget.message),
+  );
+}
+
 Finder _textAny(List<String> values) {
   return find.byWidgetPredicate(
     (widget) => widget is Text && values.contains(widget.data),
@@ -33,16 +40,15 @@ void main() {
         AppSidebar(
           active: AppNavItem.dashboard,
           onSelect: (_) {},
-          onToggle: () {},
         ),
       ),
     );
 
     expect(
-      _textAny(['System Users', 'Systembenutzer']),
+      _tooltipAny(['System Users', 'Systembenutzer']),
       findsNothing,
     );
-    expect(_textAny(['Laboratories', 'Labore']), findsNothing);
+    expect(_tooltipAny(['Laboratories', 'Labore']), findsNothing);
     expect(find.byIcon(Icons.manage_accounts_outlined), findsNothing);
   });
 
@@ -54,17 +60,16 @@ void main() {
         AppSidebar(
           active: AppNavItem.dashboard,
           onSelect: (_) {},
-          onToggle: () {},
-          showLaboratories: true,
+          admin: true,
         ),
       ),
     );
 
     expect(
-      _textAny(['System Users', 'Systembenutzer']),
+      _tooltipAny(['System Users', 'Systembenutzer']),
       findsOneWidget,
     );
-    expect(_textAny(['Laboratories', 'Labore']), findsNothing);
+    expect(_tooltipAny(['Laboratories', 'Labore']), findsNothing);
     expect(find.byIcon(Icons.manage_accounts_outlined), findsOneWidget);
     expect(find.byIcon(Icons.biotech_outlined), findsNothing);
   });

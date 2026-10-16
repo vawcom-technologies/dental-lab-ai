@@ -11,6 +11,7 @@ import '../models/chat_models.dart';
 import '../state/chat_controller.dart';
 import '../widgets/chat_bubble.dart';
 import '../widgets/chat_composer.dart';
+import '../widgets/user_profile_sheet.dart';
 
 /// Soft iPadOS Messages canvas.
 const _kChatCanvas = Color(0xFFF2F2F7);
@@ -266,23 +267,16 @@ class _ChatHeader extends StatelessWidget {
                 size: 22,
               ),
             ),
-          CircleAvatar(
-            radius: 20,
-            backgroundColor: AppColors.dentalBlue.withValues(alpha: 0.14),
-            child: Text(
-              partner.displayName.isNotEmpty
-                  ? partner.displayName.characters.first.toUpperCase()
-                  : '?',
-              style: const TextStyle(
-                color: AppColors.dentalBlue,
-                fontWeight: FontWeight.w700,
-                fontSize: 16,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
+          // Photo + name open the person's details.
           Expanded(
-            child: Column(
+            child: Pressable(
+              onTap: () => showUserProfileSheet(context, partner),
+              scale: 0.98,
+              builder: (_, _) => Row(
+                children: [
+                  UserAvatar(name: partner.displayName, url: partner.avatarUrl, size: 40),
+                  const SizedBox(width: 10),
+                  Expanded(child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
@@ -312,6 +306,9 @@ class _ChatHeader extends StatelessWidget {
                   ),
                 ),
               ],
+            )),
+                ],
+              ),
             ),
           ),
           if (onClose != null)

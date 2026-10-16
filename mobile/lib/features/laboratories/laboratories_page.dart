@@ -2,136 +2,117 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
-import '../../core/auth/app_roles.dart';
 import '../../core/l10n/app_localizations.dart';
-import '../../core/layout/adaptive.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
-import 'admin_user.dart';
-import 'admin_users_controller.dart';
-import '../../core/errors/user_facing_error.dart';
+import '../admin/admin_models.dart';
+import '../admin/admin_widgets.dart';
 
+/// Admin "System Users": labs with their dentists, unassigned dentists, and
+/// labs' requests to remove a dentist.
 class LaboratoriesPage extends StatefulWidget {
   const LaboratoriesPage({
     super.key,
     required this.api,
-    this.onMessageLab,
+    this.tab,
+    this.active = true,
+    this.onMessage,
   });
 
   final ApiClient api;
 
-  /// Opens (or creates) a Messages thread with this laboratory, then navigates.
-  final Future<void> Function(AdminUser lab)? onMessageLab;
+  /// 0 by lab, 1 unassigned dentists, 2 removal requests.
+  final ValueNotifier<int>? tab;
+  final bool active;
+
+  /// Opens (or creates) a Messages thread with this user, then navigates.
+  final Future<void> Function(String userId)? onMessage;
 
   @override
   State<LaboratoriesPage> createState() => _LaboratoriesPageState();
 }
 
 class _LaboratoriesPageState extends State<LaboratoriesPage> {
-  late final AdminUsersController _controller;
+  late final ValueNotifier<int> _tab = widget.tab ?? ValueNotifier(0);
   final _search = TextEditingController();
-  bool _openingChat = false;
+  String _q = '';
 
-  @override
-  void initState() {
-    super.initState();
-    _controller = AdminUsersController(widget.api);
-    _controller.onError = (msg) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) AppSnackBars.error(context, msg);
-      });
-    };
-    if (widget.api.isAdmin) {
-      _controller.load();
-    }
-  }
+  ApiClient get api => widget.api;
 
   @override
   void dispose() {
+    if (widget.tab == null) _tab.dispose();
     _search.dispose();
-    _controller.dispose();
     super.dispose();
   }
 
-  Future<void> _messageLab(AdminUser user) async {
-    final open = widget.onMessageLab;
-    if (open == null || _openingChat) return;
-    if (!user.verified) {
-      AppSnackBars.error(
-        context,
-        AppLocalizations.of(context).labsVerifyBeforeMessage,
-      );
-      return;
-    }
-    setState(() => _openingChat = true);
+  Future<void> _message(String userId) async {
     try {
-      await open(user);
+      await widget.onMessage?.call(userId);
     } catch (e) {
-      if (!mounted) return;
-      AppSnackBars.error(
-        context,
-        friendlyError(e),
-      );
-    } finally {
-      if (mounted) setState(() => _openingChat = false);
+      if (mounted) AppSnackBars.error(context, friendlyError(e));
     }
   }
 
-  Future<void> _openLabDetails(AdminUser user) async {
-    if (_openingChat || _controller.actionBusy) return;
-    await AppDialogs.modalSheet<void>(
-      context: context,
-      builder: (ctx) => _LabDetailSheet(
-        user: user,
-        canMessage: widget.onMessageLab != null,
-        onMessage: () {
-          Navigator.pop(ctx);
-          _messageLab(user);
-        },
-        onVerify: () {
-          Navigator.pop(ctx);
-          _verify(user);
-        },
-        onDelete: () {
-          Navigator.pop(ctx);
-          _confirmDelete(user);
-        },
-      ),
+  // ── Actions ──────────────────────────────────────────────────────────────
+
+  Future<bool> _move(AdminDentist d) async {
+    final loc = AppLocalizations.of(context);
+    final pick = await pickLab(
+      context,
+      api,
+      title: loc.trp('admin.moveTitle', {'name': d.name}),
+      message: loc.tr('admin.moveMsg'),
+      excludeLabId: d.labId,
+      noneLabel: d.labId == null ? null : loc.tr('admin.removeFromLab'),
+    );
+    if (pick == null || !mounted) return false;
+    final to = pick.lab;
+    final ok = await AppDialogs.confirm(
+      context,
+      title: to == null
+          ? loc.trp('admin.removeTitle', {'name': d.name})
+          : loc.trp('admin.moveConfirmTitle', {'name': d.name, 'lab': to.name}),
+      message: [
+        if (to != null) loc.trp('admin.moveNoApproval', {'lab': to.name}),
+        if (d.labId != null)
+          loc.trp('admin.leaveLabEffects', {'lab': d.labName ?? '—'}),
+        if (to == null) loc.tr('admin.removeEffects'),
+      ].join('\n\n'),
+      confirmLabel: to == null ? loc.tr('admin.remove') : loc.tr('admin.move'),
+      isDestructive: to == null,
+    );
+    if (!ok || !mounted) return false;
+    return adminRun(
+      context,
+      () => api.adminSetDentistLab(d.id, to?.id),
+      done: to == null
+          ? loc.trp('admin.removedFromLab', {'name': d.name})
+          : loc.trp('admin.moved', {'name': d.name, 'lab': to.name}),
     );
   }
 
-  Future<void> _verify(AdminUser user) async {
-    try {
-      final message = await _controller.verifyUser(user.id);
-      if (!mounted) return;
-      AppSnackBars.success(context, message);
-    } catch (e) {
-      if (!mounted) return;
-      AppSnackBars.error(
-        context,
-        friendlyError(e),
-      );
-    }
-  }
-
-  Future<void> _confirmDelete(AdminUser user) async {
+  /// [dentist] decides the consequences copy; labs pass their dentist count.
+  Future<bool> _delete(String id, String name, {required bool dentist, int dentists = 0}) async {
     final loc = AppLocalizations.of(context);
-    final choice = await showCupertinoModalPopup<_DeleteChoice>(
+    final hard = await showCupertinoModalPopup<bool>(
       context: context,
       builder: (ctx) => CupertinoActionSheet(
-        title: Text(loc.labsDeleteTitle),
+        title: Text(loc.trp('admin.deleteTitle', {'name': name})),
         message: Text(
-          loc.labsDeleteBody(user.name.isEmpty ? user.email : user.name),
+          dentist
+              ? loc.tr('admin.deleteDentistEffects')
+              : loc.trp('admin.deleteLabEffects', {'n': dentistCount(loc, dentists)}),
         ),
         actions: [
           CupertinoActionSheetAction(
-            onPressed: () => Navigator.pop(ctx, _DeleteChoice.soft),
-            child: Text(loc.labsSoftDelete),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(loc.tr('admin.deactivate')),
           ),
           CupertinoActionSheetAction(
             isDestructiveAction: true,
-            onPressed: () => Navigator.pop(ctx, _DeleteChoice.hard),
-            child: Text(loc.labsHardDelete),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(loc.tr('admin.deletePermanently')),
           ),
         ],
         cancelButton: CupertinoActionSheetAction(
@@ -141,27 +122,81 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
         ),
       ),
     );
-    if (choice == null || !mounted) return;
-
-    try {
-      final message = choice == _DeleteChoice.soft
-          ? await _controller.softDeleteUser(user.id)
-          : await _controller.hardDeleteUser(user.id);
-      if (!mounted) return;
-      AppSnackBars.success(context, message);
-    } catch (e) {
-      if (!mounted) return;
-      AppSnackBars.error(
-        context,
-        friendlyError(e),
-      );
-    }
+    if (hard == null || !mounted) return false;
+    return adminRun(
+      context,
+      () => api.adminDeleteUser(id, hard: hard),
+      done: loc.trp(hard ? 'admin.deleted' : 'admin.deactivated', {'name': name}),
+    );
   }
+
+  /// Admin-only: replace this user's profile photo (users can't change it).
+  Future<bool> _changePhoto(String id, String name) async {
+    final loc = AppLocalizations.of(context);
+    final photo = await pickProfilePhoto(context);
+    if (photo == null || !mounted) return false;
+    return adminRun(
+      context,
+      () => api.adminSetAvatar(id, bytes: photo.bytes, contentType: photo.contentType),
+      done: loc.trp('avatar.changed', {'name': name}),
+    );
+  }
+
+  Future<bool> _reactivate(String id, String name) async {
+    final loc = AppLocalizations.of(context);
+    final ok = await AppDialogs.confirm(
+      context,
+      title: loc.trp('admin.reactivateTitle', {'name': name}),
+      message: loc.tr('admin.reactivateMsg'),
+      confirmLabel: loc.tr('admin.reactivate'),
+    );
+    if (!ok || !mounted) return false;
+    return adminRun(
+      context,
+      () => api.adminReactivateUser(id),
+      done: loc.trp('admin.reactivated', {'name': name}),
+    );
+  }
+
+  Widget _reactivateButton(AppLocalizations loc, String id, String name, VoidCallback reload) {
+    return AppButtons.primary(
+      onPressed: () async {
+        if (await _reactivate(id, name)) reload();
+      },
+      icon: Icons.settings_backup_restore_rounded,
+      label: loc.tr('admin.reactivate'),
+      compact: true,
+    );
+  }
+
+  Future<bool> _decide(RemovalRequest r, {required bool approve}) async {
+    final loc = AppLocalizations.of(context);
+    final ok = await AppDialogs.confirm(
+      context,
+      title: loc.trp(
+        approve ? 'admin.approveRemovalTitle' : 'admin.denyRemovalTitle',
+        {'name': r.dentistName, 'lab': r.labName},
+      ),
+      message: approve
+          ? '${loc.trp('admin.leaveLabEffects', {'lab': r.labName})}\n\n${loc.tr('admin.removeEffects')}'
+          : loc.tr('admin.denyRemovalMsg'),
+      confirmLabel: loc.tr(approve ? 'admin.approve' : 'admin.deny'),
+      isDestructive: approve,
+    );
+    if (!ok || !mounted) return false;
+    return adminRun(
+      context,
+      () => api.adminDecideLabRequest(r.id, approve: approve),
+      done: loc.tr(approve ? 'admin.removalApproved' : 'admin.removalDenied'),
+    );
+  }
+
+  // ── UI ───────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
-    if (!widget.api.isAdmin) {
+    if (!api.isAdmin) {
       return Center(
         child: Text(
           loc.errNoPermission,
@@ -173,720 +208,300 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
         ),
       );
     }
-    return ListenableBuilder(
-      listenable: _controller,
-      builder: (context, _) {
-        final visible = _controller.visibleUsers;
-        final unverified =
-            _controller.users.where((u) => !u.verified).length;
-        final blocked =
-            _controller.loading || _controller.actionBusy || _openingChat;
-
-        return BusyBarrier(
-          busy: blocked && _controller.users.isNotEmpty,
-          message: _openingChat
-              ? loc.labsOpeningChat
-              : _controller.actionBusy
-                  ? loc.updating
-                  : loc.labsLoading,
-          child: Padding(
-            padding: AppBreakpoints.pagePadding(context),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                PageHeader(
-                  icon: Icons.manage_accounts_outlined,
-                  title: loc.labsTitle,
-                  subtitle: loc.labsSubtitle,
-                  chromeActions: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Text(
-                        _controller.loading
-                            ? '…'
-                            : loc.labsCount(
-                                visible.length,
-                                _controller.count,
-                              ),
-                        style: AppFonts.style(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.navy,
-                        ),
-                      ),
-                    ),
-                    AppButtons.icon(
-                      tooltip: loc.refresh,
-                      onPressed: blocked ? null : _controller.refresh,
-                      icon: Icons.refresh_rounded,
-                      busy: _controller.loading,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                GlassSurface(
-                  borderRadius: BorderRadius.circular(16),
-                  blur: 14,
-                  tint: Colors.white.withValues(alpha: 0.55),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  child: TextField(
-                    controller: _search,
-                    onChanged: _controller.setQuery,
-                    enabled: !blocked,
-                    style: AppFonts.style(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.navy,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: loc.labsSearchHint,
-                      hintStyle: AppFonts.style(
-                        color: AppColors.muted,
-                        fontSize: 15,
-                      ),
-                      prefixIcon: const Icon(
-                        Icons.search_rounded,
-                        color: AppColors.muted,
-                      ),
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      filled: false,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    SoftFilterChip(
-                      label: loc.filterAll,
-                      selected: _controller.filter == AdminUserFilter.all,
-                      onTap: () =>
-                          _controller.setFilter(AdminUserFilter.all),
-                    ),
-                    SoftFilterChip(
-                      label: unverified > 0
-                          ? '${loc.labsFilterUnverified} ($unverified)'
-                          : loc.labsFilterUnverified,
-                      selected:
-                          _controller.filter == AdminUserFilter.unverified,
-                      onTap: () => _controller
-                          .setFilter(AdminUserFilter.unverified),
-                    ),
-                    SoftFilterChip(
-                      label: loc.labsFilterVerified,
-                      selected:
-                          _controller.filter == AdminUserFilter.verified,
-                      onTap: () =>
-                          _controller.setFilter(AdminUserFilter.verified),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Expanded(
-                      child: _controller.loading && _controller.users.isEmpty
-                          ? ToothPageLoader(
-                              message: loc.labsLoading,
-                            )
-                          : visible.isEmpty
-                              ? IpadRefresh.fill(
-                                  onRefresh: () =>
-                                      _controller.refresh(silent: true),
-                                  child: _EmptyState(
-                                    title: _controller.users.isEmpty
-                                        ? loc.labsEmpty
-                                        : loc.labsEmptyFilter,
-                                    subtitle: _controller.users.isEmpty
-                                        ? loc.labsEmptyVerifiedHint
-                                        : loc.labsEmptyFilterHint,
-                                  ),
-                                )
-                              : IpadRefresh(
-                                  onRefresh: () =>
-                                      _controller.refresh(silent: true),
-                                  slivers: [
-                                    SliverList.separated(
-                                      itemCount: visible.length,
-                                      separatorBuilder: (_, _) =>
-                                          const SizedBox(height: 12),
-                                      itemBuilder: (context, i) {
-                                        final user = visible[i];
-                                        return _LabCard(
-                                          user: user,
-                                          busy: blocked,
-                                          canMessage:
-                                              widget.onMessageLab != null,
-                                          onOpen: () => _openLabDetails(user),
-                                          onMessage: () => _messageLab(user),
-                                          onVerify: () => _verify(user),
-                                          onDelete: () => _confirmDelete(user),
-                                        );
-                                      },
-                                    ),
-                                  ],
-                                ),
-                ),
-              ],
-            ),
+    return ValueListenableBuilder<int>(
+      valueListenable: _tab,
+      builder: (context, t, _) => AdminPage(
+        icon: Icons.manage_accounts_outlined,
+        title: loc.labsTitle,
+        subtitle: loc.tr('admin.usersSub'),
+        toolbar: [
+          AdminTabs(
+            tab: _tab,
+            labels: [
+              loc.tr('admin.byLab'),
+              loc.tr('admin.unassignedDentists'),
+              loc.tr('admin.removalRequests'),
+            ],
           ),
+          if (t == 0)
+            AdminSearchField(
+              controller: _search,
+              hint: loc.tr('admin.searchUsers'),
+              onChanged: (q) => setState(() => _q = q.toLowerCase()),
+            ),
+        ],
+        body: AdminSwap(
+          index: t,
+          builder: (i) => switch (i) {
+            0 => _byLab(loc, widget.active && t == 0),
+            1 => _unassigned(loc, widget.active && t == 1),
+            _ => _removals(loc, widget.active && t == 2),
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _byLab(AppLocalizations loc, bool on) {
+    return AdminFuture<(List<AdminLab>, List<AdminDentist>)>(
+      key: const ValueKey('by-lab'),
+      active: on,
+      // ponytail: loads every dentist and searches on device; switch to the
+      // `q` query param if the user list grows past a few thousand.
+      load: () async {
+        final r = await Future.wait([api.adminLabs(), api.adminDentists()]);
+        return (
+          r[0].map(AdminLab.new).toList(),
+          r[1].map(AdminDentist.new).toList(),
         );
+      },
+      isEmpty: (d) => d.$1.isEmpty,
+      empty: AdminEmpty(
+        icon: Icons.apartment_rounded,
+        title: loc.tr('admin.noLabs'),
+        subtitle: loc.tr('admin.noLabsSub'),
+      ),
+      builder: (context, data, reload) {
+        bool hit(String? s) => (s ?? '').toLowerCase().contains(_q);
+        final groups = <(AdminLab, List<AdminDentist>)>[];
+        for (final lab in data.$1) {
+          final all = data.$2.where((d) => d.labId == lab.id).toList();
+          final labHit = hit(lab.name) || hit(lab.email);
+          final ds = labHit
+              ? all
+              : all
+                  .where((d) => hit(d.name) || hit(d.email) || hit(d.clinicName))
+                  .toList();
+          if (labHit || ds.isNotEmpty) groups.add((lab, ds));
+        }
+        if (groups.isEmpty) {
+          return [
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: AdminEmpty(
+                icon: Icons.search_off_rounded,
+                title: loc.tr('admin.noMatches'),
+                subtitle: loc.tr('admin.noMatchesSub'),
+              ),
+            ),
+          ];
+        }
+        return [
+          adminSliverList(
+            groups,
+            id: (g) => g.$1.id,
+            gap: 14,
+            (context, g) => _labCard(loc, g.$1, g.$2, reload),
+          ),
+        ];
       },
     );
   }
-}
 
-enum _DeleteChoice { soft, hard }
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.title, required this.subtitle});
-
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: GlassSurface(
-        borderRadius: BorderRadius.circular(22),
-        blur: 16,
-        tint: Colors.white.withValues(alpha: 0.5),
-        padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            NeoIconBadge(
-              icon: Icons.manage_accounts_outlined,
-              size: 56,
-              iconSize: 26,
-              color: AppColors.muted,
-            ),
-            const SizedBox(height: 14),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: AppFonts.style(
-                color: AppColors.navy,
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
+  Widget _labCard(
+    AppLocalizations loc,
+    AdminLab lab,
+    List<AdminDentist> dentists,
+    VoidCallback reload,
+  ) {
+    return AdminCard(
+      padding: const EdgeInsets.fromLTRB(18, 16, 14, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AdminRow(
+            leading: UserAvatar(name: lab.name, url: lab.avatarUrl, size: 46),
+            title: lab.name,
+            badges: [
+              AdminBadge(
+                dentistCount(loc, lab.dentistCount),
+                color: AppColors.review,
+              ),
+              if (lab.hiddenFromLabs)
+                AdminBadge(loc.tr('admin.hiddenFromLabs'), color: AppColors.muted),
+              if (lab.hideDentists)
+                AdminBadge(loc.tr('admin.dentistsHidden'), color: AppColors.muted),
+              if (lab.deleted)
+                AdminBadge(loc.tr('admin.deactivatedBadge'), color: AppColors.danger),
+            ],
+            lines: [[lab.email, ?lab.phone].join(' · ')],
+            actions: lab.deleted
+                ? [_reactivateButton(loc, lab.id, lab.name, reload)]
+                : [
+                    AppButtons.icon(
+                      tooltip: loc.tr('admin.more'),
+                      icon: Icons.more_horiz_rounded,
+                      onPressed: () async {
+                        final v = await adminChoose<String>(
+                          context,
+                          title: lab.name,
+                          options: [
+                            if (widget.onMessage != null) ('msg', loc.labsMessage),
+                            ('photo', loc.tr('avatar.change')),
+                            ('delete', loc.tr('admin.deactivateOrDelete')),
+                          ],
+                        );
+                        if (v == 'msg') return _message(lab.id);
+                        if (v == 'photo') {
+                          if (await _changePhoto(lab.id, lab.name)) reload();
+                          return;
+                        }
+                        if (v == 'delete' &&
+                            await _delete(lab.id, lab.name,
+                                dentist: false, dentists: lab.dentistCount)) {
+                          reload();
+                        }
+                      },
+                    ),
+                  ],
+          ),
+          const SizedBox(height: 10),
+          if (dentists.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(60, 4, 0, 10),
+              child: Text(
+                loc.tr('admin.labNoDentists'),
+                style: AppFonts.style(fontSize: 13, color: AppColors.muted),
               ),
             ),
-            const SizedBox(height: 6),
-            Text(
-              subtitle,
-              textAlign: TextAlign.center,
-              style: AppFonts.style(
-                color: AppColors.muted,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
+          for (final d in dentists) ...[
+            Divider(height: 1, color: AppColors.border.withValues(alpha: 0.6)),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 0, 10),
+              child: _dentistRow(loc, d, reload),
             ),
           ],
-        ),
+        ],
       ),
     );
   }
-}
 
-class _LabCard extends StatelessWidget {
-  const _LabCard({
-    required this.user,
-    required this.busy,
-    required this.canMessage,
-    required this.onOpen,
-    required this.onMessage,
-    required this.onVerify,
-    required this.onDelete,
-  });
-
-  final AdminUser user;
-  final bool busy;
-  final bool canMessage;
-  final VoidCallback onOpen;
-  final VoidCallback onMessage;
-  final VoidCallback onVerify;
-  final VoidCallback onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context);
-    final title = user.name.trim().isEmpty ? user.email : user.name.trim();
-    final role = AppRoles.label(user.role, loc);
-    final accent = user.verified ? AppColors.success : AppColors.warning;
-    final messageEnabled = canMessage && user.verified && !busy;
-
-    return GlassSurface(
-      borderRadius: BorderRadius.circular(20),
-      blur: 16,
-      tint: Colors.white.withValues(alpha: 0.52),
-      padding: EdgeInsets.zero,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(20),
-          onTap: busy ? null : onOpen,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 14, 14, 14),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final wide = constraints.maxWidth >= 720;
-                final identity = Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    _LabAvatar(title: title, verified: user.verified),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppFonts.style(
-                                fontSize: 19,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.navy,
-                                letterSpacing: -0.3,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          _RoleStatusBadge(
-                            roleLabel: role.isEmpty
-                                ? loc.roleLaboratory
-                                : role,
-                            statusLabel: user.verified
-                                ? loc.labsVerified
-                                : loc.labsUnverified,
-                            color: accent,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                );
-
-                final actions = Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  alignment: WrapAlignment.end,
-                  children: [
-                    if (canMessage)
-                      AppButtons.primary(
-                        onPressed: messageEnabled ? onMessage : null,
-                        icon: Icons.chat_bubble_outline_rounded,
-                        label: loc.labsMessage,
-                        compact: true,
-                      ),
-                    if (!user.verified)
-                      AppButtons.primary(
-                        onPressed: busy ? null : onVerify,
-                        icon: Icons.verified_outlined,
-                        label: loc.labsVerify,
-                        compact: true,
-                      ),
-                    AppButtons.danger(
-                      onPressed: busy ? null : onDelete,
-                      icon: Icons.delete_outline_rounded,
-                      label: loc.labsDelete,
-                      soft: true,
-                      compact: true,
-                    ),
-                  ],
-                );
-
-                if (wide) {
-                  return Row(
-                    children: [
-                      Expanded(child: identity),
-                      const SizedBox(width: 16),
-                      actions,
+  Widget _dentistRow(AppLocalizations loc, AdminDentist d, VoidCallback reload) {
+    return AdminRow(
+      leading: UserAvatar(name: d.name.isEmpty ? d.email : d.name, url: d.avatarUrl, size: 36),
+      title: d.name.isEmpty ? d.email : d.name,
+      badges: [
+        if (d.deleted) AdminBadge(loc.tr('admin.deactivatedBadge'), color: AppColors.danger),
+      ],
+      lines: [
+        dentistPlace(loc, d.labName, d.clinicName),
+        d.email,
+        if (d.unassignedReason != null)
+          [
+            loc.tr('admin.unassigned.${d.unassignedReason}'),
+            if (d.unassignedAt != null)
+              loc.trp('admin.since', {'when': adminWhen(context, d.unassignedAt)}),
+          ].join(' · '),
+      ],
+      actions: d.deleted
+          ? [_reactivateButton(loc, d.id, d.name, reload)]
+          : [
+              AppButtons.secondary(
+                onPressed: () async {
+                  if (await _move(d)) reload();
+                },
+                icon: d.labId == null ? Icons.add_link_rounded : Icons.swap_horiz_rounded,
+                label: loc.tr(d.labId == null ? 'admin.assignLab' : 'admin.move'),
+                compact: true,
+              ),
+              AppButtons.icon(
+                tooltip: loc.tr('admin.more'),
+                icon: Icons.more_horiz_rounded,
+                onPressed: () async {
+                  final v = await adminChoose<String>(
+                    context,
+                    title: d.name,
+                    options: [
+                      if (widget.onMessage != null) ('msg', loc.labsMessage),
+                      ('photo', loc.tr('avatar.change')),
+                      ('delete', loc.tr('admin.deactivateOrDelete')),
                     ],
                   );
-                }
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    identity,
-                    const SizedBox(height: 14),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: actions,
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LabDetailSheet extends StatelessWidget {
-  const _LabDetailSheet({
-    required this.user,
-    required this.canMessage,
-    required this.onMessage,
-    required this.onVerify,
-    required this.onDelete,
-  });
-
-  final AdminUser user;
-  final bool canMessage;
-  final VoidCallback onMessage;
-  final VoidCallback onVerify;
-  final VoidCallback onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context);
-    final title = user.name.trim().isEmpty ? user.email : user.name.trim();
-    final role = AppRoles.label(user.role, loc);
-    final accent = user.verified ? AppColors.success : AppColors.warning;
-    final bottom = MediaQuery.paddingOf(context).bottom;
-    final messageEnabled = canMessage && user.verified;
-
-    String? updated;
-    final at = user.updatedAt;
-    if (at != null) {
-      final local = at.toLocal();
-      updated =
-          '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} '
-          '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
-    }
-
-    return Material(
-      color: Colors.transparent,
-      child: Align(
-        alignment: Alignment.bottomCenter,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: 560,
-            maxHeight: MediaQuery.sizeOf(context).height * 0.72,
-          ),
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(16, 0, 16, 12 + bottom),
-            child: GlassSurface(
-              borderRadius: BorderRadius.circular(22),
-              blur: 22,
-              tint: Colors.white.withValues(alpha: 0.78),
-              padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 36,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: AppColors.border,
-                        borderRadius: BorderRadius.circular(99),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      _LabAvatar(title: title, verified: user.verified),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              title,
-                              style: AppFonts.style(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.navy,
-                                letterSpacing: -0.3,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            _RoleStatusBadge(
-                              roleLabel: role.isEmpty
-                                  ? loc.roleLaboratory
-                                  : role,
-                              statusLabel: user.verified
-                                  ? loc.labsVerified
-                                  : loc.labsUnverified,
-                              color: accent,
-                            ),
-                          ],
-                        ),
-                      ),
-                      CupertinoButton(
-                        padding: const EdgeInsets.all(6),
-                        onPressed: () => Navigator.pop(context),
-                        child: const Icon(
-                          CupertinoIcons.xmark_circle_fill,
-                          color: Color(0xFFC7C7CC),
-                          size: 26,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  Flexible(
-                    child: SingleChildScrollView(
-                      child: Column(
-                        children: [
-                          _LabDetailRow(
-                            icon: Icons.email_outlined,
-                            label: loc.email,
-                            value: user.email.isEmpty ? '—' : user.email,
-                          ),
-                          _LabDetailRow(
-                            icon: Icons.phone_outlined,
-                            label: loc.phone,
-                            value: (user.phone == null || user.phone!.isEmpty)
-                                ? '—'
-                                : user.phone!,
-                          ),
-                          _LabDetailRow(
-                            icon: Icons.apartment_outlined,
-                            label: loc.labsClinicLab,
-                            value: (user.clinicName == null ||
-                                    user.clinicName!.isEmpty)
-                                ? '—'
-                                : user.clinicName!,
-                          ),
-                          _LabDetailRow(
-                            icon: Icons.badge_outlined,
-                            label: loc.role,
-                            value: role.isEmpty
-                                ? loc.roleLaboratory
-                                : role,
-                          ),
-                          _LabDetailRow(
-                            icon: Icons.verified_outlined,
-                            label: loc.labsStatus,
-                            value: user.verified
-                                ? loc.labsVerified
-                                : loc.labsUnverified,
-                          ),
-                          if (updated != null)
-                            _LabDetailRow(
-                              icon: Icons.schedule_outlined,
-                              label: loc.labsUpdated,
-                              value: updated,
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    alignment: WrapAlignment.end,
-                    children: [
-                      if (canMessage)
-                        AppButtons.primary(
-                          onPressed: messageEnabled ? onMessage : null,
-                          icon: Icons.chat_bubble_outline_rounded,
-                          label: loc.labsMessage,
-                          compact: true,
-                        ),
-                      if (!user.verified)
-                        AppButtons.primary(
-                          onPressed: onVerify,
-                          icon: Icons.verified_outlined,
-                          label: loc.labsVerify,
-                          compact: true,
-                        ),
-                      AppButtons.danger(
-                        onPressed: onDelete,
-                        icon: Icons.delete_outline_rounded,
-                        label: loc.labsDelete,
-                        soft: true,
-                        compact: true,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LabDetailRow extends StatelessWidget {
-  const _LabDetailRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.55),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.border.withValues(alpha: 0.55)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, size: 18, color: AppColors.dentalBlue),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: AppFonts.style(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.muted,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    value,
-                    style: AppFonts.style(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.navy,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _LabAvatar extends StatelessWidget {
-  const _LabAvatar({required this.title, required this.verified});
-
-  final String title;
-  final bool verified;
-
-  @override
-  Widget build(BuildContext context) {
-    final bg = verified
-        ? AppColors.dentalBlue.withValues(alpha: 0.14)
-        : AppColors.warningSoft;
-    final fg = verified ? AppColors.dentalBlue : AppColors.warning;
-    final initials = _initials(title);
-
-    return Container(
-      width: 56,
-      height: 56,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: NeoShadows.soft(depth: 0.4),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.75)),
-      ),
-      child: initials == '·'
-          ? Icon(Icons.person_outline, color: fg, size: 26)
-          : Text(
-              initials,
-              style: AppFonts.style(
-                color: fg,
-                fontWeight: FontWeight.w800,
-                fontSize: 18,
-                letterSpacing: -0.2,
-              ),
-            ),
-    );
-  }
-
-  static String _initials(String raw) {
-    final t = raw.trim();
-    if (t.isEmpty) return '·';
-    if (t.contains('@')) {
-      final local = t.split('@').first;
-      return local.isEmpty ? '·' : local[0].toUpperCase();
-    }
-    final parts = t.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-    if (parts.isEmpty) return '·';
-    if (parts.length == 1) return parts[0][0].toUpperCase();
-    return (parts[0][0] + parts[1][0]).toUpperCase();
-  }
-}
-
-/// Matches patients’ “Created by · Role” pattern: muted prefix + status pill.
-class _RoleStatusBadge extends StatelessWidget {
-  const _RoleStatusBadge({
-    required this.roleLabel,
-    required this.statusLabel,
-    required this.color,
-  });
-
-  final String roleLabel;
-  final String statusLabel;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          roleLabel,
-          style: AppFonts.style(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: AppColors.muted,
-          ),
-        ),
-        const SizedBox(width: 6),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: color.withValues(alpha: 0.22)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 6,
-                height: 6,
-                decoration:
-                    BoxDecoration(color: color, shape: BoxShape.circle),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                statusLabel,
-                style: AppFonts.style(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: color,
-                ),
+                  if (v == 'msg') return _message(d.id);
+                  if (v == 'photo') {
+                    if (await _changePhoto(d.id, d.name)) reload();
+                    return;
+                  }
+                  if (v == 'delete' && await _delete(d.id, d.name, dentist: true)) {
+                    reload();
+                  }
+                },
               ),
             ],
-          ),
+    );
+  }
+
+  Widget _unassigned(AppLocalizations loc, bool on) {
+    return AdminFuture<List<AdminDentist>>(
+      key: const ValueKey('unassigned'),
+      active: on,
+      load: () async =>
+          (await api.adminDentists(unassigned: true)).map(AdminDentist.new).toList(),
+      empty: AdminEmpty(
+        icon: Icons.verified_user_outlined,
+        title: loc.tr('admin.noUnassignedDentists'),
+        subtitle: loc.tr('admin.noUnassignedDentistsSub'),
+      ),
+      builder: (context, rows, reload) => [
+        adminSliverList<AdminDentist>(
+          rows,
+          id: (d) => d.id,
+          (context, d) => AdminCard(child: _dentistRow(loc, d, reload)),
+        ),
+      ],
+    );
+  }
+
+  Widget _removals(AppLocalizations loc, bool on) {
+    return AdminFuture<List<RemovalRequest>>(
+      key: const ValueKey('removals'),
+      active: on,
+      load: () async =>
+          (await api.adminRemovalRequests()).map(RemovalRequest.new).toList(),
+      empty: AdminEmpty(
+        icon: Icons.inbox_outlined,
+        title: loc.tr('admin.noRemovals'),
+        subtitle: loc.tr('admin.noRemovalsSub'),
+      ),
+      builder: (context, rows, reload) => [
+        adminSliverList<RemovalRequest>(
+          rows,
+          id: (r) => r.id,
+          (context, r) {
+            return AdminCard(
+              child: AdminRow(
+                leading: const AdminIcon(
+                  icon: Icons.person_remove_outlined,
+                  color: AppColors.warning,
+                ),
+                title: r.dentistName,
+                lines: [
+                  loc.trp('admin.requestedBy', {
+                    'lab': r.labName,
+                    'when': adminWhen(context, r.createdAt),
+                  }),
+                  '${loc.tr('admin.reason')}: ${r.reason ?? loc.tr('admin.noReason')}',
+                ],
+                actions: [
+                  AppButtons.secondary(
+                    onPressed: () async {
+                      if (await _decide(r, approve: false)) reload();
+                    },
+                    label: loc.tr('admin.deny'),
+                    compact: true,
+                  ),
+                  AppButtons.primary(
+                    onPressed: () async {
+                      if (await _decide(r, approve: true)) reload();
+                    },
+                    icon: Icons.check_rounded,
+                    label: loc.tr('admin.approve'),
+                    compact: true,
+                  ),
+                ],
+              ),
+            );
+          },
         ),
       ],
     );

@@ -46,8 +46,14 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     } catch (e) {
-      final msg = friendlyError(e, AppLocalizations.of(context));
-      if (mounted) AppSnackBars.error(context, msg, haptic: false);
+      final loc = AppLocalizations.of(context);
+      final msg = friendlyError(e, loc);
+      if (!mounted) return;
+      if (msg == loc.errRegistrationRejected) {
+        AppDialogs.alert(context, title: loc.authRejectedTitle, message: msg);
+      } else {
+        AppSnackBars.error(context, msg, haptic: false);
+      }
       AppHaptics.warn();
     } finally {
       if (mounted) setState(() => _loading = false);

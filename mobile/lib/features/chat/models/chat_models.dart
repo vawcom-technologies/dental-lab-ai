@@ -12,6 +12,8 @@ class UserProfile {
     this.role,
     this.clinicName,
     this.phone,
+    this.avatarUrl,
+    this.labName,
   });
 
   final String id;
@@ -20,6 +22,10 @@ class UserProfile {
   final String? role;
   final String? clinicName;
   final String? phone;
+  final String? avatarUrl;
+
+  /// Dentists: the lab they belong to.
+  final String? labName;
 
   String get displayName {
     final n = name?.trim();
@@ -48,6 +54,8 @@ class UserProfile {
       role: _optString(json['role']),
       clinicName: _optString(json['clinic_name']),
       phone: _optString(json['phone']),
+      avatarUrl: _optString(json['avatar_url']),
+      labName: _optString(json['lab_name']),
     );
   }
 
@@ -58,6 +66,8 @@ class UserProfile {
         'role': role,
         'clinic_name': clinicName,
         'phone': phone,
+        'avatar_url': avatarUrl,
+        'lab_name': labName,
       };
 }
 

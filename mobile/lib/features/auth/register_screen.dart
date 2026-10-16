@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
@@ -29,6 +31,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _loading = false;
   String _role = AppRoles.dentist;
 
+  /// Required; it can't be changed after signup (only the admin can).
+  ({Uint8List bytes, String contentType})? _avatar;
+
+  Future<void> _pickAvatar() async {
+    try {
+      final photo = await pickProfilePhoto(context);
+      if (photo != null && mounted) setState(() => _avatar = photo);
+    } catch (e) {
+      if (mounted) AppSnackBars.error(context, friendlyError(e));
+    }
+  }
+
   @override
   void dispose() {
     _name.dispose();
@@ -47,6 +61,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final phoneLocal = _phone.text.trim();
     final password = _password.text;
     final loc = AppLocalizations.of(context);
+    if (_avatar == null) {
+      AppSnackBars.error(context, loc.tr('avatar.required'));
+      return;
+    }
     if (name.isEmpty ||
         email.isEmpty ||
         clinic.isEmpty ||
@@ -85,6 +103,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         clinicName: clinic,
         phone: normalizedPhone,
         role: _role,
+        avatar: _avatar,
       );
       if (!mounted) return;
 
@@ -111,8 +130,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
       );
     } catch (e) {
-      final msg = friendlyError(e, AppLocalizations.of(context));
-      if (mounted) AppSnackBars.error(context, msg);
+      final loc = AppLocalizations.of(context);
+      final msg = friendlyError(e, loc);
+      if (!mounted) return;
+      if (msg == loc.errRegistrationRejected) {
+        AppDialogs.alert(context, title: loc.authRejectedTitle, message: msg);
+      } else {
+        AppSnackBars.error(context, msg);
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -166,6 +191,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   style: const TextStyle(color: AppColors.muted),
                 ),
                 const SizedBox(height: 22),
+                _AvatarPicker(
+                  avatar: _avatar?.bytes,
+                  onTap: _loading ? null : _pickAvatar,
+                ),
+                const SizedBox(height: 18),
                 TextField(
                   controller: _name,
                   decoration: InputDecoration(labelText: loc.fullName),
@@ -266,6 +296,93 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
       ),
       ),
+    );
+  }
+}
+
+/// Round photo slot with a camera badge; shows the chosen photo.
+class _AvatarPicker extends StatelessWidget {
+  const _AvatarPicker({required this.avatar, required this.onTap});
+
+  final Uint8List? avatar;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+    const size = 104.0;
+    return Column(
+      children: [
+        Pressable(
+          onTap: onTap,
+          scale: 0.94,
+          builder: (_, _) => SizedBox(
+            width: size + 8,
+            height: size + 8,
+            child: Stack(
+              children: [
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 320),
+                  switchInCurve: const Cubic(0.22, 1.0, 0.36, 1.0),
+                  transitionBuilder: (child, a) => ScaleTransition(
+                    scale: Tween(begin: 0.85, end: 1.0).animate(a),
+                    child: FadeTransition(opacity: a, child: child),
+                  ),
+                  child: Container(
+                    key: ValueKey(avatar?.length ?? 0),
+                    width: size,
+                    height: size,
+                    margin: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: AppColors.dentalBlue.withValues(alpha: 0.10),
+                      border: Border.all(
+                        color: avatar == null ? AppColors.dentalBlue.withValues(alpha: 0.35) : Colors.white,
+                        width: 2,
+                      ),
+                      image: avatar == null
+                          ? null
+                          : DecorationImage(image: MemoryImage(avatar!), fit: BoxFit.cover),
+                    ),
+                    child: avatar == null
+                        ? const Icon(Icons.person_rounded, size: 52, color: AppColors.dentalBlue)
+                        : null,
+                  ),
+                ),
+                Positioned(
+                  right: 2,
+                  bottom: 2,
+                  child: Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: AppColors.navy,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2.5),
+                    ),
+                    child: Icon(
+                      avatar == null ? Icons.photo_camera_rounded : Icons.edit_rounded,
+                      size: 16,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          loc.tr(avatar == null ? 'avatar.add' : 'avatar.retake'),
+          style: AppFonts.style(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.dentalBlue),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          loc.tr('avatar.permanent'),
+          textAlign: TextAlign.center,
+          style: AppFonts.style(fontSize: 12, color: AppColors.muted),
+        ),
+      ],
     );
   }
 }

@@ -515,6 +515,8 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
   /// in front of the coplanar scan surface.
   void _installRough() {
     _disposeRough();
+    // ThreeJS.scene is `late`: reading it before setup throws.
+    if (!_sceneReady) return;
     final scene = _three?.scene;
     final pos = _srcPositions;
     final idx = _srcIndices;
@@ -577,6 +579,7 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
 
   /// Tab switch: scene-graph swap only. Geometry stays put.
   void _applyMode() {
+    if (!_sceneReady) return;
     final scene = _three?.scene;
     if (scene == null) return;
 

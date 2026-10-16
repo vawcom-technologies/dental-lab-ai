@@ -85,6 +85,11 @@ String _fromParts({
   String? code,
   AppLocalizations? loc,
 }) {
+  // Rejected signups: 403 with detail REGISTRATION_REJECTED on sign-up/in.
+  if (detail?.trim() == 'REGISTRATION_REJECTED' ||
+      code == 'REGISTRATION_REJECTED') {
+    return (loc ?? AppLocalizations.current).errRegistrationRejected;
+  }
   final mappedCode = _mapCode(code, loc);
   final rewritten = _rewriteDetail((detail ?? '').trim(), loc);
   if (rewritten != null && rewritten.isNotEmpty) return rewritten;

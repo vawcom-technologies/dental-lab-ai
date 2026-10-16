@@ -1,10 +1,13 @@
 from typing import Any
+import base64
+import binascii
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
 from app.core.config import settings
 from app.core.security import (
+    ACCOUNT_DEACTIVATED,
     AuthUser,
     canonicalize_role,
     clear_auth_cache,
@@ -24,9 +27,10 @@ from app.schemas import (
     TokenOut,
     UserOut,
 )
-from app.services.account_deletion import purge_user_account
+from app.services import avatars
+from app.services.account_deletion import delete_account
 from app.services.email import send_account_deleted_email, send_welcome_email
-from app.services.profiles import fetch_profile, persist_signup_profile
+from app.services.profiles import fetch_profile, is_rejected_email, persist_signup_profile
 
 router = APIRouter()
 logger = logging.getLogger("app.api.auth")
@@ -43,6 +47,15 @@ def _clean_optional(value: str | None) -> str | None:
     return cleaned or None
 
 
+def _decode_avatar(raw: str) -> bytes:
+    """Base64 photo from the signup body; tolerates a data: URL prefix."""
+    data = raw.split(",", 1)[1] if raw.startswith("data:") else raw
+    try:
+        return base64.b64decode(data, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Profile photo is not valid base64") from exc
+
+
 def _is_duplicate_signup(user: Any) -> bool:
     """Supabase returns a user with empty identities on duplicate email signup."""
     return hasattr(user, "identities") and user.identities == []
@@ -52,9 +65,8 @@ PENDING_VERIFICATION_SIGNIN = (
     "Your account is pending admin verification. "
     "Please wait for an administrator to approve your account."
 )
-ACCOUNT_DEACTIVATED = (
-    "Your account has been deactivated. Please contact support."
-)
+# Machine-readable: the app shows its own "registration rejected" message.
+REGISTRATION_REJECTED = "REGISTRATION_REJECTED"
 SIGNUP_PENDING_VERIFICATION = (
     "Account created successfully. An administrator must verify your account "
     "before you can sign in."
@@ -77,8 +89,7 @@ def _enforce_signin_access(profile: dict[str, Any] | None, *, user_id: str) -> N
             detail=ACCOUNT_DEACTIVATED,
         )
 
-    role = (profile.get("role") or "").strip()
-    if role == "admin":
+    if canonicalize_role(profile.get("role"), default="") == "admin":
         logger.debug("signin access allowed: admin bypass user_id=%s", user_id)
         return
 
@@ -112,6 +123,7 @@ def _profile_fields(user: Any) -> dict[str, Any]:
             "role": canonicalize_role(auth_user.role),
             "clinic_name": auth_user.clinic_name,
             "phone": auth_user.phone,
+            "avatar_url": None,
         }
 
     role = canonicalize_role(
@@ -138,6 +150,7 @@ def _profile_fields(user: Any) -> dict[str, Any]:
         "role": role,
         "clinic_name": clinic_name,
         "phone": phone,
+        "avatar_url": profile.get("avatar_url") or None,
     }
 
 
@@ -168,6 +181,7 @@ def _token_out(
         email=fields["email"],
         clinic_name=fields["clinic_name"],
         phone=fields["phone"],
+        avatar_url=fields["avatar_url"],
     )
 
 
@@ -182,6 +196,13 @@ def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Name is required",
         )
+
+    if is_rejected_email(email):
+        logger.debug("signup blocked: rejected email=%s", email)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=REGISTRATION_REJECTED)
+
+    avatar_bytes = _decode_avatar(payload.avatar)
+    avatars.sniff(avatar_bytes, payload.avatar_content_type)
 
     clinic_name = _clean_optional(payload.clinic_name)
     # Validated + normalized to +49XXXXXXXXXXX (11 digits) by SignUpRequest
@@ -226,6 +247,16 @@ def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
             detail="An account with this email address already exists.",
         )
 
+    try:
+        avatar_url = avatars.store(str(user.id), avatar_bytes, payload.avatar_content_type)
+    except HTTPException:
+        # No half-made account: without this the email would be taken but unusable.
+        try:
+            get_supabase_admin().auth.admin.delete_user(str(user.id))
+        except Exception as exc:
+            logger.error("signup rollback failed user_id=%s detail=%s", user.id, exc)
+        raise
+
     persist_signup_profile(
         user_id=str(user.id),
         email=email,
@@ -233,6 +264,7 @@ def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
         role=role,
         clinic_name=clinic_name,
         phone=phone,
+        avatar_url=avatar_url,
     )
 
     # Notify only after a real, non-duplicate signup succeeded
@@ -270,6 +302,10 @@ def signin(payload: SignInRequest):
         )
     except Exception as exc:
         logger.debug("signin failed email=%s detail=%s", email, exc)
+        if is_rejected_email(email):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail=REGISTRATION_REJECTED
+            ) from exc
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -392,6 +428,7 @@ def me(user: AuthUser = Depends(get_current_user)):
         role=user.role,
         clinic_name=user.clinic_name,
         phone=user.phone,
+        avatar_url=user.avatar_url,
     )
 
 
@@ -458,8 +495,8 @@ def delete_my_account(
     user: AuthUser = Depends(get_current_user),
 ):
     """
-    Permanently delete the authenticated account and all associated data
-    (patients, media, appointments, chat, audit logs, Auth identity).
+    Permanently delete the authenticated account. Patient records and uploads
+    stay (they become unassigned for the admin); personal details are cleared.
     """
     logger.info("delete_account start user_id=%s email=%s", user.id, user.email)
 
@@ -484,7 +521,7 @@ def delete_my_account(
             detail="Password is incorrect",
         )
 
-    purge_user_account(user.id)
+    delete_account(user.id, actor_id=user.id)
     background_tasks.add_task(
         send_account_deleted_email,
         user.name or "",
@@ -492,5 +529,5 @@ def delete_my_account(
     )
     logger.info("delete_account ok user_id=%s", user.id)
     return AuthMessageOut(
-        message="Your account and all associated data have been permanently deleted."
+        message="Your account has been permanently deleted."
     )

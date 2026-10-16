@@ -80,21 +80,12 @@ Future<void> _settle(WidgetTester tester) async {
   }
 }
 
-Future<void> _expandSidebar(WidgetTester tester) async {
-  await tester.tap(find.descendant(
-    of: find.byType(AppSidebar),
-    matching: find.byIcon(Icons.chevron_right_rounded),
-  ));
-  await _settle(tester);
-  expect(_sidebarWidth(tester), 248);
-}
-
 Future<void> _unmount(WidgetTester tester) async {
   await tester.pumpWidget(const SizedBox());
   await tester.pump(const Duration(seconds: 1));
 }
 
-/// Sidebar width without its 12pt left margin.
+/// Sidebar width (rail + bubble room) without its 12pt left margin.
 double _sidebarWidth(WidgetTester tester) =>
     tester.getSize(find.byType(AppSidebar)).width - 12;
 
@@ -114,13 +105,15 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   for (final MapEntry(key: name, value: landscape) in _ipads.entries) {
-    final is11 = landscape.width < 1300;
 
     testWidgets('$name landscape: sidebar, header, shade pane', (tester) async {
       await _pumpShell(tester, landscape);
 
-      // 11" gets the icon rail; 12.9"/13" keep the labelled sidebar.
-      expect(_sidebarWidth(tester), is11 ? 72 : 248);
+      // Every iPad gets the icon rail, sized to the device.
+      expect(
+        _sidebarWidth(tester),
+        closeTo(AppSidebar.railExtent(landscape), 0.01),
+      );
       expect(_headerOneRow(tester), isTrue,
           reason: 'dashboard header should fit on one row');
 
@@ -144,27 +137,4 @@ void main() {
       });
     }
   }
-
-  testWidgets('11" landscape with sidebar expanded still fits', (tester) async {
-    await _pumpShell(tester, const Size(1194, 834));
-    await _expandSidebar(tester);
-
-    // Too narrow for one row: header stacks with compact (22pt) title.
-    expect(_headerOneRow(tester), isFalse);
-    final title = tester.widget<Text>(
-      find.descendant(
-        of: find.byType(PageHeader).first,
-        matching: find.byType(Text),
-      ).first,
-    );
-    expect(title.style?.fontSize, 22);
-
-    // Shade session list narrows so photo + result keep their room.
-    // (Picking a page folds the sidebar back, so expand again.)
-    await _open(tester, AppNavItem.shade);
-    expect(tester.getSize(find.byType(ShadeSessionPane)).width, 300);
-    await _expandSidebar(tester);
-    expect(tester.getSize(find.byType(ShadeSessionPane)).width, 252);
-    await _unmount(tester);
-  });
 }

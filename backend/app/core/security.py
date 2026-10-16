@@ -28,6 +28,9 @@ def canonicalize_role(role: str | None, *, default: str = "dentist") -> str:
     return default
 
 
+ACCOUNT_DEACTIVATED = "Your account has been deactivated. Please contact support."
+
+
 @dataclass
 class AuthUser:
     id: str
@@ -37,6 +40,7 @@ class AuthUser:
     clinic_name: str | None = None
     phone: str | None = None
     raw: Any | None = None
+    avatar_url: str | None = None
 
 
 def _meta(user: Any) -> dict:
@@ -60,6 +64,8 @@ def user_from_supabase(user: Any) -> AuthUser:
     profile = fetch_profile(auth_user.id)
     if not profile:
         return auth_user
+    if profile.get("deleted") is True:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ACCOUNT_DEACTIVATED)
 
     role = canonicalize_role(profile.get("role"), default="")
     if role:
@@ -76,6 +82,7 @@ def user_from_supabase(user: Any) -> AuthUser:
     if profile.get("phone") is not None:
         phone = str(profile.get("phone") or "").strip()
         auth_user.phone = phone or None
+    auth_user.avatar_url = profile.get("avatar_url") or None
     return auth_user
 
 

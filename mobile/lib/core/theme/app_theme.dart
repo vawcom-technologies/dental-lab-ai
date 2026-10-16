@@ -13,7 +13,7 @@ class AppColors {
   static const surface = Color(0xFFE4EBF4);
   static const surfaceDeep = Color(0xFFD8E2EE);
   static const neo = Color(0xFFEAF0F7);
-  static const card = Color(0xFFEEF3F9);
+  static const card = Colors.white;
   static const inset = Color(0xFFDDE5F0);
 
   static const text = Color(0xFF1D3557);
@@ -111,20 +111,14 @@ class AppRadii {
 
 /// Soft dual-tone shadows for raised / pressed neumorphic surfaces.
 class NeoShadows {
+  /// One soft drop shadow, iOS card style (no white highlight glow).
   static List<BoxShadow> raised({double depth = 1}) {
     final d = depth.clamp(0.5, 1.6);
     return [
       BoxShadow(
-        color: Colors.white.withValues(alpha: 0.85),
-        offset: Offset(-5 * d, -5 * d),
-        blurRadius: 10 * d,
-        spreadRadius: 0,
-      ),
-      BoxShadow(
-        color: const Color(0xFF9AADC4).withValues(alpha: 0.42),
-        offset: Offset(6 * d, 6 * d),
-        blurRadius: 14 * d,
-        spreadRadius: 0,
+        color: AppColors.navy.withValues(alpha: 0.07 * d),
+        offset: Offset(0, 4 * d),
+        blurRadius: 16 * d,
       ),
     ];
   }

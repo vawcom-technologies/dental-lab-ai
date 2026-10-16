@@ -18,7 +18,7 @@ def fetch_profile(user_id: str) -> dict[str, Any] | None:
         result = (
             get_supabase_admin()
             .table("profiles")
-            .select("id,name,email,phone,role,clinic_name,verified,deleted,updated_at")
+            .select("id,name,email,phone,role,clinic_name,verified,deleted,updated_at,avatar_url,lab_id")
             .eq("id", user_id)
             .limit(1)
             .execute()
@@ -43,7 +43,7 @@ def fetch_profiles_by_ids(user_ids: list[str] | set[str]) -> dict[str, dict[str,
         result = (
             get_supabase_admin()
             .table("profiles")
-            .select("id,name,email,phone,role,clinic_name,verified,deleted,updated_at")
+            .select("id,name,email,phone,role,clinic_name,verified,deleted,updated_at,avatar_url,lab_id")
             .in_("id", ids)
             .or_("deleted.eq.false,deleted.is.null")
             .execute()
@@ -82,6 +82,7 @@ def persist_signup_profile(
     role: str,
     clinic_name: str | None,
     phone: str | None,
+    avatar_url: str | None = None,
 ) -> None:
     """Write dentist | laboratory onto public.profiles after Auth signup."""
     if not user_id:
@@ -93,6 +94,7 @@ def persist_signup_profile(
         "role": role,
         "clinic_name": clinic_name,
         "phone": phone,
+        "avatar_url": avatar_url,
     }
     try:
         existing = fetch_profile(user_id)
@@ -105,6 +107,7 @@ def persist_signup_profile(
                     "role": role,
                     "clinic_name": clinic_name,
                     "phone": phone,
+                    "avatar_url": avatar_url,
                 }
             ).eq("id", user_id).execute()
         else:
@@ -113,3 +116,26 @@ def persist_signup_profile(
         logger.warning(
             "persist_signup_profile failed user_id=%s detail=%s", user_id, exc
         )
+
+
+def is_rejected_email(email: str) -> bool:
+    """True when the admin rejected a signup with this email (public.rejected_signups)."""
+    result = (
+        get_supabase_admin()
+        .table("rejected_signups")
+        .select("id")
+        .eq("email", (email or "").strip().lower())
+        .limit(1)
+        .execute()
+    )
+    return bool(getattr(result, "data", None))
+
+
+def lab_name(profile: dict[str, Any], labs: dict[str, dict[str, Any]] | None = None) -> str | None:
+    """Name of a dentist's lab (None for labs/admin or a dentist without one).
+    Pass `labs` (from fetch_profiles_by_ids) to avoid a lookup per row."""
+    lab_id = str(profile.get("lab_id") or "")
+    if profile.get("role") != "dentist" or not lab_id:
+        return None
+    lab = (labs or {}).get(lab_id) if labs is not None else fetch_profile(lab_id)
+    return (str((lab or {}).get("name") or "").strip()) or None

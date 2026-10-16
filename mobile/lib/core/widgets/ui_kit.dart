@@ -14,6 +14,7 @@ export 'app_buttons.dart';
 export 'app_dialogs.dart';
 export 'app_snackbar.dart';
 export 'app_switcher.dart';
+export 'copyable_text.dart';
 export 'busy_action.dart';
 export 'dental_date_picker.dart';
 export 'glass_surface.dart';
@@ -24,6 +25,7 @@ export 'patient_media_dialogs.dart';
 export 'phone_field.dart';
 export 'soft_pill_button.dart';
 export 'tooth_loader.dart';
+export 'user_avatar.dart';
 
 class StatusChip extends StatelessWidget {
   const StatusChip({super.key, required this.statusKey});
