@@ -145,9 +145,7 @@ class _DashboardPageState extends State<DashboardPage> {
           final tb = DateTime.tryParse('${b['updated_at'] ?? ''}') ?? DateTime(1970);
           return tb.compareTo(ta);
         });
-    final me = widget.api.userId ?? '';
     return sorted.take(8).map((c) {
-      final createdBy = '${c['created_by'] ?? ''}';
       return _CaseRowData(
         patientId: '${c['patient_id']}',
         caseLabel: '${c['case_label']}',
@@ -159,39 +157,8 @@ class _DashboardPageState extends State<DashboardPage> {
           DateTime.tryParse('${c['updated_at'] ?? ''}'),
           loc,
         ),
-        canEditStatus: me.isNotEmpty && createdBy == me,
       );
     }).toList();
-  }
-
-  Future<void> _changeStatus(String patientId, String status) async {
-    final next = CaseStatuses.normalize(status);
-    final idx = _patients.indexWhere((p) => '${p['id']}' == patientId);
-    if (idx < 0) return;
-    final current = CaseStatuses.normalize('${_patients[idx]['status'] ?? ''}');
-    if (current == next) return;
-    try {
-      final updated = await widget.api.updatePatient(patientId, {
-        'status': next,
-      });
-      if (!mounted) return;
-      setState(() {
-        _patients[idx] = {
-          ..._patients[idx],
-          ...updated,
-          'status': CaseStatuses.normalize('${updated['status'] ?? next}'),
-        };
-      });
-      AppSnackBars.success(
-        context,
-        AppLocalizations.of(context).statusUpdatedTo(
-          AppLocalizations.of(context).statusLabel(next),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      AppSnackBars.error(context, friendlyError(e));
-    }
   }
 
   List<_ActivityItem> _activity(AppLocalizations loc) {
@@ -419,13 +386,6 @@ class _DashboardPageState extends State<DashboardPage> {
                                               dentist: row.dentist,
                                               status: row.status,
                                               updated: row.updated,
-                                              canEditStatus: row.canEditStatus,
-                                              onStatusChanged: row.canEditStatus
-                                                  ? (status) => _changeStatus(
-                                                        row.patientId,
-                                                        status,
-                                                      )
-                                                  : null,
                                             );
                                           },
                                         ),
@@ -520,7 +480,6 @@ class _CaseRowData {
     required this.dentist,
     required this.status,
     required this.updated,
-    required this.canEditStatus,
   });
 
   final String patientId;
@@ -529,7 +488,6 @@ class _CaseRowData {
   final String dentist;
   final String status;
   final String updated;
-  final bool canEditStatus;
 }
 
 class _ActivityItem {
@@ -621,8 +579,6 @@ class _PatientRow extends StatelessWidget {
     required this.dentist,
     required this.status,
     required this.updated,
-    this.canEditStatus = false,
-    this.onStatusChanged,
   });
 
   final String id;
@@ -630,8 +586,6 @@ class _PatientRow extends StatelessWidget {
   final String dentist;
   final String status;
   final String updated;
-  final bool canEditStatus;
-  final ValueChanged<String>? onStatusChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -666,11 +620,7 @@ class _PatientRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            PatientStatusMenu(
-              status: status,
-              enabled: canEditStatus && onStatusChanged != null,
-              onSelected: onStatusChanged,
-            ),
+            StatusChip(statusKey: status),
           ],
         ),
       );
@@ -711,11 +661,7 @@ class _PatientRow extends StatelessWidget {
               padding: const EdgeInsets.only(right: 16),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: PatientStatusMenu(
-                  status: status,
-                  enabled: canEditStatus && onStatusChanged != null,
-                  onSelected: onStatusChanged,
-                ),
+                child: StatusChip(statusKey: status),
               ),
             ),
           ),

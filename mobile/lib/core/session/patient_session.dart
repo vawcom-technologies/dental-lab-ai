@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../../features/cases/case_store.dart';
 import '../api/api_client.dart';
 
 /// Shared patient list + selection for the signed-in shell session.
@@ -9,9 +10,13 @@ import '../api/api_client.dart';
 /// on every visit. Selection is published here; pages apply it when they become
 /// active so offstage keep-alive pages do not reload in the background.
 class PatientSession extends ChangeNotifier {
-  PatientSession(this.api);
+  PatientSession(this.api) : cases = CaseStore(api);
 
   final ApiClient api;
+
+  /// Case status / items / history per patient (separate notifier so case
+  /// refreshes don't rebuild everything listening to the session).
+  final CaseStore cases;
 
   List<Map<String, dynamic>> _patients = const [];
   Map<String, dynamic>? _selected;
@@ -278,5 +283,11 @@ class PatientSession extends ChangeNotifier {
     if (id.isEmpty) return;
     final match = _patients.where((p) => pidOf(p) == id);
     select(match.isEmpty ? created : match.first);
+  }
+
+  @override
+  void dispose() {
+    cases.dispose();
+    super.dispose();
   }
 }

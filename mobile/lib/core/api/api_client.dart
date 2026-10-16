@@ -410,11 +410,14 @@ class ApiClient {
     return 'Account deleted';
   }
 
+  /// [status]: only patients in that case status (e.g. `in_review`).
   Future<List<Map<String, dynamic>>> listPatients({
     bool forceRefresh = false,
+    String? status,
   }) async {
     final res = await _http.get(
-      Uri.parse('$baseUrl/api/patients'),
+      Uri.parse('$baseUrl/api/patients')
+          .replace(queryParameters: status == null ? null : {'status': status}),
       headers: _getHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
@@ -642,158 +645,6 @@ class ApiClient {
     return payload;
   }
 
-  Future<List<Map<String, dynamic>>> listCases({bool forceRefresh = false}) async {
-    final res = await _http.get(
-      Uri.parse('$baseUrl/api/cases'),
-      headers: _getHeaders(forceRefresh: forceRefresh),
-    );
-    // Cases router is not always mounted (GDPR cutover) — treat as empty.
-    if (res.statusCode == 404) return const [];
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    final body = jsonDecode(res.body);
-    if (body is! List) return const [];
-    return body.cast<Map<String, dynamic>>();
-  }
-
-  Future<Map<String, dynamic>> createCase(int patientId) async {
-    final res = await _http.post(
-      Uri.parse('$baseUrl/api/cases'),
-      headers: _jsonHeaders,
-      body: jsonEncode({'patient_id': patientId}),
-    );
-    if (res.statusCode != 201) throw Exception(_errorMessage(res));
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  Future<Map<String, dynamic>> updateCaseStatus(int caseId, String status) async {
-    final res = await _http.patch(
-      Uri.parse('$baseUrl/api/cases/$caseId'),
-      headers: _jsonHeaders,
-      body: jsonEncode({'status': status}),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    AppHaptics.selection();
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  /// Bump a new case into active work after clinical capture.
-  Future<void> markCaseInProgressIfPending(int caseId, String? currentStatus) async {
-    final status = (currentStatus ?? 'pending').toLowerCase();
-    if (status != 'pending' && status != 'awaiting_scan') return;
-    await updateCaseStatus(caseId, 'in_progress');
-  }
-
-  Future<List<Map<String, dynamic>>> listPhotos(
-    int caseId, {
-    bool forceRefresh = false,
-  }) async {
-    final res = await _http.get(
-      Uri.parse('$baseUrl/api/cases/$caseId/photos'),
-      headers: _getHeaders(forceRefresh: forceRefresh),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
-  }
-
-  Future<Map<String, dynamic>> uploadPhoto({
-    required int caseId,
-    required String angle,
-    required List<int> bytes,
-    required String filename,
-  }) async {
-    final req = http.MultipartRequest(
-      'POST',
-      Uri.parse('$baseUrl/api/cases/$caseId/photos'),
-    );
-    req.headers.addAll(_authHeaders);
-    req.fields['angle'] = angle;
-    req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
-    final streamed = await _http.send(req);
-    final res = await http.Response.fromStream(streamed);
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(_errorMessage(res));
-    }
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  Future<List<Map<String, dynamic>>> listScans(
-    int caseId, {
-    bool forceRefresh = false,
-  }) async {
-    final res = await _http.get(
-      Uri.parse('$baseUrl/api/cases/$caseId/scans'),
-      headers: _getHeaders(forceRefresh: forceRefresh),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
-  }
-
-  /// Downsampled XYZ preview for the chairside 3D viewer.
-  Future<Map<String, dynamic>> fetchScanPreview({
-    required int caseId,
-    required int scanId,
-    bool forceRefresh = false,
-  }) async {
-    final res = await _http.get(
-      Uri.parse('$baseUrl/api/cases/$caseId/scans/$scanId/preview'),
-      headers: _getHeaders(forceRefresh: forceRefresh),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  /// Full original mesh bytes (PLY/STL/OBJ) for solid 3D rendering.
-  Future<({Uint8List bytes, String filename})> fetchScanFile({
-    required int caseId,
-    required int scanId,
-    bool forceRefresh = false,
-  }) async {
-    final res = await _http.get(
-      Uri.parse('$baseUrl/api/cases/$caseId/scans/$scanId/file'),
-      headers: _getAuthHeaders(forceRefresh: forceRefresh),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    var name = 'scan.ply';
-    final cd = res.headers['content-disposition'];
-    if (cd != null) {
-      final match = RegExp(r'filename="?([^";]+)"?').firstMatch(cd);
-      if (match != null && match.group(1)!.isNotEmpty) {
-        name = match.group(1)!;
-      }
-    }
-    return (bytes: res.bodyBytes, filename: name);
-  }
-
-  Future<Map<String, dynamic>> uploadScan({
-    required int caseId,
-    required List<int> bytes,
-    required String filename,
-  }) async {
-    final req = http.MultipartRequest(
-      'POST',
-      Uri.parse('$baseUrl/api/cases/$caseId/scans'),
-    );
-    req.headers.addAll(_authHeaders);
-    req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
-    final streamed = await _http.send(req);
-    final res = await http.Response.fromStream(streamed);
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(_errorMessage(res));
-    }
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  Future<void> deleteScan({required int caseId, required int scanId}) async {
-    final res = await _http.delete(
-      Uri.parse('$baseUrl/api/cases/$caseId/scans/$scanId'),
-      headers: _jsonHeaders,
-    );
-    if (res.statusCode != 204 && res.statusCode != 200) {
-      throw Exception(_errorMessage(res));
-    }
-    AppHaptics.success();
-  }
-
   // ── Patient clinical media (scans / shade-detections / smile-previews) ──
 
   List<Map<String, dynamic>> _decodeMapList(String body) {
@@ -829,12 +680,15 @@ class ApiClient {
     required String patientId,
     required List<int> bytes,
     required String filename,
+    String? replaces,
   }) async {
     final req = http.MultipartRequest(
       'POST',
       Uri.parse('$baseUrl/api/patients/$patientId/scans'),
     );
     req.headers.addAll(_authHeaders);
+    // Locked case: the server swaps this in for the old scan.
+    if (replaces != null) req.fields['replaces'] = replaces;
     req.files.add(
       http.MultipartFile.fromBytes('file', bytes, filename: filename),
     );
@@ -928,6 +782,7 @@ class ApiClient {
     String? filename,
     String? photoId,
     required Map<String, dynamic> analysis,
+    String? replaces,
   }) async {
     final http.Response res;
     if (shadeId != null && shadeId.isNotEmpty) {
@@ -943,6 +798,7 @@ class ApiClient {
       );
       req.headers.addAll(_authHeaders);
       req.fields['analysis'] = jsonEncode(analysis);
+      if (replaces != null) req.fields['replaces'] = replaces;
       if (photoId != null && photoId.isNotEmpty) {
         req.fields['photo_id'] = photoId;
       } else if (bytes != null) {
@@ -996,6 +852,7 @@ class ApiClient {
     String? baseFilename,
     String? basePhotoId,
     required Map<String, dynamic> overlay,
+    String? replaces,
   }) async {
     final isUpdate = smileId != null && smileId.isNotEmpty;
     final req = http.MultipartRequest(
@@ -1006,6 +863,7 @@ class ApiClient {
     );
     req.headers.addAll(_authHeaders);
     req.fields['overlay'] = jsonEncode(overlay);
+    if (!isUpdate && replaces != null) req.fields['replaces'] = replaces;
     req.files.add(http.MultipartFile.fromBytes(
       'file',
       composite,
@@ -1148,93 +1006,6 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> saveShadeAnalysis({
-    required int caseId,
-    required List<Map<String, dynamic>> teeth,
-    int selectedToothIndex = 0,
-  }) async {
-    final res = await _http.post(
-      Uri.parse('$baseUrl/api/cases/$caseId/shade/analysis'),
-      headers: _jsonHeaders,
-      body: jsonEncode({
-        'teeth': teeth,
-        'selected_tooth_index': selectedToothIndex,
-      }),
-    );
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(_errorMessage(res));
-    }
-    AppHaptics.success();
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  Future<Map<String, dynamic>> patchShadeZoneOverride({
-    required int caseId,
-    required int analysisId,
-    required int zoneId,
-    String? overrideShade,
-  }) async {
-    final res = await _http.patch(
-      Uri.parse(
-        '$baseUrl/api/cases/$caseId/shade/analysis/$analysisId/zones/$zoneId',
-      ),
-      headers: _jsonHeaders,
-      body: jsonEncode({'override_shade': overrideShade}),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    AppHaptics.success();
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  Future<void> deleteShadeAnalysis({
-    required int caseId,
-    required int analysisId,
-  }) async {
-    final res = await _http.delete(
-      Uri.parse('$baseUrl/api/cases/$caseId/shade/analysis/$analysisId'),
-      headers: _jsonHeaders,
-    );
-    if (res.statusCode != 204 && res.statusCode != 200) {
-      throw Exception(_errorMessage(res));
-    }
-    AppHaptics.warn();
-  }
-
-  Future<Map<String, dynamic>> saveShade({
-    required int caseId,
-    String? aiSuggested,
-    double? confidence,
-    required String finalShade,
-    required bool overridden,
-  }) async {
-    final res = await _http.post(
-      Uri.parse('$baseUrl/api/cases/$caseId/shade'),
-      headers: _jsonHeaders,
-      body: jsonEncode({
-        'ai_suggested_shade': aiSuggested,
-        'confidence_score': confidence,
-        'final_shade': finalShade,
-        'overridden_by_dentist': overridden,
-      }),
-    );
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(_errorMessage(res));
-    }
-    AppHaptics.success();
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  Future<void> deleteShade({required int caseId, required int shadeId}) async {
-    final res = await _http.delete(
-      Uri.parse('$baseUrl/api/cases/$caseId/shade/$shadeId'),
-      headers: _jsonHeaders,
-    );
-    if (res.statusCode != 204 && res.statusCode != 200) {
-      throw Exception(_errorMessage(res));
-    }
-    AppHaptics.warn();
-  }
-
   /// Clinic analytics. Pass [days] = 0 for all-time.
   Future<Map<String, dynamic>> fetchReportsSummary({
     int days = 30,
@@ -1258,70 +1029,6 @@ class ApiClient {
         .timeout(const Duration(seconds: 120));
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  Future<Map<String, dynamic>> saveShape({
-    required int caseId,
-    required String shapeId,
-    required double x,
-    required double y,
-    required double rotation,
-    required double scale,
-  }) async {
-    final res = await _http.post(
-      Uri.parse('$baseUrl/api/cases/$caseId/shape'),
-      headers: _jsonHeaders,
-      body: jsonEncode({
-        'shape_id': shapeId,
-        'position_x': x,
-        'position_y': y,
-        'rotation': rotation,
-        'scale': scale,
-      }),
-    );
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(_errorMessage(res));
-    }
-    AppHaptics.success();
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  /// Saves upper + lower placements as one batch.
-  Future<void> saveShapes({
-    required int caseId,
-    required List<Map<String, dynamic>> shapes,
-  }) async {
-    final res = await _http.post(
-      Uri.parse('$baseUrl/api/cases/$caseId/shapes'),
-      headers: _jsonHeaders,
-      body: jsonEncode(shapes),
-    );
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(_errorMessage(res));
-    }
-    AppHaptics.success();
-  }
-
-  Future<List<Map<String, dynamic>>> latestShapes(int caseId) async {
-    final res = await _http.get(
-      Uri.parse('$baseUrl/api/cases/$caseId/shapes'),
-      headers: _getHeaders(forceRefresh: true),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
-  }
-
-  Future<Map<String, dynamic>?> latestShape(
-    int caseId, {
-    bool forceRefresh = false,
-  }) async {
-    final res = await _http.get(
-      Uri.parse('$baseUrl/api/cases/$caseId/shape'),
-      headers: _getHeaders(forceRefresh: forceRefresh),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    if (res.body.isEmpty || res.body == 'null') return null;
-    return jsonDecode(res.body) as Map<String, dynamic>?;
   }
 
   // Scan body parked — restore when needed.
@@ -1417,54 +1124,6 @@ class ApiClient {
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     if (res.body.isEmpty || res.body == 'null') return null;
     return jsonDecode(res.body) as Map<String, dynamic>?;
-  }
-
-  Future<List<Map<String, dynamic>>> listMessageThreads({
-    bool forceRefresh = false,
-  }) async {
-    final res = await _http.get(
-      Uri.parse('$baseUrl/api/messages/threads'),
-      headers: _getHeaders(forceRefresh: forceRefresh),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
-  }
-
-  Future<List<Map<String, dynamic>>> listMessages(
-    int caseId, {
-    bool forceRefresh = false,
-  }) async {
-    final res = await _http.get(
-      Uri.parse('$baseUrl/api/cases/$caseId/messages'),
-      headers: _getHeaders(forceRefresh: forceRefresh),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
-  }
-
-  Future<Map<String, dynamic>> sendMessage({
-    required int caseId,
-    required String body,
-    String type = 'text',
-  }) async {
-    final res = await _http.post(
-      Uri.parse('$baseUrl/api/cases/$caseId/messages'),
-      headers: _jsonHeaders,
-      body: jsonEncode({'type': type, 'body': body}),
-    );
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(_errorMessage(res));
-    }
-    AppHaptics.light();
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  Future<void> markThreadRead(int caseId) async {
-    final res = await _http.post(
-      Uri.parse('$baseUrl/api/cases/$caseId/messages/read'),
-      headers: _jsonHeaders,
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
   }
 
   Future<List<Map<String, dynamic>>> listNotifications({
@@ -1608,6 +1267,56 @@ class ApiClient {
       throw Exception(_errorMessage(res));
     }
     AppHaptics.warn();
+  }
+
+  // ── Case flow (docs/roadmap.md, Phase 2) ──────────────────────────────────
+
+  /// Status, items, allowed actions and history of a patient's case.
+  Future<Map<String, dynamic>> patientCase(String patientId) async {
+    final res = await _http.get(
+      Uri.parse('$baseUrl/api/patients/$patientId/case'),
+      headers: _getHeaders(forceRefresh: true),
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return _decodeMap(res.body);
+  }
+
+  /// Send to the lab. Throws [CaseIncomplete] (409) when items are missing
+  /// and [confirmIncomplete] is false. Returns the new case summary.
+  Future<Map<String, dynamic>> submitCase(
+    String patientId, {
+    bool confirmIncomplete = false,
+  }) async {
+    final res = await _http.post(
+      Uri.parse('$baseUrl/api/patients/$patientId/submit'),
+      headers: _jsonHeaders,
+      body: jsonEncode({'confirm_incomplete': confirmIncomplete}),
+    );
+    if (res.statusCode == 409) {
+      final body = jsonDecode(res.body);
+      if (body is Map && body['code'] == 'INCOMPLETE') {
+        throw CaseIncomplete([for (final m in (body['missing'] as List? ?? const [])) '$m']);
+      }
+    }
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    AppHaptics.success();
+    return _decodeMap(res.body);
+  }
+
+  /// Lab review: approve, or reject with [remarks] (required to reject).
+  Future<Map<String, dynamic>> reviewCase(
+    String patientId, {
+    required bool approve,
+    String? remarks,
+  }) async {
+    final res = await _http.post(
+      Uri.parse('$baseUrl/api/patients/$patientId/review'),
+      headers: _jsonHeaders,
+      body: jsonEncode({'decision': approve ? 'approve' : 'reject', 'remarks': ?remarks}),
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    AppHaptics.success();
+    return _decodeMap(res.body);
   }
 
   // ── Admin (contract in docs/roadmap.md, Phase 1) ────────────────────────
@@ -1887,4 +1596,15 @@ class ApiClient {
     }
     return detail.toString();
   }
+}
+
+/// Submit refused because items are missing: `scan`, `shade` (saved shade
+/// analysis) and/or `smile` (smile preview).
+class CaseIncomplete implements Exception {
+  const CaseIncomplete(this.missing);
+
+  final List<String> missing;
+
+  @override
+  String toString() => 'Case incomplete: ${missing.join(', ')}';
 }

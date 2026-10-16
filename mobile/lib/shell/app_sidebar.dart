@@ -23,6 +23,7 @@ enum AppNavItem {
   messages,
   laboratories,
   adminSignups,
+  review,
   notifications,
   reports,
   settings,
@@ -40,6 +41,7 @@ class AppSidebar extends StatelessWidget {
     this.messageBadge = 0,
     this.notificationBadge = 0,
     this.admin = false,
+    this.lab = false,
     this.asDrawer = false,
   });
 
@@ -48,6 +50,9 @@ class AppSidebar extends StatelessWidget {
   final int messageBadge;
   final int notificationBadge;
   final bool admin;
+
+  /// Lab accounts also get the review queue.
+  final bool lab;
   final bool asDrawer;
 
   /// Rail (and logo circle) width at scale 1. [_bubbleRoom] to its right
@@ -158,6 +163,7 @@ class AppSidebar extends StatelessWidget {
         notifications,
       ] else ...[
         _NavEntry(AppNavItem.patients, Icons.people_outline, s.navPatients),
+        if (lab) _NavEntry(AppNavItem.review, Icons.fact_check_outlined, s.navReview),
         _NavEntry(
           AppNavItem.appointments,
           Icons.calendar_today_outlined,

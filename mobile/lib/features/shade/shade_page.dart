@@ -14,6 +14,8 @@ import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
+import '../cases/case_panel.dart';
+import '../cases/case_store.dart';
 import 'shade_action_bar.dart';
 import 'shade_override_pane.dart';
 import 'shade_photo_pane.dart';
@@ -1556,7 +1558,27 @@ class _ShadePageState extends State<ShadePage>
   @override
   void initState() {
     super.initState();
+    widget.patientSession.cases.addListener(_onCase);
     _bootstrap();
+  }
+
+  void _onCase() {
+    if (mounted) setState(() {});
+  }
+
+  /// Server case for the selected patient (locked → replace, not delete).
+  CaseInfo? get _caseInfo =>
+      widget.patientSession.cases.of(_patient == null ? null : _pid(_patient!));
+
+  /// Labs review only: no upload / analyse / save / delete (server 403s).
+  bool get _readOnly => widget.api.isLaboratory;
+
+  /// Saved shade detection the next new save stands in for (locked case).
+  String? _replacingId;
+
+  void _refreshCase() {
+    final p = _patient;
+    if (p != null) widget.patientSession.cases.refresh(_pid(p));
   }
 
   @override
@@ -1571,6 +1593,7 @@ class _ShadePageState extends State<ShadePage>
 
   @override
   void dispose() {
+    widget.patientSession.cases.removeListener(_onCase);
     _rotateFade.dispose();
     _shadeScroll.dispose();
     _dragTick.dispose();
@@ -1667,28 +1690,11 @@ class _ShadePageState extends State<ShadePage>
       _saveStatus = null;
       _error = null;
       _shadeDetectionId = null;
+      _replacingId = null;
     });
-    // Cases API is optional for Upload & detect. GDPR patient ids are UUIDs;
-    // legacy createCase(int) only works for numeric ids when cases are mounted.
-    try {
-      final patientId = _pid(patient);
-      final cases = await widget.api.listCases();
-      final mine = cases
-          .where((c) => '${c['patient_id']}' == patientId)
-          .toList();
-      Map<String, dynamic>? caseRow = mine.isEmpty ? null : mine.first;
-      if (caseRow == null) {
-        final asInt = int.tryParse(patientId);
-        if (asInt != null) {
-          caseRow = await widget.api.createCase(asInt);
-        }
-      }
-      if (!mounted) return;
-      setState(() => _case = caseRow);
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _case = null);
-    }
+    // The /api/cases backend is gone; shades save on the patient.
+    _case = null;
+    _refreshCase();
     // Fresh: analysis PATCHes don't evict this patient's cached list.
     await _loadShadeDetections(forceRefresh: true);
   }
@@ -1913,6 +1919,7 @@ class _ShadePageState extends State<ShadePage>
   }
 
   Future<void> _runAiFromGallery() async {
+    if (_readOnly) return;
     if (_patient == null) {
       setState(() => _error = AppLocalizations.of(context).tr('sh.selPat'));
       return;
@@ -2003,6 +2010,7 @@ class _ShadePageState extends State<ShadePage>
     bool skipPendingToothCheck = false,
     bool gumOnly = false,
   }) async {
+    if (_readOnly) return;
     if (_patient == null) {
       setState(
         () => _error = _patients.isEmpty
@@ -2082,93 +2090,77 @@ class _ShadePageState extends State<ShadePage>
     });
     try {
       Map<String, dynamic> saved;
-      final caseId = gumOnly ? null : _currentCaseId();
       final shadeId = _shadeDetectionId?.trim() ?? '';
-      if (caseId != null) {
-        if (_teeth.isNotEmpty) {
-          saved = await widget.api.saveShadeAnalysis(
-            caseId: caseId,
-            teeth: _teethPayloadForSave(),
-            selectedToothIndex: _selectedToothIndex ?? 0,
-          );
-        } else {
-          saved = await widget.api.saveShade(
-            caseId: caseId,
-            aiSuggested: _detected == '—' ? null : _detected,
-            confidence: _confidence > 0 ? _confidence : null,
-            finalShade: finalShade,
-            overridden: overridden,
-          );
+      saved = {
+        'id': shadeId.isEmpty
+            ? 'session-${DateTime.now().millisecondsSinceEpoch}'
+            : shadeId,
+        'summary_shade': finalShade,
+        'has_override': overridden || gumIsOverridden(_gum),
+      };
+      final hasImage = _previewBytes != null || _sourcePhotoId != null;
+      if (shadeId.isNotEmpty || hasImage) {
+        final summary = kAllowedShades.contains(finalShade)
+            ? finalShade
+            : null;
+        final hasOverride = overridden || gumIsOverridden(_gum);
+        final session = _sessionForServer(
+          _sessionEntryFromCurrent(
+            summaryShade: gumOnly ? null : finalShade,
+            hasOverride: hasOverride,
+          ),
+        );
+        final ws = session['workspace'];
+        if (!gumOnly && ws is Map) {
+          // Snapshot is taken before setState applies the saved shade.
+          ws['final_shade'] = finalShade;
+          ws['selected'] = finalShade;
+          ws['pending_shade'] = null;
+          ws['overall_shade_pick'] = false;
         }
-        _selected = finalShade;
-        try {
-          await widget.api.markCaseInProgressIfPending(
-            caseId,
-            _case?['status']?.toString(),
-          );
-          if (mounted && _case != null) {
-            setState(() => _case = {..._case!, 'status': 'in_progress'});
-          }
-        } catch (_) {}
-      } else {
-        saved = {
-          'id': shadeId.isEmpty
-              ? 'session-${DateTime.now().millisecondsSinceEpoch}'
-              : shadeId,
-          'summary_shade': finalShade,
-          'has_override': overridden || gumIsOverridden(_gum),
-        };
-        final hasImage = _previewBytes != null || _sourcePhotoId != null;
-        if (shadeId.isNotEmpty || hasImage) {
-          final summary = kAllowedShades.contains(finalShade)
-              ? finalShade
-              : null;
-          final hasOverride = overridden || gumIsOverridden(_gum);
-          final session = _sessionForServer(
-            _sessionEntryFromCurrent(
-              summaryShade: gumOnly ? null : finalShade,
-              hasOverride: hasOverride,
-            ),
-          );
-          final ws = session['workspace'];
-          if (!gumOnly && ws is Map) {
-            // Snapshot is taken before setState applies the saved shade.
-            ws['final_shade'] = finalShade;
-            ws['selected'] = finalShade;
-            ws['pending_shade'] = null;
-            ws['overall_shade_pick'] = false;
-          }
-          final previousKey = _sessionKey();
-          saved = await widget.api.saveShadeDetection(
-            patientId: _pid(_patient!),
-            shadeId: shadeId.isEmpty ? null : shadeId,
-            bytes: _previewBytes,
-            filename: _previewFilename,
-            photoId: _sourcePhotoId,
-            analysis: {
-              'teeth': _teethPayloadForSave(),
-              'selected_tooth_index': _selectedToothIndex ?? 0,
-              'summary_shade': summary,
-              'has_override': hasOverride,
-              'detected_shade': _detected == '—' ? null : _detected,
-              'confidence': _confidence > 0 ? _confidence : null,
-              'overridden': overridden,
-              'final_shade': summary,
-              'gum': _gum,
-              'session': session,
-            },
-          );
-          final newId = '${saved['id'] ?? ''}'.trim();
-          if (shadeId.isEmpty && newId.isNotEmpty && mounted) {
-            setState(() {
-              _shadeDetectionId = newId;
-              _sourcePhotoId = null;
-              _upsertSessionEntry(previousKey: previousKey, onlyIfExists: true);
-            });
-          }
+        final previousKey = _sessionKey();
+        // Completed case: saving reopens it; ask first.
+        if (!await confirmCaseChange(context, _caseInfo)) {
+          if (mounted) setState(() => _saving = false);
+          return;
         }
-        if (!gumOnly) _selected = finalShade;
+        final replacing = shadeId.isEmpty ? _replacingId : null;
+        saved = await widget.api.saveShadeDetection(
+          replaces: replacing,
+          patientId: _pid(_patient!),
+          shadeId: shadeId.isEmpty ? null : shadeId,
+          bytes: _previewBytes,
+          filename: _previewFilename,
+          photoId: _sourcePhotoId,
+          analysis: {
+            'teeth': _teethPayloadForSave(),
+            'selected_tooth_index': _selectedToothIndex ?? 0,
+            'summary_shade': summary,
+            'has_override': hasOverride,
+            'detected_shade': _detected == '—' ? null : _detected,
+            'confidence': _confidence > 0 ? _confidence : null,
+            'overridden': overridden,
+            'final_shade': summary,
+            'gum': _gum,
+            'session': session,
+          },
+        );
+        final newId = '${saved['id'] ?? ''}'.trim();
+        _refreshCase();
+        if (shadeId.isEmpty && newId.isNotEmpty && mounted) {
+          setState(() {
+            _shadeDetectionId = newId;
+            _sourcePhotoId = null;
+            if (replacing != null) {
+              // The server removed the replaced analysis.
+              _history.removeWhere((h) => '${h['shade_detection_id'] ?? ''}' == replacing);
+              _replacingId = null;
+            }
+            _upsertSessionEntry(previousKey: previousKey, onlyIfExists: true);
+          });
+        }
       }
+      if (!gumOnly) _selected = finalShade;
       if (!mounted) return;
       setState(() {
         if (!gumOnly) {
@@ -2217,8 +2209,16 @@ class _ShadePageState extends State<ShadePage>
   }
 
   Future<void> _deleteHistoryAt(int index) async {
-    if (_busy || index < 0 || index >= _history.length) return;
+    if (_busy || _readOnly || index < 0 || index >= _history.length) return;
     final entry = _history[index];
+    final savedId = '${entry['shade_detection_id'] ?? ''}'.trim();
+    if (_caseInfo?.locked == true && savedId.isNotEmpty) {
+      // Locked case: can't delete. Analyse a new photo; its save replaces this.
+      setState(() => _replacingId = savedId);
+      _toast(AppLocalizations.of(context).tr('case.replaceShadeHint'), bg: AppColors.navy);
+      await _runAiFromGallery();
+      return;
+    }
     final shade = entry['shade']?.toString() ?? 'shade';
     final ok = await AppDialogs.confirm(
       context,
@@ -2229,27 +2229,15 @@ class _ShadePageState extends State<ShadePage>
     );
     if (!ok || !mounted) return;
 
-    final shadeId = entry['id'];
-    final caseId = entry['case_id'] ?? _case?['id'];
     final detectionId = '${entry['shade_detection_id'] ?? ''}'.trim();
     final wasOpen = '${entry['session_key'] ?? ''}' == _sessionKey();
     setState(() => _busy = true);
     try {
       if (detectionId.isNotEmpty) {
         await widget.api.deleteShadeDetection(detectionId);
-      } else if (shadeId is num && caseId is num) {
-        if (entry['is_analysis'] == true) {
-          await widget.api.deleteShadeAnalysis(
-            caseId: caseId.toInt(),
-            analysisId: shadeId.toInt(),
-          );
-        } else {
-          await widget.api.deleteShade(
-            caseId: caseId.toInt(),
-            shadeId: shadeId.toInt(),
-          );
-        }
+        _refreshCase();
       } else {
+        // Never saved: only in this session.
         AppHaptics.warn();
       }
       if (!mounted) return;
@@ -2488,7 +2476,7 @@ class _ShadePageState extends State<ShadePage>
       dragTick: _dragTick,
       canUndo: _canUndo,
       canRedo: _editOutlineMode && _outlineHistory.canRedo,
-      onUpload: _runAiFromGallery,
+      onUpload: _readOnly ? null : _runAiFromGallery,
       onClearPhoto: _clearUploadedPhoto,
       onSelectTooth: _onToothTap,
       onHandleDragStart: _onHandleDragStart,
@@ -2577,6 +2565,7 @@ class _ShadePageState extends State<ShadePage>
                   }
                 },
               ),
+              if (!_readOnly)
               FilledButton.icon(
                 onPressed: _busy || _patient == null ? null : _runAiFromGallery,
                 icon: _busy
@@ -2594,6 +2583,25 @@ class _ShadePageState extends State<ShadePage>
               ),
             ],
           ),
+          CaseRejectionBanner(info: _caseInfo, margin: const EdgeInsets.only(top: 12)),
+          if (_replacingId != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Row(
+                children: [
+                  const Icon(Icons.swap_horiz_rounded, color: AppColors.dentalBlue, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(AppLocalizations.of(context).tr('case.replacingShade'),
+                        style: const TextStyle(color: AppColors.navy, fontWeight: FontWeight.w600)),
+                  ),
+                  TextButton(
+                    onPressed: () => setState(() => _replacingId = null),
+                    child: Text(AppLocalizations.of(context).cancel),
+                  ),
+                ],
+              ),
+            ),
           if (_saveStatus != null) ...[
             const SizedBox(height: 10),
             Text(
@@ -2619,7 +2627,7 @@ class _ShadePageState extends State<ShadePage>
                           final actionSlotH = 66.0;
                           // Keep action bar mounted whenever a photo is loaded so
                           // the photo Expanded never resizes on select / add.
-                          final showActions = !_busy && _previewBytes != null;
+                          final showActions = !_busy && !_readOnly && _previewBytes != null;
                           final editing = _editOutlineMode;
                           final showLoupe =
                               editing &&
@@ -2666,14 +2674,14 @@ class _ShadePageState extends State<ShadePage>
                                 _onToothTap(index);
                               }
                             },
-                            onDeleteTooth: _deleteSelectedTooth,
+                            onDeleteTooth: _readOnly ? null : _deleteSelectedTooth,
                             onBeginZoneOverride: _beginZoneOverride,
                             onSelectGum: _focusGumOverrideTab,
                             onBeginGumOverride: _beginGumOverride,
                             onOverallShade: (s) =>
                                 _applyShadeChoice(s, overall: true),
-                            onAcceptAi: () => _persist(acceptAi: true),
-                            onSaveOverride: () => _persist(acceptAi: false),
+                            onAcceptAi: _readOnly ? null : () => _persist(acceptAi: true),
+                            onSaveOverride: _readOnly ? null : () => _persist(acceptAi: false),
                             magnifierFocal: _magnifierFocal,
                             magnifierViewSize: _magnifierViewSize,
                             previewBytes: _previewBytes,
@@ -2836,8 +2844,10 @@ class _ShadePageState extends State<ShadePage>
                         _sessionPinnedOpen = !v;
                       }),
                       onOpen: (i) => _openHistoryAt(_history.indexOf(shown[i])),
-                      onDelete: (i) =>
-                          _deleteHistoryAt(_history.indexOf(shown[i])),
+                      onDelete: _readOnly
+                          ? null
+                          : (i) => _deleteHistoryAt(_history.indexOf(shown[i])),
+                      replaceInsteadOfDelete: _caseInfo?.locked == true,
                       thumbnail: _sessionThumbnail,
                     ),
                   ],

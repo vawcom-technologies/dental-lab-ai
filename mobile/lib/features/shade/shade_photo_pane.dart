@@ -97,7 +97,8 @@ class ShadePhotoPane extends StatelessWidget {
   final ValueNotifier<int> dragTick;
   final bool canUndo;
   final bool canRedo;
-  final VoidCallback onUpload;
+  /// Null for read-only viewers (labs): no upload buttons.
+  final VoidCallback? onUpload;
   final VoidCallback onClearPhoto;
   final ValueChanged<int> onSelectTooth;
   final void Function(Offset local, Size box) onHandleDragStart;
@@ -115,13 +116,14 @@ class ShadePhotoPane extends StatelessWidget {
         title: Text(AppLocalizations.of(context).shadePhotoTitle),
         message: Text(AppLocalizations.of(context).shadePhotoMessage),
         actions: [
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.pop(ctx);
-              onUpload();
-            },
-            child: Text(AppLocalizations.of(context).shadeUploadAnother),
-          ),
+          if (onUpload != null)
+            CupertinoActionSheetAction(
+              onPressed: () {
+                Navigator.pop(ctx);
+                onUpload!();
+              },
+              child: Text(AppLocalizations.of(context).shadeUploadAnother),
+            ),
           CupertinoActionSheetAction(
             isDestructiveAction: true,
             onPressed: () {
@@ -470,7 +472,7 @@ class ShadePhotoPane extends StatelessWidget {
                     ),
                   ),
                 ),
-              if (!busy && (teeth.isEmpty || selectedToothIndex == null))
+              if (!busy && onUpload != null && (teeth.isEmpty || selectedToothIndex == null))
                 Positioned(
                   left: 12,
                   right: 12,

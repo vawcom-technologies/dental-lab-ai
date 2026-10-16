@@ -66,15 +66,16 @@ class ShadeResultPane extends StatefulWidget {
   final Map<String, dynamic>? Function(Map<String, dynamic>, String) zoneOf;
   final bool Function(Map<String, dynamic>?) zoneOverridden;
   final void Function(int index, {String? zone}) onSelectTooth;
-  final VoidCallback onDeleteTooth;
+  final VoidCallback? onDeleteTooth;
   final void Function(int index, String zone) onBeginZoneOverride;
 
   /// Switch Manual Override to the gum tab (card tap). Distinct from Override.
   final VoidCallback? onSelectGum;
   final VoidCallback? onBeginGumOverride;
   final ValueChanged<String> onOverallShade;
-  final VoidCallback onAcceptAi;
-  final VoidCallback onSaveOverride;
+  /// Null for read-only viewers (labs): the save buttons are hidden.
+  final VoidCallback? onAcceptAi;
+  final VoidCallback? onSaveOverride;
   final ValueNotifier<Offset?> magnifierFocal;
   final Size? magnifierViewSize;
   final Uint8List? previewBytes;
@@ -686,6 +687,9 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
     final detected = widget.detected;
     final selected = widget.selected;
     final saving = widget.saving;
+    if (widget.onAcceptAi == null && widget.onSaveOverride == null) {
+      return const SizedBox.shrink();
+    }
     return Row(
       children: [
         Expanded(
@@ -911,7 +915,7 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
                           ),
                         ),
                       ),
-                    if (active) ...[
+                    if (active && widget.onDeleteTooth != null) ...[
                       IconButton(
                         tooltip: AppLocalizations.of(context).shadeDeleteTooth,
                         onPressed: widget.onDeleteTooth,
@@ -1209,6 +1213,7 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
                   }).toList(),
                 ),
               ],
+              if (onAcceptAi != null || onSaveOverride != null) ...[
               const SizedBox(height: 14),
               FilledButton(
                 onPressed: saving || detected == '—' ? null : onAcceptAi,
@@ -1252,6 +1257,7 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
                         ).shadeSaveOverrideShade(selected),
                 ),
               ),
+              ],
             ],
           ),
         );

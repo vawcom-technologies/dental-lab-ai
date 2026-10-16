@@ -74,6 +74,14 @@ void main() {
     expect(find.byIcon(Icons.biotech_outlined), findsNothing);
   });
 
+  testWidgets('Review queue only for labs', (tester) async {
+    await setWideSurface(tester);
+    await tester.pumpWidget(wrap(AppSidebar(active: AppNavItem.dashboard, onSelect: (_) {})));
+    expect(find.byIcon(Icons.fact_check_outlined), findsNothing);
+    await tester.pumpWidget(wrap(AppSidebar(active: AppNavItem.dashboard, onSelect: (_) {}, lab: true)));
+    expect(find.byIcon(Icons.fact_check_outlined), findsOneWidget);
+  });
+
   testWidgets('System Users page is blocked for non-admin roles',
       (tester) async {
     await tester.pumpWidget(

@@ -3,6 +3,9 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../cases/case_panel.dart';
+import '../cases/case_store.dart';
+
 import '../../core/api/api_client.dart';
 import '../../core/auth/app_roles.dart';
 import '../../core/l10n/app_localizations.dart';
@@ -164,7 +167,6 @@ class _PatientsPageState extends State<PatientsPage> {
             address: fields.address,
             phone: fields.phone,
             healthInsurance: fields.healthInsurance,
-            status: fields.status,
           ),
         ),
       ),
@@ -203,7 +205,6 @@ class _PatientsPageState extends State<PatientsPage> {
               'address': fields.address,
               'phone': fields.phone,
               'health_insurance': fields.healthInsurance,
-              'status': fields.status,
             }),
           ),
         ),
@@ -276,38 +277,6 @@ class _PatientsPageState extends State<PatientsPage> {
     );
   }
 
-  Future<void> _changePatientStatus(GdprPatient patient, String status) async {
-    if (_controller.mutating) return;
-    if (!_controller.isOwner(patient)) {
-      _toast(
-        AppLocalizations.of(context).tr('p.permDenied'),
-        error: true,
-      );
-      return;
-    }
-    GdprPatient current = patient;
-    for (final row in _controller.patients) {
-      if (row.id == patient.id) {
-        current = row;
-        break;
-      }
-    }
-    final next = CaseStatuses.normalize(status);
-    if (CaseStatuses.normalize(current.status) == next) return;
-    try {
-      await _controller.updatePatient(patient.id, {'status': next});
-      if (!mounted) return;
-      _toast(
-        AppLocalizations.of(context).statusUpdatedTo(
-          AppLocalizations.of(context).statusLabel(next),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      _toast(_friendlyError(e), error: true);
-    }
-  }
-
   Future<void> _presentPatientDetail(String patientId, {int tab = 0}) async {
     final detailed = await _controller.openPatient(patientId);
     if (detailed == null || !mounted) return;
@@ -317,6 +286,7 @@ class _PatientsPageState extends State<PatientsPage> {
       context: context,
       builder: (ctx) => _PatientDetailSheet(
         controller: _controller,
+        cases: widget.patientSession?.cases,
         patient: detailed,
         initialTab: tab,
         onEdit: () {
@@ -331,9 +301,6 @@ class _PatientsPageState extends State<PatientsPage> {
           Navigator.pop(ctx);
           _confirmDelete(detailed);
         },
-        onStatusChanged: _controller.isOwner(detailed)
-            ? (status) => _changePatientStatus(detailed, status)
-            : null,
         onToast: _toast,
         friendlyError: _friendlyError,
       ),
@@ -585,10 +552,6 @@ class _PatientsPageState extends State<PatientsPage> {
                                           onDelete: owner
                                               ? () => _confirmDelete(p)
                                               : null,
-                                          onStatusChanged: owner
-                                              ? (status) =>
-                                                  _changePatientStatus(p, status)
-                                              : null,
                                         );
                                       },
                                     ),
@@ -670,7 +633,6 @@ class _PatientCard extends StatelessWidget {
     this.onEdit,
     this.onShare,
     this.onDelete,
-    this.onStatusChanged,
   });
 
   final GdprPatient patient;
@@ -681,7 +643,6 @@ class _PatientCard extends StatelessWidget {
   final VoidCallback? onEdit;
   final VoidCallback? onShare;
   final VoidCallback? onDelete;
-  final ValueChanged<String>? onStatusChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -743,11 +704,8 @@ class _PatientCard extends StatelessWidget {
                   runSpacing: 6,
                   alignment: WrapAlignment.end,
                   children: [
-                    PatientStatusMenu(
-                      status: patient.status,
-                      enabled: enabled && onStatusChanged != null,
-                      onSelected: onStatusChanged,
-                    ),
+                    // Read-only: the server moves the status (case flow).
+                    StatusChip(statusKey: patient.status),
                     AppButtons.ghost(
                       onPressed: enabled ? onEdit : null,
                       icon: Icons.edit_outlined,
@@ -918,7 +876,6 @@ class _PatientFormFields {
     required this.address,
     required this.phone,
     required this.healthInsurance,
-    required this.status,
   });
 
   final String firstName;
@@ -928,7 +885,6 @@ class _PatientFormFields {
   final String address;
   final String phone;
   final String healthInsurance;
-  final String status;
 }
 
 class _PatientFormDialog extends StatefulWidget {
@@ -959,7 +915,6 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
   late final TextEditingController _address;
   late final TextEditingController _phone;
   late final TextEditingController _insurance;
-  late String _status;
   bool _saving = false;
 
   @override
@@ -973,7 +928,6 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
     _address = TextEditingController(text: p?.address ?? '');
     _phone = TextEditingController(text: PhoneNumbers.localDigits(p?.phone));
     _insurance = TextEditingController(text: p?.healthInsurance ?? '');
-    _status = CaseStatuses.normalize(p?.status);
   }
 
   @override
@@ -1005,7 +959,6 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
       address: _address.text.trim(),
       phone: PhoneNumbers.compose(phoneLocal),
       healthInsurance: _insurance.text.trim(),
-      status: CaseStatuses.normalize(_status),
     );
     if (fields.firstName.isEmpty ||
         fields.lastName.isEmpty ||
@@ -1110,29 +1063,6 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
                         : null,
                   ),
                   const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    initialValue: _status,
-                    isExpanded: true,
-                    borderRadius: BorderRadius.circular(14),
-                    decoration: InputDecoration(
-                      labelText: AppLocalizations.of(context).patientsStatus,
-                    ),
-                    items: [
-                      for (final key in CaseStatuses.all)
-                        DropdownMenuItem<String>(
-                          value: key,
-                          child: Text(
-                            AppLocalizations.of(context).statusLabel(key),
-                          ),
-                        ),
-                    ],
-                    onChanged: _saving
-                        ? null
-                        : (value) {
-                            if (value == null) return;
-                            setState(() => _status = value);
-                          },
-                  ),
                   const SizedBox(height: 12),
                   _DialogField(
                     controller: _address,
@@ -1961,23 +1891,25 @@ class _AccessStatusBadge extends StatelessWidget {
 class _PatientDetailSheet extends StatefulWidget {
   const _PatientDetailSheet({
     required this.controller,
+    this.cases,
     required this.patient,
     required this.onEdit,
     required this.onShare,
     required this.onDelete,
     required this.onToast,
     required this.friendlyError,
-    this.onStatusChanged,
     this.initialTab = 0,
   });
 
   final PatientsController controller;
+
+  /// Case flow for this patient (status, items, submit / review, history).
+  final CaseStore? cases;
   final GdprPatient patient;
   final int initialTab;
   final VoidCallback onEdit;
   final VoidCallback onShare;
   final VoidCallback onDelete;
-  final ValueChanged<String>? onStatusChanged;
   final void Function(String message, {bool error}) onToast;
   final String Function(Object e) friendlyError;
 
@@ -2277,11 +2209,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                         spacing: 8,
                         runSpacing: 8,
                         children: [
-                          PatientStatusMenu(
-                            status: p.status,
-                            enabled: !blocked && widget.onStatusChanged != null,
-                            onSelected: widget.onStatusChanged,
-                          ),
+                          StatusChip(statusKey: p.status),
                           if (owner)
                             AppButtons.ghost(
                               onPressed: blocked ? null : widget.onEdit,
@@ -2418,9 +2346,21 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
       (AppLocalizations.of(context).tr('patients.insurance'), p.healthInsurance),
       (AppLocalizations.of(context).tr('patients.address'), p.address),
     ];
+    final cases = widget.cases;
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
       children: [
+        if (cases != null) ...[
+          _InsetGroup(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: CasePanel(store: cases, patientId: p.id),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+        ],
         _InsetGroup(
           children: [
             for (var i = 0; i < rows.length; i++) ...[

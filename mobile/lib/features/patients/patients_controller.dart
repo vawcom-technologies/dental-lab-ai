@@ -174,7 +174,6 @@ class PatientsController extends ChangeNotifier {
     required String address,
     required String phone,
     required String healthInsurance,
-    String status = 'pending',
   }) async {
     if (_mutating) {
       throw StateError(AppLocalizations.current.tr('p.busy'));
@@ -190,7 +189,6 @@ class PatientsController extends ChangeNotifier {
         address: address,
         phone: phone,
         healthInsurance: healthInsurance,
-        status: status,
       );
       _patients.insert(0, created);
       return created;

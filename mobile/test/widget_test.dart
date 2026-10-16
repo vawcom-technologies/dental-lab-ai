@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dental_lab_ai/core/api/api_client.dart';
+import 'package:dental_lab_ai/core/l10n/app_localizations.dart';
 import 'package:dental_lab_ai/core/l10n/locale_controller.dart';
 import 'package:dental_lab_ai/core/session/patient_session.dart';
 import 'package:dental_lab_ai/features/shade/shade_page.dart';
@@ -45,9 +46,10 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
-    await tester.pumpWidget(DentalLabApp(localeController: LocaleController()));
+    await tester.pumpWidget(DentalLabApp(localeController: LocaleController(), api: _EmptyApi()));
+    await tester.pump(); // session restore (no saved session) → login
     expect(find.byType(Image), findsWidgets);
-    expect(find.text('Sign in'), findsWidgets);
+    expect(find.text(AppLocalizations.current.signIn), findsWidgets);
   });
 
   testWidgets('Session panel collapses and reopens with swipes',
@@ -78,7 +80,7 @@ void main() {
       800,
     );
     await tester.pumpAndSettle();
-    expect(find.byTooltip('Open session panel'), findsOneWidget);
+    expect(find.byTooltip(AppLocalizations.current.shadeOpenSession), findsOneWidget);
 
     await tester.fling(
       find.byKey(const ValueKey('session-panel')),
@@ -86,11 +88,19 @@ void main() {
       800,
     );
     await tester.pumpAndSettle();
-    expect(find.byTooltip('Close session panel'), findsOneWidget);
+    expect(find.byTooltip(AppLocalizations.current.shadeCloseSession), findsOneWidget);
   });
 }
 
 class _EmptyApi extends ApiClient {
+  /// No saved session in tests (and no secure-storage plugin).
   @override
-  Future<List<Map<String, dynamic>>> listPatients() async => [];
+  Future<bool> tryRestoreSession() async => false;
+
+  @override
+  Future<List<Map<String, dynamic>>> listPatients({
+    bool forceRefresh = false,
+    String? status,
+  }) async =>
+      [];
 }

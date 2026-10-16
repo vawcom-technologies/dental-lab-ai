@@ -12,6 +12,7 @@ import '../features/admin/admin_patients_page.dart';
 import '../features/admin/admin_signups_page.dart';
 import '../features/admin/admin_top_bar.dart';
 import '../features/appointments/screens/appointments_screen.dart';
+import '../features/cases/review_page.dart';
 import '../features/camera/camera_page.dart';
 import '../features/chat/messages_page.dart';
 import '../features/chat/state/chat_controller.dart';
@@ -318,6 +319,7 @@ class _AppShellState extends State<AppShell> {
                             messageBadge: _messageBadge,
                             notificationBadge: _notificationBadge,
                             admin: widget.api.isAdmin,
+                            lab: widget.api.isLaboratory,
                           ),
                         ),
                         body: SafeArea(child: pages),
@@ -333,6 +335,7 @@ class _AppShellState extends State<AppShell> {
                         messageBadge: _messageBadge,
                         notificationBadge: _notificationBadge,
                         admin: widget.api.isAdmin,
+                            lab: widget.api.isLaboratory,
                       ),
                       Expanded(
                         child: SafeArea(
@@ -467,6 +470,11 @@ class _AppShellState extends State<AppShell> {
             _go(AppNavItem.messages);
           },
         );
+      case AppNavItem.review:
+        if (!widget.api.isLaboratory) {
+          return _ForbiddenRedirect(onLeave: () => _go(AppNavItem.dashboard));
+        }
+        return ReviewPage(api: widget.api, cases: _patients.cases, active: active);
       case AppNavItem.adminSignups:
         if (!widget.api.isAdmin) {
           return _ForbiddenRedirect(

@@ -15,6 +15,8 @@ import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
+import '../cases/case_panel.dart';
+import '../cases/case_store.dart';
 import '../../core/errors/user_facing_error.dart';
 
 /// Single entry in the smile-shape library.
@@ -477,7 +479,6 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     with SingleTickerProviderStateMixin {
   List<Map<String, dynamic>> _patients = [];
   Map<String, dynamic>? _patient;
-  Map<String, dynamic>? _case;
   Uint8List? _photoBytes;
 
   // One model per jaw (catalog indexes); the placement controls edit the
@@ -558,13 +559,48 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       curve: AppMotion.spring,
       reverseCurve: AppMotion.easeOut,
     );
+    widget.patientSession.cases.addListener(_onCase);
     _bootstrap();
   }
 
   @override
   void dispose() {
+    widget.patientSession.cases.removeListener(_onCase);
     _fsController.dispose();
     super.dispose();
+  }
+
+  void _onCase() {
+    if (mounted) setState(() {});
+  }
+
+  /// Server case for the selected patient (locked → replace, not delete).
+  CaseInfo? get _caseInfo =>
+      widget.patientSession.cases.of(_patient == null ? null : _pid(_patient!));
+
+  /// Labs review only: no photo / save / delete (server returns 403).
+  bool get _readOnly => widget.api.isLaboratory;
+
+  /// Saved smile the next new save stands in for (locked case).
+  String? _replacingId;
+
+  void _refreshCase() {
+    final p = _patient;
+    if (p != null) widget.patientSession.cases.refresh(_pid(p));
+  }
+
+  /// Locked case: start a new smile on a new photo; saving it replaces [item].
+  Future<void> _replaceSaved(Map<String, dynamic> item) async {
+    setState(() {
+      _replacingId = '${item['id']}';
+      _smileId = null;
+      _photoBytes = null;
+      _basePhotoId = null;
+      _pendingOverlay = null;
+      _dirty = false;
+      _status = AppLocalizations.of(context).tr('case.replacingSmile');
+    });
+    await _pickPhoto();
   }
 
   void _toggleFullscreen() {
@@ -619,7 +655,6 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       if (_patient != null) {
         setState(() {
           _patient = null;
-          _case = null;
           _smileItems = [];
         });
       }
@@ -645,7 +680,6 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     if (_patients.isEmpty) {
       setState(() {
         _patient = null;
-        _case = null;
       });
       widget.patientSession.clearSelection();
       return;
@@ -678,29 +712,8 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
         _pendingOverlay = null;
       }
     });
-    try {
-      final patientId = _pid(patient);
-      final cases = await widget.api.listCases();
-      final mine = cases
-          .where((c) => '${c['patient_id']}' == patientId)
-          .toList();
-      Map<String, dynamic>? caseRow = mine.isEmpty ? null : mine.first;
-      if (caseRow == null) {
-        final asInt = int.tryParse(patientId);
-        if (asInt != null) {
-          caseRow = await widget.api.createCase(asInt);
-        }
-      }
-      if (!mounted) return;
-      setState(() => _case = caseRow);
-      final caseId = caseRow?['id'];
-      if (caseId is num) {
-        await _restoreSaved(caseId.toInt());
-      }
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _case = null);
-    }
+    _replacingId = null;
+    _refreshCase();
     // Fresh: updating a saved smile (PATCH) doesn't evict this cached list.
     await _loadSmilePreviews(forceRefresh: true);
   }
@@ -951,40 +964,6 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     widget.patientSession.requestNavigateToNewPatient();
   }
 
-  Future<void> _restoreSaved(int caseId) async {
-    try {
-      final rows = await widget.api.latestShapes(caseId);
-      if (rows.isEmpty || !mounted) return;
-      setState(() {
-        _upperIndex = null;
-        _lowerIndex = null;
-        for (final r in rows) {
-          final idx = ShapeLibrary.indexOfShapeId(r['shape_id']?.toString());
-          final lower = ShapeLibrary.isLower(idx);
-          final p = lower ? _lowerP : _upperP;
-          if (lower) {
-            _lowerIndex = idx;
-          } else {
-            _upperIndex = idx;
-          }
-          p.offset = Offset(
-            (r['position_x'] as num?)?.toDouble() ?? p.offset.dx,
-            (r['position_y'] as num?)?.toDouble() ?? p.offset.dy,
-          );
-          p.rotation = (r['rotation'] as num?)?.toDouble() ?? 0;
-          p.scale = (r['scale'] as num?)?.toDouble() ?? 1.0;
-        }
-        _lowerActive = _upperIndex == null;
-        _openBatemIds
-          ..clear()
-          ..addAll([for (final (_, it) in _chosen) it.id]);
-        _status = AppLocalizations.of(context).trp('sh.restoredShape', {'n': _chosen.map((c) => shapeLabel(context, c.$2)).join(' + ')});
-        _centeredOnce = true;
-        _dirty = false;
-      });
-    } catch (_) {}
-  }
-
   Future<void> _readImageSize(Uint8List bytes) async {
     try {
       final codec = await ui.instantiateImageCodec(bytes);
@@ -1032,6 +1011,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
   }
 
   Future<void> _pickPhoto() async {
+    if (_readOnly) return;
     if (_patient == null) {
       setState(() => _error = AppLocalizations.of(context).tr('sh.selPat'));
       return;
@@ -1195,7 +1175,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
   }
 
   Future<void> _save() async {
-    if (_saving) return;
+    if (_saving || _readOnly) return;
     final patient = _patient;
     if (patient == null) {
       setState(() => _error = AppLocalizations.of(context).tr('c.selPatFirst'));
@@ -1212,12 +1192,16 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     }
     final canvas = _lastCanvas;
     if (canvas == null) return;
+    // Completed case: saving reopens it; ask first.
+    if (!await confirmCaseChange(context, _caseInfo) || !mounted) return;
+    final replacing = _smileId == null ? _replacingId : null;
     setState(() {
       _saving = true;
       _error = null;
     });
     try {
       final saved = await widget.api.saveSmilePreview(
+        replaces: replacing,
         patientId: _pid(patient),
         smileId: _smileId,
         composite: await _renderComposite(canvas),
@@ -1226,31 +1210,15 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
         basePhotoId: _basePhotoId,
         overlay: _overlayJson(canvas),
       );
-      // Legacy numeric-id patients also keep their case shape rows.
-      final caseId = _case?['id'];
-      if (caseId is int) {
-        await widget.api.saveShapes(
-          caseId: caseId,
-          shapes: [
-            for (final (p, it) in _chosen)
-              {
-                'shape_id': it.shapeId,
-                'position_x': p.offset.dx,
-                'position_y': p.offset.dy,
-                'rotation': p.rotation,
-                'scale': p.scale,
-              },
-          ],
-        );
-        await widget.api.markCaseInProgressIfPending(
-          caseId,
-          _case!['status']?.toString(),
-        );
-        _case = {..._case!, 'status': 'in_progress'};
-      }
+      _refreshCase();
       if (!mounted) return;
       final id = '${saved['id'] ?? ''}';
       setState(() {
+        if (replacing != null) {
+          // The server removed the replaced smile.
+          _smileItems = [for (final r in _smileItems) if ('${r['id']}' != replacing) r];
+          _replacingId = null;
+        }
         _smileId = id;
         _basePhotoId = null;
         _dirty = false;
@@ -1263,9 +1231,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       final shapes = _chosen.map((c) => '“${shapeLabel(context, c.$2)}”').join(' + ');
       AppSnackBars.success(
         context,
-        caseId is int
-            ? AppLocalizations.of(context).trp('sp.savedCase', {'s': shapes, 'c': caseId})
-            : AppLocalizations.of(context).trp('sp.saved', {'s': shapes}),
+        AppLocalizations.of(context).trp('sp.saved', {'s': shapes}),
       );
     } catch (e) {
       final msg = friendlyError(e);
@@ -1326,6 +1292,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           _buildHeader(),
+                          CaseRejectionBanner(info: _caseInfo, margin: const EdgeInsets.only(top: 12)),
                           if (_status != null)
                             Text(
                               _status!,
@@ -1390,6 +1357,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     });
     try {
       await widget.api.deleteSmilePreview(id);
+      _refreshCase();
       if (!mounted) return;
       setState(() {
         _smileItems = [
@@ -1485,24 +1453,28 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                             color: Colors.white54,
                           ),
                         ),
+                        if (!_readOnly)
                         Positioned(
                           top: 0,
                           right: 0,
                           child: IconButton(
-                            tooltip: AppLocalizations.of(context).tr('sp.delTip'),
+                            tooltip: _caseInfo?.locked == true
+                                ? AppLocalizations.of(context).tr('case.replace')
+                                : AppLocalizations.of(context).tr('sp.delTip'),
                             visualDensity: VisualDensity.compact,
                             padding: EdgeInsets.zero,
                             constraints: const BoxConstraints.tightFor(
                               width: 32,
                               height: 32,
                             ),
-                            onPressed:
-                                _saving ? null : () => _deleteSaved(item),
-                            icon: const CircleAvatar(
+                            onPressed: _saving
+                                ? null
+                                : () => _caseInfo?.locked == true ? _replaceSaved(item) : _deleteSaved(item),
+                            icon: CircleAvatar(
                               radius: 11,
                               backgroundColor: Colors.black54,
                               child: Icon(
-                                Icons.close,
+                                _caseInfo?.locked == true ? Icons.swap_horiz_rounded : Icons.close,
                                 size: 14,
                                 color: Colors.white,
                               ),
@@ -1530,18 +1502,19 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
         PatientPickerButton(
           patients: _patients,
           selected: _patient,
-          caseId: _case?['id'],
           onSelect: _selectPatient,
           onAdd: _openNewPatientPage,
           onRefresh: _reloadPatients,
           enabled: !_saving,
           emptyHint: AppLocalizations.of(context).tr('sp.noPat'),
         ),
+        if (!_readOnly)
         OutlinedButton.icon(
           onPressed: _saving || _patient == null ? null : _pickPhoto,
           icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
           label: Text(_photoBytes == null ? AppLocalizations.of(context).smileLoadPhoto : AppLocalizations.of(context).smileChangePhoto),
         ),
+        if (!_readOnly)
         FilledButton.icon(
           onPressed: _saving || _photoBytes == null ? null : _save,
           icon: _saving
@@ -1556,7 +1529,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                 ? AppLocalizations.of(context).tr('sp.saving')
                 : _dirty
                     ? AppLocalizations.of(context).tr('sp.saveChanges')
-                    : (_case?['id'] is int ? AppLocalizations.of(context).tr('sp.saveToCase') : AppLocalizations.of(context).save),
+                    : AppLocalizations.of(context).save,
           ),
         ),
       ],
@@ -1629,6 +1602,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                     ),
                   ),
                   const SizedBox(height: 20),
+                  if (!_readOnly)
                   FilledButton.icon(
                     onPressed: _pickPhoto,
                     icon: const Icon(Icons.upload_file, size: 18),

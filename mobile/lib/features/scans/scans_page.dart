@@ -11,6 +11,8 @@ import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
+import '../cases/case_panel.dart';
+import '../cases/case_store.dart';
 import 'mesh_sample.dart';
 import 'mesh_viewer.dart';
 import 'pick_mesh_file.dart';
@@ -57,6 +59,7 @@ class _ScansPageState extends State<ScansPage>
   @override
   void initState() {
     super.initState();
+    widget.patientSession.cases.addListener(_onCase);
     _fsController = AnimationController(
       vsync: this,
       duration: AppMotion.page,
@@ -72,8 +75,24 @@ class _ScansPageState extends State<ScansPage>
 
   @override
   void dispose() {
+    widget.patientSession.cases.removeListener(_onCase);
     _fsController.dispose();
     super.dispose();
+  }
+
+  void _onCase() {
+    if (mounted) setState(() {});
+  }
+
+  /// Case of the selected patient (status decides Delete vs Replace).
+  CaseInfo? get _case => widget.patientSession.cases.of(_patient == null ? null : _pid(_patient!));
+
+  /// Labs review only: no upload / delete / replace (server returns 403).
+  bool get _readOnly => widget.api.isLaboratory;
+
+  void _refreshCase() {
+    final p = _patient;
+    if (p != null) widget.patientSession.cases.refresh(_pid(p));
   }
 
   void _toggleFullscreen() {
@@ -176,6 +195,7 @@ class _ScansPageState extends State<ScansPage>
     setState(() => _busy = true);
     try {
       await widget.api.assignScanInbox('${item['id']}', _pid(patient));
+      _refreshCase();
       if (!mounted) return;
       setState(() {
         _incoming = null;
@@ -351,6 +371,7 @@ class _ScansPageState extends State<ScansPage>
       if (mounted) setState(() => _mediaLoading = false);
       return;
     }
+    widget.patientSession.cases.refresh(pid);
     try {
       final scans = await _scansForPatient(pid);
       if (!mounted) return;
@@ -510,8 +531,10 @@ class _ScansPageState extends State<ScansPage>
     }
   }
 
-  Future<void> _upload() async {
-    if (_busy || _patient == null) return;
+  /// [replaces]: id of the scan this one stands in for (locked case).
+  Future<void> _upload({String? replaces}) async {
+    if (_busy || _patient == null || _readOnly) return;
+    if (!await confirmCaseChange(context, _case) || !mounted) return;
     try {
       final picked = await pickMeshFile(context);
       if (picked == null) return;
@@ -537,15 +560,18 @@ class _ScansPageState extends State<ScansPage>
           patientId: pid,
           bytes: data,
           filename: name,
+          replaces: replaces,
         ),
       );
+      _refreshCase();
       if (!mounted) return;
 
       // The upload response already carries the server's quality result.
       final item = _normalizeScan(uploaded, bytes: data);
 
       setState(() {
-        _scans = [item, ..._scans];
+        // The server removed the replaced scan.
+        _scans = [item, ..._scans.where((s) => replaces == null || '${s['id']}' != replaces)];
         _selected = 0;
         _busy = false;
       });
@@ -571,6 +597,12 @@ class _ScansPageState extends State<ScansPage>
     }
   }
 
+  /// Locked case (under review / completed): replace; otherwise delete.
+  Future<void> _removeOrReplace(Map<String, dynamic> scan) {
+    if (_case?.locked == true) return _upload(replaces: '${scan['id']}');
+    return _deleteScan(scan);
+  }
+
   Future<void> _deleteScan(Map<String, dynamic> scan) async {
     if (_busy) return;
     final scanId = '${scan['id'] ?? ''}';
@@ -584,6 +616,7 @@ class _ScansPageState extends State<ScansPage>
     });
     try {
       await widget.api.deletePatientScan(scanId);
+      _refreshCase();
       if (!mounted) return;
       final next = _scans.where((s) => '${s['id']}' != scanId).toList();
       setState(() {
@@ -687,9 +720,9 @@ class _ScansPageState extends State<ScansPage>
                       ],
                     ),
                   ),
-                  if (showDelete)
+                  if (showDelete && !_readOnly)
                     IconButton(
-                      tooltip: loc.scansDelete,
+                      tooltip: _case?.locked == true ? loc.tr('case.replace') : loc.scansDelete,
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints.tightFor(
                         width: 32,
@@ -698,11 +731,11 @@ class _ScansPageState extends State<ScansPage>
                       style: IconButton.styleFrom(
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
-                      onPressed: _busy ? null : () => _deleteScan(scan),
-                      icon: const Icon(
-                        Icons.delete_outline,
+                      onPressed: _busy ? null : () => _removeOrReplace(scan),
+                      icon: Icon(
+                        _case?.locked == true ? Icons.swap_horiz_rounded : Icons.delete_outline,
                         size: 18,
-                        color: AppColors.danger,
+                        color: _case?.locked == true ? AppColors.dentalBlue : AppColors.danger,
                       ),
                     ),
                 ],
@@ -782,6 +815,7 @@ class _ScansPageState extends State<ScansPage>
                                 },
                                 emptyHint: loc.scansEmptyHintUpload,
                               ),
+                              if (!_readOnly)
                               OutlinedButton.icon(
                                 onPressed: _busy ? null : _openInbox,
                                 icon: const Icon(Icons.inbox_outlined, size: 18),
@@ -791,6 +825,7 @@ class _ScansPageState extends State<ScansPage>
                                       : '${AppLocalizations.of(context).tr('c.incoming')} (${_inbox.length})',
                                 ),
                               ),
+                              if (!_readOnly)
                               FilledButton.icon(
                                 onPressed: canUpload ? _upload : null,
                                 icon: _busy
@@ -812,6 +847,7 @@ class _ScansPageState extends State<ScansPage>
                             ],
                           ),
                           const SizedBox(height: 14),
+                          CaseRejectionBanner(info: _case, margin: const EdgeInsets.only(bottom: 14)),
                           if (_incoming != null) ...[
                             SectionCard(
                               child: Row(
@@ -989,17 +1025,23 @@ class _ScansPageState extends State<ScansPage>
                                         ),
                                       ),
                                     ),
-                                    if (scan != null)
-                                      IconButton(
-                                        tooltip: loc.scansDelete,
-                                        onPressed: _busy
-                                            ? null
-                                            : () => _deleteScan(scan),
-                                        icon: const Icon(
-                                          Icons.delete_outline,
-                                          color: AppColors.danger,
-                                        ),
-                                      ),
+                                    if (scan != null && !_readOnly)
+                                      _case?.locked == true
+                                          ? TextButton.icon(
+                                              onPressed: _busy ? null : () => _removeOrReplace(scan),
+                                              icon: const Icon(Icons.swap_horiz_rounded),
+                                              label: Text(loc.tr('case.replace')),
+                                            )
+                                          : IconButton(
+                                              tooltip: loc.scansDelete,
+                                              onPressed: _busy
+                                                  ? null
+                                                  : () => _removeOrReplace(scan),
+                                              icon: const Icon(
+                                                Icons.delete_outline,
+                                                color: AppColors.danger,
+                                              ),
+                                            ),
                                   ],
                                 ),
                               ),

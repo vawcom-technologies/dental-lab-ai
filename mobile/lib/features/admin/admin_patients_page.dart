@@ -425,7 +425,7 @@ class _AdminPatientDetailState extends State<AdminPatientDetail> {
       builder: (context, p, _) => [
         SliverToBoxAdapter(child: _header(loc, p)),
         SliverToBoxAdapter(child: _facts(loc, p)),
-        SliverToBoxAdapter(child: _Records(api: api, patientId: p.id)),
+        SliverToBoxAdapter(child: PatientRecords(api: api, patientId: p.id)),
         SliverToBoxAdapter(child: _section(loc.tr('admin.history'))),
         if (p.events.isEmpty)
           SliverToBoxAdapter(
@@ -580,17 +580,17 @@ Widget _section(String title) => Padding(
     );
 
 /// Scans, shade analyses and smile previews, read-only.
-class _Records extends StatefulWidget {
-  const _Records({required this.api, required this.patientId});
+class PatientRecords extends StatefulWidget {
+  const PatientRecords({super.key, required this.api, required this.patientId});
 
   final ApiClient api;
   final String patientId;
 
   @override
-  State<_Records> createState() => _RecordsState();
+  State<PatientRecords> createState() => _RecordsState();
 }
 
-class _RecordsState extends State<_Records> {
+class _RecordsState extends State<PatientRecords> {
   ApiClient get api => widget.api;
 
   late final _rows = Future.wait([

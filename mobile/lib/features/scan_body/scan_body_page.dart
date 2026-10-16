@@ -131,14 +131,10 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
       _status = null;
       _error = null;
     });
-    final cases = await widget.api.listCases();
-    final mine = cases.where((c) => c['patient_id'] == patient['id']).toList();
-    final caseRow = mine.isEmpty
-        ? await widget.api.createCase(patient['id'] as int)
-        : mine.first;
+    // Parked page: the /api/cases backend it saved to is gone. It needs
+    // patient-scoped endpoints before it can be re-enabled.
     if (!mounted) return;
-    setState(() => _case = caseRow);
-    await _restoreSaved(caseRow['id'] as int);
+    setState(() => _case = null);
   }
 
   Future<void> _reloadPatients() async {
@@ -163,29 +159,6 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
 
   void _openNewPatientPage() {
     widget.patientSession.requestNavigateToNewPatient();
-  }
-
-  Future<void> _restoreSaved(int caseId) async {
-    try {
-      final saved = await widget.api.latestScanBody(caseId);
-      if (saved == null || !mounted) return;
-      final d = saved['detected_diameter'] ?? saved['table_diameter_mm'];
-      setState(() {
-        if (d != null) _diameterCtrl.text = '$d';
-        _match = {
-          'detected_diameter': saved['detected_diameter'],
-          'table_diameter_mm': saved['table_diameter_mm'],
-          'matched_tooth_position': saved['matched_tooth_position'],
-          'matched_manufacturer': saved['matched_manufacturer'],
-          'matched_platform': saved['matched_platform'],
-          'confidence_score': saved['confidence_score'],
-          'note': AppLocalizations.current.tr('sb.restored'),
-          'provisional': true,
-        };
-        _status =
-            AppLocalizations.current.trp('sb.restoredN', {'m': saved['matched_manufacturer'] ?? '—', 't': saved['matched_tooth_position'] ?? '—'});
-      });
-    } catch (_) {}
   }
 
   void _applyMatch(Map<String, dynamic> result) {
@@ -421,11 +394,6 @@ class _ScanBodyPageState extends State<ScanBodyPage> {
         overridden: overridden || _match!['ambiguous'] == true,
         detectionMethod: _match!['detection_method']?.toString() ?? 'manual',
       );
-      await widget.api.markCaseInProgressIfPending(
-        _case!['id'] as int,
-        _case!['status']?.toString(),
-      );
-      _case = {..._case!, 'status': 'in_progress'};
       if (mounted) {
         AppSnackBars.success(
           context,
