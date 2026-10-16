@@ -36,7 +36,6 @@ class PatientCreateRequest(BaseModel):
     address: str = Field(min_length=1)
     phone: str = Field(min_length=1, max_length=64)
     health_insurance: str = Field(min_length=1, max_length=255)
-    status: PatientStatus = "pending"
 
     @field_validator("email")
     @classmethod
@@ -46,18 +45,13 @@ class PatientCreateRequest(BaseModel):
             raise ValueError("email is required")
         return email.lower()
 
-    @field_validator("status", mode="before")
-    @classmethod
-    def _normalize_status(cls, v: Any) -> PatientStatus:
-        return normalize_patient_status(v)
-
 
 class PatientUpdateRequest(BaseModel):
     fields_to_update: dict[str, Any] = Field(
         ...,
         description=(
             "Subset of: first_name, last_name, date_of_birth, email, "
-            "address, phone, health_insurance, status"
+            "address, phone, health_insurance (status changes automatically)"
         ),
     )
 
@@ -76,8 +70,6 @@ class PatientUpdateRequest(BaseModel):
 
             validated = TypeAdapter(EmailStr).validate_python(email)
             out["email"] = str(validated).strip().lower()
-        if "status" in out:
-            out["status"] = normalize_patient_status(out.get("status"))
         return out
 
 

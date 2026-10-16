@@ -34,6 +34,7 @@ from app.api import (
     users,
     media,
     patients_gdpr,
+    patient_cases,
     patient_scans,
     scan_inbox,
     shade_detections,
@@ -116,6 +117,11 @@ app.include_router(
 )
 # Patient clinical media (list/upload nested under /api/patients)
 app.include_router(
+    patient_cases.router,
+    prefix="/api/patients",
+    tags=["Case status"],
+)
+app.include_router(
     patient_scans.patients_router,
     prefix="/api/patients",
     tags=["Patient Scans"],
@@ -183,18 +189,16 @@ app.include_router(chat.ws_router, tags=["chat"])
 @app.exception_handler(HTTPException)
 async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
     detail = exc.detail
-    if not isinstance(detail, str):
-        message = str(detail)
-    else:
-        message = detail
     code = f"HTTP_{exc.status_code}"
     if exc.status_code == 401:
         code = "ERR_UNAUTHORIZED"
     elif exc.status_code == 403:
         code = "ERR_FORBIDDEN"
+    # A dict detail carries its own message + code + extra fields (e.g. `missing`).
+    content = {"code": code, **detail} if isinstance(detail, dict) else {"detail": str(detail), "code": code}
     return JSONResponse(
         status_code=exc.status_code,
-        content={"detail": message, "code": code},
+        content=content,
         headers=dict(exc.headers or {}),
     )
 

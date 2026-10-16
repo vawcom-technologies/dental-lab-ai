@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from app.services.file_urls import client_base_file_url, client_file_url
 from app.core.security import AuthUser, get_current_user
 from app.schemas_patient_media import DeleteOkOut, SmilePreviewOut
+from app.services import case_flow
 from app.services import patient_media as pm
 from app.services.r2 import upload_patient_asset
 from app.services.shade_media import load_media_bytes
@@ -88,13 +89,16 @@ async def upload_smile_preview(
     base: UploadFile | None = File(None),
     base_photo_id: str | None = Form(None),
     overlay: str | None = Form(None),
+    replaces: str | None = Form(None),
     user: AuthUser = Depends(get_current_user),
 ):
     """`file` is the photo with overlays. The photo without overlays comes as
     `base` (gallery) or `base_photo_id` (camera photo of this patient, copied
     server-side); `overlay` is the shape placements JSON. Older app builds send
-    `file` alone."""
+    `file` alone. `replaces`: id of a smile preview this one stands in for."""
     pm.require_patient_access(patient_id, user.id)
+    case_flow.require_can_change(user)
+    old = pm.replaced_row(_TABLE, replaces, patient_id)
     extra: dict = {}
     if base is not None or base_photo_id:
         if base is not None:
@@ -127,6 +131,8 @@ async def upload_smile_preview(
         content_type=file.content_type,
         extra=extra or None,
     )
+    pm.remove_replaced(_TABLE, _KIND, old, keep_id=str(row["id"]))
+    case_flow.after_change(patient_id, user.id)
     return _serialize(row)
 
 
@@ -146,6 +152,7 @@ async def update_smile_preview(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Smile preview not found")
     patient_id = str(row.get("patient_id") or "")
     pm.require_patient_access(patient_id, user.id)
+    case_flow.require_can_change(user)
     old_key = str(row.get("file_key") or "")
     key, url, name = upload_patient_asset(
         data=await file.read(),
@@ -162,6 +169,7 @@ async def update_smile_preview(
     updated = pm.update_row(_TABLE, preview_id, patch)
     if not first_save and old_key != key:
         _cleanup(old_key, patient_id)
+    case_flow.after_change(patient_id, user.id)
     return _serialize(updated)
 
 
@@ -174,6 +182,7 @@ def delete_smile_preview(
     preview_id: str,
     user: AuthUser = Depends(get_current_user),
 ):
+    case_flow.require_can_delete(user, _TABLE, preview_id)
     row = pm.delete_record_and_file(
         table=_TABLE,
         kind=_KIND,

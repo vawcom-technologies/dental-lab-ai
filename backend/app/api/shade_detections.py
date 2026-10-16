@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, ValidationError
 from app.services.file_urls import client_file_url
 from app.core.security import AuthUser, get_current_user
 from app.schemas_patient_media import DeleteOkOut, ShadeDetectionOut
+from app.services import case_flow
 from app.services import patient_media as pm
 from app.services.shade_media import load_media_bytes
 
@@ -81,12 +82,16 @@ async def upload_shade_detection(
     file: UploadFile | None = File(None),
     photo_id: str | None = Form(None),
     analysis: str | None = Form(None),
+    replaces: str | None = Form(None),
     user: AuthUser = Depends(get_current_user),
 ):
     """Send either the image (`file`) or a camera photo of this patient
     (`photo_id`, copied into the shades bucket server-side), optionally with
-    the `analysis` JSON. Saving the same image again updates its record."""
+    the `analysis` JSON. Saving the same image again updates its record.
+    `replaces`: id of a shade detection this one stands in for."""
     pm.require_patient_access(patient_id, user.id)
+    case_flow.require_can_change(user)
+    old = pm.replaced_row(_TABLE, replaces, patient_id)
     if file is not None:
         data, filename, ctype = await file.read(), file.filename, file.content_type
     elif photo_id:
@@ -121,6 +126,8 @@ async def upload_shade_detection(
         content_type=ctype,
         extra=extra,
     )
+    pm.remove_replaced(_TABLE, _KIND, old, keep_id=str(row["id"]))
+    case_flow.after_change(patient_id, user.id)
     return _serialize(row)
 
 
@@ -133,6 +140,7 @@ def delete_shade_detection(
     shade_id: str,
     user: AuthUser = Depends(get_current_user),
 ):
+    case_flow.require_can_delete(user, _TABLE, shade_id)
     row = pm.delete_record_and_file(
         table=_TABLE,
         kind=_KIND,
@@ -159,5 +167,7 @@ def save_shade_detection_analysis(
             detail="Shade detection not found",
         )
     pm.require_patient_access(str(row.get("patient_id") or ""), user.id)
+    case_flow.require_can_change(user)
     updated = pm.update_row(_TABLE, shade_id, {"analysis": _analysis_json(payload)})
+    case_flow.after_change(str(row.get("patient_id") or ""), user.id)
     return _serialize(updated)

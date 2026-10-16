@@ -10,6 +10,7 @@ from app.services.file_urls import client_file_url
 from app.core.security import AuthUser, get_current_user
 from app.core.supabase_client import get_supabase_admin
 from app.schemas_patient_media import ShadeDetectionOut, SmilePreviewOut
+from app.services import case_flow
 from app.services import patient_access as pa
 from app.services import patient_media as pm
 from app.services.shade_media import load_media_bytes
@@ -100,6 +101,7 @@ def copy_photo_to_shade(
     photo_id: str,
     user: AuthUser = Depends(get_current_user),
 ):
+    case_flow.require_can_change(user)
     photo = _fetch_photo(photo_id)
     logger.debug(
         "copy-to-shade photo_id=%s user_id=%s patient_id=%s",
@@ -108,6 +110,7 @@ def copy_photo_to_shade(
         photo.get("patient_id"),
     )
     row = _copy_photo_row(photo=photo, table="shade_detections", user_id=user.id)
+    case_flow.after_change(str(photo.get("patient_id") or ""), user.id)
     return _shade_out(row)
 
 
@@ -121,6 +124,7 @@ def copy_photo_to_smile(
     photo_id: str,
     user: AuthUser = Depends(get_current_user),
 ):
+    case_flow.require_can_change(user)
     photo = _fetch_photo(photo_id)
     logger.debug(
         "copy-to-smile photo_id=%s user_id=%s patient_id=%s",
@@ -129,4 +133,5 @@ def copy_photo_to_smile(
         photo.get("patient_id"),
     )
     row = _copy_photo_row(photo=photo, table="smile_previews", user_id=user.id)
+    case_flow.after_change(str(photo.get("patient_id") or ""), user.id)
     return _smile_out(row)

@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from app.core.security import AuthUser, get_current_user
 from app.core.supabase_client import get_supabase_admin
 from app.schemas_patient_media import DeleteOkOut
+from app.services import case_flow
 from app.services import patient_access as pa
 from app.services import patient_media as pm
 from app.services.r2 import (
@@ -216,6 +217,7 @@ def assign_inbox_item(item_id: str, body: AssignIn, user: AuthUser = Depends(get
     row = _own_item(item_id, user)
     pm.require_patient_access(body.patient_id, user.id)
     photo = is_inbox_image(str(row.get("file_name") or ""))
+    case_flow.require_can_change(user)
     assign = _assign_photo if photo else _assign_scan
     record_id = assign(row, item_id, body.patient_id, user.id, body.angle)
     # Past this point the file is safely on the record; cleanup failures are harmless.
@@ -224,6 +226,8 @@ def assign_inbox_item(item_id: str, body: AssignIn, user: AuthUser = Depends(get
         pm.delete_row(_TABLE, item_id)
     except Exception:
         logger.warning("inbox cleanup after assign failed item_id=%s", item_id, exc_info=True)
+    if not photo:
+        case_flow.after_change(body.patient_id, user.id, scan=True)
     logger.info("inbox assign user_id=%s item_id=%s patient_id=%s", user.id, item_id, body.patient_id)
     return {
         "assigned": True,

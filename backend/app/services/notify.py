@@ -168,19 +168,3 @@ def notify_clinical_upload(
         type=ntype,
         message=msg,
     )
-
-
-# Legacy case-based helpers — kept so unmounted routers still import.
-def notify_case_dentist(*_a: Any, **_k: Any) -> None:
-    logger.debug("notify_case_dentist skipped (legacy cases API)")
-    return None
-
-
-def notify_lab_users(*_a: Any, **_k: Any) -> list:
-    logger.debug("notify_lab_users skipped (legacy cases API)")
-    return []
-
-
-def notify_status_change(*_a: Any, **_k: Any) -> None:
-    logger.debug("notify_status_change skipped (legacy cases API)")
-    return None

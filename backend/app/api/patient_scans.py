@@ -6,12 +6,13 @@ import asyncio
 import logging
 import re
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from app.services.file_urls import client_file_url
 from app.ai.scan_quality import QUALITY_VERSION, validate_scan_bytes
 from app.core.security import AuthUser, get_current_user
 from app.schemas_patient_media import DeleteOkOut, PatientScanOut
+from app.services import case_flow
 from app.services import patient_media as pm
 from app.services.shade_media import load_media_bytes
 
@@ -115,9 +116,13 @@ def list_patient_scans(
 async def upload_patient_scan(
     patient_id: str,
     file: UploadFile = File(...),
+    replaces: str | None = Form(None),
     user: AuthUser = Depends(get_current_user),
 ):
+    """`replaces`: id of a scan this one stands in for (removed after the upload)."""
     pm.require_patient_access(patient_id, user.id)
+    case_flow.require_can_change(user)
+    old = pm.replaced_row(_TABLE, replaces, patient_id)
     logger.debug(
         "upload scan patient_id=%s user_id=%s filename=%s",
         patient_id,
@@ -139,6 +144,8 @@ async def upload_patient_scan(
         content_type=file.content_type,
     )
     await asyncio.to_thread(_save_quality, str(row["id"]), validation)
+    pm.remove_replaced(_TABLE, _KIND, old, keep_id=str(row["id"]))
+    case_flow.after_change(patient_id, user.id, scan=True)
     return _serialize(row, validation)
 
 
@@ -175,6 +182,7 @@ def delete_patient_scan(
     scan_id: str,
     user: AuthUser = Depends(get_current_user),
 ):
+    case_flow.require_can_delete(user, _TABLE, scan_id)
     row = pm.delete_record_and_file(
         table=_TABLE,
         kind=_KIND,

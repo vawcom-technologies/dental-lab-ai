@@ -28,6 +28,7 @@ from app.schemas_patients import (
     RenamePatientPhotoRequest,
     UploadNoteRequest,
 )
+from app.services import case_flow, case_status
 from app.services import patient_access as pa
 from app.services.notify import actor_label, notify_pair
 from app.services.patient_crypto import decrypt_note, encrypt_note
@@ -54,7 +55,6 @@ _EDITABLE_FIELDS = frozenset(
         "address",
         "phone",
         "health_insurance",
-        "status",
     }
 )
 
@@ -581,6 +581,8 @@ def decide_access_request(
 
     updated = updated_rows[0] if updated_rows else {**access_row, **update}
     target_id = str(access_row.get("user_id") or "")
+    if decision == "approve":
+        case_flow.after_share(patient_id, target_id, user.id)
     name = _patient_display_name(patient)
     who = actor_label(target_id, fallback="a colleague")
     if decision == "approve":
@@ -839,7 +841,7 @@ def create_patient(
         "address": payload.address.strip(),
         "phone": payload.phone.strip(),
         "health_insurance": payload.health_insurance.strip(),
-        "status": _normalize_patient_status(payload.status),
+        "status": "pending",  # set automatically from here on (services/case_flow.py)
         "deleted": False,
         "created_at": pa.utc_now_iso(),
         "updated_at": pa.utc_now_iso(),
@@ -863,6 +865,7 @@ def create_patient(
                 message="Insert returned no row",
             )
         patient_id = str(created["id"])
+        case_status.log_event(patient_id, actor_id=user.id, type="created", to_status="pending")
         pa.write_audit_log(
             actor_id=user.id,
             action=action,
@@ -945,20 +948,6 @@ def edit_patient(
                     patient_id=patient_id,
                 )
             value = str(value).strip().lower()
-        if key == "status":
-            value = _normalize_patient_status(value)
-            if value not in _PATIENT_STATUSES:
-                return _err(
-                    action=action,
-                    user_id=user.id,
-                    http_code=400,
-                    code="INVALID_STATUS",
-                    message=(
-                        "status must be one of: pending, in_progress, "
-                        "in_review, completed, rejected"
-                    ),
-                    patient_id=patient_id,
-                )
         if isinstance(value, str):
             value = value.strip()
         if hasattr(value, "isoformat"):
@@ -977,40 +966,14 @@ def edit_patient(
 
     updates["updated_at"] = pa.utc_now_iso()
     try:
-        try:
-            result = (
-                get_supabase_admin()
-                .table("patients")
-                .update(updates)
-                .eq("id", patient_id)
-                .eq("created_by", user.id)
-                .execute()
-            )
-        except Exception as update_exc:
-            if "status" in updates and "status" in str(update_exc):
-                updates.pop("status", None)
-                if len(updates) <= 1:  # only updated_at left
-                    return _err(
-                        action=action,
-                        user_id=user.id,
-                        http_code=503,
-                        code="MIGRATION_REQUIRED",
-                        message=(
-                            "Patient status is not available yet. "
-                            "Run migration 008_patients_status.sql in Supabase."
-                        ),
-                        patient_id=patient_id,
-                    )
-                result = (
-                    get_supabase_admin()
-                    .table("patients")
-                    .update(updates)
-                    .eq("id", patient_id)
-                    .eq("created_by", user.id)
-                    .execute()
-                )
-            else:
-                raise
+        result = (
+            get_supabase_admin()
+            .table("patients")
+            .update(updates)
+            .eq("id", patient_id)
+            .eq("created_by", user.id)
+            .execute()
+        )
         rows = getattr(result, "data", None) or []
         if not rows:
             return _err(
@@ -1285,6 +1248,7 @@ def grant_patient_access(
     who = actor_label(user.id)
     target_name = actor_label(target, fallback="a colleague")
     if is_owner_grant:
+        case_flow.after_share(patient_id, target, user.id)
         notify_pair(
             counterpart_id=target,
             actor_id=user.id,
@@ -1771,6 +1735,7 @@ async def upload_patient_photo(
     user: AuthUser = Depends(get_current_user),
 ):
     action = "upload_patient_photo"
+    case_flow.require_can_change(user)  # labs review; they don't add photos
     angle_norm = (angle or "").strip().lower()
     if angle_norm not in _PHOTO_ANGLES:
         return _err(
@@ -1885,6 +1850,7 @@ def rename_patient_photo(
     payload: RenamePatientPhotoRequest,
     user: AuthUser = Depends(get_current_user),
 ):
+    case_flow.require_can_change(user)
     action = "rename_patient_photo"
     name = (payload.filename or "").strip()
     if not name:
@@ -1966,6 +1932,7 @@ def delete_patient_photo(
     user: AuthUser = Depends(get_current_user),
 ):
     action = "delete_patient_photo"
+    case_flow.require_can_change(user)
     try:
         pa.require_patient_access(patient_id, user.id)
         existing = (
