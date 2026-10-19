@@ -98,15 +98,18 @@ class SoftPillButton extends StatelessWidget {
                 Icon(icon, size: compact ? 15 : 16, color: fg),
                 const SizedBox(width: 6),
               ],
-              AnimatedDefaultTextStyle(
-                duration: AppMotion.fast,
-                curve: AppMotion.spring,
-                style: AppFonts.style(
-                  color: fg,
-                  fontWeight: FontWeight.w600,
-                  fontSize: fontSize,
+              // Flexible: in a tight spot the label ellipsizes, not overflows.
+              Flexible(
+                child: AnimatedDefaultTextStyle(
+                  duration: AppMotion.fast,
+                  curve: AppMotion.spring,
+                  style: AppFonts.style(
+                    color: fg,
+                    fontWeight: FontWeight.w600,
+                    fontSize: fontSize,
+                  ),
+                  child: Text(label, softWrap: false, overflow: TextOverflow.ellipsis),
                 ),
-                child: Text(label, softWrap: false),
               ),
             ],
           ),

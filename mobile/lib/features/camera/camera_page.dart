@@ -18,6 +18,7 @@ import 'crop_photo_page.dart';
 import 'incoming_photos_button.dart';
 import 'live_camera_capture.dart';
 import '../../core/errors/user_facing_error.dart';
+import '../../core/widgets/page_kit.dart';
 
 /// Chairside camera — frontal / left / right, max 12 photos per patient.
 class CameraPage extends StatefulWidget {
@@ -647,10 +648,7 @@ class _CameraPageState extends State<CameraPage> {
       },
     );
 
-    return GlassSurface(
-      borderRadius: BorderRadius.circular(16),
-      blur: 16,
-      tint: Colors.white.withValues(alpha: 0.5),
+    return AdminCard(
       padding: EdgeInsets.fromLTRB(compact ? 8 : 8, 6, 8, 6),
       child: Row(
         children: [
@@ -1282,10 +1280,7 @@ class _CameraEmpty extends StatelessWidget {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 440),
-        child: GlassSurface(
-          borderRadius: BorderRadius.circular(24),
-          blur: 18,
-          tint: Colors.white.withValues(alpha: 0.55),
+        child: AdminCard(
           padding: EdgeInsets.fromLTRB(
             AppBreakpoints.isPhone(context) ? 20 : 36,
             AppBreakpoints.isPhone(context) ? 24 : 40,

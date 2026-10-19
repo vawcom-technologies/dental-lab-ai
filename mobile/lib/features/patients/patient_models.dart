@@ -323,11 +323,19 @@ class EligibleAccessUser {
     required this.userId,
     required this.fullName,
     this.email,
+    this.role,
+    this.clinicName,
+    this.avatarUrl,
   });
 
   final String userId;
   final String fullName;
   final String? email;
+
+  /// `laboratory` (your lab: immediate) or `dentist` (colleague: lab approves).
+  final String? role;
+  final String? clinicName;
+  final String? avatarUrl;
 
   factory EligibleAccessUser.fromJson(Map<String, dynamic> json) {
     final id = _optString(json['user_id']) ?? _optString(json['id']) ?? '';
@@ -339,6 +347,9 @@ class EligibleAccessUser {
       userId: id,
       fullName: name.isNotEmpty ? name : (email ?? id),
       email: (email == null || email.isEmpty) ? null : email,
+      role: _optString(json['role']),
+      clinicName: _optString(json['clinic_name']),
+      avatarUrl: _optString(json['avatar_url']),
     );
   }
 }

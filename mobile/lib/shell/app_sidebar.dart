@@ -24,6 +24,7 @@ enum AppNavItem {
   laboratories,
   adminSignups,
   review,
+  lab,
   notifications,
   reports,
   settings,
@@ -40,6 +41,7 @@ class AppSidebar extends StatelessWidget {
     required this.onSelect,
     this.messageBadge = 0,
     this.notificationBadge = 0,
+    this.labBadge = 0,
     this.admin = false,
     this.lab = false,
     this.asDrawer = false,
@@ -49,6 +51,9 @@ class AppSidebar extends StatelessWidget {
   final ValueChanged<AppNavItem> onSelect;
   final int messageBadge;
   final int notificationBadge;
+
+  /// Items waiting on the lab (transfers, joins, sharing tickets).
+  final int labBadge;
   final bool admin;
 
   /// Lab accounts also get the review queue.
@@ -164,19 +169,24 @@ class AppSidebar extends StatelessWidget {
       ] else ...[
         _NavEntry(AppNavItem.patients, Icons.people_outline, s.navPatients),
         if (lab) _NavEntry(AppNavItem.review, Icons.fact_check_outlined, s.navReview),
+        if (lab) _NavEntry(AppNavItem.lab, Icons.apartment_rounded, s.navLab, badge: labBadge, badgeColor: AppColors.warning),
         _NavEntry(
           AppNavItem.appointments,
           Icons.calendar_today_outlined,
           s.navAppointments,
         ),
         _NavEntry(AppNavItem.camera, Icons.photo_camera_outlined, s.navCamera),
-        _NavEntry(AppNavItem.scans, Icons.view_in_ar_outlined, s.navScans),
-        _NavEntry(AppNavItem.shade, Icons.palette_outlined, s.navShade),
-        _NavEntry(
-          AppNavItem.smilePreview,
-          Icons.sentiment_satisfied_alt_outlined,
-          s.navSmilePreview,
-        ),
+        // Scans, shade and smile are the dentist's work; labs review them
+        // from the patient and the Review queue.
+        if (!lab) ...[
+          _NavEntry(AppNavItem.scans, Icons.view_in_ar_outlined, s.navScans),
+          _NavEntry(AppNavItem.shade, Icons.palette_outlined, s.navShade),
+          _NavEntry(
+            AppNavItem.smilePreview,
+            Icons.sentiment_satisfied_alt_outlined,
+            s.navSmilePreview,
+          ),
+        ],
         _NavEntry(
           AppNavItem.interpreter,
           Icons.translate_rounded,
@@ -214,10 +224,10 @@ class AppSidebar extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, box) {
-        // Rows grow with the free height (48pt fits an 11" iPad in landscape
-        // with every page listed) up to a comfortable 60pt. The rail fills
-        // the window height; spare room sits above Settings, which pins to
-        // the bottom. Very short windows scroll.
+        // The first/last icons always keep clear of the rail's rounded ends
+        // (endExtra), however many pages are listed, so the active notch
+        // never bites into a corner and both ends look the same. Rows share
+        // what's left: 42–60pt. Very short windows scroll.
         final minFixed =
             inset.top +
             header +
@@ -226,20 +236,16 @@ class AppSidebar extends StatelessWidget {
             minBottomPad +
             inset.bottom;
         final rows = items.length + 1;
-        final slot = ((box.maxHeight - minFixed) / rows).clamp(
-          48.0 * k,
-          60.0 * k,
-        );
-        // Spare height (mostly portrait) moves the first/last icon off the
-        // rail's rounded ends, so their notch flares as wide as the middle
-        // rows'. Without spare height the painter narrows those flares.
-        final spare = math.max(0.0, box.maxHeight - minFixed - rows * slot);
-        final endExtra = asDrawer
+        double slotFor(double extra) =>
+            ((box.maxHeight - minFixed - 2 * extra) / rows).clamp(42.0 * k, 60.0 * k);
+        double extraFor(double slot) => asDrawer
             ? 0.0
-            : math.min(
-                spare / 2,
-                math.max(0.0, _NavPainter.flareReach(k) - slot / 2 - minTopPad),
-              );
+            : math.max(0.0, _NavPainter.flareReach(k) - slot / 2 - minTopPad);
+        // Reserve the ends first, then fit the rows (a smaller row needs a
+        // touch more end room, so settle once more).
+        var slot = slotFor(extraFor(60.0 * k));
+        final endExtra = extraFor(slot);
+        slot = slotFor(endExtra);
         final topPad = minTopPad + endExtra;
         final bottomPad = minBottomPad + endExtra;
         final content = minFixed + 2 * endExtra + rows * slot;

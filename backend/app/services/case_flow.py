@@ -16,7 +16,7 @@ from app.services import case_status
 from app.services import patient_access as pa
 from app.services import patient_media as pm
 from app.services.notify import notify
-from app.services.profiles import fetch_profile
+from app.services.profiles import fetch_profile, lab_name
 
 LOCKED = ("in_review", "completed")
 _ITEMS = (  # (name, table, extra filter)
@@ -237,6 +237,7 @@ def summary(patient: dict[str, Any], user: AuthUser) -> dict[str, Any]:
     names: dict[str, str | None] = {}
     for actor in {str(e.get("actor_id") or "") for e in events} - {""}:
         names[actor] = pa.profile_display_name(fetch_profile(actor), fallback="") or None
+    owner = fetch_profile(str(patient.get("created_by") or "")) or {}
     rejection = None
     for e in reversed(events):
         if e.get("to_status") == "rejected":
@@ -251,6 +252,14 @@ def summary(patient: dict[str, Any], user: AuthUser) -> dict[str, Any]:
         "items": have,
         "missing": [k for k, ok in have.items() if not ok],
         "lab": {"id": lab_id, "name": pa.profile_display_name(lab, fallback="") or None} if lab_id else None,
+        "owner": {
+            "id": str(patient.get("created_by") or ""),
+            "name": pa.profile_display_name(owner, fallback="") or None,
+            "role": owner.get("role"),
+            "clinic_name": owner.get("clinic_name"),
+            "lab_name": lab_name(owner),
+            "avatar_url": owner.get("avatar_url"),
+        },
         "shared_with_lab": shared,
         "can_submit": role != "laboratory" and bool(lab_id) and st not in LOCKED,
         "can_review": st == "in_review" and (role == "admin" or (shared and user.id == lab_id)),

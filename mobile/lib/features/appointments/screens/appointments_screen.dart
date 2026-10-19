@@ -16,6 +16,7 @@ import '../../../core/widgets/touchable.dart';
 import '../../../core/widgets/ui_kit.dart';
 import '../appointment_service.dart';
 import '../models/appointment.dart';
+import '../../../core/widgets/page_kit.dart';
 
 class AppointmentsScreen extends StatefulWidget {
   const AppointmentsScreen({
@@ -490,10 +491,7 @@ class _StatusFilterBar extends StatelessWidget {
       );
     }
 
-    return GlassSurface(
-      borderRadius: BorderRadius.circular(16),
-      blur: 16,
-      tint: Colors.white.withValues(alpha: 0.5),
+    return AdminCard(
       padding: const EdgeInsets.all(6),
       child: CupertinoSlidingSegmentedControl<String>(
         groupValue: selected,
@@ -714,10 +712,7 @@ class _AppointmentsEmpty extends StatelessWidget {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
-        child: GlassSurface(
-          borderRadius: BorderRadius.circular(24),
-          blur: 18,
-          tint: Colors.white.withValues(alpha: 0.55),
+        child: AdminCard(
           padding: EdgeInsets.fromLTRB(
             AppBreakpoints.isPhone(context) ? 20 : 36,
             AppBreakpoints.isPhone(context) ? 24 : 40,
@@ -1531,10 +1526,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
         ),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 560),
-          child: GlassSurface(
-            borderRadius: BorderRadius.circular(24),
-            blur: 28,
-            tint: Colors.white.withValues(alpha: 0.82),
+          child: AdminCard(
             padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
             child: Column(
               mainAxisSize: MainAxisSize.min,

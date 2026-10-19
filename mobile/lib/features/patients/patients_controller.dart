@@ -174,6 +174,7 @@ class PatientsController extends ChangeNotifier {
     required String address,
     required String phone,
     required String healthInsurance,
+    Map<String, String>? target,
   }) async {
     if (_mutating) {
       throw StateError(AppLocalizations.current.tr('p.busy'));
@@ -182,6 +183,7 @@ class PatientsController extends ChangeNotifier {
     notifyListeners();
     try {
       final created = await _service.createPatient(
+        target: target,
         firstName: firstName,
         lastName: lastName,
         dateOfBirth: dateOfBirth,

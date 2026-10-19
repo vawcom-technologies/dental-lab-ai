@@ -23,6 +23,7 @@ import '../chat/utils/voice_record_path.dart';
 import 'apple_translate.dart';
 import 'interpreter_languages.dart';
 import 'interpreter_phrases.dart';
+import '../../core/widgets/page_kit.dart';
 
 class InterpreterTurn {
   const InterpreterTurn({
@@ -1256,10 +1257,7 @@ class _InterpreterPageState extends State<InterpreterPage> {
         : (canHold ? loc.interpreterHoldToTalk : loc.interpreterTypeInstead);
 
     return RepaintBoundary(
-      child: GlassSurface(
-        borderRadius: AppRadii.border,
-        blur: 18,
-        tint: Colors.white.withValues(alpha: 0.62),
+      child: AdminCard(
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,

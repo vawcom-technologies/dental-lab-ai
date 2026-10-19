@@ -13,6 +13,9 @@ import '../features/admin/admin_signups_page.dart';
 import '../features/admin/admin_top_bar.dart';
 import '../features/appointments/screens/appointments_screen.dart';
 import '../features/cases/review_page.dart';
+import '../features/lab/join_lab_page.dart';
+import '../features/lab/lab_dashboard_page.dart';
+import '../features/lab/lab_page.dart';
 import '../features/camera/camera_page.dart';
 import '../features/chat/messages_page.dart';
 import '../features/chat/state/chat_controller.dart';
@@ -55,6 +58,7 @@ class _AppShellState extends State<AppShell> {
   late String _dentistName;
   int _notificationBadge = 0;
   int _messageBadge = 0;
+  int _labBadge = 0;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   late final ChatController _chat;
   late final PatientSession _patients;
@@ -66,6 +70,7 @@ class _AppShellState extends State<AppShell> {
       AppNavItem.adminSignups,
       AppNavItem.laboratories,
       AppNavItem.patients,
+      AppNavItem.lab,
     ])
       item: ValueNotifier<int>(0),
   };
@@ -102,6 +107,12 @@ class _AppShellState extends State<AppShell> {
     _patients.ensureLoaded();
     _chat.start();
     _inbox.start();
+    // Dentists: learn whether they have a lab (a restored session doesn't say).
+    if (widget.api.isDentist) {
+      widget.api.fetchMe(forceRefresh: true).then((_) {
+        if (mounted) setState(() {});
+      }, onError: (_) {});
+    }
   }
 
   void _onChatChanged() {
@@ -242,6 +253,10 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
+    // No lab yet: the lab picker is the whole app (plus Settings / sign out).
+    if (widget.api.needsLab) {
+      return JoinLabPage(api: widget.api, onReady: () => setState(() {}));
+    }
     final activeIndex = _navOrder.indexOf(_active);
 
     return ListenableBuilder(
@@ -284,20 +299,18 @@ class _AppShellState extends State<AppShell> {
                       ),
                     ),
                   );
-                  // Admin pages share the bell, chat and navigation.
-                  final pages = widget.api.isAdmin
-                      ? AdminChrome(
-                          api: widget.api,
-                          inbox: _inbox,
-                          chat: _chat,
-                          onOpen: _openAdmin,
-                          openChat: (c) {
-                            _chat.openConversation(c);
-                            _go(AppNavItem.messages);
-                          },
-                          child: stack,
-                        )
-                      : stack;
+                  // Bell, chat, search and profile — shared by admin, lab and dentist.
+                  final pages = AdminChrome(
+                    api: widget.api,
+                    inbox: _inbox,
+                    chat: _chat,
+                    onOpen: _openAdmin,
+                    openChat: (c) {
+                      _chat.openConversation(c);
+                      _go(AppNavItem.messages);
+                    },
+                    child: stack,
+                  );
 
                   if (phone) {
                     return PhoneNavScope(
@@ -320,6 +333,7 @@ class _AppShellState extends State<AppShell> {
                             notificationBadge: _notificationBadge,
                             admin: widget.api.isAdmin,
                             lab: widget.api.isLaboratory,
+                            labBadge: _labBadge,
                           ),
                         ),
                         body: SafeArea(child: pages),
@@ -336,6 +350,7 @@ class _AppShellState extends State<AppShell> {
                         notificationBadge: _notificationBadge,
                         admin: widget.api.isAdmin,
                             lab: widget.api.isLaboratory,
+                            labBadge: _labBadge,
                       ),
                       Expanded(
                         child: SafeArea(
@@ -373,11 +388,19 @@ class _AppShellState extends State<AppShell> {
             active: active,
           );
         }
+        if (widget.api.isLaboratory) {
+          return LabDashboardPage(
+            api: widget.api,
+            onOpen: _openAdmin,
+            onWaiting: (n) {
+              if (mounted && n != _labBadge) setState(() => _labBadge = n);
+            },
+            active: active,
+          );
+        }
         return DashboardPage(
-          dentistName: _dentistName,
           api: widget.api,
-          onNavigate: _go,
-          unreadMessages: _messageBadge,
+          onOpen: _openAdmin,
           active: active,
         );
       case AppNavItem.patients:
@@ -469,6 +492,16 @@ class _AppShellState extends State<AppShell> {
             if (!mounted) return;
             _go(AppNavItem.messages);
           },
+        );
+      case AppNavItem.lab:
+        if (!widget.api.isLaboratory) {
+          return _ForbiddenRedirect(onLeave: () => _go(AppNavItem.dashboard));
+        }
+        return LabPage(
+          api: widget.api,
+          active: active,
+          tab: _adminTabs[item],
+          onOpenPatient: _patients.requestOpenPatientDetail,
         );
       case AppNavItem.review:
         if (!widget.api.isLaboratory) {

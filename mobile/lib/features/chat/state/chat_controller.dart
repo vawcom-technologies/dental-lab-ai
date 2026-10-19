@@ -54,6 +54,7 @@ class ChatController extends ChangeNotifier {
   StreamSubscription<Message>? _msgSub;
   StreamSubscription<MessagesReadEvent>? _readSub;
   StreamSubscription<String>? _errSub;
+  StreamSubscription<String>? _blockSub;
   StreamSubscription<bool>? _connSub;
 
   List<Conversation> get conversations => List.unmodifiable(_conversations);
@@ -71,6 +72,37 @@ class ChatController extends ChangeNotifier {
   String? get error => _error;
   String? get threadError => _threadError;
   String? get currentUserId => _api.userId;
+
+  /// People the user may message (the contacts list only returns those).
+  final Set<String> _messageable = {};
+  bool _messageableKnown = false;
+
+  /// Conversations the server refused to send in (no longer allowed).
+  final Set<String> _blocked = {};
+
+  /// False when messaging this partner isn't allowed any more: the
+  /// composer is replaced by a notice.
+  bool canMessage(Conversation c) =>
+      !_blocked.contains(c.id) && (!_messageableKnown || _messageable.contains(c.partner.id));
+
+  static const _contactLimit = 500;
+
+  Future<void> _loadMessageable() async {
+    try {
+      final rows = await _api.listChatContacts(limit: _contactLimit, forceRefresh: true);
+      _messageable
+        ..clear()
+        ..addAll(rows.map((r) => '${r['id'] ?? r['user_id'] ?? ''}'));
+      // A full page may be cut off: then only server refusals count.
+      _messageableKnown = rows.length < _contactLimit;
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  void _blockActive() {
+    final a = _active;
+    if (a != null) _blocked.add(a.id);
+  }
 
   void _reportError(Object e, {bool thread = false}) {
     final msg = friendlyError(e);
@@ -151,6 +183,15 @@ class ChatController extends ChangeNotifier {
       _reportError(detail, thread: true);
       notifyListeners();
     });
+    // Sending in a conversation that's no longer allowed.
+    _blockSub ??= _socket.onBlocked.listen((conversationId) {
+      if (conversationId.isEmpty) {
+        _blockActive();
+      } else {
+        _blocked.add(conversationId);
+      }
+      notifyListeners();
+    });
     _connSub ??= _socket.onConnectionChanged.listen((ok) {
       _socketConnected = ok;
       notifyListeners();
@@ -172,6 +213,7 @@ class ChatController extends ChangeNotifier {
         ..clear()
         ..addAll(list);
       _error = null;
+      unawaited(_loadMessageable());
     } catch (e) {
       _reportError(e);
     } finally {
@@ -398,6 +440,7 @@ class ChatController extends ChangeNotifier {
       _replacePending(pendingId, message);
     } catch (e) {
       _messages.removeWhere((m) => m.id == pendingId);
+      if (e is CannotMessage) _blockActive();
       _reportError(e, thread: true);
     } finally {
       _sending = _messages.any((m) => m.isPending);
@@ -560,6 +603,7 @@ class ChatController extends ChangeNotifier {
     _msgSub?.cancel();
     _readSub?.cancel();
     _errSub?.cancel();
+    _blockSub?.cancel();
     _connSub?.cancel();
     _socket.dispose();
     super.dispose();

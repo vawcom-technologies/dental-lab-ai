@@ -15,6 +15,7 @@ class CaseInfo {
         sharedWithLab = j['shared_with_lab'] == true,
         canSubmit = j['can_submit'] == true,
         canReview = j['can_review'] == true,
+        owner = j['owner'] is Map ? Map<String, dynamic>.from(j['owner'] as Map) : null,
         rejection = j['last_rejection'] is Map
             ? CaseRejection(Map<String, dynamic>.from(j['last_rejection'] as Map))
             : null,
@@ -32,6 +33,9 @@ class CaseInfo {
   final String? labName;
   final CaseRejection? rejection;
   final List<CaseHistoryEvent> events;
+
+  /// The patient's owner: `{id, name, role, clinic_name, lab_name, avatar_url}`.
+  final Map<String, dynamic>? owner;
 
   /// Under review or completed: items can only be replaced, not deleted.
   bool get locked => status == 'in_review' || status == 'completed';

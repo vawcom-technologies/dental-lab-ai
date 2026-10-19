@@ -22,6 +22,7 @@ export 'pressable.dart';
 export 'password_checklist.dart';
 export 'patient_media_dialogs.dart';
 export 'phone_field.dart';
+export 'required_text_sheet.dart';
 export 'soft_pill_button.dart';
 export 'tooth_loader.dart';
 export 'user_avatar.dart';

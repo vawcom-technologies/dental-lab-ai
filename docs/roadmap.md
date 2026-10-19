@@ -48,6 +48,7 @@ Agreed rules for the admin / lab / dentist rework. Every phase builds against th
   - the patient is shared with that lab automatically.
 - **A lab can move a patient** to a different dentist in the same lab, but only a patient the lab has access to (shared with it, or created by it). Labs never have standing access to their dentists' patients. The previous dentist loses access; it's a move, not a share.
 - **A lab only sees patients shared with it.**
+- **Only the patient's owner (or the admin) can share it or start a transfer.** A dentist it was shared with can work on it but can't pass it on, so a patient never reaches anyone the owner and their lab didn't agree to. Sharing tickets therefore always go to the owner's lab.
 - **Sharing with your own lab**: immediate.
 - **Sharing with a dentist in the same lab**: the dentist raises a ticket and the lab approves or rejects it.
   - While the ticket is open, the lab can see the full patient record.
@@ -119,7 +120,7 @@ Two users can message each other if any of these is true:
 | New `rejected_signups` table | The reject list |
 | New `lab_requests` table (join / remove) | Dentist join requests and lab removal requests |
 | `patient_access` (already exists, already has pending/approved/rejected) | Sharing tickets |
-| New `lab_transfers` table (Phase 3) | Cross-lab transfers, both from a dentist and from a lab asking another lab to take the case: the request, both labs' decisions, the chosen dentist |
+| New `lab_transfers` table, `patient_access.ticket_lab_id` (Phase 3, migration 020) | Cross-lab transfers, both from a dentist and from a lab asking another lab to take the case: the request, both labs' decisions, the chosen dentist |
 | `patients.auto_submit` | Turns automatic submission off after a rejection |
 | `patients.unassigned_at`, `patients.waiting_lab_id` | Marks patients whose owner was deleted, or that are waiting for a lab (`waiting_lab_id`) to choose a dentist. While a lab-created patient waits, the creating lab is the temporary owner and the admin's list labels the patient "waiting for lab". |
 | New `case_events` table | Case history: created, submitted, approved, rejected with remarks, updated, reassigned, admin override |

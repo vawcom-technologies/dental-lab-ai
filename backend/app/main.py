@@ -35,6 +35,7 @@ from app.api import (
     media,
     patients_gdpr,
     patient_cases,
+    labs,
     patient_scans,
     scan_inbox,
     shade_detections,
@@ -116,6 +117,9 @@ app.include_router(
     tags=["Patients (GDPR)"],
 )
 # Patient clinical media (list/upload nested under /api/patients)
+app.include_router(labs.router, prefix="/api/labs", tags=["Labs"])
+app.include_router(labs.patients_router, prefix="/api/patients", tags=["Labs"])
+app.include_router(labs.transfers_router, prefix="/api/transfers", tags=["Labs"])
 app.include_router(
     patient_cases.router,
     prefix="/api/patients",

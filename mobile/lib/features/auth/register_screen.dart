@@ -31,7 +31,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _loading = false;
   String _role = AppRoles.dentist;
 
-  /// Required; it can't be changed after signup (only the admin can).
+  /// Required for dentists, optional for labs; can't be changed after
+  /// signup (only the admin can).
   ({Uint8List bytes, String contentType})? _avatar;
 
   Future<void> _pickAvatar() async {
@@ -61,7 +62,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final phoneLocal = _phone.text.trim();
     final password = _password.text;
     final loc = AppLocalizations.of(context);
-    if (_avatar == null) {
+    if (_avatar == null && _role == AppRoles.dentist) {
       AppSnackBars.error(context, loc.tr('avatar.required'));
       return;
     }
@@ -192,6 +193,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 22),
                 _AvatarPicker(
+                  optional: _role == AppRoles.laboratory,
                   avatar: _avatar?.bytes,
                   onTap: _loading ? null : _pickAvatar,
                 ),
@@ -302,7 +304,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
 /// Round photo slot with a camera badge; shows the chosen photo.
 class _AvatarPicker extends StatelessWidget {
-  const _AvatarPicker({required this.avatar, required this.onTap});
+  const _AvatarPicker({required this.avatar, required this.onTap, this.optional = false});
+
+  /// Labs may skip the photo.
+  final bool optional;
 
   final Uint8List? avatar;
   final VoidCallback? onTap;
@@ -378,7 +383,7 @@ class _AvatarPicker extends StatelessWidget {
         ),
         const SizedBox(height: 2),
         Text(
-          loc.tr('avatar.permanent'),
+          loc.tr(optional ? 'avatar.optionalLab' : 'avatar.permanent'),
           textAlign: TextAlign.center,
           style: AppFonts.style(fontSize: 12, color: AppColors.muted),
         ),

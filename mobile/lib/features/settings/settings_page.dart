@@ -15,6 +15,7 @@ import '../../core/widgets/brand_logo.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'change_password_screen.dart';
 import '../../core/errors/user_facing_error.dart';
+import '../../core/widgets/page_kit.dart';
 
 const _kHairline = Color(0xFFC6C6C8);
 
@@ -220,6 +221,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   email: email,
                   clinic: clinic,
                   role: role,
+                  lab: widget.api.isDentist ? (widget.api.labName ?? '') : '',
                 );
                 final account = _GlassSettingsGroup(
                   footer: loc.securitySub,
@@ -546,10 +548,7 @@ class AboutPage extends StatelessWidget {
 
     final what = section(loc.aboutWhatTitle, loc.aboutWhatBody);
     final who = section(loc.aboutWhoTitle, loc.aboutWhoBody);
-    final intro = GlassSurface(
-      borderRadius: BorderRadius.circular(14),
-      blur: 20,
-      tint: Colors.white.withValues(alpha: 0.5),
+    final intro = AdminCard(
       padding: const EdgeInsets.fromLTRB(22, 22, 22, 22),
       child: wide
           ? Row(
@@ -623,6 +622,7 @@ class AboutPage extends StatelessWidget {
               info(loc.aboutName, api.userName),
               info(loc.email, api.email),
               info(loc.aboutClinic, api.clinicName),
+              if (api.isDentist) info(loc.tr('admin.lab'), api.labName),
               info(loc.role, AppRoles.label(api.role, loc)),
               info(loc.aboutUserId, api.userId),
             ],
@@ -669,6 +669,7 @@ class _GlassProfileHero extends StatelessWidget {
     required this.email,
     required this.clinic,
     required this.role,
+    this.lab = '',
   });
 
   final String name;
@@ -676,18 +677,19 @@ class _GlassProfileHero extends StatelessWidget {
   final String clinic;
   final String role;
 
+  /// Dentists: their lab, shown as "Lab · Clinic".
+  final String lab;
+
   @override
   Widget build(BuildContext context) {
     final initial = name.isNotEmpty ? name.characters.first.toUpperCase() : '?';
     final subtitle = [
       if (role.isNotEmpty) role,
+      if (lab.isNotEmpty) lab,
       if (clinic.isNotEmpty) clinic,
     ].join(' · ');
 
-    return GlassSurface(
-      borderRadius: BorderRadius.circular(18),
-      blur: 22,
-      tint: Colors.white.withValues(alpha: 0.48),
+    return AdminCard(
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
       child: Row(
         children: [
@@ -796,10 +798,7 @@ class _GlassSettingsGroup extends StatelessWidget {
             ),
           ),
         ],
-        GlassSurface(
-          borderRadius: BorderRadius.circular(14),
-          blur: 20,
-          tint: Colors.white.withValues(alpha: 0.5),
+        AdminCard(
           padding: EdgeInsets.zero,
           child: Column(children: children),
         ),

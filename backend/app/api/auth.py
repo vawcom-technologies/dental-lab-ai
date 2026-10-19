@@ -27,10 +27,16 @@ from app.schemas import (
     TokenOut,
     UserOut,
 )
-from app.services import avatars
+from app.services import avatars, labs
 from app.services.account_deletion import delete_account
 from app.services.email import send_account_deleted_email, send_welcome_email
-from app.services.profiles import fetch_profile, is_rejected_email, persist_signup_profile
+from app.services.profiles import (
+    fetch_profile,
+    is_approved_email,
+    is_rejected_email,
+    lab_name,
+    persist_signup_profile,
+)
 
 router = APIRouter()
 logger = logging.getLogger("app.api.auth")
@@ -124,6 +130,8 @@ def _profile_fields(user: Any) -> dict[str, Any]:
             "clinic_name": auth_user.clinic_name,
             "phone": auth_user.phone,
             "avatar_url": None,
+            "lab_id": None,
+            "lab_name": None,
         }
 
     role = canonicalize_role(
@@ -151,6 +159,8 @@ def _profile_fields(user: Any) -> dict[str, Any]:
         "clinic_name": clinic_name,
         "phone": phone,
         "avatar_url": profile.get("avatar_url") or None,
+        "lab_id": str(profile.get("lab_id") or "") or None,
+        "lab_name": lab_name(profile),
     }
 
 
@@ -182,6 +192,8 @@ def _token_out(
         clinic_name=fields["clinic_name"],
         phone=fields["phone"],
         avatar_url=fields["avatar_url"],
+        lab_id=fields["lab_id"],
+        lab_name=fields["lab_name"],
     )
 
 
@@ -306,6 +318,15 @@ def signin(payload: SignInRequest):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail=REGISTRATION_REJECTED
             ) from exc
+        # Supabase checks the password before email confirmation, so "not
+        # confirmed" means the credentials were right: say why it's blocked.
+        if "not confirmed" in str(exc).lower():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=PENDING_VERIFICATION_SIGNIN
+                if not is_approved_email(email)
+                else "Please confirm your email address using the link we sent you.",
+            ) from exc
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -420,6 +441,7 @@ def forgot_password(payload: ForgotPasswordRequest):
 
 @router.get("/me", response_model=UserOut)
 def me(user: AuthUser = Depends(get_current_user)):
+    profile = fetch_profile(user.id) or {}
     logger.debug("me user_id=%s email=%s role=%s", user.id, user.email, user.role)
     return UserOut(
         id=user.id,
@@ -429,6 +451,9 @@ def me(user: AuthUser = Depends(get_current_user)):
         clinic_name=user.clinic_name,
         phone=user.phone,
         avatar_url=user.avatar_url,
+        lab_id=str(profile.get("lab_id") or "") or None,
+        lab_name=lab_name(profile),
+        pending_join=labs.pending_join(user.id) if user.role == "dentist" and not profile.get("lab_id") else None,
     )
 
 

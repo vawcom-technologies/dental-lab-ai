@@ -4,7 +4,7 @@ import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/navigation/app_page_routes.dart';
 import '../../core/widgets/app_buttons.dart';
-import '../../core/widgets/glass_surface.dart';
+import '../../core/widgets/page_kit.dart';
 
 ButtonStyle compactActionFilled(Color bg, {double minH = 34, double fontSize = 11}) =>
     AppButtons.primaryStyle(compact: true).merge(
@@ -208,10 +208,7 @@ class ShadeActionBar extends StatelessWidget {
       );
     }
 
-    return GlassSurface(
-      borderRadius: BorderRadius.circular(14),
-      blur: 16,
-      tint: Colors.white.withValues(alpha: 0.52),
+    return AdminCard(
       padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
       child: AnimatedSwitcher(
         duration: AppMotion.fast,

@@ -12,6 +12,7 @@ import '../state/chat_controller.dart';
 import '../widgets/chat_bubble.dart';
 import '../widgets/chat_composer.dart';
 import '../widgets/user_profile_sheet.dart';
+import '../../../core/widgets/page_kit.dart';
 
 /// Soft iPadOS Messages canvas.
 const _kChatCanvas = Color(0xFFF2F2F7);
@@ -102,11 +103,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     if (active == null) {
       final loc = AppLocalizations.of(context);
-      return GlassSurface(
-        borderRadius: BorderRadius.circular(28),
-        blur: 28,
-        tint: Colors.white.withValues(alpha: 0.42),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
+      return AdminCard(
         child: Center(
           child: Text(
             loc.messagesSelectConversation,
@@ -122,11 +119,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final partner = active.partner;
     final messages = controller.messages;
 
-    return GlassSurface(
-      borderRadius: BorderRadius.circular(28),
-      blur: 28,
-      tint: Colors.white.withValues(alpha: 0.42),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
+    return AdminCard(
       padding: EdgeInsets.zero,
       child: Column(
         children: [
@@ -221,13 +214,16 @@ class _ChatScreenState extends State<ChatScreen> {
               message: controller.replyTo!,
               onClear: controller.clearReply,
             ),
-          ChatComposer(
-            controller: _compose,
-            sending: controller.sending,
-            patientSession: widget.patientSession,
-            onSend: _send,
-            onSendMedia: _sendMedia,
-          ),
+          if (controller.canMessage(active))
+            ChatComposer(
+              controller: _compose,
+              sending: controller.sending,
+              patientSession: widget.patientSession,
+              onSend: _send,
+              onSendMedia: _sendMedia,
+            )
+          else
+            const ChatBlockedNotice(),
         ],
       ),
     );
@@ -386,6 +382,32 @@ class _ReplyPreviewBar extends StatelessWidget {
               CupertinoIcons.xmark_circle_fill,
               size: 20,
               color: Color(0xFFC7C7CC),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// In place of the composer when messaging this person isn't allowed.
+class ChatBlockedNotice extends StatelessWidget {
+  const ChatBlockedNotice({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      color: Colors.white.withValues(alpha: 0.92),
+      child: Row(
+        children: [
+          const Icon(Icons.block_rounded, size: 18, color: AppColors.muted),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              AppLocalizations.of(context).tr('chat.cantMessage'),
+              style: AppFonts.style(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.muted),
             ),
           ),
         ],

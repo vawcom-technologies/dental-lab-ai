@@ -90,6 +90,14 @@ String _fromParts({
       code == 'REGISTRATION_REJECTED') {
     return (loc ?? AppLocalizations.current).errRegistrationRejected;
   }
+  // Dentist without a lab tried to create a patient (the lab picker should
+  // have caught it first).
+  if (code == 'CANNOT_MESSAGE') {
+    return (loc ?? AppLocalizations.current).tr('chat.cantMessage');
+  }
+  if (statusCode == 403 && (detail?.trim() == 'NO_LAB' || code == 'NO_LAB')) {
+    return (loc ?? AppLocalizations.current).tr('join.noLabError');
+  }
   final mappedCode = _mapCode(code, loc);
   final rewritten = _rewriteDetail((detail ?? '').trim(), loc);
   if (rewritten != null && rewritten.isNotEmpty) return rewritten;

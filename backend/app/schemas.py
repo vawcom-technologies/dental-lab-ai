@@ -142,6 +142,8 @@ class TokenOut(BaseModel):
     clinic_name: str | None = None
     phone: str | None = None
     avatar_url: str | None = None
+    lab_id: str | None = None  # dentists: no lab → the app shows the lab picker
+    lab_name: str | None = None
 
 
 class UserOut(BaseModel):
@@ -152,6 +154,9 @@ class UserOut(BaseModel):
     clinic_name: str | None = None
     phone: str | None = None
     avatar_url: str | None = None
+    lab_id: str | None = None
+    lab_name: str | None = None
+    pending_join: dict | None = None  # {id, lab_id, lab_name, created_at}
 
 
 # ── Admin / profiles ───────────────────────────────────────────────────────────

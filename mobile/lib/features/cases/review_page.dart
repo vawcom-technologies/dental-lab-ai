@@ -6,8 +6,8 @@ import '../../core/layout/adaptive.dart';
 import '../../core/navigation/app_page_routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
-import '../admin/admin_patients_page.dart' show PatientRecords;
-import '../admin/admin_widgets.dart';
+import '../../core/widgets/patient_records.dart';
+import '../../core/widgets/page_kit.dart';
 import 'case_panel.dart';
 import 'case_store.dart';
 

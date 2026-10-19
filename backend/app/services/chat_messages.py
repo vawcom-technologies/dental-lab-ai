@@ -13,6 +13,7 @@ from app.core.supabase_client import get_supabase_admin
 from app.schemas_chat import MessageOut, PatientMentionOut, ReplyPreviewOut
 from app.services.chat_manager import chat_manager
 from app.services.r2 import chat_key_from_url
+from app.services import labs
 from app.services.patient_access import (
     patient_display_name,
     require_patient_access,
@@ -186,6 +187,9 @@ async def insert_message_and_broadcast(
     mentioned_patients: list[dict[str, str]] | None = None,
 ) -> MessageOut:
     """Persist a message, bump conversation.updated_at, broadcast new_message."""
+    # Every sender path (websocket, media upload) ends here, so the rule lives here.
+    if not labs.can_message(sender_id, partner_id(conversation, sender_id)):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, {"detail": "You can't message this person.", "code": "CANNOT_MESSAGE"})
     conversation_id = str(conversation["id"])
     insert_row: dict[str, Any] = {
         "conversation_id": conversation_id,

@@ -196,6 +196,12 @@ def approve_signup(
             "unassigned_reason": None if lab_id else "no_lab",
             "unassigned_at": None if lab_id else now,
         }
+    try:
+        # Admin approval is the verification step: confirm the email in Supabase Auth
+        # too, or sign-in stays blocked with "email not confirmed".
+        _db().auth.admin.update_user_by_id(user_id, {"email_confirm": True})
+    except Exception as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Could not activate the login; try again") from exc
     _rows(_db().table("profiles").update(patch).eq("id", user_id))
     background_tasks.add_task(send_account_verified_email, p.get("name") or "", p.get("email") or "")
     logger.info("signup approved user_id=%s by=%s lab_id=%s", user_id, admin.id, lab_id)
@@ -571,51 +577,19 @@ def override_status(patient_id: str, body: StatusIn, admin: AuthUser = Depends(r
 def reassign_patient(patient_id: str, body: ReassignIn, admin: AuthUser = Depends(require_admin)):
     """To a dentist in `lab_id`, or (no dentist) to the lab, which then chooses one."""
     patient = _require_patient(patient_id)
-    lab = labs.require_lab(body.lab_id)
-    name = pa.patient_display_name(patient)
-    now = pa.utc_now_iso()
+    lab_id = str(labs.require_lab(body.lab_id)["id"])
     dentist_id = _opt(body.dentist_id)
     if dentist_id:
-        dentist = _require_profile(dentist_id, "dentist")
-        if dentist.get("deleted"):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "This dentist is deactivated")
-        if str(dentist.get("lab_id") or "") != str(lab["id"]):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Dentist is not in that lab")
-        patch = {"created_by": dentist_id, "unassigned_at": None, "waiting_lab_id": None}
-        # A share for the new owner would now be redundant.
-        _rows(
-            _db()
-            .table("patient_access")
-            .delete()
-            .eq("patient_id", patient_id)
-            .eq("user_id", dentist_id)
-        )
-        remarks, recipient = f"Assigned to {_name(dentist)} ({_name(lab)})", dentist_id
-        message = f"An administrator assigned {name} to you."
-    else:
-        patch = {"waiting_lab_id": str(lab["id"]), "unassigned_at": patient.get("unassigned_at") or now}
-        # The lab needs to see the patient to choose a dentist.
-        _rows(
-            _db()
-            .table("patient_access")
-            .upsert(
-                {
-                    "patient_id": patient_id,
-                    "user_id": str(lab["id"]),
-                    "granted_by": admin.id,
-                    "requested_by": admin.id,
-                    "approved_by": admin.id,
-                    "status": "approved",
-                    "created_at": now,
-                },
-                on_conflict="patient_id,user_id",
-            )
-        )
-        remarks, recipient = f"Waiting for {_name(lab)} to choose a dentist", str(lab["id"])
-        message = f"An administrator sent {name} to your lab. Choose a dentist for this patient."
-    _rows(_db().table("patients").update(patch | {"updated_at": now}).eq("id", patient_id))
-    case_status.log_event(patient_id, actor_id=admin.id, type="reassigned", remarks=remarks)
-    notify(user_id=recipient, type="case_status", message=message, patient_id=patient_id, actor_id=admin.id)
+        labs.assign_owner(patient, labs.require_active_dentist(dentist_id, lab_id), lab_id=lab_id, actor_id=admin.id)
+        return {"ok": True}
+    _rows(
+        _db().table("patients").update(
+            {"waiting_lab_id": lab_id, "unassigned_at": patient.get("unassigned_at") or pa.utc_now_iso(),
+             "updated_at": pa.utc_now_iso()}
+        ).eq("id", patient_id)
+    )
+    labs.open_transfer(patient, kind="handover", from_lab=None, to_lab=lab_id, actor_id=admin.id, status_="awaiting_recipient")
+    case_status.log_event(patient_id, actor_id=admin.id, type="reassigned", remarks="Waiting for the lab to choose a dentist")
     return {"ok": True}
 
 

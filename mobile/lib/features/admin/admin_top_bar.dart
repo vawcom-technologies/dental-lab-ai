@@ -400,7 +400,8 @@ class _ProfileChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
-    final name = (chrome.api.userName ?? '').trim().isEmpty ? loc.roleAdmin : chrome.api.userName!.trim();
+    final roleLabel = chrome.api.isAdmin ? loc.roleAdmin : loc.roleLab;
+    final name = (chrome.api.userName ?? '').trim().isEmpty ? roleLabel : chrome.api.userName!.trim();
     final compact = AppBreakpoints.isPhone(context);
     return Builder(
       builder: (anchor) => _RoundButton(
@@ -426,7 +427,7 @@ class _ProfileChip extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(name, style: AppFonts.style(fontSize: 13.5, fontWeight: FontWeight.w700, color: AppColors.navy)),
-                    Text(loc.roleAdmin, style: AppFonts.style(fontSize: 11.5, color: AppColors.muted)),
+                    Text(roleLabel, style: AppFonts.style(fontSize: 11.5, color: AppColors.muted)),
                   ],
                 ),
                 const SizedBox(width: 4),
@@ -480,6 +481,8 @@ class _ProfileMenu extends StatelessWidget {
           ),
         ),
         Divider(height: 1, color: AppColors.border.withValues(alpha: 0.5)),
+        // Only the admin may change photos (users can't change their own).
+        if (chrome.api.isAdmin)
         _PopoverRow(
           icon: Icons.photo_camera_outlined,
           label: loc.tr('avatar.changeMine'),
@@ -603,7 +606,11 @@ class _PopoverRow extends StatelessWidget {
 
 /// Search field that opens [AdminSearchPage], growing out of the field.
 class AdminSearchLauncher extends StatelessWidget {
-  const AdminSearchLauncher({super.key});
+  const AdminSearchLauncher({super.key, this.page, this.hint});
+
+  /// Page to grow into; the admin's dentists/labs search by default.
+  final Widget Function(AdminChrome chrome)? page;
+  final String? hint;
 
   @override
   Widget build(BuildContext context) {
@@ -619,7 +626,7 @@ class AdminSearchLauncher extends StatelessWidget {
                 final rect = box.localToGlobal(Offset.zero) & box.size;
                 Navigator.of(context).push(_ExpandRoute(
                   from: rect,
-                  page: AdminSearchPage(chrome: chrome),
+                  page: page?.call(chrome) ?? AdminSearchPage(chrome: chrome),
                 ));
               },
         builder: (_, _) => Container(
@@ -636,7 +643,7 @@ class AdminSearchLauncher extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  loc.tr('admin.searchHint'),
+                  hint ?? loc.tr('admin.searchHint'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppFonts.style(fontSize: 15, color: AppColors.muted),

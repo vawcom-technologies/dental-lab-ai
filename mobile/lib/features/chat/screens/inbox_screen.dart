@@ -8,6 +8,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/ui_kit.dart';
 import '../models/chat_models.dart';
 import '../state/chat_controller.dart';
+import '../../../core/widgets/page_kit.dart';
 
 /// Soft glass selection (iPadOS Messages / liquid glass).
 const _kSelectedGlass = Color(0x66FFFFFF);
@@ -63,14 +64,7 @@ class InboxScreen extends StatelessWidget {
           ),
         if (!embedded) const SizedBox(height: 12),
         Expanded(
-          child: GlassSurface(
-            borderRadius: BorderRadius.circular(28),
-            blur: 28,
-            tint: Colors.white.withValues(alpha: 0.42),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.72),
-              width: 1.1,
-            ),
+          child: AdminCard(
             padding: EdgeInsets.zero,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,

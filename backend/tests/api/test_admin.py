@@ -215,3 +215,28 @@ def test_failed_photo_upload_removes_the_new_account(auth_client, monkeypatch):
     monkeypatch.setattr(auth, "persist_signup_profile", lambda **k: pytest.fail("profile written"))
     r = auth_client.post("/api/auth/signup", json={**SIGNUP, "email": "ok@x.de"})
     assert r.status_code == 502 and removed == ["new1"]
+
+
+def test_right_password_on_unapproved_account_says_pending(auth_client, monkeypatch):
+    class Auth:
+        def sign_in_with_password(self, _):
+            raise Exception("Email not confirmed")
+
+    monkeypatch.setattr(auth, "get_supabase", lambda: type("C", (), {"auth": Auth()})())
+    monkeypatch.setattr(auth, "is_approved_email", lambda e: False)
+    r = auth_client.post("/api/auth/signin", json={"email": "ok@x.de", "password": "x"})
+    assert r.status_code == 403 and "pending admin verification" in r.json()["detail"]
+
+
+def test_approval_confirms_the_login_email(monkeypatch):
+    app = FastAPI()
+    app.include_router(admin.router, prefix="/api/admin")
+    app.dependency_overrides[require_admin] = lambda: AuthUser("admin", "a@x.de", "A", "admin")
+    confirmed = []
+    db = FakeDB()
+    db.auth.admin.update_user_by_id = lambda uid, attrs: confirmed.append((uid, attrs))
+    monkeypatch.setattr(admin, "_db", lambda: db)
+    monkeypatch.setattr(admin, "_require_pending", lambda uid: {"id": uid, "role": "laboratory", "name": "L", "email": "l@x.de"})
+    monkeypatch.setattr(admin, "send_account_verified_email", lambda *a: None)
+    r = TestClient(app).post("/api/admin/signups/u1/approve", json={})
+    assert r.status_code == 200 and confirmed == [("u1", {"email_confirm": True})]

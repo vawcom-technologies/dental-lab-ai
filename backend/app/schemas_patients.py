@@ -36,6 +36,9 @@ class PatientCreateRequest(BaseModel):
     address: str = Field(min_length=1)
     phone: str = Field(min_length=1, max_length=64)
     health_insurance: str = Field(min_length=1, max_length=255)
+    # Labs (and the admin) create patients for a dentist, or send them to another lab.
+    dentist_id: str | None = None
+    send_to_lab_id: str | None = None
 
     @field_validator("email")
     @classmethod

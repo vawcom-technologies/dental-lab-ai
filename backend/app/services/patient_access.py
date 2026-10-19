@@ -118,13 +118,31 @@ def is_admin(user_id: str) -> bool:
     return bool(profile) and str(profile.get("role") or "").strip().lower() == "admin"
 
 
+def has_open_ticket(patient_id: str, user_id: str) -> bool:
+    """A lab sees the full record while a sharing ticket or transfer waits on it."""
+    db = get_supabase_admin()
+    try:
+        if db.table("patient_access").select("id").eq("patient_id", patient_id).eq(
+            "status", "pending"
+        ).eq("ticket_lab_id", user_id).limit(1).execute().data:
+            return True
+        return bool(
+            db.table("lab_transfers").select("id").eq("patient_id", patient_id).or_(
+                f"and(status.eq.awaiting_sender,from_lab_id.eq.{user_id}),"
+                f"and(status.eq.awaiting_recipient,to_lab_id.eq.{user_id})"
+            ).limit(1).execute().data
+        )
+    except Exception as exc:
+        raise db_error(exc) from exc
+
+
 def has_patient_access(patient_id: str, user_id: str) -> bool:
     patient = fetch_patient(patient_id)
     if patient is None:
         return False
     if is_owner(patient, user_id):
         return True
-    return has_shared_access(patient_id, user_id) or is_admin(user_id)
+    return has_shared_access(patient_id, user_id) or is_admin(user_id) or has_open_ticket(patient_id, user_id)
 
 
 def require_owner(patient: dict[str, Any], user_id: str, *, message: str = OWNER_ONLY_DENIED) -> None:
@@ -139,7 +157,12 @@ def require_patient_access(patient_id: str, user_id: str) -> dict[str, Any]:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Patient not found",
         )
-    if is_owner(patient, user_id) or has_shared_access(patient_id, user_id) or is_admin(user_id):
+    if (
+        is_owner(patient, user_id)
+        or has_shared_access(patient_id, user_id)
+        or is_admin(user_id)
+        or has_open_ticket(patient_id, user_id)
+    ):
         return patient
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ACCESS_DENIED)
 

@@ -35,10 +35,14 @@ class UserProfile {
     return AppLocalizations.current.tr('c.user');
   }
 
+  /// Dentists: "Lab · Clinic" (how dentists are always shown); others:
+  /// clinic · role.
   String get subtitle {
+    final dentist = AppRoles.isDentist(role);
     final parts = <String>[
+      if (dentist && labName != null && labName!.trim().isNotEmpty) labName!.trim(),
       if (clinicName != null && clinicName!.trim().isNotEmpty) clinicName!.trim(),
-      if (role != null && role!.trim().isNotEmpty) AppRoles.label(role),
+      if (!dentist && role != null && role!.trim().isNotEmpty) AppRoles.label(role),
     ];
     return parts.join(' · ');
   }

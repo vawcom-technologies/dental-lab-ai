@@ -63,7 +63,7 @@ def list_active_staff_profiles() -> list[dict[str, Any]]:
         result = (
             get_supabase_admin()
             .table("profiles")
-            .select("id,name,email,phone,role,clinic_name,verified,deleted")
+            .select("id,name,email,phone,role,clinic_name,verified,deleted,lab_id,avatar_url")
             .or_("deleted.eq.false,deleted.is.null")
             .order("name", desc=False)
             .execute()
@@ -139,3 +139,18 @@ def lab_name(profile: dict[str, Any], labs: dict[str, dict[str, Any]] | None = N
         return None
     lab = (labs or {}).get(lab_id) if labs is not None else fetch_profile(lab_id)
     return (str((lab or {}).get("name") or "").strip()) or None
+
+
+def is_approved_email(email: str) -> bool:
+    """True when an active profile with this email was approved by the admin."""
+    result = (
+        get_supabase_admin()
+        .table("profiles")
+        .select("id")
+        .eq("email", (email or "").strip().lower())
+        .eq("verified", True)
+        .eq("deleted", False)
+        .limit(1)
+        .execute()
+    )
+    return bool(getattr(result, "data", None))

@@ -330,6 +330,7 @@ class _ContactTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final details = [
+      if (user.labName != null && user.labName!.isNotEmpty) user.labName!,
       if (user.clinicName != null && user.clinicName!.isNotEmpty)
         user.clinicName!,
       if (user.phone != null && user.phone!.isNotEmpty) user.phone!,

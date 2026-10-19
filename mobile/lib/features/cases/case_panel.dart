@@ -5,6 +5,7 @@ import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/l10n/date_formats.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/page_kit.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'case_store.dart';
 
@@ -59,7 +60,14 @@ Future<void> reviewCase(BuildContext context, CaseStore store, String patientId,
     );
     if (!ok) return;
   } else {
-    remarks = await AppDialogs.sheet<String>(context: context, builder: (_) => const _RemarksSheet());
+    remarks = await askRequiredText(
+      context,
+      title: loc.tr('case.rejectTitle'),
+      message: loc.tr('case.rejectMsg'),
+      hint: loc.tr('case.remarksRequired'),
+      confirmLabel: loc.tr('case.reject'),
+      destructive: true,
+    );
     if (remarks == null) return;
   }
   if (!context.mounted) return;
@@ -87,67 +95,6 @@ Future<bool> confirmCaseChange(BuildContext context, CaseInfo? info) async {
     message: loc.tr('case.reopenMsg'),
     confirmLabel: loc.tr('case.reopenGo'),
   );
-}
-
-class _RemarksSheet extends StatefulWidget {
-  const _RemarksSheet();
-
-  @override
-  State<_RemarksSheet> createState() => _RemarksSheetState();
-}
-
-class _RemarksSheetState extends State<_RemarksSheet> {
-  final _text = TextEditingController();
-
-  @override
-  void dispose() {
-    _text.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context);
-    final ok = _text.text.trim().isNotEmpty;
-    return Material(
-      type: MaterialType.transparency,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(loc.tr('case.rejectTitle'),
-                style: AppFonts.style(fontSize: 19, fontWeight: FontWeight.w700, color: AppColors.navy)),
-            const SizedBox(height: 6),
-            Text(loc.tr('case.rejectMsg'), style: AppFonts.style(fontSize: 13, color: AppColors.muted)),
-            const SizedBox(height: 14),
-            TextField(
-              controller: _text,
-              autofocus: true,
-              minLines: 3,
-              maxLines: 6,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(hintText: loc.tr('case.remarksRequired')),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                AppButtons.ghost(onPressed: () => Navigator.pop(context), label: loc.cancel),
-                const SizedBox(width: 8),
-                AppButtons.danger(
-                  onPressed: ok ? () => Navigator.pop(context, _text.text.trim()) : null,
-                  icon: Icons.close_rounded,
-                  label: loc.tr('case.reject'),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 // ── Widgets ────────────────────────────────────────────────────────────────
@@ -257,6 +204,29 @@ class _CasePanelState extends State<CasePanel> {
                   : loc.trp(info.sharedWithLab ? 'case.labShared' : 'case.labNotShared', {'lab': info.labName}),
               style: AppFonts.style(fontSize: 12.5, color: AppColors.muted),
             ),
+            if (info.owner case final o?) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  UserAvatar(name: '${o['name'] ?? ''}', url: o['avatar_url']?.toString(), size: 34),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('${o['name'] ?? '—'}',
+                            style: AppFonts.style(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.navy)),
+                        Text(
+                          // Dentists always appear as "Lab · Clinic".
+                          dentistPlace(loc, o['lab_name']?.toString(), o['clinic_name']?.toString()),
+                          style: AppFonts.style(fontSize: 12, color: AppColors.muted),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,

@@ -95,6 +95,10 @@ class AppSnackBars {
     }
   }
 
+  static OverlayEntry? _current;
+
+  /// Shown in the root overlay — above dialogs and sheets — so a toast
+  /// raised from inside one is never hidden behind it. One at a time.
   static void _show(
     BuildContext context, {
     required String message,
@@ -106,51 +110,139 @@ class AppSnackBars {
     VoidCallback? onTap,
     Duration duration = _duration,
   }) {
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    if (messenger == null) return;
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) return;
     final text = message.replaceFirst('Exception: ', '').trim();
     if (text.isEmpty) return;
 
     haptic?.call();
-    messenger.clearSnackBars();
-    messenger.showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
+    _current?.remove();
+    late final OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (_) => _Toast(
+        text: text,
+        background: background,
+        foreground: foreground,
+        border: border,
+        icon: icon,
+        onTap: onTap,
         duration: duration,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        padding: EdgeInsets.zero,
-        margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-        content: GestureDetector(
-          onTap: onTap,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: background,
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: border),
-              boxShadow: NeoShadows.soft(depth: 0.45),
-            ),
-            child: Row(
-              children: [
-                Icon(icon, color: foreground, size: 18),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    text,
-                    style: AppFonts.style(
-                      color: foreground,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                      height: 1.3,
+        onDone: () {
+          if (_current == entry) _current = null;
+          if (entry.mounted) entry.remove();
+        },
+      ),
+    );
+    _current = entry;
+    overlay.insert(entry);
+  }
+}
+
+/// Floating soft pill at the bottom: slides up, waits [duration], fades.
+/// Driven by animation controllers (no timers), so tests settle cleanly.
+class _Toast extends StatefulWidget {
+  const _Toast({
+    required this.text,
+    required this.background,
+    required this.foreground,
+    required this.border,
+    required this.icon,
+    required this.duration,
+    required this.onDone,
+    this.onTap,
+  });
+
+  final String text;
+  final Color background, foreground, border;
+  final IconData icon;
+  final Duration duration;
+  final VoidCallback onDone;
+  final VoidCallback? onTap;
+
+  @override
+  State<_Toast> createState() => _ToastState();
+}
+
+class _ToastState extends State<_Toast> with TickerProviderStateMixin {
+  late final _show = AnimationController(vsync: this, duration: const Duration(milliseconds: 280));
+  late final _hold = AnimationController(vsync: this, duration: widget.duration);
+  late final _curve = CurvedAnimation(parent: _show, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic);
+
+  @override
+  void initState() {
+    super.initState();
+    _show.forward().then((_) {
+      if (mounted) _hold.forward().then((_) => _dismiss());
+    });
+  }
+
+  Future<void> _dismiss() async {
+    if (!mounted) return;
+    await _show.reverse();
+    widget.onDone();
+  }
+
+  @override
+  void dispose() {
+    _show.dispose();
+    _hold.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.paddingOf(context).bottom + MediaQuery.viewInsetsOf(context).bottom;
+    return Positioned(
+      left: 20,
+      right: 20,
+      bottom: 20 + bottom,
+      child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 620),
+            child: FadeTransition(
+              opacity: _curve,
+              child: SlideTransition(
+                position: Tween(begin: const Offset(0, 0.4), end: Offset.zero).animate(_curve),
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: GestureDetector(
+                    onTap: () {
+                      widget.onTap?.call();
+                      _dismiss();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: widget.background,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: widget.border),
+                        boxShadow: NeoShadows.soft(depth: 0.45),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(widget.icon, color: widget.foreground, size: 18),
+                          const SizedBox(width: 10),
+                          Flexible(
+                            child: Text(
+                              widget.text,
+                              style: AppFonts.style(
+                                color: widget.foreground,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ],
+              ),
             ),
           ),
         ),
-      ),
     );
   }
 }

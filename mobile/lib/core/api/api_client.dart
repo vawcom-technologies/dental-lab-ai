@@ -56,6 +56,10 @@ class ApiClient {
   String? _clinicName;
   String? _phone;
   String? _avatarUrl;
+  String? _labId;
+  String? _labName;
+  Map<String, dynamic>? _pendingJoin;
+  bool _labKnown = false;
 
   String? get token => _token;
   String? get refreshToken => _refreshToken;
@@ -71,6 +75,32 @@ class ApiClient {
 
   /// Profile photo path/URL; show with [UserAvatar].
   String? get avatarUrl => _avatarUrl;
+
+  /// Dentists: their lab (null until a lab accepts them).
+  String? get labId => _labId;
+  String? get labName => _labName;
+
+  /// Dentists without a lab: their open join request `{id, lab_id,
+  /// lab_name, created_at}`, or null. From /me only.
+  Map<String, dynamic>? get pendingJoin => _pendingJoin;
+
+  /// A dentist must join a lab before using the app. False until the lab
+  /// info has been loaded (sign-in or /me), so a restored session doesn't
+  /// flash the lab picker.
+  bool get needsLab => isDentist && _labKnown && (_labId == null || _labId!.isEmpty);
+
+  /// Only fields present in [data] change (a token refresh may omit them).
+  void _applyLab(Map<String, dynamic> data, {required bool withPending}) {
+    if (data.containsKey('lab_id')) {
+      _labId = _asString(data['lab_id']);
+      _labKnown = true;
+    }
+    if (data.containsKey('lab_name')) _labName = data['lab_name'] as String?;
+    if (withPending && data.containsKey('pending_join')) {
+      final p = data['pending_join'];
+      _pendingJoin = p is Map ? Map<String, dynamic>.from(p) : null;
+    }
+  }
 
   void setToken(String? token) => _token = token;
 
@@ -114,6 +144,7 @@ class ApiClient {
     _clinicName = data['clinic_name'] as String?;
     _phone = data['phone'] as String?;
     _avatarUrl = data['avatar_url'] as String?;
+    _applyLab(data, withPending: false);
     unawaited(_persistTokens());
     _notifyAuthListeners();
   }
@@ -126,6 +157,7 @@ class ApiClient {
     _clinicName = data['clinic_name'] as String?;
     _phone = data['phone'] as String?;
     _avatarUrl = data['avatar_url'] as String? ?? _avatarUrl;
+    _applyLab(data, withPending: true);
   }
 
   void logout() {
@@ -139,6 +171,10 @@ class ApiClient {
     _clinicName = null;
     _phone = null;
     _avatarUrl = null;
+    _labId = null;
+    _labName = null;
+    _pendingJoin = null;
+    _labKnown = false;
     unawaited(_tokens.clear());
     unawaited(LocalEncryptedStore.clearAll());
     _notifyAuthListeners();
@@ -1319,6 +1355,67 @@ class ApiClient {
     return _decodeMap(res.body);
   }
 
+  // ── Lab (docs/roadmap.md, Phase 3) ───────────────────────────────────────
+  // [labId] is the signed-in lab's own id (the admin may pass any lab).
+
+  List<Map<String, dynamic>> _list(dynamic data) => data is List
+      ? data.whereType<Map>().map(Map<String, dynamic>.from).toList()
+      : const [];
+
+  Future<List<Map<String, dynamic>>> labDentists(String labId) async =>
+      _list(await _json('GET', 'labs/$labId/dentists'));
+
+  /// 409 when a removal request for this dentist is already pending.
+  Future<void> labRequestRemoval(String labId, {required String dentistId, required String reason}) =>
+      _json('POST', 'labs/$labId/removal-requests', body: {'dentist_id': dentistId, 'reason': reason});
+
+  /// Join requests to this lab and the lab's own removal requests.
+  Future<List<Map<String, dynamic>>> labRequests(String labId) async =>
+      _list(await _json('GET', 'labs/$labId/requests'));
+
+  Future<void> labDecideJoin(String labId, String requestId, {required bool accept}) =>
+      _json('POST', 'labs/$labId/requests/$requestId/${accept ? 'accept' : 'reject'}');
+
+  /// `{hidden_from_labs, hide_dentists}`.
+  Future<Map<String, dynamic>> labSettings(String labId) async =>
+      Map<String, dynamic>.from(await _json('GET', 'labs/$labId/settings') as Map);
+
+  /// Changes one or both; returns both.
+  Future<Map<String, dynamic>> updateLabSettings(String labId, {bool? hiddenFromLabs, bool? hideDentists}) async =>
+      Map<String, dynamic>.from(await _json('PATCH', 'labs/$labId/settings', body: {
+        'hidden_from_labs': ?hiddenFromLabs,
+        'hide_dentists': ?hideDentists,
+      }) as Map);
+
+  /// Dentist asks to join a lab. 409: already pending / already in a lab.
+  Future<void> requestJoinLab(String labId) => _json('POST', 'labs/$labId/join-requests');
+
+  /// Withdraw the dentist's own pending join request.
+  Future<void> withdrawJoinRequest() => _json('DELETE', 'labs/join-requests/mine');
+
+  /// Lab directory for pickers: `[{id, name, avatar_url}]`, hidden labs left out.
+  Future<List<Map<String, dynamic>>> searchLabs({String q = ''}) async =>
+      _list(await _json('GET', 'labs', query: {'q': q}));
+
+  Future<List<Map<String, dynamic>>> labTransfers(String labId) async =>
+      _list(await _json('GET', 'labs/$labId/transfers'));
+
+  Future<void> transferForward(String id) => _json('POST', 'transfers/$id/forward');
+
+  Future<void> transferAccept(String id, {required String dentistId}) =>
+      _json('POST', 'transfers/$id/accept', body: {'dentist_id': dentistId});
+
+  Future<void> transferReject(String id, {String? reason}) =>
+      _json('POST', 'transfers/$id/reject', body: {'reason': ?reason});
+
+  /// Owner asks to share with another lab: 400 not linked to a lab, 409 open.
+  Future<void> requestTransfer(String patientId, {required String toLabId}) =>
+      _json('POST', 'patients/$patientId/transfers', body: {'to_lab_id': toLabId});
+
+  /// Lab moves a patient to (or picks) one of its dentists. 403: not given it.
+  Future<void> assignPatient(String patientId, {required String dentistId}) =>
+      _json('POST', 'patients/$patientId/assign', body: {'dentist_id': dentistId});
+
   // ── Admin (contract in docs/roadmap.md, Phase 1) ────────────────────────
 
   /// Admin call; returns decoded JSON. GETs skip the cache: one admin action
@@ -1328,9 +1425,19 @@ class ApiClient {
     String path, {
     Map<String, String>? query,
     Object? body,
+  }) =>
+      _json(method, 'admin/$path', query: query, body: body);
+
+  /// JSON call to `/api/[path]` with flat error bodies; returns decoded JSON.
+  /// GETs skip the cache (these screens change each other's data).
+  Future<dynamic> _json(
+    String method,
+    String path, {
+    Map<String, String>? query,
+    Object? body,
   }) async {
     final q = {...?query}..removeWhere((_, v) => v.isEmpty);
-    final uri = Uri.parse('$baseUrl/api/admin/$path')
+    final uri = Uri.parse('$baseUrl/api/$path')
         .replace(queryParameters: q.isEmpty ? null : q);
     final req = http.Request(method, uri)
       ..headers.addAll(method == 'GET' ? _getHeaders(forceRefresh: true) : _jsonHeaders);

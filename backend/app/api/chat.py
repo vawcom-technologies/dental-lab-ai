@@ -26,6 +26,7 @@ from app.schemas_chat import (
     MessageOut,
 )
 from app.services import chat_messages as cm
+from app.services import labs
 from app.services.chat_manager import chat_manager
 from app.services.profiles import fetch_profile, lab_name
 
@@ -201,6 +202,8 @@ def get_or_create_conversation(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Target user not found",
         )
+    if not labs.can_message(user.id, target):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, {"detail": "You can't message this person.", "code": "CANNOT_MESSAGE"})
 
     user_a, user_b = _canonical_pair(user.id, target)
     logger.debug(
@@ -438,9 +441,11 @@ async def _ws_send_message(user: AuthUser, data: dict[str, Any]) -> None:
             mentioned_patients=mentions or None,
         )
     except HTTPException as exc:
+        # Structured details (e.g. CANNOT_MESSAGE) keep their code; say which conversation.
+        detail = exc.detail if isinstance(exc.detail, dict) else {"detail": str(exc.detail)}
         await chat_manager.send_json(
             user.id,
-            {"type": "error", "detail": str(exc.detail)},
+            {"type": "error", "conversation_id": conversation_id, **detail},
         )
     except Exception as exc:
         logger.warning("send_message error user_id=%s detail=%s", user.id, exc)

@@ -4,8 +4,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
-import '../../core/auth/app_roles.dart';
-import '../../core/l10n/date_formats.dart';
 import '../../core/haptics/app_haptics.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/layout/adaptive.dart';
@@ -13,11 +11,10 @@ import '../../core/navigation/app_page_routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../../shell/app_sidebar.dart';
-import '../chat/models/chat_models.dart';
-import '../chat/widgets/user_profile_sheet.dart';
 import 'admin_models.dart';
 import 'admin_signups_page.dart';
 import 'admin_top_bar.dart';
+import '../chat/widgets/quick_chat_card.dart';
 import 'admin_widgets.dart';
 
 typedef _Data = (AdminSummary, List<Signup>, List<AdminPatient>);
@@ -221,7 +218,7 @@ class AdminDashboardPage extends StatelessWidget {
           flex: 8,
           child: _row([
             (13, _appear(6, _recent(context, loc, patients, table: true))),
-            (7, _appear(7, _QuickChat(active: active))),
+            (7, _appear(7, QuickChatCard(active: active))),
           ]),
         ),
       ],
@@ -257,7 +254,7 @@ class AdminDashboardPage extends StatelessWidget {
           flex: 5,
           child: _row([
             (1, _appear(6, _recent(context, loc, patients, table: false))),
-            (1, _appear(7, _QuickChat(active: active))),
+            (1, _appear(7, QuickChatCard(active: active))),
           ]),
         ),
       ],
@@ -298,7 +295,7 @@ class AdminDashboardPage extends StatelessWidget {
         // Single column: these two size to their rows instead of a fixed box.
         _appear(6, _recent(context, loc, patients, table: false, fill: false)),
         const SizedBox(height: _gap),
-        _appear(7, _QuickChat(fill: false, active: active)),
+        _appear(7, QuickChatCard(fill: false, active: active)),
       ],
     );
   }
@@ -310,7 +307,7 @@ class AdminDashboardPage extends StatelessWidget {
   Widget _tiles(AppLocalizations loc, AdminSummary s, {required int cols, required double height}) {
     final open = s.cases('pending') + s.cases('in_progress') + s.cases('in_review');
     final tiles = [
-      _Kpi(
+      KpiTile(
         icon: Icons.how_to_reg_outlined,
         label: loc.tr('admin.tile.signups'),
         value: s.pendingSignups,
@@ -318,7 +315,7 @@ class AdminDashboardPage extends StatelessWidget {
         pill: s.pendingSignups > 0 ? (loc.tr('admin.pill.review'), AppColors.warning) : (loc.tr('admin.pill.clear'), AppColors.success),
         onTap: () => onOpen(AppNavItem.adminSignups, 0),
       ),
-      _Kpi(
+      KpiTile(
         icon: Icons.medical_services_outlined,
         label: loc.tr('admin.tile.dentists'),
         value: s.dentists,
@@ -328,7 +325,7 @@ class AdminDashboardPage extends StatelessWidget {
             : null,
         onTap: () => onOpen(AppNavItem.laboratories, s.unassignedDentists > 0 ? 1 : 0),
       ),
-      _Kpi(
+      KpiTile(
         icon: Icons.apartment_rounded,
         label: loc.tr('admin.tile.labs'),
         value: s.labs,
@@ -338,7 +335,7 @@ class AdminDashboardPage extends StatelessWidget {
             : null,
         onTap: () => onOpen(AppNavItem.laboratories, s.pendingRemovals > 0 ? 2 : 0),
       ),
-      _Kpi(
+      KpiTile(
         icon: Icons.folder_open_rounded,
         label: loc.tr('admin.tile.openCases'),
         value: open,
@@ -367,12 +364,12 @@ class AdminDashboardPage extends StatelessWidget {
   // ── Cards ────────────────────────────────────────────────────────────────
 
   Widget _signups(BuildContext context, AppLocalizations loc, List<Signup> signups, VoidCallback reload) {
-    return _Panel(
+    return PanelCard(
       title: loc.tr('admin.signupQueue'),
       subtitle: plural(loc, 'admin.waitingCount', signups.length),
       action: (loc.tr('admin.seeAll'), () => onOpen(AppNavItem.adminSignups, 0)),
       child: signups.isEmpty
-          ? _PanelEmpty(icon: Icons.task_alt_rounded, color: AppColors.success, text: loc.tr('admin.noSignups'))
+          ? PanelEmpty(icon: Icons.task_alt_rounded, color: AppColors.success, text: loc.tr('admin.noSignups'))
           : ListView(
               padding: EdgeInsets.zero,
               children: [
@@ -414,11 +411,11 @@ class AdminDashboardPage extends StatelessWidget {
         _Alert(Icons.cancel_outlined, AppColors.dentalBlue, 'admin.att.rejected', 'admin.att.rejectedSub',
             s.cases('rejected'), 'admin.sev.low', () => onOpen(AppNavItem.patients, 0)),
     ];
-    return _Panel(
+    return PanelCard(
       title: loc.tr('admin.attention'),
       subtitle: loc.tr('admin.attentionSub'),
       child: items.isEmpty
-          ? _PanelEmpty(icon: Icons.verified_rounded, color: AppColors.success, text: loc.tr('admin.att.none'))
+          ? PanelEmpty(icon: Icons.verified_rounded, color: AppColors.success, text: loc.tr('admin.att.none'))
           : ListView(
               padding: EdgeInsets.zero,
               children: [
@@ -439,7 +436,7 @@ class AdminDashboardPage extends StatelessWidget {
       (Icons.move_down_rounded, 'admin.qa.patients', AppColors.danger, s.unassignedPatients, AppNavItem.patients, 1),
       (Icons.block_rounded, 'admin.qa.rejectList', AppColors.review, 0, AppNavItem.adminSignups, 1),
     ];
-    return _Panel(
+    return PanelCard(
       title: loc.tr('admin.quickActions'),
       child: LayoutBuilder(
         builder: (context, c) {
@@ -517,13 +514,13 @@ class AdminDashboardPage extends StatelessWidget {
     final rows = patients.take(6).toList();
     TextStyle head = AppFonts.style(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.muted, letterSpacing: 0.5);
     TextStyle cell = AppFonts.style(fontSize: 13.5, color: AppColors.navy);
-    return _Panel(
+    return PanelCard(
       fill: fill,
       title: loc.tr('admin.recentPatients'),
       subtitle: loc.tr('admin.recentPatientsSub'),
       action: (loc.tr('admin.seeAll'), () => onOpen(AppNavItem.patients, 0)),
       child: rows.isEmpty
-          ? _PanelEmpty(icon: Icons.people_outline, color: AppColors.muted, text: loc.tr('admin.noPatients'))
+          ? PanelEmpty(icon: Icons.people_outline, color: AppColors.muted, text: loc.tr('admin.noPatients'))
           : Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -631,148 +628,6 @@ class AdminDashboardPage extends StatelessWidget {
 }
 
 // ── Pieces ────────────────────────────────────────────────────────────────
-
-/// White card with a title row; [child] fills the rest.
-class _Panel extends StatelessWidget {
-  const _Panel({required this.title, required this.child, this.subtitle, this.action, this.fill = true});
-
-  /// True: [child] fills a fixed-height card. False: card hugs [child].
-  final bool fill;
-  final String title;
-  final String? subtitle;
-  final (String, VoidCallback)? action;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return AdminCard(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
-      child: Column(
-        mainAxisSize: fill ? MainAxisSize.max : MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppFonts.style(fontSize: 17, fontWeight: FontWeight.w700, color: AppColors.navy, letterSpacing: -0.3)),
-                    if (subtitle != null)
-                      Text(subtitle!, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppFonts.style(fontSize: 12.5, color: AppColors.muted)),
-                  ],
-                ),
-              ),
-              if (action != null)
-                Pressable(
-                  onTap: action!.$2,
-                  scale: 0.94,
-                  builder: (_, _) => Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-                    child: Text(action!.$1,
-                        style: AppFonts.style(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.dentalBlue)),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (fill) Expanded(child: child) else child,
-        ],
-      ),
-    );
-  }
-}
-
-class _PanelEmpty extends StatelessWidget {
-  const _PanelEmpty({required this.icon, required this.color, required this.text});
-
-  final IconData icon;
-  final Color color;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AdminIcon(icon: icon, color: color, size: 48),
-            const SizedBox(height: 10),
-            Text(text, textAlign: TextAlign.center, style: AppFonts.style(fontSize: 13.5, fontWeight: FontWeight.w600, color: AppColors.navy)),
-          ],
-        ),
-      );
-}
-
-/// Tinted KPI tile: icon and status pill on top, label and number below.
-class _Kpi extends StatelessWidget {
-  const _Kpi({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.tint,
-    required this.onTap,
-    this.pill,
-  });
-
-  final IconData icon;
-  final String label;
-  final int value;
-  final Color tint;
-  final (String, Color)? pill;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Pressable(
-      onTap: onTap,
-      scale: 0.97,
-      builder: (_, pressed) => AnimatedContainer(
-        duration: AppMotion.fast,
-        padding: const EdgeInsets.fromLTRB(16, 12, 14, 12),
-        decoration: BoxDecoration(
-          color: Color.alphaBlend(tint.withValues(alpha: pressed ? 0.16 : 0.10), Colors.white),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, size: 24, color: tint),
-                const SizedBox(width: 8),
-                if (pill != null)
-                  Expanded(
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(999)),
-                      child: Text(pill!.$1,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppFonts.style(fontSize: 11, fontWeight: FontWeight.w700, color: pill!.$2)),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            const Spacer(),
-            Text(label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppFonts.style(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.navy.withValues(alpha: 0.7))),
-            const SizedBox(height: 2),
-            AdminCount(value,
-                style: AppFonts.style(fontSize: 28, fontWeight: FontWeight.w700, color: AppColors.navy, letterSpacing: -0.8)),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class _Alert {
   const _Alert(this.icon, this.color, this.title, this.sub, this.count, this.severity, this.onTap);
@@ -1089,398 +944,3 @@ class _DonutPainter extends CustomPainter {
   bool shouldRepaint(_DonutPainter old) => old.t != t || old.parts != parts;
 }
 
-/// Latest conversations. Tapping one opens the thread right here in the
-/// card (iOS push from the right); "Open" goes to the Messages page.
-class _QuickChat extends StatefulWidget {
-  const _QuickChat({this.fill = true, this.active = true});
-
-  final bool fill;
-
-  /// Dashboard visible; read receipts are only sent while it is.
-  final bool active;
-
-  @override
-  State<_QuickChat> createState() => _QuickChatState();
-}
-
-class _QuickChatState extends State<_QuickChat> {
-  Conversation? _open;
-  AdminChrome? _chrome;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _chrome = AdminChrome.maybeOf(context);
-  }
-
-  @override
-  void didUpdateWidget(_QuickChat old) {
-    super.didUpdateWidget(old);
-    if (_open == null || old.active == widget.active) return;
-    final chat = _chrome!.chat;
-    if (widget.active) {
-      // Messages may have switched the active thread meanwhile.
-      chat.openConversation(_open!);
-      chat.setViewingThread(true);
-    } else {
-      chat.setViewingThread(false);
-    }
-  }
-
-  @override
-  void dispose() {
-    if (_open != null) _chrome?.chat.setViewingThread(false);
-    super.dispose();
-  }
-
-  void _show(Conversation c) {
-    final chat = _chrome!.chat;
-    setState(() => _open = c);
-    chat.openConversation(c);
-    chat.setViewingThread(true);
-  }
-
-  void _back() {
-    _chrome!.chat.setViewingThread(false);
-    setState(() => _open = null);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context);
-    final chrome = _chrome;
-    if (chrome == null) return const SizedBox.shrink();
-    final fill = widget.fill;
-    return ListenableBuilder(
-      listenable: chrome.chat,
-      builder: (context, _) {
-        final convs = [...chrome.chat.conversations]
-          ..sort((a, b) => (b.updatedAt ?? DateTime(0)).compareTo(a.updatedAt ?? DateTime(0)));
-        final open = _open;
-        final Widget body;
-        if (open != null) {
-          body = KeyedSubtree(
-            key: const ValueKey('thread'),
-            child: _InlineThread(
-              conv: open,
-              onBack: _back,
-              // Single column: give the thread a fixed body height.
-              height: fill ? null : 360,
-            ),
-          );
-        } else if (convs.isEmpty) {
-          body = KeyedSubtree(
-            key: const ValueKey('list'),
-            child: _PanelEmpty(icon: Icons.chat_bubble_outline_rounded, color: AppColors.dentalBlue, text: loc.tr('admin.noChats')),
-          );
-        } else {
-          body = ListView(
-            key: const ValueKey('list'),
-            shrinkWrap: !fill,
-            physics: fill ? null : const NeverScrollableScrollPhysics(),
-            padding: EdgeInsets.zero,
-            children: [
-              for (final (i, c) in convs.take(5).indexed)
-                AdminAppear(index: i, child: _ChatRow(conv: c, onTap: () => _show(c))),
-            ],
-          );
-        }
-        return _Panel(
-          fill: fill,
-          title: loc.tr('admin.quickChat'),
-          subtitle: chrome.chat.totalUnread > 0 ? plural(loc, 'admin.unreadCount', chrome.chat.totalUnread) : loc.tr('admin.quickChatSub'),
-          // Open: the Messages page, on this thread if one is showing.
-          action: (
-            loc.tr('admin.openMessages'),
-            () => open == null ? chrome.onOpen(AppNavItem.messages, 0) : chrome.openChat(open),
-          ),
-          child: ClipRect(
-            child: AnimatedSize(
-              duration: AppMotion.normal,
-              curve: AppMotion.spring,
-              alignment: Alignment.topCenter,
-              child: AnimatedSwitcher(
-                duration: AppMotion.page,
-                reverseDuration: AppMotion.page,
-                switchInCurve: AppMotion.spring,
-                switchOutCurve: AppMotion.spring,
-                layoutBuilder: (current, previous) => Stack(
-                  alignment: Alignment.topCenter,
-                  fit: fill ? StackFit.expand : StackFit.loose,
-                  children: [...previous, ?current],
-                ),
-                transitionBuilder: (child, a) {
-                  // Thread pushes in from the right; the list sits slightly left
-                  // underneath, like a navigation stack.
-                  final thread = child.key == const ValueKey('thread');
-                  return SlideTransition(
-                    position: Tween(
-                      begin: thread ? const Offset(1, 0) : const Offset(-0.3, 0),
-                      end: Offset.zero,
-                    ).animate(a),
-                    child: FadeTransition(opacity: thread ? const AlwaysStoppedAnimation(1) : a, child: child),
-                  );
-                },
-                child: body,
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// One conversation inside the quick chat card: header with back, messages,
-/// and a composer.
-class _InlineThread extends StatefulWidget {
-  const _InlineThread({required this.conv, required this.onBack, this.height});
-
-  final Conversation conv;
-  final VoidCallback onBack;
-  final double? height;
-
-  @override
-  State<_InlineThread> createState() => _InlineThreadState();
-}
-
-class _InlineThreadState extends State<_InlineThread> {
-  final _text = TextEditingController();
-
-  @override
-  void dispose() {
-    _text.dispose();
-    super.dispose();
-  }
-
-  void _send(AdminChrome chrome) {
-    final t = _text.text.trim();
-    if (t.isEmpty) return;
-    chrome.chat.sendText(t);
-    _text.clear();
-    setState(() {});
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context);
-    final chrome = AdminChrome.maybeOf(context)!;
-    final chat = chrome.chat;
-    final c = widget.conv;
-    final name = (c.partner.name ?? '').trim().isEmpty ? (c.partner.email ?? '—') : c.partner.name!.trim();
-    final showing = chat.activeConversation?.id == c.id;
-    final messages = showing ? chat.messages : const <Message>[];
-    final me = chat.currentUserId;
-
-    final list = !showing || (chat.loadingMessages && messages.isEmpty)
-        ? const Center(child: CupertinoActivityIndicator())
-        : messages.isEmpty
-            ? Center(
-                child: Text(loc.tr('admin.chatEmpty'), style: AppFonts.style(fontSize: 13, color: AppColors.muted)),
-              )
-            : ListView.builder(
-                reverse: true,
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                itemCount: messages.length,
-                itemBuilder: (context, i) {
-                  final m = messages[messages.length - 1 - i];
-                  return _Bubble(message: m, mine: m.senderId == me);
-                },
-              );
-
-    final column = Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            AppButtons.icon(onPressed: widget.onBack, icon: Icons.arrow_back_ios_new_rounded, tooltip: loc.tr('admin.back')),
-            Expanded(
-              child: Pressable(
-                onTap: () => showUserProfileSheet(context, c.partner),
-                scale: 0.98,
-                builder: (_, _) => Row(
-                  children: [
-                    UserAvatar(name: name, url: c.partner.avatarUrl, size: 32),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                              style: AppFonts.style(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.navy)),
-                          if (c.partner.role != null)
-                            Text(AppRoles.label(c.partner.role, loc),
-                                style: AppFonts.style(fontSize: 11.5, color: AppColors.muted)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-        Divider(height: 12, color: AppColors.border.withValues(alpha: 0.5)),
-        if (widget.height == null) Expanded(child: list) else SizedBox(height: widget.height, child: list),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: CupertinoTextField(
-                controller: _text,
-                placeholder: loc.tr('admin.chatPlaceholder'),
-                minLines: 1,
-                maxLines: 4,
-                textInputAction: TextInputAction.send,
-                onSubmitted: (_) => _send(chrome),
-                onChanged: (_) => setState(() {}),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                style: AppFonts.style(fontSize: 14.5, color: AppColors.navy),
-                decoration: BoxDecoration(
-                  color: AppColors.surface.withValues(alpha: 0.7),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            AnimatedScale(
-              scale: _text.text.trim().isEmpty ? 0.85 : 1,
-              duration: AppMotion.fast,
-              curve: AppMotion.spring,
-              child: Pressable(
-                onTap: _text.text.trim().isEmpty ? null : () => _send(chrome),
-                enabled: _text.text.trim().isNotEmpty,
-                scale: 0.9,
-                builder: (_, _) => AnimatedContainer(
-                  duration: AppMotion.fast,
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: _text.text.trim().isEmpty ? AppColors.border : AppColors.navy,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Tooltip(
-                    message: loc.tr('admin.send'),
-                    child: const Icon(Icons.arrow_upward_rounded, size: 20, color: Colors.white),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-    return column;
-  }
-}
-
-class _Bubble extends StatelessWidget {
-  const _Bubble({required this.message, required this.mine});
-
-  final Message message;
-  final bool mine;
-
-  @override
-  Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context);
-    final m = message;
-    final media = m.isImage
-        ? (Icons.photo_outlined, loc.tr('admin.chatPhoto'))
-        : m.isVoice
-            ? (Icons.mic_none_rounded, loc.tr('admin.chatVoice'))
-            : m.isVideo
-                ? (Icons.videocam_outlined, loc.tr('admin.chatVideo'))
-                : m.hasMedia
-                    ? (Icons.description_outlined, loc.tr('admin.chatDocument'))
-                    : null;
-    final fg = mine ? Colors.white : AppColors.navy;
-    return Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 280),
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 3),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: mine ? AppColors.navy : AppColors.surface.withValues(alpha: 0.8),
-            borderRadius: BorderRadius.only(
-              topLeft: const Radius.circular(16),
-              topRight: const Radius.circular(16),
-              bottomLeft: Radius.circular(mine ? 16 : 4),
-              bottomRight: Radius.circular(mine ? 4 : 16),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-            children: [
-              if (media != null)
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(media.$1, size: 16, color: fg),
-                    const SizedBox(width: 6),
-                    Text(media.$2, style: AppFonts.style(fontSize: 13.5, fontWeight: FontWeight.w600, color: fg)),
-                  ],
-                ),
-              if (m.content.trim().isNotEmpty)
-                Text(m.content, style: AppFonts.style(fontSize: 13.5, height: 1.3, color: fg)),
-              if (m.createdAt != null)
-                Text(
-                  formatAppTime(context, m.createdAt!.toLocal()),
-                  style: AppFonts.style(fontSize: 10.5, color: fg.withValues(alpha: 0.6)),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ChatRow extends StatelessWidget {
-  const _ChatRow({required this.conv, required this.onTap});
-
-  final Conversation conv;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final name = (conv.partner.name ?? '').trim().isEmpty ? (conv.partner.email ?? '—') : conv.partner.name!.trim();
-    final unread = conv.unreadCount > 0;
-    return Pressable(
-      onTap: onTap,
-      scale: 0.98,
-      builder: (_, pressed) => AnimatedContainer(
-        duration: AppMotion.fast,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
-        decoration: BoxDecoration(
-          color: pressed ? AppColors.surface : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            UserAvatar(name: name, url: conv.partner.avatarUrl, size: 38),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: AppFonts.style(fontSize: 14, fontWeight: unread ? FontWeight.w700 : FontWeight.w600, color: AppColors.navy)),
-                  Text(conv.lastMessage?.content ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: AppFonts.style(fontSize: 12.5, color: unread ? AppColors.navy : AppColors.muted)),
-                ],
-              ),
-            ),
-            if (unread)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                decoration: BoxDecoration(color: AppColors.dentalBlue, borderRadius: BorderRadius.circular(999)),
-                child: Text('${conv.unreadCount}', style: AppFonts.style(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white)),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
