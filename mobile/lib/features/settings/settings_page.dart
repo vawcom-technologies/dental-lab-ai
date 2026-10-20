@@ -17,15 +17,23 @@ import 'change_password_screen.dart';
 import '../../core/errors/user_facing_error.dart';
 import '../../core/widgets/page_kit.dart';
 import '../lab/dentist_lab_settings.dart';
+import '../admin/admin_signups_page.dart';
 import '../lab/lab_page.dart';
 
 const _kHairline = Color(0xFFC6C6C8);
 
 /// Glassy iPadOS Settings with full account deletion.
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key, required this.api});
+  const SettingsPage({super.key, required this.api, this.tab, this.active = true});
 
   final ApiClient api;
+
+  /// Selected section, owned by the shell so other pages can deep-link.
+  final ValueNotifier<int>? tab;
+  final bool active;
+
+  /// Section index of the admin reject list, for deep links.
+  static final rejectListTab = _Section.rejectList.index;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -35,12 +43,6 @@ class _SettingsPageState extends State<SettingsPage> {
   AppSettings? _settings;
   bool _loading = true;
   bool _deleting = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _bootstrap();
-  }
 
   Future<void> _bootstrap() async {
     setState(() {
@@ -138,343 +140,445 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _bootstrap();
+    widget.tab?.addListener(_onDeepLink);
+  }
+
+  @override
+  void dispose() {
+    widget.tab?.removeListener(_onDeepLink);
+    super.dispose();
+  }
+
+  /// Dashboard / top bar asked for a section; on narrow screens push it.
+  void _onDeepLink() {
+    final i = widget.tab!.value;
+    if (_split || i <= 0 || i >= _Section.values.length) return;
+    final section = _Section.values[i];
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _sections().contains(section)) _push(section);
+    });
+  }
+
+  /// Wide enough for list + detail side by side.
+  bool _split = false;
+
+  ValueNotifier<int> get _tab => widget.tab ?? _ownTab;
+  late final _ownTab = ValueNotifier(0);
+
+  List<_Section> _sections() {
+    final api = widget.api;
+    return [
+      _Section.account,
+      if (api.isDentist || (api.isLaboratory && (api.userId ?? '').isNotEmpty)) _Section.lab,
+      // Auto-analysis is chairside dentist work.
+      if (api.isDentist) _Section.ai,
+      _Section.notifications,
+      _Section.language,
+      if (api.isAdmin) _Section.rejectList,
+      _Section.about,
+    ];
+  }
+
+  (IconData, Color, String, String?) _meta(AppLocalizations loc, _Section s) => switch (s) {
+        _Section.account => (CupertinoIcons.person_crop_circle_fill, AppColors.dentalBlue, loc.tr('settings.sec.account'), loc.securitySub),
+        _Section.lab => (
+            CupertinoIcons.building_2_fill,
+            AppColors.navy,
+            widget.api.isLaboratory ? loc.tr('lab.tab.settings') : loc.tr('settings.sec.myLab'),
+            null,
+          ),
+        _Section.ai => (CupertinoIcons.sparkles, AppColors.aiPurple, loc.settingsAiTitle, loc.settingsAiSub),
+        _Section.notifications => (CupertinoIcons.bell_fill, AppColors.danger, loc.settingsNotificationsTitle, loc.settingsNotificationsSub),
+        _Section.language => (CupertinoIcons.globe, const Color(0xFF5AC8FA), loc.settingsLanguageTitle, loc.settingsLanguageSub),
+        _Section.rejectList => (CupertinoIcons.nosign, AppColors.review, loc.tr('admin.rejectList'), loc.tr('settings.sec.rejectSub')),
+        _Section.about => (CupertinoIcons.info_circle_fill, AppColors.dentalBlue, loc.aboutTitle, null),
+      };
+
+  void _push(_Section s) {
+    final loc = AppLocalizations.of(context);
+    final (_, _, title, _) = _meta(loc, s);
+    Navigator.of(context).push(
+      AppPageRoutes.cupertino(
+        Scaffold(
+          backgroundColor: AppColors.surface,
+          appBar: AppBar(
+            backgroundColor: AppColors.surface,
+            foregroundColor: AppColors.navy,
+            elevation: 0,
+            title: Text(title),
+          ),
+          // Toggles change [_settings]; rebuild the pushed page with them.
+          body: SafeArea(
+            child: StatefulBuilder(
+              builder: (context, setLocal) => _content(context, s, padding: AppBreakpoints.pagePadding(context), refresh: () => setLocal(() {})),
+            ),
+          ),
+        ),
+        title: title,
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
-    if (_loading) {
-      return Center(
-        child: ToothPageLoader(message: loc.settingsLoading),
+    if (_loading) return ToothPageLoader(message: loc.settingsLoading);
+    if (_settings == null) {
+      return AdminEmpty(
+        icon: Icons.cloud_off_rounded,
+        title: loc.settingsLoadError,
+        subtitle: '',
+        action: AppButtons.secondary(onPressed: _bootstrap, icon: Icons.refresh_rounded, label: loc.tr('admin.retry')),
       );
     }
-    final s = _settings;
-    if (s == null) {
-      return Center(
+    final sections = _sections();
+    return BusyBarrier(
+      busy: _deleting,
+      message: loc.settingsDeletingAccount,
+      child: Padding(
+        padding: AppBreakpoints.pagePadding(context),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              loc.settingsLoadError,
-              style: AppFonts.style(
-                color: AppColors.muted,
-                fontWeight: FontWeight.w500,
+            PageHeader(
+              icon: Icons.settings_outlined,
+              title: loc.settingsTitle,
+              subtitle: loc.tr('settings.sub'),
+              actions: [
+                AppButtons.secondary(
+                  icon: Icons.logout_rounded,
+                  label: loc.signOut,
+                  onPressed: _deleting ? null : _signOut,
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, box) {
+                  _split = box.maxWidth >= 860;
+                  return ValueListenableBuilder<int>(
+                    valueListenable: _tab,
+                    builder: (context, t, _) {
+                      final current = t >= 0 && t < _Section.values.length && sections.contains(_Section.values[t])
+                          ? _Section.values[t]
+                          : _Section.account;
+                      final list = _sectionList(loc, sections, _split ? current : null);
+                      if (!_split) return list;
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SizedBox(width: (box.maxWidth * 0.34).clamp(280.0, 360.0), child: list),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: AdminCard(
+                              padding: EdgeInsets.zero,
+                              child: AppSwitcher(
+                                child: KeyedSubtree(
+                                  key: ValueKey(current),
+                                  child: _content(context, current, padding: const EdgeInsets.all(22)),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                },
               ),
             ),
-            const SizedBox(height: 12),
-            TextButton(
-              onPressed: _bootstrap,
-              child: Text(loc.refresh),
-            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Profile card + the section rows. [selected] highlights a row (split).
+  Widget _sectionList(AppLocalizations loc, List<_Section> sections, _Section? selected) {
+    final api = widget.api;
+    final name = (api.userName ?? '').trim().isEmpty ? loc.settingsAccountFallback : api.userName!.trim();
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
+      children: [
+        AdminCard(
+          onTap: () => _open(_Section.account),
+          child: Row(
+            children: [
+              UserAvatar(name: name, url: api.avatarUrl, size: 52),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppFonts.style(fontSize: 17, fontWeight: FontWeight.w700, color: AppColors.navy)),
+                    Text(
+                      [AppRoles.label(api.role, loc), ?((api.email ?? '').trim().isEmpty ? null : api.email!.trim())].join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppFonts.style(fontSize: 12.5, color: AppColors.muted),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        AdminCard(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Column(
+            children: [
+              for (final (i, s) in sections.where((s) => s != _Section.account).indexed) ...[
+                if (i > 0) Divider(height: 1, indent: 58, color: AppColors.border.withValues(alpha: 0.5)),
+                _SectionRow(
+                  meta: _meta(loc, s),
+                  selected: selected == s,
+                  onTap: () => _open(s),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _open(_Section s) {
+    if (_split) {
+      _tab.value = s.index;
+    } else {
+      _push(s);
+    }
+  }
+
+  /// One section's controls. [refresh] rebuilds a pushed page after a toggle.
+  Widget _content(BuildContext context, _Section section, {required EdgeInsets padding, VoidCallback? refresh}) {
+    final loc = AppLocalizations.of(context);
+    final api = widget.api;
+    final s = _settings!;
+    Future<void> persist(void Function(AppSettings s) mutate) async {
+      await _persist(mutate);
+      refresh?.call();
+    }
+
+    final (_, _, title, sub) = _meta(loc, section);
+    // Pushed pages show the title in the app bar; the description always.
+    Widget heading() => Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (refresh == null)
+                Text(title, style: AppFonts.style(fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.navy)),
+              if (sub != null) ...[
+                const SizedBox(height: 4),
+                Text(sub, style: AppFonts.style(fontSize: 13.5, color: AppColors.muted, height: 1.35)),
+              ],
+            ],
+          ),
+        );
+    final showHeading = refresh == null || sub != null;
+
+    if (section == _Section.rejectList) {
+      return Padding(
+        padding: padding,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (showHeading) heading(),
+            Expanded(child: RejectList(api: api, active: widget.active)),
           ],
         ),
       );
     }
+    if (section == _Section.about) return AboutContent(api: api, padding: padding);
 
-    final api = widget.api;
-    final name = (api.userName ?? '').trim().isEmpty
-        ? loc.settingsAccountFallback
-        : api.userName!.trim();
-    final email = (api.email ?? '').trim();
-    final clinic = (api.clinicName ?? '').trim();
-    final role = AppRoles.label(api.role, loc);
-
-    return BusyBarrier(
-      busy: _deleting,
-      message: loc.settingsDeletingAccount,
-      child: CustomScrollView(
-        primary: false,
-        physics: const BouncingScrollPhysics(
-          parent: AlwaysScrollableScrollPhysics(),
-        ),
-        slivers: [
-          SliverPadding(
-            padding: AppBreakpoints.pagePadding(context).copyWith(bottom: 8),
-            sliver: SliverToBoxAdapter(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  const PhoneMenuButton(),
-                  Expanded(
-                    child: Text(
-                      loc.settingsTitle,
-                      style: AppFonts.style(
-                        fontSize: AppBreakpoints.isPhone(context) ? 28 : 34,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.navy,
-                        letterSpacing: -0.6,
-                        height: 1.1,
-                      ),
-                    ),
-                  ),
-                  AppButtons.glass(
-                    icon: Icons.logout_rounded,
-                    label: loc.signOut,
-                    onPressed: _deleting ? null : _signOut,
-                  ),
-                ],
-              ),
-            ),
+    final List<Widget> body = switch (section) {
+      _Section.account => [
+          _GlassProfileHero(
+            name: (api.userName ?? '').trim().isEmpty ? loc.settingsAccountFallback : api.userName!.trim(),
+            email: (api.email ?? '').trim(),
+            clinic: (api.clinicName ?? '').trim(),
+            role: AppRoles.label(api.role, loc),
+            lab: api.isDentist ? (api.labName ?? '') : '',
           ),
-          SliverPadding(
-            padding: AppBreakpoints.pagePadding(context).copyWith(top: 8, bottom: 36),
-            sliver: SliverLayoutBuilder(
-              builder: (context, constraints) {
-                final wide = constraints.crossAxisExtent >= 900;
-                final profile = _GlassProfileHero(
-                  name: name,
-                  email: email,
-                  clinic: clinic,
-                  role: role,
-                  lab: widget.api.isDentist ? (widget.api.labName ?? '') : '',
-                );
-                final account = _GlassSettingsGroup(
-                  footer: loc.securitySub,
-                  children: [
-                    _GlassNavRow(
-                      icon: CupertinoIcons.lock_fill,
-                      iconBg: const Color(0xFF8E8E93),
-                      title: loc.updatePassword,
-                      onTap: () {
-                        Navigator.of(context).push(
-                          AppPageRoutes.cupertino(
-                            ChangePasswordScreen(api: api),
-                            title: loc.updatePassword,
-                          ),
-                        );
-                      },
-                    ),
-                    Container(
-                      height: 0.5,
-                      margin: const EdgeInsets.only(left: 58),
-                      color: Colors.black.withValues(alpha: 0.08),
-                    ),
-                    _GlassNavRow(
-                      icon: CupertinoIcons.person_crop_circle_badge_minus,
-                      iconBg: const Color(0xFFAEAEB2),
-                      title: loc.settingsDeleteAccount,
-                      titleColor: AppColors.muted,
-                      showChevron: false,
-                      onTap: _deleting ? null : _deleteAccount,
-                    ),
-                  ],
-                );
-                final ai = _GlassSettingsGroup(
-                  header: loc.settingsAiTitle.toUpperCase(),
-                  footer: loc.settingsAiSub,
-                  children: [
-                    _GlassToggleRow(
-                      icon: CupertinoIcons.sparkles,
-                      iconBg: AppColors.aiPurple,
-                      title: loc.settingsAutoShade,
-                      subtitle: loc.settingsAutoShadeSub,
-                      value: s.autoShade,
-                      onChanged: (v) => _persist((x) => x.autoShade = v),
-                      showDivider: true,
-                    ),
-                    _GlassToggleRow(
-                      icon: CupertinoIcons.checkmark_seal_fill,
-                      iconBg: AppColors.dentalBlue,
-                      title: loc.settingsAutoQuality,
-                      subtitle: loc.settingsAutoQualitySub,
-                      value: s.autoScanQuality,
-                      onChanged: (v) =>
-                          _persist((x) => x.autoScanQuality = v),
-                      showDivider: false,
-                    ),
-                    // Scan body parked — restore when needed.
-                    // _GlassToggleRow(
-                    //   icon: CupertinoIcons.circle_grid_3x3_fill,
-                    //   iconBg: const Color(0xFF34C759),
-                    //   title: loc.settingsAutoScanBody,
-                    //   subtitle: loc.settingsAutoScanBodySub,
-                    //   value: s.autoScanBody,
-                    //   onChanged: (v) => _persist((x) => x.autoScanBody = v),
-                    //   showDivider: false,
-                    // ),
-                  ],
-                );
-                final notify = _GlassSettingsGroup(
-                  header: loc.settingsNotificationsTitle.toUpperCase(),
-                  footer: loc.settingsNotificationsSub,
-                  children: [
-                    _GlassToggleRow(
-                      icon: CupertinoIcons.bell_fill,
-                      iconBg: AppColors.danger,
-                      title: loc.settingsNotifyMaster,
-                      subtitle: loc.settingsNotifyMasterSub,
-                      value: s.notificationsEnabled,
-                      onChanged: (v) =>
-                          _persist((x) => x.notificationsEnabled = v),
-                      showDivider: false,
-                    ),
-                  ],
-                );
-                final language = _GlassSettingsGroup(
-                  header: loc.settingsLanguageTitle.toUpperCase(),
-                  footer: loc.settingsLanguageSub,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(
-                            loc.settingsAppLanguage,
-                            style: AppFonts.style(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                              color: AppColors.muted,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          CupertinoSlidingSegmentedControl<String>(
-                            groupValue: s.language == 'de' ? 'de' : 'en',
-                            backgroundColor:
-                                Colors.white.withValues(alpha: 0.35),
-                            thumbColor: Colors.white.withValues(alpha: 0.92),
-                            children: {
-                              'en': Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 8),
-                                child: Text(loc.languageEnglish),
-                              ),
-                              'de': Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 8),
-                                child: Text(loc.languageGerman),
-                              ),
-                            },
-                            onValueChanged: (code) {
-                              if (code == null) return;
-                              _setLanguage(code);
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                );
-                final about = _GlassSettingsGroup(
-                  children: [
-                    _GlassNavRow(
-                      icon: CupertinoIcons.info_circle_fill,
-                      iconBg: AppColors.dentalBlue,
-                      title: loc.aboutTitle,
-                      onTap: () {
-                        Navigator.of(context).push(
-                          AppPageRoutes.cupertino(
-                            AboutPage(api: api),
-                            title: loc.aboutTitle,
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                );
-                final labId = api.userId ?? '';
-                final labVisibility = api.isLaboratory && labId.isNotEmpty
-                    ? Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.only(left: 4, bottom: 8),
-                            child: Text(
-                              loc.tr('lab.tab.settings').toUpperCase(),
-                              style: AppFonts.style(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.muted,
-                                letterSpacing: 0.4,
-                              ),
-                            ),
-                          ),
-                          LabVisibilitySettings(api: api, labId: labId),
-                        ],
-                      )
-                    : null;
-                final dentistLab = api.isDentist
-                    ? DentistLabSettings(api: api)
-                    : null;
-                if (!wide) {
-                  return SliverList(
-                    delegate: SliverChildListDelegate([
-                      profile,
-                      const SizedBox(height: 20),
-                      account,
-                      if (dentistLab != null) ...[
-                        const SizedBox(height: 20),
-                        dentistLab,
-                      ],
-                      if (labVisibility != null) ...[
-                        const SizedBox(height: 20),
-                        labVisibility,
-                      ],
-                      const SizedBox(height: 20),
-                      ai,
-                      const SizedBox(height: 20),
-                      notify,
-                      const SizedBox(height: 20),
-                      language,
-                      const SizedBox(height: 20),
-                      about,
-                    ]),
-                  );
-                }
-
-                return SliverToBoxAdapter(
-                  child: Column(
-                    children: [
-                      profile,
-                      const SizedBox(height: 20),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Column(
-                              children: [
-                                account,
-                                if (dentistLab != null) ...[
-                                  const SizedBox(height: 20),
-                                  dentistLab,
-                                ],
-                                if (labVisibility != null) ...[
-                                  const SizedBox(height: 20),
-                                  labVisibility,
-                                ],
-                                const SizedBox(height: 20),
-                                notify,
-                                const SizedBox(height: 20),
-                                language,
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 20),
-                          Expanded(
-                            child: Column(
-                              children: [
-                                ai,
-                                const SizedBox(height: 20),
-                                about,
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
+          const SizedBox(height: 20),
+          _GlassSettingsGroup(
+            header: loc.security.toUpperCase(),
+            children: [
+              _GlassNavRow(
+                icon: CupertinoIcons.lock_fill,
+                iconBg: const Color(0xFF8E8E93),
+                title: loc.updatePassword,
+                onTap: () => Navigator.of(context).push(
+                  AppPageRoutes.cupertino(ChangePasswordScreen(api: api), title: loc.updatePassword),
+                ),
+              ),
+              Container(height: 0.5, margin: const EdgeInsets.only(left: 58), color: Colors.black.withValues(alpha: 0.08)),
+              _GlassNavRow(
+                icon: CupertinoIcons.person_crop_circle_badge_minus,
+                iconBg: AppColors.danger,
+                title: loc.settingsDeleteAccount,
+                titleColor: AppColors.danger,
+                showChevron: false,
+                onTap: _deleting ? null : _deleteAccount,
+              ),
+            ],
           ),
         ],
+      _Section.lab => [
+          if (api.isDentist) DentistLabSettings(api: api) else LabVisibilitySettings(api: api, labId: api.userId ?? ''),
+        ],
+      _Section.ai => [
+          _GlassSettingsGroup(
+            children: [
+              _GlassToggleRow(
+                icon: CupertinoIcons.sparkles,
+                iconBg: AppColors.aiPurple,
+                title: loc.settingsAutoShade,
+                subtitle: loc.settingsAutoShadeSub,
+                value: s.autoShade,
+                onChanged: (v) => persist((x) => x.autoShade = v),
+                showDivider: true,
+              ),
+              _GlassToggleRow(
+                icon: CupertinoIcons.checkmark_seal_fill,
+                iconBg: AppColors.dentalBlue,
+                title: loc.settingsAutoQuality,
+                subtitle: loc.settingsAutoQualitySub,
+                value: s.autoScanQuality,
+                onChanged: (v) => persist((x) => x.autoScanQuality = v),
+                showDivider: false,
+              ),
+            ],
+          ),
+        ],
+      _Section.notifications => [
+          _GlassSettingsGroup(
+            children: [
+              _GlassToggleRow(
+                icon: CupertinoIcons.bell_fill,
+                iconBg: AppColors.danger,
+                title: loc.settingsNotifyMaster,
+                subtitle: loc.settingsNotifyMasterSub,
+                value: s.notificationsEnabled,
+                onChanged: (v) => persist((x) => x.notificationsEnabled = v),
+                showDivider: false,
+              ),
+            ],
+          ),
+        ],
+      _Section.language => [
+          _GlassSettingsGroup(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(loc.settingsAppLanguage,
+                        style: AppFonts.style(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.muted)),
+                    const SizedBox(height: 10),
+                    CupertinoSlidingSegmentedControl<String>(
+                      groupValue: s.language == 'de' ? 'de' : 'en',
+                      backgroundColor: AppColors.inset.withValues(alpha: 0.7),
+                      thumbColor: Colors.white,
+                      children: {
+                        'en': Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(loc.languageEnglish)),
+                        'de': Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(loc.languageGerman)),
+                      },
+                      onValueChanged: (code) async {
+                        if (code == null) return;
+                        await _setLanguage(code);
+                        refresh?.call();
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      _Section.rejectList || _Section.about => const [],
+    };
+    return ListView(
+      padding: padding,
+      children: [
+        if (showHeading) heading(),
+        // Readable line length on a wide pane.
+        Align(
+          alignment: Alignment.topLeft,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 640),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: body),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+enum _Section { account, lab, ai, notifications, language, rejectList, about }
+
+class _SectionRow extends StatelessWidget {
+  const _SectionRow({required this.meta, required this.selected, required this.onTap});
+
+  final (IconData, Color, String, String?) meta;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, color, title, _) = meta;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      child: Material(
+        color: selected ? AppColors.dentalBlue.withValues(alpha: 0.10) : Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+            child: Row(
+              children: [
+                _GlassIcon(icon: icon, bg: color),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppFonts.style(
+                      fontSize: 15.5,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                      color: selected ? AppColors.dentalBlue : AppColors.navy,
+                    ),
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
 }
 
 /// About Elite Dent: intro, features, website links and account details.
-class AboutPage extends StatelessWidget {
-  const AboutPage({super.key, required this.api});
+class AboutContent extends StatelessWidget {
+  const AboutContent({super.key, required this.api, this.padding});
 
   final ApiClient api;
+  final EdgeInsets? padding;
 
   static Future<void> _open(String url) =>
       launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
@@ -482,7 +586,8 @@ class AboutPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
-    final wide = MediaQuery.sizeOf(context).width >= 900;
+    // Two columns only when this pane itself is wide.
+    final wide = MediaQuery.sizeOf(context).width >= 1200;
 
     Widget section(String title, String body) => Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -615,17 +720,8 @@ class AboutPage extends StatelessWidget {
             ),
     );
 
-    return Scaffold(
-      backgroundColor: AppColors.surface,
-      appBar: AppBar(
-        backgroundColor: AppColors.surface,
-        foregroundColor: AppColors.navy,
-        elevation: 0,
-        centerTitle: true,
-        title: Text(loc.aboutTitle),
-      ),
-      body: ListView(
-        padding: AppBreakpoints.pagePadding(context).copyWith(top: 8, bottom: 36),
+    return ListView(
+        padding: padding ?? AppBreakpoints.pagePadding(context).copyWith(top: 8, bottom: 36),
         children: [
           intro,
           const SizedBox(height: 28),
@@ -700,7 +796,29 @@ class AboutPage extends StatelessWidget {
             ),
           ),
         ],
+      );
+  }
+}
+
+/// About as a pushed page (its own app bar).
+class AboutPage extends StatelessWidget {
+  const AboutPage({super.key, required this.api});
+
+  final ApiClient api;
+
+  @override
+  Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+    return Scaffold(
+      backgroundColor: AppColors.surface,
+      appBar: AppBar(
+        backgroundColor: AppColors.surface,
+        foregroundColor: AppColors.navy,
+        elevation: 0,
+        centerTitle: true,
+        title: Text(loc.aboutTitle),
       ),
+      body: AboutContent(api: api),
     );
   }
 }
@@ -814,11 +932,9 @@ class _GlassSettingsGroup extends StatelessWidget {
   const _GlassSettingsGroup({
     required this.children,
     this.header,
-    this.footer,
   });
 
   final String? header;
-  final String? footer;
   final List<Widget> children;
 
   @override
@@ -844,19 +960,6 @@ class _GlassSettingsGroup extends StatelessWidget {
           padding: EdgeInsets.zero,
           child: Column(children: children),
         ),
-        if (footer != null) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: Text(
-              footer!,
-              style: AppFonts.style(
-                fontSize: 13,
-                color: const Color(0xFF6C6C70),
-                height: 1.3,
-              ),
-            ),
-          ),
-        ],
       ],
     );
   }

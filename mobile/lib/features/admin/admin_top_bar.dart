@@ -268,7 +268,9 @@ class _NotificationsPopover extends StatelessWidget {
     return ListenableBuilder(
       listenable: chrome.inbox,
       builder: (context, _) {
+        // Newest few only; the rest are one tap away on the Notifications page.
         final items = chrome.inbox.items.take(6).toList();
+        final more = chrome.inbox.items.length - items.length;
         return Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -379,7 +381,9 @@ class _NotificationsPopover extends StatelessWidget {
             Divider(height: 1, color: AppColors.border.withValues(alpha: 0.5)),
             _PopoverRow(
               icon: Icons.inbox_outlined,
-              label: loc.tr('admin.allNotifications'),
+              label: more > 0
+                  ? '${loc.tr('admin.allNotifications')} (${loc.trp('admin.moreCount', {'n': more})})'
+                  : loc.tr('admin.allNotifications'),
               onTap: () {
                 Navigator.pop(context);
                 chrome.onOpen(AppNavItem.notifications, 0);
@@ -854,7 +858,7 @@ class _AdminSearchPageState extends State<AdminSearchPage> {
                         subtitle: friendlyError(snap.error!),
                       );
                     }
-                    if (!snap.hasData) return const ToothPageLoader();
+                    if (!snap.hasData) return const ToothPageLoader(inPlace: true);
                     return ValueListenableBuilder<int>(
                       valueListenable: _tab,
                       builder: (context, t, _) {

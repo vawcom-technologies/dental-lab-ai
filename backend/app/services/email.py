@@ -227,6 +227,24 @@ def send_account_verified_email(name: str, email: str) -> None:
     )
 
 
+def send_signup_rejected_email(name: str, email: str, reason: str | None = None) -> None:
+    """Tell a signup the admin declined it, with the reason when one was given."""
+    display = (name or "").strip() or "there"
+    reason = (reason or "").strip()
+    intro = f"Hello {display}, your Elite Dent registration was not approved."
+    if reason:
+        intro += f" Reason: {reason}"
+    _send_resend(
+        to_email=email,
+        subject="Your Elite Dent registration",
+        html_body=_branded_html(
+            title="Registration not approved",
+            intro=intro,
+            footer="If you think this is a mistake, contact support@elite-d.de.",
+        ),
+    )
+
+
 def send_account_deleted_email(name: str, email: str) -> None:
     """Confirm self-service account deletion."""
     display = (name or "").strip() or "there"

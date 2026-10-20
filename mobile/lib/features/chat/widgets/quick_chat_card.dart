@@ -155,6 +155,42 @@ class _QuickChatState extends State<QuickChatCard> {
   }
 }
 
+/// Chat with [userId] in a sheet over the current page (lab Review, My lab),
+/// so nobody has to find the person again on Messages.
+Future<void> messageUser(BuildContext context, String userId) async {
+  final chrome = AdminChrome.maybeOf(context);
+  if (chrome == null || userId.isEmpty) return;
+  final Conversation conv;
+  try {
+    conv = await AppDialogs.runWithLoading(context, action: () => chrome.chat.openOrCreateWith(userId));
+  } catch (e) {
+    if (context.mounted) AppSnackBars.error(context, friendlyError(e));
+    return;
+  }
+  if (!context.mounted) return;
+  chrome.chat.setViewingThread(true);
+  await AppDialogs.sheet<void>(
+    context: context,
+    maxWidth: 520,
+    // Routes sit above the shell: hand the thread the shell's chrome again.
+    builder: (ctx) => AdminChrome(
+      api: chrome.api,
+      inbox: chrome.inbox,
+      chat: chrome.chat,
+      onOpen: chrome.onOpen,
+      openChat: chrome.openChat,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 10, 14, 14),
+        child: ListenableBuilder(
+          listenable: chrome.chat,
+          builder: (ctx, _) => _InlineThread(conv: conv, onBack: () => Navigator.pop(ctx), height: 380),
+        ),
+      ),
+    ),
+  );
+  chrome.chat.setViewingThread(false);
+}
+
 /// One conversation inside the quick chat card: header with back, messages,
 /// and a composer.
 class _InlineThread extends StatefulWidget {

@@ -33,28 +33,114 @@ Future<Picked?> pickLabDentist(
     await AppDialogs.alert(context, title: title, message: loc.tr('lab.noDentists'));
     return null;
   }
-  return showCupertinoModalPopup<Picked>(
-    context: context,
-    builder: (ctx) => CupertinoActionSheet(
-      title: Text(title),
-      message: message == null ? null : Text(message),
-      actions: [
-        for (final d in dentists)
-          CupertinoActionSheetAction(
-            onPressed: () => Navigator.pop(ctx, (id: '${d['id']}', name: '${d['name'] ?? ''}')),
-            child: Text([
-              '${d['name'] ?? ''}',
-              if ((d['clinic_name'] ?? '').toString().isNotEmpty) '${d['clinic_name']}',
-            ].join(' · ')),
-          ),
-      ],
-      cancelButton: CupertinoActionSheetAction(
-        isDefaultAction: true,
-        onPressed: () => Navigator.pop(ctx),
-        child: Text(loc.cancel),
-      ),
-    ),
+  return pickSearchable<Picked>(
+    context,
+    title: title,
+    message: message,
+    items: [
+      for (final d in dentists)
+        (
+          value: (id: '${d['id']}', name: '${d['name'] ?? ''}'),
+          name: '${d['name'] ?? ''}',
+          detail: '${d['clinic_name'] ?? ''}',
+          avatar: d['avatar_url']?.toString(),
+        ),
+    ],
   );
+}
+
+/// One row of [pickSearchable].
+typedef PickItem<T> = ({T value, String name, String detail, String? avatar});
+
+/// Searchable, scrolling list in a sheet — for lists that outgrow an action
+/// sheet (a lab's dentists). Null when cancelled.
+Future<T?> pickSearchable<T>(
+  BuildContext context, {
+  required String title,
+  String? message,
+  required List<PickItem<T>> items,
+}) {
+  return AppDialogs.sheet<T>(
+    context: context,
+    maxWidth: 520,
+    builder: (_) => _SearchList<T>(title: title, message: message, items: items),
+  );
+}
+
+class _SearchList<T> extends StatefulWidget {
+  const _SearchList({super.key, required this.title, this.message, required this.items});
+
+  final String title;
+  final String? message;
+  final List<PickItem<T>> items;
+
+  @override
+  State<_SearchList<T>> createState() => _SearchListState<T>();
+}
+
+class _SearchListState<T> extends State<_SearchList<T>> {
+  String _q = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+    final q = _q.toLowerCase();
+    final rows = [
+      for (final it in widget.items)
+        if (q.isEmpty || '${it.name} ${it.detail}'.toLowerCase().contains(q)) it,
+    ];
+    final height = (MediaQuery.sizeOf(context).height * 0.65).clamp(300.0, 560.0);
+    return Material(
+      type: MaterialType.transparency,
+      child: SizedBox(
+        height: height,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(widget.title,
+                  style: AppFonts.style(fontSize: 19, fontWeight: FontWeight.w700, color: AppColors.navy)),
+              if (widget.message != null) ...[
+                const SizedBox(height: 6),
+                Text(widget.message!, style: AppFonts.style(fontSize: 13, color: AppColors.muted)),
+              ],
+              const SizedBox(height: 12),
+              CupertinoSearchTextField(
+                placeholder: loc.tr('pick.search'),
+                onChanged: (v) => setState(() => _q = v.trim()),
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: rows.isEmpty
+                    ? Center(child: Text(loc.tr('pick.none'), style: AppFonts.style(color: AppColors.muted)))
+                    : ListView.builder(
+                        itemCount: rows.length,
+                        itemBuilder: (context, i) {
+                          final it = rows[i];
+                          return ListTile(
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                            leading: UserAvatar(name: it.name, url: it.avatar, size: 36),
+                            title: Text(it.name.isEmpty ? '—' : it.name,
+                                style: AppFonts.style(fontWeight: FontWeight.w600, color: AppColors.navy)),
+                            subtitle: it.detail.isEmpty
+                                ? null
+                                : Text(it.detail, style: AppFonts.style(fontSize: 12.5, color: AppColors.muted)),
+                            onTap: () => Navigator.pop(context, it.value),
+                          );
+                        },
+                      ),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: AppButtons.ghost(onPressed: () => Navigator.pop(context), label: loc.cancel),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Another lab, searched by name (`GET /api/labs?q=`). Null when cancelled.

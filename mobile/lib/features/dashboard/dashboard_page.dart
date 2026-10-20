@@ -691,7 +691,7 @@ class _DentistSearchPageState extends State<_DentistSearchPage> {
                         subtitle: friendlyError(snap.error!),
                       );
                     }
-                    if (!snap.hasData) return const ToothPageLoader();
+                    if (!snap.hasData) return const ToothPageLoader(inPlace: true);
                     final patients = snap.data!
                         .where(
                           (p) =>

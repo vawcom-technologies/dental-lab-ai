@@ -143,7 +143,7 @@ class _ChatScreenState extends State<ChatScreen> {
               child: ColoredBox(
                 color: _kChatCanvas,
                 child: controller.loadingMessages && messages.isEmpty
-                    ? ToothPageLoader(message: AppLocalizations.of(context).messagesLoadingChat)
+                    ? ToothPageLoader(inPlace: true, message: AppLocalizations.of(context).messagesLoadingChat)
                     : messages.isEmpty
                         ? Center(
                             child: Text(

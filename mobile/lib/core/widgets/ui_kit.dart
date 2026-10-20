@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
@@ -346,14 +348,23 @@ class PageHeader extends StatelessWidget {
             ],
           );
         }
+        // Buttons take what they need while the title keeps 320pt; past
+        // that they stack in place instead of running off the edge.
         return Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(child: ident),
-            for (final w in trailing) ...[
-              const SizedBox(width: 10),
-              w,
-            ],
+            const SizedBox(width: 10),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: math.max(0, maxW - 330)),
+              child: OverflowBar(
+                spacing: 10,
+                overflowSpacing: 8,
+                alignment: MainAxisAlignment.end,
+                overflowAlignment: OverflowBarAlignment.end,
+                children: trailing,
+              ),
+            ),
           ],
         );
       },

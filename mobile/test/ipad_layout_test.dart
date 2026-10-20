@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Real iPad logical sizes (landscape). Portrait is the same size flipped.
@@ -31,7 +32,7 @@ const _pages = {
   AppNavItem.smilePreview: Icons.sentiment_satisfied_alt_outlined,
   AppNavItem.interpreter: Icons.translate_rounded,
   AppNavItem.messages: Icons.chat_bubble_outline,
-  AppNavItem.notifications: Icons.notifications_none_rounded,
+  // Notifications: reached from the top-bar bell, not the rail.
   AppNavItem.reports: Icons.bar_chart_rounded,
   AppNavItem.settings: Icons.settings_outlined,
 };
@@ -91,7 +92,7 @@ double _sidebarWidth(WidgetTester tester) =>
 
 /// True when the header's action buttons sit on the title row.
 bool _headerOneRow(WidgetTester tester) {
-  // Only the dashboard is mounted when this runs, so there is one header.
+  // Patients is the only mounted page with a header when this runs.
   final header = find.byType(PageHeader).first;
   final badge = find.descendant(of: header, matching: find.byType(NeoIconBadge));
   final button = find.descendant(
@@ -102,6 +103,10 @@ bool _headerOneRow(WidgetTester tester) {
 }
 
 void main() {
+  setUpAll(() async {
+    await initializeDateFormatting('en');
+    await initializeDateFormatting('de');
+  });
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   for (final MapEntry(key: name, value: landscape) in _ipads.entries) {
@@ -114,8 +119,9 @@ void main() {
         _sidebarWidth(tester),
         closeTo(AppSidebar.railExtent(landscape), 0.01),
       );
+      await _open(tester, AppNavItem.patients);
       expect(_headerOneRow(tester), isTrue,
-          reason: 'dashboard header should fit on one row');
+          reason: 'landscape header should fit on one row');
 
       await _open(tester, AppNavItem.shade);
       final pane = tester.getSize(find.byType(ShadeSessionPane)).width;

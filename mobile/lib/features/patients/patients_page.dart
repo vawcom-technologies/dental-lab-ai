@@ -242,6 +242,7 @@ class _PatientsPageState extends State<PatientsPage> {
     if (hard == null || !mounted) return;
     try {
       await _controller.deletePatient(patient.id, hard: hard);
+      if (_inline?.id == patient.id && mounted) setState(() => _inline = null);
       await _syncSharedPatientSession();
       if (!mounted) return;
       _toast(hard ? AppLocalizations.of(context).tr('p.deleted') : AppLocalizations.of(context).tr('p.archived'));
@@ -263,33 +264,48 @@ class _PatientsPageState extends State<PatientsPage> {
     );
   }
 
+  /// Wide screen: list on the left, the open patient on the right.
+  bool _split = false;
+  GdprPatient? _inline;
+  int _inlineTab = 0;
+
+  _PatientDetailSheet _detailFor(GdprPatient p, {required int tab, required bool embedded, VoidCallback? close}) {
+    void then(VoidCallback next) {
+      close?.call();
+      next();
+    }
+
+    return _PatientDetailSheet(
+      key: embedded ? ValueKey('inline-${p.id}-$tab') : null,
+      controller: _controller,
+      cases: widget.patientSession?.cases,
+      patientSession: widget.patientSession,
+      patient: p,
+      initialTab: tab,
+      embedded: embedded,
+      onEdit: () => then(() => _openEdit(p)),
+      onShare: () => then(() => _openShare(p)),
+      onDelete: () => then(() => _confirmDelete(p)),
+      onToast: _toast,
+      friendlyError: _friendlyError,
+    );
+  }
+
   Future<void> _presentPatientDetail(String patientId, {int tab = 0}) async {
     final detailed = await _controller.openPatient(patientId);
     if (detailed == null || !mounted) return;
     // Drop the shell overlay before the sheet so the profile is tappable.
     widget.patientSession?.clearOpeningPatientDetail();
+    if (_split) {
+      setState(() {
+        _inline = detailed;
+        _inlineTab = tab;
+      });
+      return;
+    }
     await AppDialogs.modalSheet<void>(
       context: context,
-      builder: (ctx) => _PatientDetailSheet(
-        controller: _controller,
-        cases: widget.patientSession?.cases,
-        patient: detailed,
-        initialTab: tab,
-        onEdit: () {
-          Navigator.pop(ctx);
-          _openEdit(detailed);
-        },
-        onShare: () {
-          Navigator.pop(ctx);
-          _openShare(detailed);
-        },
-        onDelete: () {
-          Navigator.pop(ctx);
-          _confirmDelete(detailed);
-        },
-        onToast: _toast,
-        friendlyError: _friendlyError,
-      ),
+      builder: (ctx) => _detailFor(detailed, tab: tab, embedded: false, close: () => Navigator.pop(ctx)),
     );
     _controller.clearSelected();
   }
@@ -338,14 +354,6 @@ class _PatientsPageState extends State<PatientsPage> {
                           color: AppColors.navy,
                         ),
                       ),
-                    ),
-                    AppButtons.icon(
-                      tooltip: loc.refresh,
-                      onPressed: _controller.loading || blocked
-                          ? null
-                          : () => _controller.load(forceRefresh: true),
-                      icon: Icons.refresh_rounded,
-                      busy: _controller.loading,
                     ),
                   ],
                   actions: [
@@ -452,7 +460,9 @@ class _PatientsPageState extends State<PatientsPage> {
                 ),
                 const SizedBox(height: 16),
                 Expanded(
-                  child: AppSwitcher(
+                  child: LayoutBuilder(builder: (context, box) {
+                  _split = box.maxWidth >= 860;
+                  final list = AppSwitcher(
                     child: KeyedSubtree(
                       key: ValueKey(
                         '${_controller.statusFilter}|${_controller.query}|${rows.length}|${_controller.loading}',
@@ -486,6 +496,8 @@ class _PatientsPageState extends State<PatientsPage> {
                                         final owner = _controller.isOwner(p);
                                         return _PatientCard(
                                           patient: p,
+                                          compact: _split,
+                                          selected: _split && _inline?.id == p.id,
                                           isOwner: owner,
                                           roleLabel: AppRoles.label(
                                             widget.api.role,
@@ -507,7 +519,32 @@ class _PatientsPageState extends State<PatientsPage> {
                                   ],
                                 ),
                     ),
-                  ),
+                  );
+                  if (!_split) return list;
+                  final open = _inline;
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(flex: 5, child: list),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        flex: 6,
+                        child: AppSwitcher(
+                          child: open == null
+                              ? AdminCard(
+                                  key: const ValueKey('pick'),
+                                  child: AdminEmpty(
+                                    icon: Icons.touch_app_outlined,
+                                    title: loc.tr('p.pickTitle'),
+                                    subtitle: loc.tr('p.pickSub'),
+                                  ),
+                                )
+                              : _detailFor(open, tab: _inlineTab, embedded: true),
+                        ),
+                      ),
+                    ],
+                  );
+                }),
                 ),
               ],
             ),
@@ -572,6 +609,8 @@ class _EmptyPatients extends StatelessWidget {
 class _PatientCard extends StatelessWidget {
   const _PatientCard({
     required this.patient,
+    this.compact = false,
+    this.selected = false,
     required this.isOwner,
     required this.onOpen,
     this.onOpenAccess,
@@ -583,6 +622,10 @@ class _PatientCard extends StatelessWidget {
   });
 
   final GdprPatient patient;
+
+  /// Split view: name, access and status only; actions live in the detail.
+  final bool compact;
+  final bool selected;
   final bool isOwner;
   final String? roleLabel;
   final bool enabled;
@@ -598,6 +641,7 @@ class _PatientCard extends StatelessWidget {
     final loc = AppLocalizations.of(context);
     return AdminCard(
       padding: EdgeInsets.zero,
+      selected: selected,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -610,6 +654,31 @@ class _PatientCard extends StatelessWidget {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final wide = constraints.maxWidth >= 720;
+                if (compact) {
+                  return Row(
+                    children: [
+                      _PatientAvatar(name: patient.fullName, isOwner: isOwner, size: 44),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              patient.fullName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppFonts.style(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.navy),
+                            ),
+                            const SizedBox(height: 4),
+                            _AccessBadge(isOwner: isOwner, roleLabel: roleLabel),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      StatusChip(statusKey: patient.status),
+                    ],
+                  );
+                }
                 final identity = Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
@@ -619,28 +688,23 @@ class _PatientCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 14),
                     Expanded(
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Flexible(
-                            child: Text(
-                              patient.fullName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppFonts.style(
-                                fontSize: 19,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.navy,
-                                letterSpacing: -0.3,
-                              ),
+                          Text(
+                            patient.fullName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppFonts.style(
+                              fontSize: 19,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.navy,
+                              letterSpacing: -0.3,
                             ),
                           ),
-                          const SizedBox(width: 10),
+                          const SizedBox(height: 6),
                           GestureDetector(
-                            onTap: enabled && onOpenAccess != null
-                                ? () {
-                                    onOpenAccess!();
-                                  }
-                                : null,
+                            onTap: enabled && onOpenAccess != null ? onOpenAccess : null,
                             behavior: HitTestBehavior.opaque,
                             child: _AccessBadge(
                               isOwner: isOwner,
@@ -715,10 +779,11 @@ class _PatientCard extends StatelessWidget {
 }
 
 class _PatientAvatar extends StatelessWidget {
-  const _PatientAvatar({required this.name, required this.isOwner});
+  const _PatientAvatar({required this.name, required this.isOwner, this.size = 56});
 
   final String name;
   final bool isOwner;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
@@ -729,12 +794,12 @@ class _PatientAvatar extends StatelessWidget {
     final initials = _initials(name);
 
     return Container(
-      width: 56,
-      height: 56,
+      width: size,
+      height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(size * 0.32),
         boxShadow: NeoShadows.soft(depth: 0.4),
         border: Border.all(color: Colors.white.withValues(alpha: 0.75)),
       ),
@@ -743,7 +808,7 @@ class _PatientAvatar extends StatelessWidget {
         style: AppFonts.style(
           color: fg,
           fontWeight: FontWeight.w800,
-          fontSize: 18,
+          fontSize: size * 0.32,
           letterSpacing: -0.2,
         ),
       ),
@@ -779,8 +844,11 @@ class _AccessBadge extends StatelessWidget {
         ? (role.isNotEmpty ? role : loc.patientsCreator)
         : loc.patientsShared;
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    // Wraps rather than overflowing narrow cards.
+    return Wrap(
+      spacing: 6,
+      runSpacing: 4,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         Text(
           prefix,
@@ -790,7 +858,6 @@ class _AccessBadge extends StatelessWidget {
             color: AppColors.muted,
           ),
         ),
-        const SizedBox(width: 6),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
@@ -1492,7 +1559,7 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
               ),
               Expanded(
                 child: _loading
-                    ? ToothPageLoader(message: loc.patientsLoadingStaff)
+                    ? ToothPageLoader(inPlace: true, message: loc.patientsLoadingStaff)
                     : ListView(
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                         children: [
@@ -1616,6 +1683,7 @@ class _AccessStatusBadge extends StatelessWidget {
 
 class _PatientDetailSheet extends StatefulWidget {
   const _PatientDetailSheet({
+    super.key,
     required this.controller,
     this.cases,
     required this.patient,
@@ -1625,9 +1693,17 @@ class _PatientDetailSheet extends StatefulWidget {
     required this.onToast,
     required this.friendlyError,
     this.initialTab = 0,
+    this.embedded = false,
+    this.patientSession,
   });
 
   final PatientsController controller;
+
+  /// Inline in the Patients split view instead of a bottom sheet.
+  final bool embedded;
+
+  /// Lets case items and records open Scans / Shade / Smile.
+  final PatientSession? patientSession;
 
   /// Case flow for this patient (status, items, submit / review, history).
   final CaseStore? cases;
@@ -1654,9 +1730,11 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
   void initState() {
     super.initState();
     _tabs = TabController(
-      length: 3,
+      length: widget.cases == null ? 3 : 4,
       vsync: this,
-      initialIndex: widget.initialTab.clamp(0, 2),
+      // Callers count tabs without Case. Case comes first and is the default.
+      initialIndex: (widget.initialTab + (widget.cases != null && widget.initialTab > 0 ? 1 : 0))
+          .clamp(0, widget.cases == null ? 2 : 3),
     );
     // Defer controller loads — notifyListeners during initState/build marks the
     // parent ListenableBuilder dirty mid-frame.
@@ -1837,38 +1915,74 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
 
   @override
   Widget build(BuildContext context) {
-    final height = MediaQuery.sizeOf(context).height * 0.62;
-    final bottomInset = MediaQuery.paddingOf(context).bottom;
     final loc = AppLocalizations.of(context);
+    final embedded = widget.embedded;
+    final api = widget.controller.api;
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16, 0, 16, 12 + bottomInset),
-      child: Align(
-        alignment: Alignment.bottomCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 720),
-          child: SizedBox(
-            height: height,
-            child: AdminCard(
-          padding: EdgeInsets.zero,
-          child: Material(
-            color: Colors.transparent,
-            child: ListenableBuilder(
-            listenable: widget.controller,
-            builder: (context, _) {
-              final notes = widget.controller.notes;
-              final access = widget.controller.accessEntries;
-              final accessOwner = widget.controller.accessOwner;
-              final accessViewerIsOwner =
-                  widget.controller.accessViewerIsOwner;
-              final blocked = widget.controller.mutating;
-              final p = _livePatient();
-              final owner = widget.controller.isOwner(p);
-              return BusyBarrier(
-                busy: blocked,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
+    final card = AdminCard(
+      padding: EdgeInsets.zero,
+      child: Material(
+        color: Colors.transparent,
+        child: ListenableBuilder(
+          listenable: widget.controller,
+          builder: (context, _) {
+            final notes = widget.controller.notes;
+            final access = widget.controller.accessEntries;
+            final accessOwner = widget.controller.accessOwner;
+            final accessViewerIsOwner = widget.controller.accessViewerIsOwner;
+            final blocked = widget.controller.mutating;
+            final p = _livePatient();
+            final owner = widget.controller.isOwner(p);
+            final tabs = [
+              if (widget.cases != null) (loc.tr('case.title'), () => _buildCaseTab(p)),
+              (loc.tr('p.tabInfo'), () => _buildDetailsTab(p)),
+              (loc.notes, () => _buildNotesTab(notes: notes, blocked: blocked)),
+              (
+                loc.tr('p.tabAccess'),
+                () => _buildAccessTab(
+                      access: access,
+                      accessOwner: accessOwner,
+                      accessViewerIsOwner: accessViewerIsOwner,
+                      blocked: blocked,
+                    ),
+              ),
+            ];
+            // Icon actions keep the header to one calm row; labels live in tooltips.
+            final actions = [
+              if (api.isLaboratory)
+                AppButtons.secondary(
+                  onPressed: blocked ? null : () => _assignDentist(p),
+                  icon: Icons.person_pin_outlined,
+                  label: loc.tr('lab.assignDentist'),
+                  compact: true,
+                ),
+              if (owner) ...[
+                AppButtons.icon(onPressed: blocked ? null : widget.onEdit, icon: Icons.edit_outlined, tooltip: loc.commonEdit),
+                AppButtons.icon(
+                  onPressed: blocked || _exporting ? null : _export,
+                  icon: Icons.download_outlined,
+                  tooltip: loc.tr('p.export'),
+                ),
+                AppButtons.icon(onPressed: blocked ? null : widget.onShare, icon: Icons.share_outlined, tooltip: loc.commonShare),
+                AppButtons.icon(
+                  onPressed: blocked ? null : widget.onDelete,
+                  icon: Icons.delete_outline_rounded,
+                  tooltip: loc.commonDelete,
+                ),
+              ],
+              if (!embedded)
+                AppButtons.icon(
+                  onPressed: () => Navigator.maybePop(context),
+                  icon: Icons.close_rounded,
+                  tooltip: loc.commonClose,
+                ),
+            ];
+            return BusyBarrier(
+              busy: blocked,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (!embedded) ...[
                     const SizedBox(height: 10),
                     Center(
                       child: Container(
@@ -1880,222 +1994,139 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                         ),
                       ),
                     ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _PatientAvatar(
-                            name: p.fullName,
-                            isOwner: owner,
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  p.fullName,
-                                  style: AppFonts.style(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.navy,
-                                    letterSpacing: -0.4,
-                                  ),
-                                ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  p.email,
-                                  style: AppFonts.style(
-                                    fontSize: 14,
-                                    color: AppColors.muted,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          _AccessBadge(
-                            isOwner: owner,
-                            roleLabel: AppRoles.label(
-                              widget.controller.api.role,
-                              AppLocalizations.of(context),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          StatusChip(statusKey: p.status),
-                          if (owner)
-                            AppButtons.ghost(
-                              onPressed: blocked ? null : widget.onEdit,
-                              icon: Icons.edit_outlined,
-                              label: loc.commonEdit,
-                              compact: true,
-                            ),
-                          if (owner)
-                            AppButtons.ghost(
-                              onPressed:
-                                  blocked || _exporting ? null : _export,
-                              icon: Icons.download_outlined,
-                              label: loc.tr('p.export'),
-                              compact: true,
-                            ),
-                          if (owner)
-                            AppButtons.ghost(
-                              onPressed: blocked ? null : widget.onShare,
-                              icon: Icons.share_outlined,
-                              label: loc.commonShare,
-                              compact: true,
-                            ),
-                          if (widget.controller.api.isLaboratory)
-                            AppButtons.ghost(
-                              onPressed: blocked ? null : () => _assignDentist(p),
-                              icon: Icons.person_pin_outlined,
-                              label: loc.tr('lab.assignDentist'),
-                              compact: true,
-                            ),
-                          if (owner)
-                            AppButtons.danger(
-                              onPressed: blocked ? null : widget.onDelete,
-                              icon: Icons.delete_outline_rounded,
-                              label: loc.commonDelete,
-                              soft: true,
-                              compact: true,
-                            ),
-                        ],
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
-                      child: AnimatedBuilder(
-                        animation: _tabs,
-                        builder: (context, _) {
-                          return SizedBox(
-                            width: double.infinity,
-                            child: CupertinoSlidingSegmentedControl<int>(
-                              groupValue: _tabs.index,
-                              backgroundColor:
-                                  AppColors.inset.withValues(alpha: 0.7),
-                              thumbColor: Colors.white.withValues(alpha: 0.95),
-                              children: {
-                                0: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 6,
-                                  ),
-                                  child: Text(
-                                    AppLocalizations.of(context).tr('p.tabInfo'),
-                                    style: AppFonts.style(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.navy,
-                                    ),
-                                  ),
-                                ),
-                                1: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 6,
-                                  ),
-                                  child: Text(
-                                    loc.notes,
-                                    style: AppFonts.style(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.navy,
-                                    ),
-                                  ),
-                                ),
-                                2: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 6,
-                                  ),
-                                  child: Text(
-                                    AppLocalizations.of(context).tr('p.tabAccess'),
-                                    style: AppFonts.style(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.navy,
-                                    ),
-                                  ),
-                                ),
-                              },
-                              onValueChanged: (value) {
-                                if (value == null) return;
-                                _tabs.animateTo(value);
-                              },
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    Expanded(
-                      child: TabBarView(
-                        controller: _tabs,
-                        children: [
-                          _buildDemographicsTab(p),
-                          _buildNotesTab(
-                            notes: notes,
-                            blocked: blocked,
-                          ),
-                          _buildAccessTab(
-                            access: access,
-                            accessOwner: accessOwner,
-                            accessViewerIsOwner: accessViewerIsOwner,
-                            blocked: blocked,
-                          ),
-                        ],
-                      ),
-                    ),
                   ],
-                ),
-              );
-            },
-          ),
-          ),
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(20, embedded ? 18 : 12, 12, 0),
+                    child: Row(
+                      children: [
+                        _PatientAvatar(name: p.fullName, isOwner: owner),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                p.fullName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppFonts.style(
+                                  fontSize: 21,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.navy,
+                                  letterSpacing: -0.4,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 6,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  StatusChip(statusKey: p.status),
+                                  _AccessBadge(
+                                    isOwner: owner,
+                                    roleLabel: AppRoles.label(api.role, loc),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (actions.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 12, 0),
+                      child: Wrap(
+                        spacing: 4,
+                        runSpacing: 4,
+                        alignment: WrapAlignment.end,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: actions,
+                      ),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+                    child: AnimatedBuilder(
+                      animation: _tabs,
+                      builder: (context, _) => SizedBox(
+                        width: double.infinity,
+                        child: CupertinoSlidingSegmentedControl<int>(
+                          groupValue: _tabs.index,
+                          backgroundColor: AppColors.inset.withValues(alpha: 0.7),
+                          thumbColor: Colors.white.withValues(alpha: 0.95),
+                          children: {
+                            for (final (i, t) in tabs.indexed)
+                              i: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                child: Text(
+                                  t.$1,
+                                  style: AppFonts.style(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.navy),
+                                ),
+                              ),
+                          },
+                          onValueChanged: (value) {
+                            if (value != null) _tabs.animateTo(value);
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tabs,
+                      children: [for (final t in tabs) t.$2()],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
         ),
-        ),
+      ),
+    );
+    if (embedded) return card;
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 0, 16, 12 + bottomInset),
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: SizedBox(height: MediaQuery.sizeOf(context).height * 0.78, child: card),
         ),
       ),
     );
   }
 
-  Widget _buildDemographicsTab(GdprPatient p) {
+  /// Case flow + records behind one loader; the lab's decision pinned under.
+  Widget _buildCaseTab(GdprPatient p) => CaseReviewView(
+        key: ValueKey('case-${p.id}'),
+        store: widget.cases!,
+        patientId: p.id,
+        api: widget.controller.api,
+        patients: widget.patientSession,
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+      );
+
+  Widget _buildDetailsTab(GdprPatient p) {
+    final loc = AppLocalizations.of(context);
     final rows = [
-      (AppLocalizations.of(context).dateOfBirth, p.dateOfBirth),
-      (AppLocalizations.of(context).tr('p.email'), p.email),
-      (AppLocalizations.of(context).tr('p.phone'), p.phone),
-      (AppLocalizations.of(context).tr('patients.insurance'), p.healthInsurance),
-      (AppLocalizations.of(context).tr('patients.address'), p.address),
+      (Icons.cake_outlined, loc.dateOfBirth, p.dateOfBirth),
+      (Icons.mail_outline_rounded, loc.tr('p.email'), p.email),
+      (Icons.phone_outlined, loc.tr('p.phone'), p.phone),
+      (Icons.health_and_safety_outlined, loc.tr('patients.insurance'), p.healthInsurance),
+      (Icons.home_outlined, loc.tr('patients.address'), p.address),
     ];
-    final cases = widget.cases;
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
       children: [
-        if (cases != null) ...[
-          _InsetGroup(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(14),
-                child: CasePanel(store: cases, patientId: p.id),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-        ],
         _InsetGroup(
           children: [
             for (var i = 0; i < rows.length; i++) ...[
               if (i > 0) const _InsetDivider(),
-              _DemoRow(label: rows[i].$1, value: rows[i].$2),
+              _DemoRow(icon: rows[i].$1, label: rows[i].$2, value: rows[i].$3),
             ],
           ],
         ),
@@ -2160,6 +2191,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
           Expanded(
             child: widget.controller.loadingNotes && notes.isEmpty
                 ? ToothPageLoader(
+                    inPlace: true,
                     message: loc.patientsLoadingNotes,
                     size: 40,
                   )
@@ -2263,7 +2295,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     required bool blocked,
   }) {
     if (widget.controller.loadingAccess && accessOwner == null) {
-      return ToothPageLoader(message: AppLocalizations.of(context).patientsLoadingAccess);
+      return ToothPageLoader(inPlace: true, message: AppLocalizations.of(context).patientsLoadingAccess);
     }
     if (accessOwner == null) {
       return Center(
@@ -2617,8 +2649,9 @@ class _InsetDivider extends StatelessWidget {
 }
 
 class _DemoRow extends StatelessWidget {
-  const _DemoRow({required this.label, required this.value});
+  const _DemoRow({required this.icon, required this.label, required this.value});
 
+  final IconData icon;
   final String label;
   final String value;
 
@@ -2629,8 +2662,10 @@ class _DemoRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Icon(icon, size: 18, color: AppColors.muted),
+          const SizedBox(width: 10),
           SizedBox(
-            width: 140,
+            width: 130,
             child: Text(
               label,
               style: AppFonts.style(

@@ -21,6 +21,7 @@ from app.services.profiles import fetch_profile, lab_name
 from app.services.r2 import upload_patient_asset
 
 LOCKED = ("in_review", "completed")
+REVIEWABLE = ("in_review", "rejected")
 # Dentist edits logged on a rejected case (status unchanged).
 _EDIT_EVENTS = ("updated", "suggestion_accepted", "suggestion_dismissed")
 _TABLES = {"scan": ("patient_scans", "scans"), "shade": ("shade_detections", "shades"), "smile": ("smile_previews", "smiles")}
@@ -285,7 +286,8 @@ def review(
     is_admin = _role(user) == "admin"
     if not is_admin and _shared_lab(patient) != user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the patient's lab can review this case.")
-    if patient.get("status") != "in_review":
+    # Rejected stays decidable: the lab can approve after all, or update its remarks.
+    if patient.get("status") not in REVIEWABLE:
         raise HTTPException(status.HTTP_409_CONFLICT, "This case isn't waiting for review")
     remarks = (remarks or "").strip() or None
     pending = suggestions(patient)
@@ -601,7 +603,7 @@ def summary(patient: dict[str, Any], user: AuthUser) -> dict[str, Any]:
                 for k, v in suggestions(patient).items()
             },
         },
-        "can_review": st == "in_review" and (role == "admin" or (shared and user.id == lab_id)),
+        "can_review": st in REVIEWABLE and (role == "admin" or (shared and user.id == lab_id)),
         "last_rejection": {
             "remarks": rej_text,
             "items": rej_items,

@@ -37,6 +37,9 @@ class ChatController extends ChangeNotifier {
   Conversation? _active;
   Message? _replyTo;
   String _inboxQuery = '';
+
+  /// Inbox filter by partner role: '' (all), 'laboratory' or 'dentist'.
+  String _inboxRole = '';
   /// True only while [ChatScreen] is mounted / visible.
   bool _viewingThread = false;
   bool _disposed = false;
@@ -62,6 +65,7 @@ class ChatController extends ChangeNotifier {
   Conversation? get activeConversation => _active;
   Message? get replyTo => _replyTo;
   String get inboxQuery => _inboxQuery;
+  String get inboxRole => _inboxRole;
   bool get viewingThread => _viewingThread;
   bool get loadingInbox => _loadingInbox;
   bool get loadingMessages => _loadingMessages;
@@ -120,6 +124,11 @@ class ChatController extends ChangeNotifier {
   List<Conversation> get visibleConversations {
     final q = _inboxQuery.trim().toLowerCase();
     var rows = [..._conversations];
+    if (_inboxRole == 'laboratory') {
+      rows = rows.where((c) => AppRoles.isLaboratory(c.partner.role)).toList();
+    } else if (_inboxRole == 'dentist') {
+      rows = rows.where((c) => AppRoles.isDentist(c.partner.role)).toList();
+    }
     if (q.isNotEmpty) {
       rows = rows.where((c) {
         final p = c.partner;
@@ -220,6 +229,12 @@ class ChatController extends ChangeNotifier {
       _loadingInbox = false;
       notifyListeners();
     }
+  }
+
+  void setInboxRole(String value) {
+    if (value == _inboxRole) return;
+    _inboxRole = value;
+    notifyListeners();
   }
 
   void setInboxQuery(String value) {

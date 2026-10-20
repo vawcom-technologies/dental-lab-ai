@@ -5,6 +5,7 @@ import '../core/layout/adaptive.dart';
 import '../core/widgets/app_switcher.dart';
 import '../core/widgets/app_snackbar.dart';
 import '../core/widgets/busy_action.dart';
+import '../core/widgets/tooth_loader.dart';
 import '../core/session/patient_session.dart';
 import '../core/theme/app_theme.dart';
 import '../features/admin/admin_dashboard_page.dart';
@@ -56,7 +57,6 @@ class _AppShellState extends State<AppShell> {
   AppNavItem _active = AppNavItem.dashboard;
   int _patientRefresh = 0;
   late String _dentistName;
-  int _notificationBadge = 0;
   int _messageBadge = 0;
   int _labBadge = 0;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
@@ -67,7 +67,7 @@ class _AppShellState extends State<AppShell> {
   /// Selected tab on each admin page, so the dashboard can deep-link.
   final _adminTabs = {
     for (final item in const [
-      AppNavItem.adminSignups,
+      AppNavItem.settings,
       AppNavItem.laboratories,
       AppNavItem.patients,
       AppNavItem.lab,
@@ -166,10 +166,6 @@ class _AppShellState extends State<AppShell> {
 
   void _onInboxChanged() {
     if (!mounted) return;
-    final unread = _inbox.unreadCount;
-    if (_notificationBadge != unread) {
-      setState(() => _notificationBadge = unread);
-    }
     final toasts = _inbox.takePendingToasts();
     if (toasts.isEmpty) return;
     if (_active == AppNavItem.notifications) return;
@@ -301,7 +297,7 @@ class _AppShellState extends State<AppShell> {
                                     child: TickerMode(
                                       enabled: item == _active,
                                       child: RepaintBoundary(
-                                        child: _createPage(item),
+                                        child: PageArea(child: _createPage(item)),
                                       ),
                                     ),
                                   )
@@ -342,7 +338,6 @@ class _AppShellState extends State<AppShell> {
                               _go(item);
                             },
                             messageBadge: _messageBadge,
-                            notificationBadge: _notificationBadge,
                             admin: widget.api.isAdmin,
                             lab: widget.api.isLaboratory,
                             labBadge: _labBadge,
@@ -359,7 +354,6 @@ class _AppShellState extends State<AppShell> {
                         active: _active,
                         onSelect: _go,
                         messageBadge: _messageBadge,
-                        notificationBadge: _notificationBadge,
                         admin: widget.api.isAdmin,
                             lab: widget.api.isLaboratory,
                             labBadge: _labBadge,
@@ -531,11 +525,7 @@ class _AppShellState extends State<AppShell> {
             onLeave: () => _go(AppNavItem.dashboard),
           );
         }
-        return AdminSignupsPage(
-          api: widget.api,
-          tab: _adminTabs[item]!,
-          active: active,
-        );
+        return AdminSignupsPage(api: widget.api, active: active);
       case AppNavItem.notifications:
         return NotificationsPage(
           inbox: _inbox,
@@ -552,7 +542,7 @@ class _AppShellState extends State<AppShell> {
           onNavigate: _go,
         );
       case AppNavItem.settings:
-        return SettingsPage(api: widget.api);
+        return SettingsPage(api: widget.api, tab: _adminTabs[item]!, active: active);
     }
   }
 }

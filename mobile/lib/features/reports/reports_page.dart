@@ -190,13 +190,6 @@ class _ReportsPageState extends State<ReportsPage> {
             icon: Icons.insights_rounded,
             title: loc.reportsTitle,
             subtitle: _headerSubtitle(loc),
-            chromeActions: [
-              AppButtons.icon(
-                tooltip: loc.refresh,
-                onPressed: _loading ? null : _load,
-                icon: Icons.refresh_rounded,
-              ),
-            ],
             actions: [
               AppButtons.secondary(
                 onPressed:

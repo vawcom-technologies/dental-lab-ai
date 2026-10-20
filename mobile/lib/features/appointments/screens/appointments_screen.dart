@@ -45,7 +45,6 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   String? _selectedId;
   bool _loading = true;
   bool _refreshing = false;
-  bool _patientsRefreshing = false;
   int _listGen = 0;
 
   List<Map<String, dynamic>> get _patients => widget.patientSession.patients;
@@ -134,24 +133,17 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 
   Future<void> _onPageActivated() async {
     // Force a server re-fetch so patients created on other tabs appear.
-    await _refreshPatients(showIndicator: false);
+    await _refreshPatients();
   }
 
-  Future<void> _refreshPatients({bool showIndicator = true}) async {
-    if (showIndicator && mounted) {
-      setState(() => _patientsRefreshing = true);
-    }
+  Future<void> _refreshPatients() async {
     try {
       await widget.patientSession.refresh(keepSelection: true);
     } catch (e) {
       if (!mounted) return;
       AppSnackBars.error(context, friendlyError(e));
     } finally {
-      if (mounted && showIndicator) {
-        setState(() => _patientsRefreshing = false);
-      } else if (mounted) {
-        setState(() {});
-      }
+      if (mounted) setState(() {});
     }
   }
 
@@ -310,19 +302,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 
   Widget _buildHeader() {
     final loc = AppLocalizations.of(context);
-    final busy = _loading || _refreshing || _patientsRefreshing;
     return PageHeader(
       icon: Icons.calendar_today_outlined,
       title: loc.appointmentsTitle,
       subtitle: loc.appointmentsSubtitle,
-      chromeActions: [
-        AppButtons.icon(
-          tooltip: loc.refresh,
-          onPressed: busy ? null : _refreshAll,
-          icon: Icons.refresh_rounded,
-          busy: busy,
-        ),
-      ],
       actions: [
         AppButtons.primary(
           onPressed: _loading ? null : () => _openBookModal(),

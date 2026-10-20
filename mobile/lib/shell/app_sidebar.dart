@@ -40,7 +40,6 @@ class AppSidebar extends StatelessWidget {
     required this.active,
     required this.onSelect,
     this.messageBadge = 0,
-    this.notificationBadge = 0,
     this.labBadge = 0,
     this.admin = false,
     this.lab = false,
@@ -50,7 +49,6 @@ class AppSidebar extends StatelessWidget {
   final AppNavItem active;
   final ValueChanged<AppNavItem> onSelect;
   final int messageBadge;
-  final int notificationBadge;
 
   /// Items waiting on the lab (transfers, joins, sharing tickets).
   final int labBadge;
@@ -143,13 +141,8 @@ class AppSidebar extends StatelessWidget {
       badge: messageBadge,
       badgeColor: AppColors.danger,
     );
-    final notifications = _NavEntry(
-      AppNavItem.notifications,
-      Icons.notifications_none_rounded,
-      s.navNotifications,
-      badge: notificationBadge,
-      badgeColor: AppColors.warning,
-    );
+    // Notifications live behind the top-bar bell ("All notifications"),
+    // not the rail.
     final items = <_NavEntry>[
       _NavEntry(AppNavItem.dashboard, Icons.grid_view_rounded, s.navDashboard),
       if (admin) ...[
@@ -165,7 +158,6 @@ class AppSidebar extends StatelessWidget {
         ),
         _NavEntry(AppNavItem.patients, Icons.people_outline, s.navPatients),
         messages,
-        notifications,
       ] else ...[
         _NavEntry(AppNavItem.patients, Icons.people_outline, s.navPatients),
         if (lab) _NavEntry(AppNavItem.review, Icons.fact_check_outlined, s.navReview),
@@ -196,7 +188,6 @@ class AppSidebar extends StatelessWidget {
         // _NavEntry(AppNavItem.scanBody, Icons.radio_button_checked_outlined,
         //     s.navScanBody),
         messages,
-        notifications,
         _NavEntry(AppNavItem.reports, Icons.bar_chart_rounded, s.navReports),
       ],
     ];

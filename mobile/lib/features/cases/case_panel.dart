@@ -4,11 +4,15 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/l10n/date_formats.dart';
+import '../../core/navigation/app_page_routes.dart';
 import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/page_kit.dart';
+import '../../core/widgets/patient_records.dart';
+import '../../core/widgets/touchable.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'case_store.dart';
+import '../chat/widgets/quick_chat_card.dart';
 import 'case_tool_routes.dart';
 
 String _when(BuildContext context, DateTime? at) =>
@@ -58,7 +62,7 @@ Future<void> reviewCase(BuildContext context, CaseStore store, String patientId,
     final ok = await AppDialogs.confirm(
       context,
       title: loc.tr('case.approveTitle'),
-      message: loc.tr('case.approveMsg'),
+      message: loc.tr(store.of(patientId)?.status == 'rejected' ? 'case.approveRejectedMsg' : 'case.approveMsg'),
       confirmLabel: loc.tr('case.approve'),
     );
     if (!ok) return;
@@ -498,8 +502,10 @@ class _CaseFeedbackBarState extends State<CaseFeedbackBar> {
   }
 }
 
-/// Status, items, lab actions and history of one patient's case. Loads on
-/// first show; [CaseStore.refresh] elsewhere updates it.
+/// One patient's case: who sent it, what's on it (tap an item to open it),
+/// the lab's last rejection, the owner's submit and a folded history.
+/// The lab's Approve / Reject is [CaseDecisionBar]; pass [decisions] to show
+/// it inline, or pin the bar under a scroll view yourself.
 class CasePanel extends StatefulWidget {
   const CasePanel({
     super.key,
@@ -507,26 +513,36 @@ class CasePanel extends StatefulWidget {
     required this.patientId,
     this.patients,
     this.api,
+    this.decisions = true,
   });
 
   final CaseStore store;
   final String patientId;
 
-  /// When set (lab Review), shows Open scan / shade / smile deep-links.
+  /// When set, case items open Scans / Shade / Smile for this patient.
   final PatientSession? patients;
   final ApiClient? api;
+  final bool decisions;
 
   @override
   State<CasePanel> createState() => _CasePanelState();
 }
 
 class _CasePanelState extends State<CasePanel> {
+  bool _history = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) widget.store.refresh(widget.patientId);
+      if (mounted && widget.store.of(widget.patientId) == null) widget.store.refresh(widget.patientId);
     });
+  }
+
+  VoidCallback? _opener(String tool) {
+    final api = widget.api, patients = widget.patients;
+    if (api == null || patients == null) return null;
+    return () => openCaseTool(context, api: api, patients: patients, patientId: widget.patientId, tool: tool);
   }
 
   @override
@@ -547,104 +563,227 @@ class _CasePanelState extends State<CasePanel> {
             ),
           );
         }
+        final hint = _statusHint(loc, info);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            _CaseOwner(info: info),
+            const SizedBox(height: 14),
             Row(
               children: [
-                Expanded(
-                  child: Text(loc.tr('case.title'),
-                      style: AppFonts.style(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.navy)),
-                ),
                 StatusChip(statusKey: info.status),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              info.labName == null || info.labName!.isEmpty
-                  ? loc.tr('case.noLab')
-                  : loc.trp(info.sharedWithLab ? 'case.labShared' : 'case.labNotShared', {'lab': info.labName}),
-              style: AppFonts.style(fontSize: 12.5, color: AppColors.muted),
-            ),
-            if (info.owner case final o?) ...[
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  UserAvatar(name: '${o['name'] ?? ''}', url: o['avatar_url']?.toString(), size: 34),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('${o['name'] ?? '—'}',
-                            style: AppFonts.style(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.navy)),
-                        Text(
-                          // Dentists always appear as "Lab · Clinic".
-                          dentistPlace(loc, o['lab_name']?.toString(), o['clinic_name']?.toString()),
-                          style: AppFonts.style(fontSize: 12, color: AppColors.muted),
-                        ),
-                      ],
-                    ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    hint ??
+                        (info.labName == null || info.labName!.isEmpty
+                            ? loc.tr('case.noLab')
+                            : loc.trp(info.sharedWithLab ? 'case.labShared' : 'case.labNotShared', {'lab': info.labName})),
+                    style: AppFonts.style(fontSize: 12.5, color: AppColors.muted, height: 1.3),
                   ),
-                ],
-              ),
-            ],
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final (key, has) in [('scan', info.hasScan), ('shade', info.hasShade), ('smile', info.hasSmile)])
-                  _ItemChip(label: caseItemLabel(loc, key), done: has),
+                ),
               ],
+            ),
+            const SizedBox(height: 16),
+            SectionLabel(loc.tr('case.items')),
+            const SizedBox(height: 8),
+            LayoutBuilder(
+              builder: (context, c) {
+                final tiles = [
+                  for (final (key, icon, has) in [
+                    ('scan', Icons.view_in_ar_outlined, info.hasScan),
+                    ('shade', Icons.palette_outlined, info.hasShade),
+                    ('smile', Icons.sentiment_satisfied_alt_outlined, info.hasSmile),
+                  ])
+                    _ItemTile(
+                      label: caseItemLabel(loc, key),
+                      icon: icon,
+                      done: has,
+                      feedback: info.feedback[key],
+                      suggested: info.suggestions.containsKey(key),
+                      onTap: _opener(key),
+                    ),
+                ];
+                // Three across when there's room, else a list.
+                if (c.maxWidth >= 420) {
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final (i, t) in tiles.indexed) ...[
+                        if (i > 0) const SizedBox(width: 10),
+                        Expanded(child: t),
+                      ],
+                    ],
+                  );
+                }
+                return Column(
+                  children: [
+                    for (final (i, t) in tiles.indexed) ...[if (i > 0) const SizedBox(height: 8), t],
+                  ],
+                );
+              },
             ),
             CaseRejectionBanner(
               info: info,
-              margin: const EdgeInsets.only(top: 12),
+              margin: const EdgeInsets.only(top: 14),
               store: widget.store,
               patientId: widget.patientId,
               api: widget.api,
             ),
-            if ((info.canSubmit && info.rejection == null) || widget.patients != null) const SizedBox(height: 12),
-            if (info.canSubmit && info.rejection == null)
+            if (info.canSubmit && info.rejection == null) ...[
+              const SizedBox(height: 14),
               AppButtons.primary(
                 onPressed: () => submitCaseToLab(context, widget.store, widget.patientId),
                 icon: Icons.send_rounded,
                 label: loc.tr('case.submit'),
               ),
-            if (widget.patients != null && widget.api != null) ...[
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final (key, icon) in [
-                    ('scan', Icons.view_in_ar_outlined),
-                    ('shade', Icons.palette_outlined),
-                    ('smile', Icons.sentiment_satisfied_alt_outlined),
-                  ])
-                    SoftPillButton(
-                      onPressed: () => openCaseTool(
-                        context,
-                        api: widget.api!,
-                        patients: widget.patients!,
-                        patientId: widget.patientId,
-                        tool: key,
-                      ),
-                      icon: icon,
-                      label: loc.trp('case.openTool', {'item': caseItemLabel(loc, key)}),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 12),
             ],
-            if (info.canReview)
+            if (widget.decisions && info.canReview) ...[
+              const SizedBox(height: 14),
+              CaseDecisionBar(store: widget.store, patientId: widget.patientId, padding: EdgeInsets.zero),
+            ],
+            if (info.events.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Touchable(
+                onTap: () => setState(() => _history = !_history),
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    children: [
+                      Expanded(child: SectionLabel(loc.trp('case.historyCount', {'n': info.events.length}))),
+                      AnimatedRotation(
+                        turns: _history ? 0.5 : 0,
+                        duration: AppMotion.normal,
+                        child: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.muted),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              AnimatedSize(
+                duration: AppMotion.normal,
+                curve: AppMotion.easeOut,
+                alignment: Alignment.topCenter,
+                child: _history
+                    ? Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Column(
+                          children: [
+                            for (final (i, e) in info.events.indexed)
+                              _EventRow(event: e, last: i == info.events.length - 1),
+                          ],
+                        ),
+                      )
+                    : const SizedBox(width: double.infinity),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  /// What the status means for the lab deciding it; null for everyone else.
+  String? _statusHint(AppLocalizations loc, CaseInfo info) {
+    if (!info.canReview) return null;
+    return switch (info.status) {
+      'rejected' => loc.tr('case.hintRejected'),
+      _ => loc.tr('case.hintInReview'),
+    };
+  }
+}
+
+/// The dentist who owns the case, with Message for everyone else.
+class _CaseOwner extends StatelessWidget {
+  const _CaseOwner({required this.info});
+
+  final CaseInfo info;
+
+  @override
+  Widget build(BuildContext context) {
+    final o = info.owner;
+    if (o == null) return const SizedBox.shrink();
+    final loc = AppLocalizations.of(context);
+    final id = '${o['id'] ?? ''}';
+    final name = '${o['name'] ?? ''}'.trim();
+    return Row(
+      children: [
+        UserAvatar(name: name, url: o['avatar_url']?.toString(), size: 40),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(name.isEmpty ? '—' : name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppFonts.style(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.navy)),
+              Text(
+                // Dentists always appear as "Lab · Clinic".
+                dentistPlace(loc, o['lab_name']?.toString(), o['clinic_name']?.toString()),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppFonts.style(fontSize: 12, color: AppColors.muted),
+              ),
+            ],
+          ),
+        ),
+        if (!info.isOwner && id.isNotEmpty)
+          AppButtons.secondary(
+            onPressed: () => messageUser(context, id),
+            icon: Icons.chat_bubble_outline_rounded,
+            label: loc.tr('case.message'),
+            compact: true,
+          ),
+      ],
+    );
+  }
+}
+
+/// The lab's decision: Reject / Approve while in review; on a rejected case,
+/// Update feedback / Approve. Nothing for anyone who can't decide.
+class CaseDecisionBar extends StatelessWidget {
+  const CaseDecisionBar({
+    super.key,
+    required this.store,
+    required this.patientId,
+    this.padding = const EdgeInsets.fromLTRB(16, 12, 16, 12),
+  });
+
+  final CaseStore store;
+  final String patientId;
+  final EdgeInsets padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: store,
+      builder: (context, _) {
+        final info = store.of(patientId);
+        if (info == null || !info.canReview) return const SizedBox.shrink();
+        final loc = AppLocalizations.of(context);
+        final rejected = info.status == 'rejected';
+        final blocked = info.suggestions.isNotEmpty;
+        return Padding(
+          padding: padding,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (blocked)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(loc.tr('case.approveBlocked'),
+                      style: AppFonts.style(fontSize: 12, color: AppColors.muted, height: 1.3)),
+                ),
               Row(
                 children: [
                   Expanded(
                     child: AppButtons.danger(
-                      onPressed: () => reviewCase(context, widget.store, widget.patientId, approve: false),
-                      icon: Icons.close_rounded,
-                      label: loc.tr('case.reject'),
+                      onPressed: () => reviewCase(context, store, patientId, approve: false),
+                      icon: rejected ? Icons.edit_note_rounded : Icons.close_rounded,
+                      label: loc.tr(rejected ? 'case.updateFeedback' : 'case.reject'),
                       soft: true,
                     ),
                   ),
@@ -652,30 +791,205 @@ class _CasePanelState extends State<CasePanel> {
                   Expanded(
                     child: AppButtons.primary(
                       // A lab change always goes back to the dentist: reject instead.
-                      onPressed: info.suggestions.isEmpty
-                          ? () => reviewCase(context, widget.store, widget.patientId, approve: true)
-                          : null,
+                      onPressed: blocked ? null : () => reviewCase(context, store, patientId, approve: true),
                       icon: Icons.check_rounded,
                       label: loc.tr('case.approve'),
                     ),
                   ),
                 ],
               ),
-            if (info.canReview && info.suggestions.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(loc.tr('case.approveBlocked'), style: AppFonts.style(fontSize: 12, color: AppColors.muted)),
-              ),
-            if (info.events.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              SectionLabel(loc.tr('case.history')),
-              const SizedBox(height: 8),
-              for (final (i, e) in info.events.indexed)
-                _EventRow(event: e, last: i == info.events.length - 1),
             ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// The whole case review for one patient — case, records, pinned decision —
+/// behind a single loader, so nothing appears half-built.
+class CaseReviewView extends StatefulWidget {
+  const CaseReviewView({
+    super.key,
+    required this.store,
+    required this.patientId,
+    required this.api,
+    this.patients,
+    this.records = true,
+    this.padding = const EdgeInsets.fromLTRB(18, 18, 18, 24),
+  });
+
+  final CaseStore store;
+  final String patientId;
+  final ApiClient api;
+  final PatientSession? patients;
+  final bool records;
+  final EdgeInsets padding;
+
+  @override
+  State<CaseReviewView> createState() => _CaseReviewViewState();
+}
+
+class _CaseReviewViewState extends State<CaseReviewView> {
+  late final Future<List<List<Map<String, dynamic>>>>? _records =
+      widget.records ? loadPatientRecords(widget.api, widget.patientId) : null;
+  late final Future<void> _ready = Future.wait<Object?>([
+    widget.store.refresh(widget.patientId),
+    // A records error shows inside Records; it mustn't block the case.
+    if (_records != null) _records.then<Object?>((r) => r, onError: (_) => null),
+  ]);
+
+  @override
+  Widget build(BuildContext context) {
+    final patients = widget.patients;
+    return FutureBuilder<void>(
+      future: _ready,
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) return const ToothPageLoader(inPlace: true);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: ListView(
+                padding: widget.padding,
+                children: [
+                  CasePanel(
+                    store: widget.store,
+                    patientId: widget.patientId,
+                    patients: patients,
+                    api: patients == null ? null : widget.api,
+                    decisions: false,
+                  ),
+                  if (_records != null)
+                    PatientRecords(
+                      api: widget.api,
+                      patientId: widget.patientId,
+                      rows: _records,
+                      onOpen: patients == null
+                          ? null
+                          : (tool) => openCaseTool(
+                                context,
+                                api: widget.api,
+                                patients: patients,
+                                patientId: widget.patientId,
+                                tool: tool,
+                              ),
+                    ),
+                ],
+              ),
+            ),
+            CaseDecisionBarDock(store: widget.store, patientId: widget.patientId),
           ],
         );
       },
+    );
+  }
+}
+
+/// [CaseDecisionBar] pinned under a scroll view, on a hairline divider.
+class CaseDecisionBarDock extends StatelessWidget {
+  const CaseDecisionBarDock({super.key, required this.store, required this.patientId});
+
+  final CaseStore store;
+  final String patientId;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: store,
+      builder: (context, _) {
+        if (!(store.of(patientId)?.canReview ?? false)) return const SizedBox.shrink();
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border(top: BorderSide(color: AppColors.border.withValues(alpha: 0.6))),
+          ),
+          child: SafeArea(
+            top: false,
+            child: CaseDecisionBar(store: store, patientId: patientId),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// One case item: saved or missing, the lab's draft verdict, and a tap that
+/// opens it when [onTap] is set.
+class _ItemTile extends StatelessWidget {
+  const _ItemTile({
+    required this.label,
+    required this.icon,
+    required this.done,
+    this.feedback,
+    this.suggested = false,
+    this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool done;
+  final CaseItemFeedback? feedback;
+  final bool suggested;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+    final color = done ? AppColors.success : AppColors.muted;
+    final (String state, Color stateColor) = suggested
+        ? (loc.tr('case.tileSuggested'), AppColors.review)
+        : switch (feedback?.status) {
+            'ok' => (loc.tr('case.itemOk'), AppColors.success),
+            'needs_work' => (loc.tr('case.itemNeedsWork'), AppColors.danger),
+            _ => (loc.tr(done ? 'case.saved' : 'case.missing'), color),
+          };
+    final tile = Container(
+      padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: (done ? AppColors.border : AppColors.muted).withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          AdminIcon(icon: icon, color: done ? AppColors.dentalBlue : AppColors.muted, size: 36),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppFonts.style(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.navy)),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Container(
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(color: stateColor, shape: BoxShape.circle),
+                    ),
+                    const SizedBox(width: 5),
+                    Flexible(
+                      child: Text(state,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppFonts.style(fontSize: 12, fontWeight: FontWeight.w600, color: stateColor)),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          if (onTap != null) const Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.muted),
+        ],
+      ),
+    );
+    if (onTap == null) return tile;
+    return Tooltip(
+      message: loc.trp('case.openTool', {'item': label}),
+      child: Pressable(onTap: onTap, scale: 0.97, builder: (_, _) => tile),
     );
   }
 }
@@ -703,33 +1017,6 @@ class CaseUpdatedChip extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: AppFonts.style(fontSize: 11.5, fontWeight: FontWeight.w700, color: AppColors.review)),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ItemChip extends StatelessWidget {
-  const _ItemChip({required this.label, required this.done});
-
-  final String label;
-  final bool done;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = done ? AppColors.success : AppColors.muted;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(done ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded, size: 16, color: color),
-          const SizedBox(width: 6),
-          Text(label, style: AppFonts.style(fontSize: 12.5, fontWeight: FontWeight.w600, color: done ? AppColors.navy : AppColors.muted)),
         ],
       ),
     );

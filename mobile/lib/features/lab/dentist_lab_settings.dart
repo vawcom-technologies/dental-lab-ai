@@ -264,7 +264,7 @@ class _JoinOrTransferPageState extends State<_JoinOrTransferPage> {
                   subtitle: friendlyError(snap.error!),
                 );
               }
-              if (!snap.hasData) return const ToothPageLoader();
+              if (!snap.hasData) return const ToothPageLoader(inPlace: true);
               final labs = [
                 for (final l in snap.data!)
                   if (widget.mode != _LabMode.transfer ||

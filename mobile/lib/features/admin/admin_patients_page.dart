@@ -8,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'admin_models.dart';
 import '../../core/widgets/patient_records.dart';
+import '../lab/lab_pickers.dart';
 import 'admin_widgets.dart';
 
 /// Every patient, with an Unassigned tab. Landscape shows the detail beside
@@ -391,19 +392,30 @@ class _AdminPatientDetailState extends State<AdminPatientDetail> {
       return;
     }
     if (!mounted) return;
+    // Leave it to the lab, or pick a dentist from a searchable list (labs
+    // can have too many dentists for an action sheet).
     AdminDentist? dentist;
     if (dentists.isNotEmpty) {
-      final choice = await adminChoose<({AdminDentist? d})>(
+      final choose = await adminChoose<bool>(
         context,
         title: loc.trp('admin.pickDentistTitle', {'lab': lab.name}),
         message: loc.trp('admin.pickDentistMsg', {'lab': lab.name}),
         options: [
-          ((d: null), loc.trp('admin.noDentistLabChooses', {'lab': lab.name})),
-          for (final d in dentists) ((d: d), d.clinicName == null ? d.name : '${d.name} · ${d.clinicName}'),
+          (false, loc.trp('admin.noDentistLabChooses', {'lab': lab.name})),
+          (true, loc.trp('admin.chooseDentistCount', {'n': dentists.length})),
         ],
       );
-      if (choice == null || !mounted) return;
-      dentist = choice.d;
+      if (choose == null || !mounted) return;
+      if (choose) {
+        dentist = await pickSearchable<AdminDentist>(
+          context,
+          title: loc.trp('admin.pickDentistTitle', {'lab': lab.name}),
+          items: [
+            for (final d in dentists) (value: d, name: d.name, detail: d.clinicName ?? '', avatar: d.avatarUrl),
+          ],
+        );
+        if (dentist == null || !mounted) return;
+      }
     }
     final ok = await adminRun(
       context,

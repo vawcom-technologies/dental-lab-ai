@@ -11,6 +11,7 @@ import '../../core/navigation/app_page_routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../../shell/app_sidebar.dart';
+import '../settings/settings_page.dart';
 import 'admin_models.dart';
 import 'admin_signups_page.dart';
 import 'admin_top_bar.dart';
@@ -434,7 +435,7 @@ class AdminDashboardPage extends StatelessWidget {
       (Icons.how_to_reg_outlined, 'admin.qa.signups', AppColors.warning, s.pendingSignups, AppNavItem.adminSignups, 0),
       (Icons.add_link_rounded, 'admin.qa.assign', AppColors.dentalBlue, s.unassignedDentists, AppNavItem.laboratories, 1),
       (Icons.move_down_rounded, 'admin.qa.patients', AppColors.danger, s.unassignedPatients, AppNavItem.patients, 1),
-      (Icons.block_rounded, 'admin.qa.rejectList', AppColors.review, 0, AppNavItem.adminSignups, 1),
+      (Icons.block_rounded, 'admin.qa.rejectList', AppColors.review, 0, AppNavItem.settings, SettingsPage.rejectListTab),
     ];
     return PanelCard(
       title: loc.tr('admin.quickActions'),

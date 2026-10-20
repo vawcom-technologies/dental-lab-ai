@@ -69,6 +69,19 @@ class EmailServiceTests(unittest.TestCase):
         )
         email_svc.send_account_deleted_email("Ada", "ada@clinic.de")
 
+    @patch("app.services.email.resend.Emails.send")
+    @patch("app.services.email.settings")
+    def test_rejection_email_carries_the_reason_escaped(self, mock_settings, mock_send):
+        mock_settings.resend_api_key = "re_test"
+        mock_settings.resend_from_email = "Elite Dental Support <support@elite-d.de>"
+        mock_settings.resend_welcome_to_email = "ops@elite-d.de"
+
+        email_svc.send_signup_rejected_email("Ada", "ada@clinic.de", "No <b>licence</b>")
+
+        payload = mock_send.call_args.args[0]
+        self.assertEqual(payload["to"], ["ada@clinic.de"])
+        self.assertIn("No &lt;b&gt;licence&lt;/b&gt;", payload["html"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,7 @@ import '../../core/api/api_client.dart';
 import '../../core/auth/app_roles.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/split_list.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'admin_models.dart';
 import 'admin_widgets.dart';
@@ -76,94 +77,30 @@ Future<bool> rejectSignup(
   );
 }
 
-class SignupCard extends StatelessWidget {
-  const SignupCard({
-    super.key,
-    required this.signup,
-    required this.onApprove,
-    required this.onReject,
-  });
-
-  final Signup signup;
-  final VoidCallback onApprove;
-  final VoidCallback onReject;
-
-  @override
-  Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context);
-    final s = signup;
-    return AdminCard(
-      child: AdminRow(
-        leading: UserAvatar(name: s.name.isEmpty ? s.email : s.name, url: s.avatarUrl, size: 44),
-        title: s.name.isEmpty ? s.email : s.name,
-        badges: [roleBadge(context, s.role)],
-        lines: [
-          [s.email, ?s.phone].join(' · '),
-          if (s.clinicName != null) '${loc.tr('admin.clinic')}: ${s.clinicName}',
-          if (s.createdAt != null)
-            loc.trp('admin.signedUp', {'when': adminWhen(context, s.createdAt)}),
-        ],
-        actions: [
-          AppButtons.danger(
-            onPressed: onReject,
-            icon: Icons.close_rounded,
-            label: loc.tr('admin.reject'),
-            soft: true,
-            compact: true,
-          ),
-          AppButtons.primary(
-            onPressed: onApprove,
-            icon: Icons.check_rounded,
-            label: loc.tr('admin.approve'),
-            compact: true,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class AdminSignupsPage extends StatelessWidget {
   const AdminSignupsPage({
     super.key,
     required this.api,
-    required this.tab,
     this.active = true,
   });
 
   final ApiClient api;
-
-  /// 0 pending signups, 1 reject list.
-  final ValueNotifier<int> tab;
   final bool active;
 
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
+    // The reject list lives in Settings.
     return AdminPage(
       icon: Icons.how_to_reg_outlined,
       title: loc.tr('admin.signupsTitle'),
       subtitle: loc.tr('admin.signupsSub'),
-      toolbar: [
-        AdminTabs(
-          tab: tab,
-          labels: [loc.tr('admin.pending'), loc.tr('admin.rejectList')],
-        ),
-      ],
-      body: ValueListenableBuilder<int>(
-        valueListenable: tab,
-        builder: (context, t, _) => AdminSwap(
-          index: t,
-          builder: (i) => i == 0
-              ? _pending(context, loc, active && t == 0)
-              : _rejected(context, loc, active && t == 1),
-        ),
-      ),
+      body: _pending(context, loc, active),
     );
   }
 
   Widget _pending(BuildContext context, AppLocalizations loc, bool on) {
-    return AdminFuture<List<Signup>>(
+    return SplitList<Signup>(
       key: const ValueKey('signups'),
       active: on,
       load: () async => (await api.adminSignups()).map(Signup.new).toList(),
@@ -172,25 +109,61 @@ class AdminSignupsPage extends StatelessWidget {
         title: loc.tr('admin.noSignups'),
         subtitle: loc.tr('admin.noSignupsSub'),
       ),
-      builder: (context, rows, reload) => [
-        adminSliverList<Signup>(
-          rows,
-          id: (s) => s.userId,
-          (context, s) => SignupCard(
-            signup: s,
-            onApprove: () async {
-              if (await approveSignup(context, api, s)) reload();
-            },
-            onReject: () async {
-              if (await rejectSignup(context, api, s)) reload();
-            },
-          ),
-        ),
-      ],
+      item: (s, reload) {
+        final who = s.name.isEmpty ? s.email : s.name;
+        final when = s.createdAt == null ? null : loc.trp('admin.signedUp', {'when': adminWhen(context, s.createdAt)});
+        return SplitItem(
+          id: s.userId,
+          leading: (size) => UserAvatar(name: who, url: s.avatarUrl, size: size),
+          title: who,
+          badges: [roleBadge(context, s.role)],
+          lines: [
+            [s.email, ?s.phone].join(' · '),
+            if (s.clinicName != null) '${loc.tr('admin.clinic')}: ${s.clinicName}',
+            ?when,
+          ],
+          details: [
+            (Icons.mail_outline_rounded, s.email),
+            if (s.phone case final phone?) (Icons.phone_outlined, phone),
+            if (s.clinicName case final clinic?) (Icons.storefront_outlined, clinic),
+            if (when != null) (Icons.schedule_rounded, when),
+          ],
+          actions: [
+            AppButtons.danger(
+              onPressed: () async {
+                if (await rejectSignup(context, api, s)) reload();
+              },
+              icon: Icons.close_rounded,
+              label: loc.tr('admin.reject'),
+              soft: true,
+              compact: true,
+            ),
+            AppButtons.primary(
+              onPressed: () async {
+                if (await approveSignup(context, api, s)) reload();
+              },
+              icon: Icons.check_rounded,
+              label: loc.tr('admin.approve'),
+              compact: true,
+            ),
+          ],
+        );
+      },
     );
   }
+}
 
-  Widget _rejected(BuildContext context, AppLocalizations loc, bool on) {
+/// Emails that can't sign up or sign in again; Remove lets them back.
+class RejectList extends StatelessWidget {
+  const RejectList({super.key, required this.api, this.active = true});
+
+  final ApiClient api;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+    final on = active;
     return AdminFuture<List<RejectedSignup>>(
       key: const ValueKey('rejected'),
       active: on,

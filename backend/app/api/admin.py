@@ -16,7 +16,7 @@ from app.schemas import ProfileActionOut, ProfileOut
 from app.services import avatars, case_status, labs
 from app.services import patient_access as pa
 from app.services.account_deletion import delete_account, purge_user_account
-from app.services.email import send_account_verified_email
+from app.services.email import send_account_verified_email, send_signup_rejected_email
 from app.services.notify import notify
 
 router = APIRouter()
@@ -209,7 +209,12 @@ def approve_signup(
 
 
 @router.post("/signups/{user_id}/reject")
-def reject_signup(user_id: str, body: RejectIn, admin: AuthUser = Depends(require_admin)):
+def reject_signup(
+    user_id: str,
+    body: RejectIn,
+    background_tasks: BackgroundTasks,
+    admin: AuthUser = Depends(require_admin),
+):
     p = _require_pending(user_id)
     email = str(p.get("email") or "").strip().lower()
     if not email:
@@ -232,6 +237,7 @@ def reject_signup(user_id: str, body: RejectIn, admin: AuthUser = Depends(requir
         )
     )
     purge_user_account(user_id)
+    background_tasks.add_task(send_signup_rejected_email, p.get("name") or "", email, _opt(body.reason))
     logger.info("signup rejected user_id=%s by=%s", user_id, admin.id)
     return {"ok": True}
 

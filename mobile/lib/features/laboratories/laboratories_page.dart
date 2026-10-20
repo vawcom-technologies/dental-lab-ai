@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/split_list.dart';
 import '../../core/widgets/ui_kit.dart';
+import '../chat/widgets/quick_chat_card.dart';
 import '../admin/admin_models.dart';
 import '../admin/admin_widgets.dart';
 import '../lab/bring_patients_sheet.dart';
@@ -47,13 +49,15 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
     super.dispose();
   }
 
-  Future<void> _message(String userId) async {
-    try {
-      await widget.onMessage?.call(userId);
-    } catch (e) {
-      if (mounted) AppSnackBars.error(context, friendlyError(e));
-    }
-  }
+  /// Chat in place, like the lab side; no trip to Messages.
+  Future<void> _message(String userId) => messageUser(context, userId);
+
+  Widget _messageButton(AppLocalizations loc, String id) => AppButtons.ghost(
+        onPressed: () => _message(id),
+        icon: Icons.chat_bubble_outline_rounded,
+        label: loc.tr('case.message'),
+        compact: true,
+      );
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
@@ -257,138 +261,154 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
   }
 
   Widget _byLab(AppLocalizations loc, bool on) {
-    return AdminFuture<(List<AdminLab>, List<AdminDentist>)>(
+    bool hit(String? s) => (s ?? '').toLowerCase().contains(_q);
+    return SplitList<(AdminLab, List<AdminDentist>)>(
       key: const ValueKey('by-lab'),
       active: on,
       // ponytail: loads every dentist and searches on device; switch to the
       // `q` query param if the user list grows past a few thousand.
       load: () async {
         final r = await Future.wait([api.adminLabs(), api.adminDentists()]);
-        return (
-          r[0].map(AdminLab.new).toList(),
-          r[1].map(AdminDentist.new).toList(),
-        );
+        final labs = r[0].map(AdminLab.new).toList();
+        final dentists = r[1].map(AdminDentist.new).toList();
+        return [for (final lab in labs) (lab, dentists.where((d) => d.labId == lab.id).toList())];
       },
-      isEmpty: (d) => d.$1.isEmpty,
+      // A lab matches by its own name/email (all its dentists), or through
+      // matching dentists (only those).
+      filter: (groups) => [
+        for (final (lab, all) in groups)
+          if (hit(lab.name) || hit(lab.email))
+            (lab, all)
+          else if (all.where((d) => hit(d.name) || hit(d.email) || hit(d.clinicName)).toList() case final ds
+              when ds.isNotEmpty)
+            (lab, ds),
+      ],
       empty: AdminEmpty(
         icon: Icons.apartment_rounded,
         title: loc.tr('admin.noLabs'),
         subtitle: loc.tr('admin.noLabsSub'),
       ),
-      builder: (context, data, reload) {
-        bool hit(String? s) => (s ?? '').toLowerCase().contains(_q);
-        final groups = <(AdminLab, List<AdminDentist>)>[];
-        for (final lab in data.$1) {
-          final all = data.$2.where((d) => d.labId == lab.id).toList();
-          final labHit = hit(lab.name) || hit(lab.email);
-          final ds = labHit
-              ? all
-              : all
-                  .where((d) => hit(d.name) || hit(d.email) || hit(d.clinicName))
-                  .toList();
-          if (labHit || ds.isNotEmpty) groups.add((lab, ds));
-        }
-        if (groups.isEmpty) {
-          return [
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: AdminEmpty(
-                icon: Icons.search_off_rounded,
-                title: loc.tr('admin.noMatches'),
-                subtitle: loc.tr('admin.noMatchesSub'),
-              ),
-            ),
-          ];
-        }
-        return [
-          adminSliverList(
-            groups,
-            id: (g) => g.$1.id,
-            gap: 14,
-            (context, g) => _labCard(loc, g.$1, g.$2, reload),
+      filteredEmpty: AdminEmpty(
+        icon: Icons.search_off_rounded,
+        title: loc.tr('admin.noMatches'),
+        subtitle: loc.tr('admin.noMatchesSub'),
+      ),
+      item: (g, reload) {
+        final (lab, dentists) = g;
+        final list = dentists.isEmpty
+            ? Padding(
+                padding: const EdgeInsets.fromLTRB(4, 4, 0, 6),
+                child: Text(loc.tr('admin.labNoDentists'), style: AppFonts.style(fontSize: 13, color: AppColors.muted)),
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final (i, d) in dentists.indexed) ...[
+                    if (i > 0) Divider(height: 1, color: AppColors.border.withValues(alpha: 0.6)),
+                    Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: _dentistRow(loc, d, reload)),
+                  ],
+                ],
+              );
+        return SplitItem(
+          id: lab.id,
+          leading: (size) => UserAvatar(name: lab.name, url: lab.avatarUrl, size: size),
+          title: lab.name,
+          badges: [
+            AdminBadge(dentistCount(loc, lab.dentistCount), color: AppColors.review),
+            if (lab.hiddenFromLabs) AdminBadge(loc.tr('admin.hiddenFromLabs'), color: AppColors.muted),
+            if (lab.hideDentists) AdminBadge(loc.tr('admin.dentistsHidden'), color: AppColors.muted),
+            if (lab.deleted) AdminBadge(loc.tr('admin.deactivatedBadge'), color: AppColors.danger),
+          ],
+          lines: [[lab.email, ?lab.phone].join(' · ')],
+          details: [
+            (Icons.mail_outline_rounded, lab.email),
+            if (lab.phone case final phone?) (Icons.phone_outlined, phone),
+          ],
+          extras: [if (!lab.deleted) _messageButton(loc, lab.id)],
+          actions: lab.deleted
+              ? [_reactivateButton(loc, lab.id, lab.name, reload)]
+              : [
+                  AppButtons.icon(
+                    tooltip: loc.tr('admin.more'),
+                    icon: Icons.more_horiz_rounded,
+                    onPressed: () async {
+                      final v = await adminChoose<String>(
+                        context,
+                        title: lab.name,
+                        options: [
+                          ('photo', loc.tr('avatar.change')),
+                          ('delete', loc.tr('admin.deactivateOrDelete')),
+                        ],
+                      );
+                      if (v == 'photo') {
+                        if (await _changePhoto(lab.id, lab.name)) reload();
+                        return;
+                      }
+                      if (v == 'delete' && await _delete(lab.id, lab.name, dentist: false, dentists: lab.dentistCount)) {
+                        reload();
+                      }
+                    },
+                  ),
+                ],
+          panelBody: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SectionLabel('${loc.tr('lab.tab.dentists')} (${dentists.length})'),
+              const SizedBox(height: 6),
+              list,
+            ],
           ),
-        ];
+          cardBody: list,
+        );
       },
     );
   }
 
-  Widget _labCard(
-    AppLocalizations loc,
-    AdminLab lab,
-    List<AdminDentist> dentists,
-    VoidCallback reload,
-  ) {
-    return AdminCard(
-      padding: const EdgeInsets.fromLTRB(18, 16, 14, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          AdminRow(
-            leading: UserAvatar(name: lab.name, url: lab.avatarUrl, size: 46),
-            title: lab.name,
-            badges: [
-              AdminBadge(
-                dentistCount(loc, lab.dentistCount),
-                color: AppColors.review,
-              ),
-              if (lab.hiddenFromLabs)
-                AdminBadge(loc.tr('admin.hiddenFromLabs'), color: AppColors.muted),
-              if (lab.hideDentists)
-                AdminBadge(loc.tr('admin.dentistsHidden'), color: AppColors.muted),
-              if (lab.deleted)
-                AdminBadge(loc.tr('admin.deactivatedBadge'), color: AppColors.danger),
-            ],
-            lines: [[lab.email, ?lab.phone].join(' · ')],
-            actions: lab.deleted
-                ? [_reactivateButton(loc, lab.id, lab.name, reload)]
-                : [
-                    AppButtons.icon(
-                      tooltip: loc.tr('admin.more'),
-                      icon: Icons.more_horiz_rounded,
-                      onPressed: () async {
-                        final v = await adminChoose<String>(
-                          context,
-                          title: lab.name,
-                          options: [
-                            if (widget.onMessage != null) ('msg', loc.labsMessage),
-                            ('photo', loc.tr('avatar.change')),
-                            ('delete', loc.tr('admin.deactivateOrDelete')),
-                          ],
-                        );
-                        if (v == 'msg') return _message(lab.id);
-                        if (v == 'photo') {
-                          if (await _changePhoto(lab.id, lab.name)) reload();
-                          return;
-                        }
-                        if (v == 'delete' &&
-                            await _delete(lab.id, lab.name,
-                                dentist: false, dentists: lab.dentistCount)) {
-                          reload();
-                        }
-                      },
-                    ),
-                  ],
+  List<Widget> _dentistActions(AppLocalizations loc, AdminDentist d, VoidCallback reload) => d.deleted
+      ? [_reactivateButton(loc, d.id, d.name, reload)]
+      : [
+          AppButtons.secondary(
+            onPressed: () async {
+              if (await _move(d)) reload();
+            },
+            icon: d.labId == null ? Icons.add_link_rounded : Icons.swap_horiz_rounded,
+            label: loc.tr(d.labId == null ? 'admin.assignLab' : 'admin.move'),
+            compact: true,
           ),
-          const SizedBox(height: 10),
-          if (dentists.isEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(60, 4, 0, 10),
-              child: Text(
-                loc.tr('admin.labNoDentists'),
-                style: AppFonts.style(fontSize: 13, color: AppColors.muted),
-              ),
-            ),
-          for (final d in dentists) ...[
-            Divider(height: 1, color: AppColors.border.withValues(alpha: 0.6)),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 0, 10),
-              child: _dentistRow(loc, d, reload),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
+          AppButtons.icon(
+            tooltip: loc.tr('admin.more'),
+            icon: Icons.more_horiz_rounded,
+            onPressed: () async {
+              final v = await adminChoose<String>(
+                context,
+                title: d.name,
+                options: [
+                  ('msg', loc.labsMessage),
+                  ('photo', loc.tr('avatar.change')),
+                  ('delete', loc.tr('admin.deactivateOrDelete')),
+                ],
+              );
+              if (v == 'msg') return _message(d.id);
+              if (v == 'photo') {
+                if (await _changePhoto(d.id, d.name)) reload();
+                return;
+              }
+              if (v == 'delete' && await _delete(d.id, d.name, dentist: true)) {
+                reload();
+              }
+            },
+          ),
+        ];
+
+  List<String> _dentistLines(AppLocalizations loc, AdminDentist d) => [
+        dentistPlace(loc, d.labName, d.clinicName),
+        d.email,
+        if (d.unassignedReason != null)
+          [
+            loc.tr('admin.unassigned.${d.unassignedReason}'),
+            if (d.unassignedAt != null) loc.trp('admin.since', {'when': adminWhen(context, d.unassignedAt)}),
+          ].join(' · '),
+      ];
 
   Widget _dentistRow(AppLocalizations loc, AdminDentist d, VoidCallback reload) {
     return AdminRow(
@@ -397,127 +417,82 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
       badges: [
         if (d.deleted) AdminBadge(loc.tr('admin.deactivatedBadge'), color: AppColors.danger),
       ],
-      lines: [
-        dentistPlace(loc, d.labName, d.clinicName),
-        d.email,
-        if (d.unassignedReason != null)
-          [
-            loc.tr('admin.unassigned.${d.unassignedReason}'),
-            if (d.unassignedAt != null)
-              loc.trp('admin.since', {'when': adminWhen(context, d.unassignedAt)}),
-          ].join(' · '),
-      ],
-      actions: d.deleted
-          ? [_reactivateButton(loc, d.id, d.name, reload)]
-          : [
-              AppButtons.secondary(
-                onPressed: () async {
-                  if (await _move(d)) reload();
-                },
-                icon: d.labId == null ? Icons.add_link_rounded : Icons.swap_horiz_rounded,
-                label: loc.tr(d.labId == null ? 'admin.assignLab' : 'admin.move'),
-                compact: true,
-              ),
-              AppButtons.icon(
-                tooltip: loc.tr('admin.more'),
-                icon: Icons.more_horiz_rounded,
-                onPressed: () async {
-                  final v = await adminChoose<String>(
-                    context,
-                    title: d.name,
-                    options: [
-                      if (widget.onMessage != null) ('msg', loc.labsMessage),
-                      ('photo', loc.tr('avatar.change')),
-                      ('delete', loc.tr('admin.deactivateOrDelete')),
-                    ],
-                  );
-                  if (v == 'msg') return _message(d.id);
-                  if (v == 'photo') {
-                    if (await _changePhoto(d.id, d.name)) reload();
-                    return;
-                  }
-                  if (v == 'delete' && await _delete(d.id, d.name, dentist: true)) {
-                    reload();
-                  }
-                },
-              ),
-            ],
+      lines: _dentistLines(loc, d),
+      actions: _dentistActions(loc, d, reload),
     );
   }
 
   Widget _unassigned(AppLocalizations loc, bool on) {
-    return AdminFuture<List<AdminDentist>>(
+    return SplitList<AdminDentist>(
       key: const ValueKey('unassigned'),
       active: on,
-      load: () async =>
-          (await api.adminDentists(unassigned: true)).map(AdminDentist.new).toList(),
+      load: () async => (await api.adminDentists(unassigned: true)).map(AdminDentist.new).toList(),
       empty: AdminEmpty(
         icon: Icons.verified_user_outlined,
         title: loc.tr('admin.noUnassignedDentists'),
         subtitle: loc.tr('admin.noUnassignedDentistsSub'),
       ),
-      builder: (context, rows, reload) => [
-        adminSliverList<AdminDentist>(
-          rows,
-          id: (d) => d.id,
-          (context, d) => AdminCard(child: _dentistRow(loc, d, reload)),
-        ),
-      ],
+      item: (d, reload) {
+        final name = d.name.isEmpty ? d.email : d.name;
+        final lines = _dentistLines(loc, d);
+        return SplitItem(
+          id: d.id,
+          leading: (size) => UserAvatar(name: name, url: d.avatarUrl, size: size),
+          title: name,
+          badges: [if (d.deleted) AdminBadge(loc.tr('admin.deactivatedBadge'), color: AppColors.danger)],
+          lines: lines,
+          details: [
+            (Icons.storefront_outlined, lines[0]),
+            (Icons.mail_outline_rounded, d.email),
+            if (d.phone case final phone?) (Icons.phone_outlined, phone),
+            if (lines.length > 2) (Icons.link_off_rounded, lines[2]),
+          ],
+          extras: [if (!d.deleted) _messageButton(loc, d.id)],
+          actions: _dentistActions(loc, d, reload),
+        );
+      },
     );
   }
 
   Widget _removals(AppLocalizations loc, bool on) {
-    return AdminFuture<List<RemovalRequest>>(
+    return SplitList<RemovalRequest>(
       key: const ValueKey('removals'),
       active: on,
-      load: () async =>
-          (await api.adminRemovalRequests()).map(RemovalRequest.new).toList(),
+      load: () async => (await api.adminRemovalRequests()).map(RemovalRequest.new).toList(),
       empty: AdminEmpty(
         icon: Icons.inbox_outlined,
         title: loc.tr('admin.noRemovals'),
         subtitle: loc.tr('admin.noRemovalsSub'),
       ),
-      builder: (context, rows, reload) => [
-        adminSliverList<RemovalRequest>(
-          rows,
-          id: (r) => r.id,
-          (context, r) {
-            return AdminCard(
-              child: AdminRow(
-                leading: const AdminIcon(
-                  icon: Icons.person_remove_outlined,
-                  color: AppColors.warning,
-                ),
-                title: r.dentistName,
-                lines: [
-                  loc.trp('admin.requestedBy', {
-                    'lab': r.labName,
-                    'when': adminWhen(context, r.createdAt),
-                  }),
-                  '${loc.tr('admin.reason')}: ${r.reason ?? loc.tr('admin.noReason')}',
-                ],
-                actions: [
-                  AppButtons.secondary(
-                    onPressed: () async {
-                      if (await _decide(r, approve: false)) reload();
-                    },
-                    label: loc.tr('admin.deny'),
-                    compact: true,
-                  ),
-                  AppButtons.primary(
-                    onPressed: () async {
-                      if (await _decide(r, approve: true)) reload();
-                    },
-                    icon: Icons.check_rounded,
-                    label: loc.tr('admin.approve'),
-                    compact: true,
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
-      ],
+      item: (r, reload) {
+        final by = loc.trp('admin.requestedBy', {'lab': r.labName, 'when': adminWhen(context, r.createdAt)});
+        final reason = '${loc.tr('admin.reason')}: ${r.reason ?? loc.tr('admin.noReason')}';
+        return SplitItem(
+          id: r.id,
+          highlight: true,
+          leading: (size) => AdminIcon(icon: Icons.person_remove_outlined, color: AppColors.warning, size: size),
+          title: r.dentistName,
+          lines: [by, reason],
+          details: [(Icons.apartment_rounded, by), (Icons.notes_rounded, reason)],
+          actions: [
+            AppButtons.secondary(
+              onPressed: () async {
+                if (await _decide(r, approve: false)) reload();
+              },
+              label: loc.tr('admin.deny'),
+              compact: true,
+            ),
+            AppButtons.primary(
+              onPressed: () async {
+                if (await _decide(r, approve: true)) reload();
+              },
+              icon: Icons.check_rounded,
+              label: loc.tr('admin.approve'),
+              compact: true,
+            ),
+          ],
+        );
+      },
     );
   }
 }

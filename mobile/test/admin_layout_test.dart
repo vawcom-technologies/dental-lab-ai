@@ -167,12 +167,17 @@ void main() {
   const sizes = {
     'iPad landscape': Size(1194, 834),
     'iPad portrait': Size(834, 1194),
+    'iPad Air 11" landscape': Size(1180, 820),
+    'iPad Air 11" portrait': Size(820, 1180),
+    'iPad Pro 13" landscape': Size(1376, 1032),
+    'iPad Pro 13" portrait': Size(1032, 1376),
     'phone': Size(390, 844),
+    'iPhone SE': Size(375, 667),
   };
 
   for (final MapEntry(key: name, value: size) in sizes.entries) {
     testWidgets('$name: every admin page lays out', (tester) async {
-      final phone = name == 'phone';
+      final phone = size.width < 600;
       await _pump(tester, size);
       expect(find.text(_de.tr('admin.recentPatients')), findsOneWidget);
       expect(find.text(_de.tr('admin.quickActions')), findsOneWidget);
@@ -234,7 +239,12 @@ void main() {
       expect(tester.takeException(), isNull, reason: 'top bar');
 
       await _open(tester, _de.navSignups, phone: phone);
-      expect(find.text('nord@lab.de'), findsOneWidget);
+      expect(find.text('nord@lab.de'), findsWidgets);
+      // Wide: decisions live in the side panel once a signup is picked.
+      if (find.text(_de.tr('lab.pickItem')).evaluate().isNotEmpty) {
+        // The dentist signup (first): Approve opens the lab picker.
+        await _tapText(tester, 'Dr. Annemarie Schwarzenberger-Hohenstein');
+      }
       // Approving a dentist opens the lab picker (ListTiles on a frosted
       // sheet must not trip the "ink splashes may be invisible" assert).
       await tester.tap(find.text(_de.tr('admin.approve')).first);
@@ -243,14 +253,33 @@ void main() {
       expect(tester.takeException(), isNull, reason: 'lab picker');
       await tester.tap(find.text(_de.cancel).last);
       await _settle(tester);
-      await _tapText(tester, _de.tr('admin.rejectList'));
-      expect(find.text('spam@example.com'), findsOneWidget);
+      expect(find.text(_de.tr('admin.rejectList')), findsNothing, reason: 'moved to Settings');
       expect(tester.takeException(), isNull, reason: 'signups');
 
+      // Reject list lives in Settings: beside the section list, or pushed.
+      await _open(tester, _de.navSettings, phone: phone);
+      await _tapText(tester, _de.tr('admin.rejectList'));
+      expect(find.text('spam@example.com'), findsOneWidget);
+      expect(tester.takeException(), isNull, reason: 'reject list');
+      if (find.byType(BackButton).evaluate().isNotEmpty) {
+        await tester.pageBack();
+        await _settle(tester);
+      }
+
       await _open(tester, _de.navLaboratories, phone: phone);
+      // Wide: pick a lab, its dentists and actions show in the side panel.
+      final wide = find.text(_de.tr('lab.pickItem')).evaluate().isNotEmpty;
+      if (wide) await _tapText(tester, 'Dentallabor Süd');
       expect(find.text('Dr. Weiss'), findsOneWidget);
       // Deactivated lab offers Reactivate.
+      if (wide) await _tapText(tester, 'Empty Lab');
+      if (find.text(_de.tr('admin.reactivate')).evaluate().isEmpty) {
+        // Small phones: the deactivated lab is below the fold.
+        await tester.drag(find.text('Dentallabor Süd').first, const Offset(0, -500));
+        await _settle(tester);
+      }
       expect(find.text(_de.tr('admin.reactivate')), findsWidgets);
+      expect(tester.takeException(), isNull, reason: 'labs');
       await _tapText(tester, _de.tr('admin.unassignedDentists'));
       expect(find.textContaining(_de.tr('admin.unassigned.lab_deleted')), findsWidgets);
       await _tapText(tester, _de.tr('admin.removalRequests'));

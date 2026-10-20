@@ -47,13 +47,6 @@ class InboxScreen extends StatelessWidget {
                 ? AppLocalizations.current.trp('ch.live', {'n': controller.totalUnread})
                 : loc.messagesReconnecting,
             chromeActions: [
-              AppButtons.icon(
-                tooltip: loc.refresh,
-                onPressed: controller.loadingInbox
-                    ? null
-                    : () => controller.loadInbox(forceRefresh: true),
-                icon: Icons.refresh_rounded,
-              ),
               if (onNewChat != null)
                 AppButtons.icon(
                   tooltip: loc.messagesNewChat,
@@ -87,6 +80,32 @@ class InboxScreen extends StatelessWidget {
                         ),
                       ],
                     ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: CupertinoSlidingSegmentedControl<String>(
+                      groupValue: controller.inboxRole,
+                      backgroundColor: AppColors.inset.withValues(alpha: 0.7),
+                      thumbColor: Colors.white.withValues(alpha: 0.95),
+                      children: {
+                        for (final (role, key) in const [
+                          ('', 'ch.filterAll'),
+                          ('laboratory', 'ch.filterLabs'),
+                          ('dentist', 'ch.filterDentists'),
+                        ])
+                          role: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                            child: Text(
+                              loc.tr(key),
+                              style: AppFonts.style(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.navy),
+                            ),
+                          ),
+                      },
+                      onValueChanged: (v) => controller.setInboxRole(v ?? ''),
+                    ),
                   ),
                 ),
                 Expanded(
@@ -126,7 +145,7 @@ class InboxScreen extends StatelessWidget {
                                     ),
                                     const SizedBox(height: 14),
                                     Text(
-                                      controller.inboxQuery.isEmpty
+                                      controller.inboxQuery.isEmpty && controller.inboxRole.isEmpty
                                           ? loc.messagesNoConversations
                                           : loc.messagesNoMatch,
                                       textAlign: TextAlign.center,

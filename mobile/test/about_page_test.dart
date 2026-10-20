@@ -12,7 +12,7 @@ import 'package:dental_lab_ai/features/settings/settings_page.dart';
 
 void main() {
   for (final role in ['dentist', 'laboratory', 'admin']) {
-    for (final size in [const Size(1376, 1032), const Size(390, 844)]) {
+    for (final size in [const Size(1376, 1032), const Size(1180, 820), const Size(820, 1180), const Size(390, 844)]) {
       testWidgets('$role: About opens, scrolls and closes cleanly at ${size.width}',
           (tester) async {
         SharedPreferences.setMockInitialValues({});
@@ -40,24 +40,28 @@ void main() {
           child: MaterialApp(home: Scaffold(body: SettingsPage(api: api))),
         ));
         await tester.pumpAndSettle();
-        await tester.scrollUntilVisible(find.text('Über uns'), 200,
-            scrollable: find.byType(Scrollable).first);
+        expect(tester.takeException(), isNull);
+        final wide = size.width >= 1000;
+        // Admins also get the reject list; dentists the AI section.
+        expect(find.text('Sperrliste'), role == 'admin' ? findsOneWidget : findsNothing);
+        expect(find.text('KI-Standards'), role == 'dentist' ? findsWidgets : findsNothing);
+        await tester.tap(find.text('Über uns').first);
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Über uns'));
+        expect(find.byType(AboutContent), findsOneWidget);
+        await tester.drag(find.byType(AboutContent), const Offset(0, -2000));
         await tester.pumpAndSettle();
-        expect(find.byType(AboutPage), findsOneWidget);
-        await tester.drag(find.byType(ListView), const Offset(0, -2000));
-        await tester.pumpAndSettle();
-        await tester.pageBack();
-        await tester.pumpAndSettle();
-        expect(find.byType(AboutPage), findsNothing);
-        // open again, then change language while on About
-        await tester.tap(find.text('Über uns'));
-        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        if (!wide) {
+          await tester.pageBack();
+          await tester.pumpAndSettle();
+          expect(find.byType(AboutContent), findsNothing);
+          await tester.tap(find.text('Über uns'));
+          await tester.pumpAndSettle();
+        }
+        // Change language while About is showing.
         await locale.setLanguage('en');
         await tester.pumpAndSettle();
-        await tester.pageBack();
-        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
       });
     }
   }

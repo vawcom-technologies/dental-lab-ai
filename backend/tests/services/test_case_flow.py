@@ -131,6 +131,16 @@ def test_lab_rejects_only_with_remarks_and_auto_submit_goes_off(case):
     assert case["notified"] == ["d1"]
 
 
+def test_lab_can_approve_a_rejected_case_but_not_a_completed_one(case):
+    case["patient"]["status"] = "rejected"
+    cf.review(case["patient"], LAB, approve=True, remarks=None)
+    assert case["moves"] == [("completed", "approved")]
+    case["patient"]["status"] = "completed"
+    with pytest.raises(HTTPException) as e:
+        cf.review(case["patient"], LAB, approve=True, remarks=None)
+    assert e.value.status_code == 409
+
+
 def test_lab_reject_per_item_feedback_requires_notes_and_packs_remarks(case, monkeypatch):
     case["patient"]["status"] = "in_review"
     stored = []

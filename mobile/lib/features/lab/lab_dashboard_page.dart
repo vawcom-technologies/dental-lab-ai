@@ -499,7 +499,7 @@ class _LabSearchPageState extends State<_LabSearchPage> {
                         subtitle: friendlyError(snap.error!),
                       );
                     }
-                    if (!snap.hasData) return const ToothPageLoader();
+                    if (!snap.hasData) return const ToothPageLoader(inPlace: true);
                     final dentists = snap.data![0].where((d) => _hit(d['name']) || _hit(d['email']) || _hit(d['clinic_name'])).toList();
                     final patients = snap.data![1].where((p) => _hit(_patientName(p))).toList();
                     if (dentists.isEmpty && patients.isEmpty) {

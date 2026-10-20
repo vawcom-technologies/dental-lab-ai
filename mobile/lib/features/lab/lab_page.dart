@@ -6,6 +6,8 @@ import '../../core/l10n/app_localizations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../../core/widgets/page_kit.dart';
+import '../../core/widgets/split_list.dart';
+import '../chat/widgets/quick_chat_card.dart';
 import '../patients/patient_models.dart';
 import '../patients/patients_api_service.dart';
 import 'lab_pickers.dart';
@@ -106,50 +108,110 @@ class _LabPageState extends State<LabPage> {
     );
   }
 
+  /// Dentist open in the side panel (wide screens).
+  Map<String, dynamic>? _dentist;
+  VoidCallback? _reloadDentists;
+
+  Widget _dentistPanel(Map<String, dynamic> d, {VoidCallback? close}) => _DentistPanel(
+        key: ValueKey('dentist-${d['id']}'),
+        api: api,
+        dentist: d,
+        onOpenPatient: (id) {
+          close?.call();
+          widget.onOpenPatient(id);
+        },
+        onRemove: d['deleted'] == true
+            ? null
+            : () async {
+                if (await _requestRemoval(d)) _reloadDentists?.call();
+              },
+      );
+
   Widget _dentists(AppLocalizations loc, bool on) {
-    return AdminFuture<List<Map<String, dynamic>>>(
-      key: const ValueKey('dentists'),
-      active: on,
-      load: () => api.labDentists(labId),
-      empty: AdminEmpty(
-        icon: Icons.medical_services_outlined,
-        title: loc.tr('lab.noDentists'),
-        subtitle: loc.tr('lab.noDentistsSub'),
-      ),
-      builder: (context, rows, reload) => [
-        adminSliverList<Map<String, dynamic>>(
-          rows,
-          id: (d) => '${d['id']}',
-          (context, d) {
-            final name = '${d['name'] ?? ''}';
-            final deleted = d['deleted'] == true;
-            return AdminCard(
-              child: AdminRow(
-                leading: UserAvatar(name: name, url: d['avatar_url']?.toString(), size: 42),
-                title: name.isEmpty ? '${d['email'] ?? '—'}' : name,
-                badges: [
-                  if (deleted) AdminBadge(loc.tr('admin.deactivatedBadge'), color: AppColors.danger),
-                ],
-                lines: [
-                  [?_str(d['clinic_name']), ?_str(d['email']), ?_str(d['phone'])].join(' · '),
-                ],
-                actions: [
-                  if (!deleted)
-                    AppButtons.danger(
-                      onPressed: () async {
-                        if (await _requestRemoval(d)) reload();
-                      },
-                      icon: Icons.person_remove_outlined,
-                      label: loc.tr('lab.requestRemoval'),
-                      soft: true,
-                      compact: true,
+    return LayoutBuilder(
+      builder: (context, box) {
+        final split = box.maxWidth >= 860;
+        final list = AdminFuture<List<Map<String, dynamic>>>(
+          key: const ValueKey('dentists'),
+          active: on,
+          load: () => api.labDentists(labId),
+          empty: AdminEmpty(
+            icon: Icons.medical_services_outlined,
+            title: loc.tr('lab.noDentists'),
+            subtitle: loc.tr('lab.noDentistsSub'),
+          ),
+          builder: (context, rows, reload) {
+            _reloadDentists = reload;
+            return [
+              adminSliverList<Map<String, dynamic>>(
+                rows,
+                id: (d) => '${d['id']}',
+                gap: 10,
+                (context, d) {
+                  final name = '${d['name'] ?? ''}';
+                  final deleted = d['deleted'] == true;
+                  return AdminCard(
+                    selected: split && '${d['id']}' == '${_dentist?['id']}',
+                    onTap: () {
+                      if (split) {
+                        setState(() => _dentist = d);
+                        return;
+                      }
+                      AppDialogs.modalSheet<void>(
+                        context: context,
+                        builder: (ctx) => SafeArea(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                            child: Align(
+                              alignment: Alignment.bottomCenter,
+                              child: SizedBox(
+                                height: MediaQuery.sizeOf(ctx).height * 0.75,
+                                child: _dentistPanel(d, close: () => Navigator.pop(ctx)),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                    child: AdminRow(
+                      leading: UserAvatar(name: name, url: d['avatar_url']?.toString(), size: 42),
+                      title: name.isEmpty ? '${d['email'] ?? '—'}' : name,
+                      badges: [
+                        if (deleted) AdminBadge(loc.tr('admin.deactivatedBadge'), color: AppColors.danger),
+                      ],
+                      lines: [?(_str(d['clinic_name']) ?? _str(d['email']))],
                     ),
-                ],
+                  );
+                },
               ),
-            );
+            ];
           },
-        ),
-      ],
+        );
+        if (!split) return list;
+        final d = _dentist;
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(flex: 5, child: list),
+            const SizedBox(width: 16),
+            Expanded(
+              flex: 6,
+              child: AppSwitcher(
+                child: d == null
+                    ? AdminCard(
+                        key: const ValueKey('pick'),
+                        child: AdminEmpty(
+                          icon: Icons.touch_app_outlined,
+                          title: loc.tr('lab.pickDentist'),
+                          subtitle: loc.tr('lab.pickDentistSub'),
+                        ),
+                      )
+                    : _dentistPanel(d),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -166,112 +228,100 @@ class _LabPageState extends State<LabPage> {
       );
 
   Widget _requests(AppLocalizations loc, bool on) {
-    return AdminFuture<List<Map<String, dynamic>>>(
+    return SplitList<Map<String, dynamic>>(
       key: const ValueKey('requests'),
       active: on,
       load: () async {
         final rows = await api.labRequests(labId);
-        // Action inbox: pending joins/transfers + all removal requests.
+        // Action inbox: pending joins/transfers + all removal requests, grouped.
+        const order = {'join': 0, 'transfer': 1, 'remove': 2};
         return [
           for (final r in rows)
             if (r['kind'] == 'remove' ||
-                ((r['kind'] == 'join' || r['kind'] == 'transfer') &&
-                    r['status'] == 'pending'))
+                ((r['kind'] == 'join' || r['kind'] == 'transfer') && r['status'] == 'pending'))
               r,
-        ];
+        ]..sort((a, b) => (order[a['kind']] ?? 3).compareTo(order[b['kind']] ?? 3));
       },
       empty: AdminEmpty(
         icon: Icons.inbox_outlined,
         title: loc.tr('lab.noRequests'),
         subtitle: loc.tr('lab.noRequestsSub'),
       ),
-      builder: (context, rows, reload) {
-        final joins = rows.where((r) => r['kind'] == 'join').toList();
-        final transfers = rows.where((r) => r['kind'] == 'transfer').toList();
-        final removals = rows.where((r) => r['kind'] == 'remove').toList();
-        Widget card(Map<String, dynamic> r) {
-          final d = r['dentist'] is Map ? Map<String, dynamic>.from(r['dentist'] as Map) : <String, dynamic>{};
-          final name = '${d['name'] ?? ''}';
-          final pending = r['status'] == 'pending';
-          final join = r['kind'] == 'join';
-          final transfer = r['kind'] == 'transfer';
-          final toName = '${r['to_lab_name'] ?? ''}';
-          final bringN = (r['patient_ids'] is List)
-              ? (r['patient_ids'] as List).length
-              : 0;
-          return AdminCard(
-            child: AdminRow(
-              leading: UserAvatar(name: name, url: d['avatar_url']?.toString(), size: 42),
-              title: name.isEmpty ? '—' : name,
-              badges: [
-                _statusBadge(loc, '${r['status']}'),
-                if (transfer)
-                  AdminBadge(loc.tr('lab.transferBadge'), color: AppColors.dentalBlue),
-              ],
-              lines: [
-                [?_str(d['clinic_name']), ?_str(d['email'])].join(' · '),
-                if (transfer && toName.isNotEmpty)
-                  loc.trp('lab.transferTo', {'lab': toName}),
-                if (bringN > 0) loc.trp('lab.bringCount', {'n': '$bringN'}),
-                if (_str(r['reason']) case final reason?) '${loc.tr('admin.reason')}: $reason',
-                adminWhen(context, DateTime.tryParse('${r['created_at'] ?? ''}')?.toLocal()),
-              ],
-              actions: [
-                if ((join || transfer) && pending) ...[
-                  AppButtons.secondary(
-                    onPressed: () async {
-                      final ok = await adminRun(
-                        context,
-                        () => api.labDecideJoin(labId, '${r['id']}', accept: false),
-                        done: transfer
-                            ? loc.trp('lab.dentistXferRejected', {'name': name})
-                            : loc.trp('lab.joinRejected', {'name': name}),
-                      );
-                      if (ok) reload();
-                    },
-                    label: loc.tr('admin.reject'),
-                    compact: true,
-                  ),
-                  AppButtons.primary(
-                    onPressed: () async {
-                      final ok = await adminRun(
-                        context,
-                        () => api.labDecideJoin(labId, '${r['id']}', accept: true),
-                        done: transfer
-                            ? loc.trp('lab.dentistXferAccepted', {'name': name})
-                            : loc.trp('lab.joinAccepted', {'name': name}),
-                      );
-                      if (!ok || !mounted) return;
-                      if (join) {
-                        _tab.value = 0;
-                      } else {
-                        reload();
-                      }
-                    },
-                    icon: Icons.check_rounded,
-                    label: loc.tr('lab.accept'),
-                    compact: true,
-                  ),
-                ],
-              ],
-            ),
-          );
-        }
-
-        return [
-          if (joins.isNotEmpty) ...[
-            _header(loc.tr('lab.joinRequests')),
-            adminSliverList(joins, id: (r) => 'j${r['id']}', (context, r) => card(r)),
+      item: (r, reload) {
+        final d = r['dentist'] is Map ? Map<String, dynamic>.from(r['dentist'] as Map) : <String, dynamic>{};
+        final name = '${d['name'] ?? ''}';
+        final pending = r['status'] == 'pending';
+        final join = r['kind'] == 'join';
+        final transfer = r['kind'] == 'transfer';
+        final toName = '${r['to_lab_name'] ?? ''}';
+        final bringN = (r['patient_ids'] is List) ? (r['patient_ids'] as List).length : 0;
+        final reason = _str(r['reason']);
+        final when = adminWhen(context, DateTime.tryParse('${r['created_at'] ?? ''}')?.toLocal());
+        return SplitItem(
+          id: 'r${r['id']}',
+          group: loc.tr(join ? 'lab.joinRequests' : transfer ? 'lab.transferRequests' : 'lab.ourRemovals'),
+          leading: (size) => UserAvatar(name: name, url: d['avatar_url']?.toString(), size: size),
+          title: name.isEmpty ? '—' : name,
+          badges: [
+            _statusBadge(loc, '${r['status']}'),
+            if (transfer) AdminBadge(loc.tr('lab.transferBadge'), color: AppColors.dentalBlue),
           ],
-          if (transfers.isNotEmpty) ...[
-            _header(loc.tr('lab.transferRequests')),
-            adminSliverList(transfers, id: (r) => 't${r['id']}', (context, r) => card(r)),
+          lines: [
+            [?_str(d['clinic_name']), ?_str(d['email'])].join(' · '),
+            if (transfer && toName.isNotEmpty) loc.trp('lab.transferTo', {'lab': toName}),
+            if (bringN > 0) loc.trp('lab.bringCount', {'n': '$bringN'}),
+            if (reason != null) '${loc.tr('admin.reason')}: $reason',
+            when,
           ],
-          if (removals.isNotEmpty) ...[
-            _header(loc.tr('lab.ourRemovals')),
-            adminSliverList(removals, id: (r) => 'r${r['id']}', (context, r) => card(r)),
+          details: [
+            if (_str(d['clinic_name']) case final clinic?) (Icons.storefront_outlined, clinic),
+            if (_str(d['email']) case final email?) (Icons.mail_outline_rounded, email),
+            if (_str(d['phone']) case final phone?) (Icons.phone_outlined, phone),
+            if (transfer && toName.isNotEmpty) (Icons.swap_horiz_rounded, loc.trp('lab.transferTo', {'lab': toName})),
+            if (bringN > 0) (Icons.people_outline, loc.trp('lab.bringCount', {'n': '$bringN'})),
+            if (reason != null) (Icons.notes_rounded, '${loc.tr('admin.reason')}: $reason'),
+            (Icons.schedule_rounded, when),
           ],
-        ];
+          extras: _extras(loc, userId: _str(d['id'])),
+          actions: [
+            if ((join || transfer) && pending) ...[
+              AppButtons.secondary(
+                onPressed: () async {
+                  final ok = await adminRun(
+                    context,
+                    () => api.labDecideJoin(labId, '${r['id']}', accept: false),
+                    done: transfer
+                        ? loc.trp('lab.dentistXferRejected', {'name': name})
+                        : loc.trp('lab.joinRejected', {'name': name}),
+                  );
+                  if (ok) reload();
+                },
+                label: loc.tr('admin.reject'),
+                compact: true,
+              ),
+              AppButtons.primary(
+                onPressed: () async {
+                  final ok = await adminRun(
+                    context,
+                    () => api.labDecideJoin(labId, '${r['id']}', accept: true),
+                    done: transfer
+                        ? loc.trp('lab.dentistXferAccepted', {'name': name})
+                        : loc.trp('lab.joinAccepted', {'name': name}),
+                  );
+                  if (!ok || !mounted) return;
+                  if (join) {
+                    _tab.value = 0;
+                  } else {
+                    reload();
+                  }
+                },
+                icon: Icons.check_rounded,
+                label: loc.tr('lab.accept'),
+                compact: true,
+              ),
+            ],
+          ],
+        );
       },
     );
   }
@@ -309,7 +359,7 @@ class _LabPageState extends State<LabPage> {
   }
 
   Widget _transfers(AppLocalizations loc, bool on) {
-    return AdminFuture<List<Map<String, dynamic>>>(
+    return SplitList<Map<String, dynamic>>(
       key: const ValueKey('transfers'),
       active: on,
       load: () async => (await api.labTransfers(labId))
@@ -323,75 +373,74 @@ class _LabPageState extends State<LabPage> {
         title: loc.tr('lab.noTransfers'),
         subtitle: loc.tr('lab.noTransfersSub'),
       ),
-      builder: (context, rows, reload) => [
-        adminSliverList<Map<String, dynamic>>(
-          rows,
-          id: (t) => '${t['id']}',
-          (context, t) {
-            final status = '${t['status']}';
-            final waiting = t['waiting_on_us'] == true;
-            String lab(Object? l) => l is Map ? '${l['name'] ?? '—'}' : '—';
-            return AdminCard(
-              selected: waiting,
-              child: AdminRow(
-                leading: AdminIcon(
-                  icon: t['kind'] == 'handover' ? Icons.move_down_rounded : Icons.share_outlined,
-                  color: waiting ? AppColors.warning : AppColors.dentalBlue,
-                ),
-                title: '${t['patient_name'] ?? '—'}',
-                badges: [
-                  AdminBadge(loc.tr('lab.kind.${t['kind']}'), color: AppColors.review),
-                  AdminBadge(loc.tr('lab.transfer.$status'),
-                      color: waiting ? AppColors.warning : status == 'accepted' ? AppColors.success : AppColors.muted),
-                ],
-                lines: [
-                  // A sentence from our side, not "Lab A → Lab B".
-                  transferSentence(loc, t, labId),
-                  adminWhen(context, DateTime.tryParse('${t['created_at'] ?? ''}')?.toLocal()),
-                  if (_str(t['reason']) case final reason?) '${loc.tr('admin.reason')}: $reason',
-                ],
-                actions: [
-                  if (waiting) ...[
-                    AppButtons.ghost(
-                      onPressed: () => widget.onOpenPatient('${t['patient_id']}'),
-                      icon: Icons.person_search_outlined,
-                      label: loc.tr('lab.openPatient'),
-                      compact: true,
-                    ),
-                    AppButtons.secondary(
-                      onPressed: () async {
-                        if (await _rejectTransfer(t)) reload();
-                      },
-                      label: loc.tr('admin.reject'),
-                      compact: true,
-                    ),
-                    if (status == 'awaiting_sender')
-                      AppButtons.primary(
-                        onPressed: () async {
-                          final ok = await adminRun(context, () => api.transferForward('${t['id']}'),
-                              done: loc.trp('lab.forwarded', {'lab': lab(t['to_lab'])}));
-                          if (ok) reload();
-                        },
-                        icon: Icons.send_rounded,
-                        label: loc.tr('lab.forward'),
-                        compact: true,
-                      ),
-                    if (status == 'awaiting_recipient')
-                      AppButtons.primary(
-                        onPressed: () async {
-                          if (await _acceptTransfer(t)) reload();
-                        },
-                        icon: Icons.check_rounded,
-                        label: loc.tr('lab.accept'),
-                        compact: true,
-                      ),
-                  ],
-                ],
+      item: (t, reload) {
+        final status = '${t['status']}';
+        final waiting = t['waiting_on_us'] == true;
+        final reason = _str(t['reason']);
+        final when = adminWhen(context, DateTime.tryParse('${t['created_at'] ?? ''}')?.toLocal());
+        String lab(Object? l) => l is Map ? '${l['name'] ?? '—'}' : '—';
+        final handover = t['kind'] == 'handover';
+        return SplitItem(
+          id: 't${t['id']}',
+          highlight: waiting,
+          leading: (size) => AdminIcon(
+            icon: handover ? Icons.move_down_rounded : Icons.share_outlined,
+            color: waiting ? AppColors.warning : AppColors.dentalBlue,
+            size: size,
+          ),
+          title: '${t['patient_name'] ?? '—'}',
+          badges: [
+            AdminBadge(loc.tr('lab.kind.${t['kind']}'), color: AppColors.review),
+            AdminBadge(loc.tr('lab.transfer.$status'),
+                color: waiting ? AppColors.warning : status == 'accepted' ? AppColors.success : AppColors.muted),
+          ],
+          lines: [
+            // A sentence from our side, not "Lab A → Lab B".
+            transferSentence(loc, t, labId),
+            when,
+            if (reason != null) '${loc.tr('admin.reason')}: $reason',
+          ],
+          details: [
+            (Icons.swap_horiz_rounded, transferSentence(loc, t, labId)),
+            (Icons.call_made_rounded, lab(t['from_lab'])),
+            (Icons.call_received_rounded, lab(t['to_lab'])),
+            if (reason != null) (Icons.notes_rounded, '${loc.tr('admin.reason')}: $reason'),
+            (Icons.schedule_rounded, when),
+          ],
+          extras: _extras(loc, patientId: waiting ? _str(t['patient_id']) : null),
+          actions: [
+            if (waiting) ...[
+              AppButtons.secondary(
+                onPressed: () async {
+                  if (await _rejectTransfer(t)) reload();
+                },
+                label: loc.tr('admin.reject'),
+                compact: true,
               ),
-            );
-          },
-        ),
-      ],
+              if (status == 'awaiting_sender')
+                AppButtons.primary(
+                  onPressed: () async {
+                    final ok = await adminRun(context, () => api.transferForward('${t['id']}'),
+                        done: loc.trp('lab.forwarded', {'lab': lab(t['to_lab'])}));
+                    if (ok) reload();
+                  },
+                  icon: Icons.send_rounded,
+                  label: loc.tr('lab.forward'),
+                  compact: true,
+                ),
+              if (status == 'awaiting_recipient')
+                AppButtons.primary(
+                  onPressed: () async {
+                    if (await _acceptTransfer(t)) reload();
+                  },
+                  icon: Icons.check_rounded,
+                  label: loc.tr('lab.accept'),
+                  compact: true,
+                ),
+            ],
+          ],
+        );
+      },
     );
   }
 
@@ -399,7 +448,7 @@ class _LabPageState extends State<LabPage> {
 
   Widget _sharing(AppLocalizations loc, bool on) {
     final service = PatientsApiService(api);
-    return AdminFuture<List<PendingAccessRequest>>(
+    return SplitList<PendingAccessRequest>(
       key: const ValueKey('sharing'),
       active: on,
       load: () => service.listPendingAccessRequests(forceRefresh: true),
@@ -408,54 +457,268 @@ class _LabPageState extends State<LabPage> {
         title: loc.tr('lab.noTickets'),
         subtitle: loc.tr('lab.noTicketsSub'),
       ),
-      builder: (context, rows, reload) => [
-        adminSliverList<PendingAccessRequest>(
-          rows,
-          id: (r) => r.id,
-          (context, r) {
-            Future<void> decide(bool approve) async {
-              final ok = await adminRun(
-                context,
-                () => service.resolveAccessRequest(requestId: r.id, action: approve ? 'approve' : 'reject'),
-                done: loc.tr(approve ? 'lab.ticketApproved' : 'lab.ticketRejected'),
-              );
-              if (ok) reload();
-            }
+      item: (r, reload) {
+        Future<void> decide(bool approve) async {
+          final ok = await adminRun(
+            context,
+            () => service.resolveAccessRequest(requestId: r.id, action: approve ? 'approve' : 'reject'),
+            done: loc.tr(approve ? 'lab.ticketApproved' : 'lab.ticketRejected'),
+          );
+          if (ok) reload();
+        }
 
-            return AdminCard(
-              child: AdminRow(
-                leading: const AdminIcon(icon: Icons.share_outlined),
-                title: r.patientName,
-                lines: [
-                  loc.trp('lab.ticketLine', {'from': r.requestingUserName, 'to': r.targetUserName}),
-                  adminWhen(context, r.createdAt?.toLocal()),
-                ],
-                actions: [
-                  AppButtons.ghost(
-                    onPressed: () => widget.onOpenPatient(r.patientId),
-                    icon: Icons.person_search_outlined,
-                    label: loc.tr('lab.openPatient'),
-                    compact: true,
-                  ),
-                  AppButtons.secondary(onPressed: () => decide(false), label: loc.tr('admin.reject'), compact: true),
-                  AppButtons.primary(
-                    onPressed: () => decide(true),
-                    icon: Icons.check_rounded,
-                    label: loc.tr('admin.approve'),
-                    compact: true,
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
-      ],
+        final when = adminWhen(context, r.createdAt?.toLocal());
+        final line = loc.trp('lab.ticketLine', {'from': r.requestingUserName, 'to': r.targetUserName});
+        return SplitItem(
+          id: 's${r.id}',
+          leading: (size) => AdminIcon(icon: Icons.share_outlined, size: size),
+          title: r.patientName,
+          lines: [line, when],
+          details: [
+            (Icons.share_outlined, line),
+            (Icons.schedule_rounded, when),
+          ],
+          extras: _extras(loc, patientId: r.patientId, userId: r.requestingUserId),
+          actions: [
+            AppButtons.secondary(onPressed: () => decide(false), label: loc.tr('admin.reject'), compact: true),
+            AppButtons.primary(
+              onPressed: () => decide(true),
+              icon: Icons.check_rounded,
+              label: loc.tr('admin.approve'),
+              compact: true,
+            ),
+          ],
+        );
+      },
     );
   }
 
-  Widget _header(String text) => SliverToBoxAdapter(
-        child: Padding(padding: const EdgeInsets.fromLTRB(4, 8, 4, 10), child: SectionLabel(text)),
-      );
+  /// Open patient / Message, when the row has someone to reach.
+  List<Widget> _extras(AppLocalizations loc, {String? patientId, String? userId}) => [
+        if (patientId != null)
+          AppButtons.ghost(
+            onPressed: () => widget.onOpenPatient(patientId),
+            icon: Icons.person_search_outlined,
+            label: loc.tr('lab.openPatient'),
+            compact: true,
+          ),
+        if (userId != null)
+          AppButtons.ghost(
+            onPressed: () => messageUser(context, userId),
+            icon: Icons.chat_bubble_outline_rounded,
+            label: loc.tr('case.message'),
+            compact: true,
+          ),
+      ];
+}
+
+/// One of the lab's dentists: contact, quick actions and the patients the
+/// lab can see from them (tap one to open it).
+class _DentistPanel extends StatefulWidget {
+  const _DentistPanel({
+    super.key,
+    required this.api,
+    required this.dentist,
+    required this.onOpenPatient,
+    this.onRemove,
+  });
+
+  final ApiClient api;
+  final Map<String, dynamic> dentist;
+  final ValueChanged<String> onOpenPatient;
+  final VoidCallback? onRemove;
+
+  @override
+  State<_DentistPanel> createState() => _DentistPanelState();
+}
+
+class _DentistPanelState extends State<_DentistPanel> {
+  late Future<List<Map<String, dynamic>>> _patients = _load();
+
+  Future<List<Map<String, dynamic>>> _load() async {
+    final id = '${widget.dentist['id']}';
+    final rows = await widget.api.listPatients();
+    return [
+      for (final p in rows)
+        if ('${p['created_by'] ?? ''}' == id) p,
+    ]..sort((a, b) => '${b['updated_at'] ?? ''}'.compareTo('${a['updated_at'] ?? ''}'));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+    final d = widget.dentist;
+    final name = '${d['name'] ?? ''}'.trim();
+    final id = '${d['id']}';
+    final deleted = d['deleted'] == true;
+    Widget contact(IconData icon, String? value) => value == null
+        ? const SizedBox.shrink()
+        : Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Row(
+              children: [
+                Icon(icon, size: 18, color: AppColors.muted),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: CopyableText(value, style: AppFonts.style(fontSize: 14, color: AppColors.navy)),
+                ),
+              ],
+            ),
+          );
+
+    return AdminCard(
+      padding: EdgeInsets.zero,
+      child: IpadRefresh(
+        onRefresh: () async {
+          final next = _load();
+          setState(() => _patients = next);
+          await next;
+        },
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+            sliver: SliverList.list(
+              children: [
+                Row(
+                  children: [
+                    UserAvatar(name: name, url: d['avatar_url']?.toString(), size: 56),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(name.isEmpty ? '—' : name,
+                              style: AppFonts.style(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.navy)),
+                          if (_str(d['clinic_name']) case final clinic?)
+                            Text(clinic, style: AppFonts.style(fontSize: 13.5, color: AppColors.muted)),
+                          if (deleted) ...[
+                            const SizedBox(height: 4),
+                            AdminBadge(loc.tr('admin.deactivatedBadge'), color: AppColors.danger),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (!deleted)
+                      AppButtons.primary(
+                        onPressed: () => messageUser(context, id),
+                        icon: Icons.chat_bubble_outline_rounded,
+                        label: loc.tr('case.message'),
+                        compact: true,
+                      ),
+                    if (widget.onRemove != null)
+                      AppButtons.danger(
+                        onPressed: widget.onRemove,
+                        icon: Icons.person_remove_outlined,
+                        label: loc.tr('lab.requestRemoval'),
+                        soft: true,
+                        compact: true,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                contact(Icons.mail_outline_rounded, _str(d['email'])),
+                contact(Icons.phone_outlined, _str(d['phone'])),
+                const SizedBox(height: 22),
+              ],
+            ),
+          ),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: _patients,
+            builder: (context, snap) {
+              final rows = snap.data;
+              final Widget body;
+              if (snap.hasError) {
+                body = Text(friendlyError(snap.error!), style: AppFonts.style(fontSize: 13, color: AppColors.muted));
+              } else if (rows == null) {
+                body = const LinearProgressIndicator(minHeight: 2);
+              } else {
+                int count(String st) => rows.where((p) => p['status'] == st).length;
+                body = Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        for (final (i, (st, color)) in const [
+                          ('in_review', AppColors.review),
+                          ('rejected', AppColors.danger),
+                          ('completed', AppColors.success),
+                        ].indexed) ...[
+                          if (i > 0) const SizedBox(width: 8),
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: color.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('${count(st)}',
+                                      style: AppFonts.style(fontSize: 20, fontWeight: FontWeight.w800, color: color)),
+                                  Text(loc.statusLabel(st),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: AppFonts.style(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.navy)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    if (rows.isEmpty)
+                      Text(loc.tr('lab.dentistNoPatients'), style: AppFonts.style(fontSize: 13, color: AppColors.muted))
+                    else
+                      for (final p in rows)
+                        InkWell(
+                          onTap: () => widget.onOpenPatient('${p['id']}'),
+                          borderRadius: BorderRadius.circular(12),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    '${p['first_name'] ?? ''} ${p['last_name'] ?? ''}'.trim(),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: AppFonts.style(fontSize: 14.5, fontWeight: FontWeight.w600, color: AppColors.navy),
+                                  ),
+                                ),
+                                StatusChip(statusKey: '${p['status'] ?? ''}'),
+                                const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
+                              ],
+                            ),
+                          ),
+                        ),
+                  ],
+                );
+              }
+              return SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                sliver: SliverList.list(
+                  children: [
+                    SectionLabel(rows == null ? loc.navPatients : '${loc.navPatients} (${rows.length})'),
+                    const SizedBox(height: 10),
+                    body,
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 String? _str(Object? v) {
@@ -518,7 +781,7 @@ class _LabVisibilitySettingsState extends State<LabVisibilitySettings> {
     final loc = AppLocalizations.of(context);
     if (_hidden == null) {
       return _error == null
-          ? const SizedBox(height: 80, child: ToothPageLoader())
+          ? const SizedBox(height: 80, child: ToothPageLoader(inPlace: true))
           : Text(friendlyError(_error!), style: AppFonts.style(color: AppColors.danger));
     }
     Widget row(String title, String body, bool value, ValueChanged<bool> onChanged) => Padding(

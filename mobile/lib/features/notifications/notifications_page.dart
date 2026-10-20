@@ -199,13 +199,6 @@ class _NotificationsPageState extends State<NotificationsPage> {
             subtitle: _unreadCount > 0
                 ? loc.notificationsUnreadCount(_unreadCount)
                 : loc.notificationsSubtitle,
-            chromeActions: [
-              _HeaderIconButton(
-                icon: Icons.refresh_rounded,
-                tooltip: loc.refresh,
-                onPressed: () => _inbox.refresh(announce: false),
-              ),
-            ],
             actions: [
               if (_unreadCount > 0)
                 _HeaderTextButton(
@@ -478,42 +471,6 @@ class _TypeIcon extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
       ),
       child: Icon(icon, size: 17, color: color),
-    );
-  }
-}
-
-class _HeaderIconButton extends StatelessWidget {
-  const _HeaderIconButton({
-    required this.icon,
-    required this.tooltip,
-    this.onPressed,
-  });
-
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Touchable(
-        onTap: onPressed,
-        enabled: onPressed != null,
-        borderRadius: BorderRadius.circular(10),
-        minHeight: 34,
-        child: Container(
-          width: 34,
-          height: 34,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: AppColors.neo,
-            borderRadius: BorderRadius.circular(10),
-            boxShadow: NeoShadows.soft(depth: 0.35),
-          ),
-          child: Icon(icon, size: 17, color: AppColors.navy),
-        ),
-      ),
     );
   }
 }

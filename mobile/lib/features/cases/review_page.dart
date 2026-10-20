@@ -7,7 +7,6 @@ import '../../core/navigation/app_page_routes.dart';
 import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
-import '../../core/widgets/patient_records.dart';
 import '../../core/widgets/page_kit.dart';
 import 'case_panel.dart';
 import 'case_store.dart';
@@ -90,18 +89,12 @@ class _ReviewPageState extends State<ReviewPage> {
     ));
   }
 
-  Widget _detail(String id) => ListView(
-        padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
-        children: [
-          CasePanel(
-            key: ValueKey('case-$id'),
-            store: widget.cases,
-            patientId: id,
-            patients: widget.patients,
-            api: widget.api,
-          ),
-          PatientRecords(key: ValueKey('rec-$id'), api: widget.api, patientId: id),
-        ],
+  Widget _detail(String id) => CaseReviewView(
+        key: ValueKey('case-$id'),
+        store: widget.cases,
+        patientId: id,
+        api: widget.api,
+        patients: widget.patients,
       );
 
   (String, String) _emptyCopy(AppLocalizations loc, String status) => switch (status) {
