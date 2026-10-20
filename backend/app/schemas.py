@@ -157,6 +157,8 @@ class UserOut(BaseModel):
     lab_id: str | None = None
     lab_name: str | None = None
     pending_join: dict | None = None  # {id, lab_id, lab_name, created_at}
+    lab_join_deferred_at: str | None = None
+    pending_transfer: dict | None = None  # {id, lab_id, to_lab_id, to_lab_name, created_at}
 
 
 # ── Admin / profiles ───────────────────────────────────────────────────────────

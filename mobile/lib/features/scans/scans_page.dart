@@ -13,6 +13,7 @@ import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../cases/case_panel.dart';
 import '../cases/case_store.dart';
+import '../cases/submit_prompt.dart';
 import 'mesh_sample.dart';
 import 'mesh_viewer.dart';
 import 'pick_mesh_file.dart';
@@ -88,7 +89,8 @@ class _ScansPageState extends State<ScansPage>
   CaseInfo? get _case => widget.patientSession.cases.of(_patient == null ? null : _pid(_patient!));
 
   /// Labs review only: no upload / delete / replace (server returns 403).
-  bool get _readOnly => widget.api.isLaboratory;
+  /// Labs view; while reviewing they edit too, which saves as a suggestion.
+  bool get _readOnly => widget.api.isLaboratory && !(_case?.canSuggest ?? false);
 
   void _refreshCase() {
     final p = _patient;
@@ -597,6 +599,47 @@ class _ScansPageState extends State<ScansPage>
     }
   }
 
+  /// Attach library scans to the case (like shade Accept / smile Save).
+  Future<void> _saveToCase() async {
+    if (_busy || widget.api.isLaboratory || _patient == null) return;
+    final pid = _pid(_patient!);
+    final library = [
+      for (final s in _scans)
+        if (s['on_case'] != true) '${s['id'] ?? ''}',
+    ].where((id) => id.isNotEmpty).toList();
+    if (library.isEmpty) {
+      AppSnackBars.info(context, AppLocalizations.of(context).tr('s.alreadyOnCase'));
+      return;
+    }
+    if (!await confirmCaseChange(context, _case) || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await widget.api.saveScansToCase(pid, scanIds: library);
+      if (!mounted) return;
+      final scans = await _scansForPatient(pid);
+      if (!mounted) return;
+      setState(() {
+        _scans = scans;
+        _busy = false;
+      });
+      _refreshCase();
+      AppSnackBars.success(
+        context,
+        AppLocalizations.of(context).trp('s.savedToCase', {'n': '${library.length}'}),
+      );
+      await maybePromptSubmitToLab(
+        context,
+        cases: widget.patientSession.cases,
+        patientId: pid,
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _busy = false);
+        AppSnackBars.error(context, friendlyError(e));
+      }
+    }
+  }
+
   /// Locked case (under review / completed): replace; otherwise delete.
   Future<void> _removeOrReplace(Map<String, dynamic> scan) {
     if (_case?.locked == true) return _upload(replaces: '${scan['id']}');
@@ -669,9 +712,11 @@ class _ScansPageState extends State<ScansPage>
     final selected = index == _selected;
     final file = '${scan['filename'] ?? '${AppLocalizations.current.tr('s.scan')} #${scan['id']}'}';
     final short = file.length > 28 ? '${file.substring(0, 26)}…' : file;
+    final onCase = scan['on_case'] == true;
     final subtitle =
         '${scan['patient_name'] ?? _patientLabel}'
         ' · ${scan['validation_result'] != null ? AppLocalizations.current.tr('sq.r.${scan['validation_result']}') : (scan['_q'] == 'error' ? '—' : '…')}'
+        ' · ${onCase ? loc.tr('s.onCase') : loc.tr('s.libraryOnly')}'
         ' · #${scan['id']}';
 
     return LayoutBuilder(
@@ -815,7 +860,7 @@ class _ScansPageState extends State<ScansPage>
                                 },
                                 emptyHint: loc.scansEmptyHintUpload,
                               ),
-                              if (!_readOnly)
+                              if (!widget.api.isLaboratory)
                               OutlinedButton.icon(
                                 onPressed: _busy ? null : _openInbox,
                                 icon: const Icon(Icons.inbox_outlined, size: 18),
@@ -844,10 +889,34 @@ class _ScansPageState extends State<ScansPage>
                                       : loc.scansUpload,
                                 ),
                               ),
+                              if (!widget.api.isLaboratory)
+                              FilledButton.icon(
+                                onPressed: _busy ||
+                                        _patient == null ||
+                                        !_scans.any((s) => s['on_case'] != true)
+                                    ? null
+                                    : _saveToCase,
+                                icon: const Icon(Icons.bookmark_added_outlined, size: 18),
+                                label: Text(loc.tr('s.saveToCase')),
+                              ),
                             ],
                           ),
                           const SizedBox(height: 14),
-                          CaseRejectionBanner(info: _case, margin: const EdgeInsets.only(bottom: 14)),
+                          CaseRejectionBanner(
+                            info: _case,
+                            margin: const EdgeInsets.only(bottom: 14),
+                            store: widget.patientSession.cases,
+                            patientId: _patient == null ? null : _pid(_patient!),
+                            api: widget.api,
+                          ),
+                          if (_patient != null)
+                            CaseFeedbackBar(
+                            key: ValueKey('fb-scan-${_pid(_patient!)}'),
+                            store: widget.patientSession.cases,
+                            patientId: _pid(_patient!),
+                            item: 'scan',
+                            margin: const EdgeInsets.only(bottom: 14),
+                          ),
                           if (_incoming != null) ...[
                             SectionCard(
                               child: Row(
@@ -894,7 +963,10 @@ class _ScansPageState extends State<ScansPage>
                 ),
                 Expanded(
                   child: AdaptiveSplit(
-                    narrowPanelHeight: 280 * chrome,
+                    // Portrait: mesh stage first, compact library under it.
+                    narrowContentFirst: true,
+                    narrowPanelHeight: 200 * chrome,
+                    narrowContentMinHeight: 260,
                     panelFraction: 0.32 * chrome.clamp(0.001, 1.0),
                     minPanelWidth: 260 * chrome,
                     maxPanelWidth: 380 * chrome,

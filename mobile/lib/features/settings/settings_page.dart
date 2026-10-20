@@ -16,6 +16,8 @@ import '../../core/widgets/ui_kit.dart';
 import 'change_password_screen.dart';
 import '../../core/errors/user_facing_error.dart';
 import '../../core/widgets/page_kit.dart';
+import '../lab/dentist_lab_settings.dart';
+import '../lab/lab_page.dart';
 
 const _kHairline = Color(0xFFC6C6C8);
 
@@ -367,12 +369,44 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                   ],
                 );
+                final labId = api.userId ?? '';
+                final labVisibility = api.isLaboratory && labId.isNotEmpty
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(left: 4, bottom: 8),
+                            child: Text(
+                              loc.tr('lab.tab.settings').toUpperCase(),
+                              style: AppFonts.style(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.muted,
+                                letterSpacing: 0.4,
+                              ),
+                            ),
+                          ),
+                          LabVisibilitySettings(api: api, labId: labId),
+                        ],
+                      )
+                    : null;
+                final dentistLab = api.isDentist
+                    ? DentistLabSettings(api: api)
+                    : null;
                 if (!wide) {
                   return SliverList(
                     delegate: SliverChildListDelegate([
                       profile,
                       const SizedBox(height: 20),
                       account,
+                      if (dentistLab != null) ...[
+                        const SizedBox(height: 20),
+                        dentistLab,
+                      ],
+                      if (labVisibility != null) ...[
+                        const SizedBox(height: 20),
+                        labVisibility,
+                      ],
                       const SizedBox(height: 20),
                       ai,
                       const SizedBox(height: 20),
@@ -397,6 +431,14 @@ class _SettingsPageState extends State<SettingsPage> {
                             child: Column(
                               children: [
                                 account,
+                                if (dentistLab != null) ...[
+                                  const SizedBox(height: 20),
+                                  dentistLab,
+                                ],
+                                if (labVisibility != null) ...[
+                                  const SizedBox(height: 20),
+                                  labVisibility,
+                                ],
                                 const SizedBox(height: 20),
                                 notify,
                                 const SizedBox(height: 20),

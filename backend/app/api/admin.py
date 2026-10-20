@@ -267,6 +267,7 @@ def remove_rejected(rejected_id: str, _: AuthUser = Depends(require_admin)):
 
 class SetLabIn(BaseModel):
     lab_id: str | None = None
+    patient_ids: list[str] = []
 
 
 @router.get("/labs")
@@ -333,12 +334,15 @@ def list_dentists(
 
 @router.put("/dentists/{dentist_id}/lab")
 def set_dentist_lab(dentist_id: str, body: SetLabIn, admin: AuthUser = Depends(require_admin)):
-    """Move a dentist to a lab (no lab approval needed), or out of their lab (null)."""
+    """Force-move a dentist to a lab (or clear lab). Optional patient_ids auto-share with the new lab."""
     dentist = _require_profile(dentist_id, "dentist")
     lab_id = _opt(body.lab_id)
     if lab_id:
         labs.require_lab(lab_id)
+    labs.clear_pending_lab_moves(dentist_id)
     labs.set_lab(dentist, lab_id, actor_id=admin.id, reason="removed")
+    if lab_id:
+        labs.share_owned_with_lab(dentist_id, lab_id, body.patient_ids, actor_id=admin.id)
     return {"ok": True}
 
 
@@ -381,9 +385,13 @@ def _decide_lab_request(request_id: str, approve: bool, admin: AuthUser) -> dict
     if approve:
         dentist = _require_profile(str(req["dentist_id"]), "dentist")
         lab_id = str(req["lab_id"])
+        pids = req.get("patient_ids") or []
         if req.get("kind") == "join":
             labs.require_lab(lab_id)
             labs.set_lab(dentist, lab_id, actor_id=admin.id)
+            labs.share_owned_with_lab(str(dentist["id"]), lab_id, pids, actor_id=admin.id)
+        elif req.get("kind") == "transfer":
+            labs.apply_transfer(dentist, str(req["to_lab_id"]), pids, actor_id=admin.id)
         elif str(dentist.get("lab_id") or "") == lab_id:
             # Already moved elsewhere → nothing left to remove.
             labs.set_lab(dentist, None, actor_id=admin.id, reason="removed")

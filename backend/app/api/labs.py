@@ -95,7 +95,7 @@ def lab_settings(lab_id: str, body: SettingsIn, user: AuthUser = Depends(get_cur
     return {"hidden_from_labs": bool(lab.get("hidden_from_labs")), "hide_dentists": bool(lab.get("hide_dentists"))}
 
 
-# ── join / removal requests ──────────────────────────────────────────────────
+# ── join / removal / transfer requests ───────────────────────────────────────
 
 
 class RemovalIn(BaseModel):
@@ -103,9 +103,22 @@ class RemovalIn(BaseModel):
     reason: str = Field(min_length=1, max_length=1000)
 
 
+class JoinIn(BaseModel):
+    patient_ids: list[str] = Field(default_factory=list)
+
+
+class DentistTransferIn(BaseModel):
+    to_lab_id: str
+    patient_ids: list[str] = Field(default_factory=list)
+
+
 @router.post("/{lab_id}/join-requests", status_code=status.HTTP_201_CREATED)
-def request_to_join(lab_id: str, user: AuthUser = Depends(get_current_user)):
-    """A dentist without a lab asks to join. One pending request at a time."""
+def request_to_join(
+    lab_id: str,
+    body: JoinIn | None = None,
+    user: AuthUser = Depends(get_current_user),
+):
+    """A dentist without a lab asks to join. Optional patient_ids to bring (auto-share on accept)."""
     me = labs.require_active_dentist(user.id)
     if me.get("lab_id"):
         raise HTTPException(status.HTTP_409_CONFLICT, "You're already in a lab")
@@ -115,9 +128,47 @@ def request_to_join(lab_id: str, user: AuthUser = Depends(get_current_user)):
     db = get_supabase_admin()
     if _rows(db.table("lab_requests").select("id").eq("dentist_id", user.id).eq("kind", "join").eq("status", "pending")):
         raise HTTPException(status.HTTP_409_CONFLICT, "You already have a pending request")
-    row = _rows(db.table("lab_requests").insert({"kind": "join", "lab_id": lab_id, "dentist_id": user.id}))[0]
+    pids = (body or JoinIn()).patient_ids
+    row = _rows(db.table("lab_requests").insert({"kind": "join", "lab_id": lab_id, "dentist_id": user.id, "patient_ids": pids}))[0]
     notify(user_id=lab_id, type="case_status", message=f"{_name(me)} asked to join your lab.", actor_id=user.id)
-    return {"id": str(row["id"]), "status": "pending"}
+    return {"id": str(row["id"]), "status": "pending", "patient_ids": pids}
+
+
+@router.post("/transfer-requests", status_code=status.HTTP_201_CREATED)
+def request_lab_transfer(body: DentistTransferIn, user: AuthUser = Depends(get_current_user)):
+    """Dentist asks their current lab to move them to another lab."""
+    me = labs.require_active_dentist(user.id)
+    current = str(me.get("lab_id") or "")
+    if not current:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Join a lab before requesting a transfer")
+    to_lab_id = str(body.to_lab_id).strip()
+    if to_lab_id == current:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Pick a different lab")
+    dest = labs.require_lab(to_lab_id)
+    if dest.get("hidden_from_labs"):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Lab not found")
+    db = get_supabase_admin()
+    if _rows(db.table("lab_requests").select("id").eq("dentist_id", user.id).eq("kind", "transfer").eq("status", "pending")):
+        raise HTTPException(status.HTTP_409_CONFLICT, "You already have a pending transfer")
+    pids = body.patient_ids
+    row = _rows(
+        db.table("lab_requests").insert(
+            {"kind": "transfer", "lab_id": current, "to_lab_id": to_lab_id, "dentist_id": user.id, "patient_ids": pids}
+        )
+    )[0]
+    notify(user_id=current, type="case_status", message=f"{_name(me)} asked to transfer to {_name(dest)}.", actor_id=user.id)
+    return {"id": str(row["id"]), "status": "pending", "to_lab_id": to_lab_id, "patient_ids": pids}
+
+
+@router.delete("/transfer-requests/mine", summary="Dentist withdraws their pending transfer")
+def cancel_transfer_request(user: AuthUser = Depends(get_current_user)):
+    rows = _rows(
+        get_supabase_admin().table("lab_requests").delete()
+        .eq("dentist_id", user.id).eq("kind", "transfer").eq("status", "pending")
+    )
+    if not rows:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No pending transfer")
+    return {"ok": True}
 
 
 @router.delete("/join-requests/mine", summary="Dentist withdraws their pending join request")
@@ -131,11 +182,13 @@ def cancel_join_request(user: AuthUser = Depends(get_current_user)):
     return {"ok": True}
 
 
-@router.get("/{lab_id}/requests", summary="Join requests to this lab and removal requests it filed")
+@router.get("/{lab_id}/requests", summary="Join / transfer requests to this lab and removal requests it filed")
 def lab_requests(lab_id: str, user: AuthUser = Depends(get_current_user)):
     labs.caller_lab(user, lab_id)
     rows = _rows(get_supabase_admin().table("lab_requests").select("*").eq("lab_id", lab_id).order("created_at", desc=True))
-    people = fetch_profiles_by_ids({str(r["dentist_id"]) for r in rows})
+    people_ids = {str(r["dentist_id"]) for r in rows}
+    people_ids |= {str(r["to_lab_id"]) for r in rows if r.get("to_lab_id")}
+    people = fetch_profiles_by_ids(people_ids)
     return [
         {
             "id": str(r["id"]),
@@ -143,6 +196,9 @@ def lab_requests(lab_id: str, user: AuthUser = Depends(get_current_user)):
             "status": r.get("status"),
             "reason": r.get("reason"),
             "created_at": r.get("created_at"),
+            "patient_ids": r.get("patient_ids") or [],
+            "to_lab_id": r.get("to_lab_id"),
+            "to_lab_name": (people.get(str(r.get("to_lab_id"))) or {}).get("name"),
             "dentist": {k: (people.get(str(r["dentist_id"])) or {}).get(k) for k in ("name", "email", "clinic_name", "avatar_url")}
             | {"id": str(r["dentist_id"])},
         }
@@ -150,42 +206,67 @@ def lab_requests(lab_id: str, user: AuthUser = Depends(get_current_user)):
     ]
 
 
-def _decide_join(lab_id: str, request_id: str, user: AuthUser, accept: bool) -> dict:
+def _decide_request(lab_id: str, request_id: str, user: AuthUser, accept: bool) -> dict:
     labs.caller_lab(user, lab_id)
     rows = _rows(get_supabase_admin().table("lab_requests").select("*").eq("id", request_id).eq("lab_id", lab_id))
     req = rows[0] if rows else None
-    if req is None or req.get("kind") != "join":
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Join request not found")
+    if req is None or req.get("kind") not in ("join", "transfer"):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
     if req.get("status") != "pending":
         raise HTTPException(status.HTTP_409_CONFLICT, "Request was already decided")
     dentist = labs.require_active_dentist(str(req["dentist_id"]))
+    kind = req.get("kind")
+    pids = req.get("patient_ids") or []
     if accept:
-        if dentist.get("lab_id"):
-            raise HTTPException(status.HTTP_409_CONFLICT, "This dentist is already in a lab")
-        labs.set_lab(dentist, lab_id, actor_id=user.id)
+        if kind == "join":
+            if dentist.get("lab_id"):
+                raise HTTPException(status.HTTP_409_CONFLICT, "This dentist is already in a lab")
+            labs.set_lab(dentist, lab_id, actor_id=user.id)
+            labs.share_owned_with_lab(str(dentist["id"]), lab_id, pids, actor_id=user.id)
+        else:
+            # transfer: current lab (lab_id) releases; move to to_lab_id
+            if str(dentist.get("lab_id") or "") != lab_id:
+                raise HTTPException(status.HTTP_409_CONFLICT, "This dentist is no longer in your lab")
+            to_lab_id = str(req["to_lab_id"])
+            labs.apply_transfer(dentist, to_lab_id, pids, actor_id=user.id)
+            notify(user_id=to_lab_id, type="case_status", message=f"{_name(dentist)} joined your lab (transferred).", actor_id=user.id)
+            notify(
+                user_id=str(dentist["id"]),
+                type="case_status",
+                message=f"Your transfer to {_name(fetch_profile(to_lab_id))} was approved.",
+                actor_id=user.id,
+            )
     _rows(
         get_supabase_admin().table("lab_requests")
         .update({"status": "approved" if accept else "rejected", "decided_by": user.id, "decided_at": pa.utc_now_iso()})
         .eq("id", request_id)
     )
-    lab_name = _name(fetch_profile(lab_id))
-    notify(
-        user_id=str(dentist["id"]),
-        type="case_status",
-        message=f"{lab_name} accepted you." if accept else f"{lab_name} declined your request. You can ask again.",
-        actor_id=user.id,
-    )
+    if kind == "join":
+        lab_name = _name(fetch_profile(lab_id))
+        notify(
+            user_id=str(dentist["id"]),
+            type="case_status",
+            message=f"{lab_name} accepted you." if accept else f"{lab_name} declined your request. You can ask again.",
+            actor_id=user.id,
+        )
+    elif not accept:
+        notify(
+            user_id=str(dentist["id"]),
+            type="case_status",
+            message="Your lab transfer request was declined.",
+            actor_id=user.id,
+        )
     return {"ok": True}
 
 
 @router.post("/{lab_id}/requests/{request_id}/accept")
-def accept_join(lab_id: str, request_id: str, user: AuthUser = Depends(get_current_user)):
-    return _decide_join(lab_id, request_id, user, True)
+def accept_request(lab_id: str, request_id: str, user: AuthUser = Depends(get_current_user)):
+    return _decide_request(lab_id, request_id, user, True)
 
 
 @router.post("/{lab_id}/requests/{request_id}/reject")
-def reject_join(lab_id: str, request_id: str, user: AuthUser = Depends(get_current_user)):
-    return _decide_join(lab_id, request_id, user, False)
+def reject_request(lab_id: str, request_id: str, user: AuthUser = Depends(get_current_user)):
+    return _decide_request(lab_id, request_id, user, False)
 
 
 @router.post("/{lab_id}/removal-requests", status_code=status.HTTP_201_CREATED)

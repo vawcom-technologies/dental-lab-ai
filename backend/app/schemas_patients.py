@@ -109,6 +109,9 @@ class PatientAccessEntryOut(BaseModel):
     user_id: str
     full_name: str
     status: Literal["pending", "approved", "rejected"]
+    role: str | None = None
+    email: str | None = None
+    clinic_name: str | None = None
     requested_by_name: str | None = None
     created_at: datetime | str | None = None
 
@@ -146,6 +149,8 @@ class PatientOut(BaseModel):
     deleted_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    # Rejected case the dentist changed since — the lab's queue marks it.
+    dentist_updated: bool = False
 
 
 class PatientNoteOut(BaseModel):

@@ -358,10 +358,16 @@ class PatientAccessOwner {
   const PatientAccessOwner({
     required this.userId,
     required this.fullName,
+    this.role,
+    this.email,
+    this.clinicName,
   });
 
   final String userId;
   final String fullName;
+  final String? role;
+  final String? email;
+  final String? clinicName;
 
   factory PatientAccessOwner.fromJson(Map<String, dynamic> json) {
     final id = _optString(json['user_id']) ?? '';
@@ -369,6 +375,9 @@ class PatientAccessOwner {
     return PatientAccessOwner(
       userId: id,
       fullName: name.isNotEmpty ? name : AppLocalizations.current.tr('p.owner'),
+      role: _optString(json['role']),
+      email: _optString(json['email']),
+      clinicName: _optString(json['clinic_name']),
     );
   }
 }
@@ -394,6 +403,9 @@ class PatientAccessEntry {
     required this.userId,
     required this.userName,
     required this.status,
+    this.role,
+    this.email,
+    this.clinicName,
     this.requestedBy,
     this.requestedByName,
     this.grantedBy,
@@ -406,6 +418,9 @@ class PatientAccessEntry {
   final String userId;
   final String userName;
   final PatientAccessStatus status;
+  final String? role;
+  final String? email;
+  final String? clinicName;
   final String? requestedBy;
   final String? requestedByName;
   final String? grantedBy;
@@ -423,6 +438,9 @@ class PatientAccessEntry {
       userId: '${json['user_id'] ?? ''}',
       userName: name.isNotEmpty ? name : '${json['user_id'] ?? AppLocalizations.current.tr('p.staffMember')}',
       status: parsePatientAccessStatus(json['status']),
+      role: _optString(json['role']),
+      email: _optString(json['email']),
+      clinicName: _optString(json['clinic_name']),
       requestedBy: _optString(json['requested_by']),
       requestedByName: _optString(json['requested_by_name']),
       grantedBy: _optString(json['granted_by']),

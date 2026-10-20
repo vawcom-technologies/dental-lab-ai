@@ -17,6 +17,7 @@ import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../cases/case_panel.dart';
 import '../cases/case_store.dart';
+import '../cases/submit_prompt.dart';
 import '../../core/errors/user_facing_error.dart';
 
 /// Single entry in the smile-shape library.
@@ -579,7 +580,8 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       widget.patientSession.cases.of(_patient == null ? null : _pid(_patient!));
 
   /// Labs review only: no photo / save / delete (server returns 403).
-  bool get _readOnly => widget.api.isLaboratory;
+  /// Labs view; while reviewing they edit too, which saves as a suggestion.
+  bool get _readOnly => widget.api.isLaboratory && !(_caseInfo?.canSuggest ?? false);
 
   /// Saved smile the next new save stands in for (locked case).
   String? _replacingId;
@@ -1233,6 +1235,11 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
         context,
         AppLocalizations.of(context).trp('sp.saved', {'s': shapes}),
       );
+      await maybePromptSubmitToLab(
+        context,
+        cases: widget.patientSession.cases,
+        patientId: _pid(patient),
+      );
     } catch (e) {
       final msg = friendlyError(e);
       setState(() => _error = msg);
@@ -1292,7 +1299,21 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           _buildHeader(),
-                          CaseRejectionBanner(info: _caseInfo, margin: const EdgeInsets.only(top: 12)),
+                          CaseRejectionBanner(
+                            info: _caseInfo,
+                            margin: const EdgeInsets.only(top: 12),
+                            store: widget.patientSession.cases,
+                            patientId: _patient == null ? null : _pid(_patient!),
+                            api: widget.api,
+                          ),
+                          if (_patient != null)
+                            CaseFeedbackBar(
+                            key: ValueKey('fb-smile-${_pid(_patient!)}'),
+                            store: widget.patientSession.cases,
+                            patientId: _pid(_patient!),
+                            item: 'smile',
+                            margin: const EdgeInsets.only(top: 12),
+                          ),
                           if (_status != null)
                             Text(
                               _status!,
@@ -1453,7 +1474,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                             color: Colors.white54,
                           ),
                         ),
-                        if (!_readOnly)
+                        if (!widget.api.isLaboratory) // labs never delete
                         Positioned(
                           top: 0,
                           right: 0,

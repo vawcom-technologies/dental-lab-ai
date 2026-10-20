@@ -35,7 +35,7 @@ def test_assign_copies_to_patient_folder_then_removes_inbox_item(env):
     assert env["copied"] == ["patients/p1/scans/i1.ply"]
     assert env["scans"][0]["file_key"] == "patients/p1/scans/i1.ply"
     assert env["deleted"] == ["u1/abc.ply"] and env["inbox_rows_deleted"] == ["i1"]
-    assert env["status_hooks"] == [("p1", {"scan": True})]  # a scan can start the case
+    assert env["status_hooks"] == []  # lands in the library; Save to case starts the case
 
 
 def test_failed_assign_keeps_inbox_item(env, monkeypatch):

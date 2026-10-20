@@ -110,7 +110,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     if (!mounted) return;
     // PatientSession may notify while a dialog is mounting — defer setState.
     final phase = SchedulerBinding.instance.schedulerPhase;
-    final duringBuild = phase == SchedulerPhase.transientCallbacks ||
+    final duringBuild =
+        phase == SchedulerPhase.transientCallbacks ||
         phase == SchedulerPhase.midFrameMicrotasks ||
         phase == SchedulerPhase.persistentCallbacks;
     void apply() {
@@ -170,7 +171,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     }
   }
 
-  Future<void> _loadAppointments({bool soft = false, bool forceRefresh = false}) async {
+  Future<void> _loadAppointments({
+    bool soft = false,
+    bool forceRefresh = false,
+  }) async {
     final gen = ++_listGen;
     if (soft) {
       setState(() => _refreshing = true);
@@ -203,10 +207,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     setState(() => _refreshing = true);
     try {
       await Future.wait([
-        widget.patientSession.refresh(
-          keepSelection: true,
-          forceRefresh: true,
-        ),
+        widget.patientSession.refresh(keepSelection: true, forceRefresh: true),
         _loadAppointments(forceRefresh: true),
       ]);
     } finally {
@@ -215,7 +216,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   }
 
   void _upsertLocal(Appointment appointment) {
-    final matchesStatus = _statusFilter == 'all' ||
+    final matchesStatus =
+        _statusFilter == 'all' ||
         AppointmentStatuses.normalize(appointment.status) == _statusFilter;
     final matchesPatient =
         _patientFilterId == null || appointment.patientId == _patientFilterId;
@@ -291,7 +293,11 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                         : '$_statusFilter|${_patientFilterId ?? 'all'}|${_items.length}',
                   ),
                   child: _loading
-                      ? ToothPageLoader(message: AppLocalizations.of(context).appointmentsLoading)
+                      ? ToothPageLoader(
+                          message: AppLocalizations.of(
+                            context,
+                          ).appointmentsLoading,
+                        )
                       : _buildBody(),
                 ),
               ),
@@ -331,8 +337,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     final patientIds = _patients.map(widget.patientSession.pidOf).toSet();
     final filterValue =
         _patientFilterId != null && patientIds.contains(_patientFilterId)
-            ? _patientFilterId
-            : null;
+        ? _patientFilterId
+        : null;
     final selectedPatient = () {
       if (filterValue == null) return null;
       for (final p in _patients) {
@@ -343,8 +349,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 720 &&
-            !AppBreakpoints.isPortrait(context);
+        final wide =
+            constraints.maxWidth >= 720 && !AppBreakpoints.isPortrait(context);
         final filters = _StatusFilterBar(
           selected: _statusFilter,
           compact: !wide,
@@ -364,9 +370,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
             _loadAppointments(soft: true);
           },
           onSelect: (p) {
-            setState(
-              () => _patientFilterId = widget.patientSession.pidOf(p),
-            );
+            setState(() => _patientFilterId = widget.patientSession.pidOf(p));
             _loadAppointments(soft: true);
           },
           onAdd: () => widget.patientSession.requestNavigateToNewPatient(),
@@ -549,7 +553,9 @@ class _PatientFilterButton extends StatelessWidget {
     final selected = this.selected;
     final label = selected == null
         ? loc.appointmentsAllPatients
-        : (_name(selected).isEmpty ? loc.reportsPatientFallback : _name(selected));
+        : (_name(selected).isEmpty
+              ? loc.reportsPatientFallback
+              : _name(selected));
     final subtitle = selected == null
         ? loc.appointmentsInClinic(patients.length)
         : loc.appointmentsFiltering;
@@ -560,8 +566,9 @@ class _PatientFilterButton extends StatelessWidget {
         backgroundColor: WidgetStateProperty.all(AppColors.card),
         elevation: WidgetStateProperty.all(0),
         shadowColor: WidgetStateProperty.all(Colors.transparent),
-        padding:
-            WidgetStateProperty.all(const EdgeInsets.symmetric(vertical: 6)),
+        padding: WidgetStateProperty.all(
+          const EdgeInsets.symmetric(vertical: 6),
+        ),
         shape: WidgetStateProperty.all(
           RoundedRectangleBorder(borderRadius: AppRadii.borderSm),
         ),
@@ -573,10 +580,7 @@ class _PatientFilterButton extends StatelessWidget {
           trailingIcon: selected == null
               ? const Icon(Icons.check, size: 16, color: AppColors.dentalBlue)
               : null,
-          child: SizedBox(
-            width: 180,
-            child: Text(loc.appointmentsAllPatients),
-          ),
+          child: SizedBox(width: 180, child: Text(loc.appointmentsAllPatients)),
         ),
         const Divider(height: 8),
         ...patients.map((p) {
@@ -589,11 +593,7 @@ class _PatientFilterButton extends StatelessWidget {
               size: 28,
             ),
             trailingIcon: isSel
-                ? const Icon(
-                    Icons.check,
-                    size: 16,
-                    color: AppColors.dentalBlue,
-                  )
+                ? const Icon(Icons.check, size: 16, color: AppColors.dentalBlue)
                 : null,
             child: SizedBox(
               width: 180,
@@ -698,10 +698,7 @@ class _PatientFilterButton extends StatelessWidget {
 }
 
 class _AppointmentsEmpty extends StatelessWidget {
-  const _AppointmentsEmpty({
-    required this.filtered,
-    required this.onBook,
-  });
+  const _AppointmentsEmpty({required this.filtered, required this.onBook});
 
   final bool filtered;
   final VoidCallback onBook;
@@ -732,9 +729,7 @@ class _AppointmentsEmpty extends StatelessWidget {
               ),
               const SizedBox(height: 18),
               Text(
-                filtered
-                    ? loc.appointmentsFilterEmpty
-                    : loc.appointmentsEmpty,
+                filtered ? loc.appointmentsFilterEmpty : loc.appointmentsEmpty,
                 textAlign: TextAlign.center,
                 style: AppFonts.style(
                   color: AppColors.navy,
@@ -886,7 +881,7 @@ class _AppointmentRow extends StatelessWidget {
       onTap: onTap,
       minHeight: 76,
       borderRadius: BorderRadius.zero,
-            child: AnimatedContainer(
+      child: AnimatedContainer(
         duration: AppMotion.fast,
         curve: AppMotion.spring,
         color: selected
@@ -911,10 +906,7 @@ class _AppointmentRow extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     formatAppTime(context, appointment.endTime),
-                    style: AppFonts.style(
-                      fontSize: 12,
-                      color: AppColors.muted,
-                    ),
+                    style: AppFonts.style(fontSize: 12, color: AppColors.muted),
                   ),
                 ],
               ),
@@ -1072,7 +1064,11 @@ class _AppointmentDetailPane extends StatelessWidget {
           _DetailRow(
             icon: Icons.calendar_today_outlined,
             label: loc.appointmentsDate,
-            value: formatAppDate(context, appointment.startTime, 'EEEE, MMMM d'),
+            value: formatAppDate(
+              context,
+              appointment.startTime,
+              'EEEE, MMMM d',
+            ),
           ),
           _DetailRow(
             icon: Icons.schedule_outlined,
@@ -1179,7 +1175,9 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
   final _descriptionCtrl = TextEditingController();
 
   List<Map<String, dynamic>> _patients = [];
+  List<Map<String, dynamic>> _dentists = [];
   String? _patientId;
+  String? _dentistId;
   DateTime _start = DateTime.now().add(const Duration(hours: 1));
   int _durationMinutes = 30;
   String _status = AppointmentStatuses.scheduled;
@@ -1187,9 +1185,15 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
   bool _saving = false;
 
   bool get _isEdit => widget.existing != null;
+  bool get _labMustAssign => widget.service.api.isLaboratory;
   bool get _canSubmit {
     if (_saving || _loadingPatients) return false;
     if (!_isEdit && (_patientId == null || _patientId!.isEmpty)) return false;
+    if (!_isEdit &&
+        _labMustAssign &&
+        (_dentistId == null || _dentistId!.isEmpty)) {
+      return false;
+    }
     return true;
   }
 
@@ -1207,12 +1211,13 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
       _status = AppointmentStatuses.normalize(existing.status);
       _descriptionCtrl.text = existing.description;
     } else {
-      _start = _roundToNextQuarter(DateTime.now().add(const Duration(hours: 1)));
+      _start = _roundToNextQuarter(
+        DateTime.now().add(const Duration(hours: 1)),
+      );
     }
     // Seed from cache immediately; refresh after this frame so we never
     // notify PatientSession listeners while the dialog is still mounting.
-    _patients =
-        List<Map<String, dynamic>>.from(widget.patientSession.patients);
+    _patients = List<Map<String, dynamic>>.from(widget.patientSession.patients);
     if (!_isEdit && _patients.isNotEmpty) {
       _patientId = widget.patientSession.pidOf(_patients.first);
       if (_patientId != null && _patientId!.isEmpty) _patientId = null;
@@ -1224,6 +1229,31 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _loadPatients();
       });
+      if (_labMustAssign) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _loadDentists();
+        });
+      }
+    }
+  }
+
+  Future<void> _loadDentists() async {
+    final labId = widget.service.api.userId ?? '';
+    if (labId.isEmpty) return;
+    try {
+      final rows = await widget.service.api.labDentists(labId);
+      if (!mounted) return;
+      final active = rows.where((d) => d['deleted'] != true).toList();
+      setState(() {
+        _dentists = active;
+        if (_dentistId == null && active.isNotEmpty) {
+          _dentistId = '${active.first['id'] ?? ''}';
+          if (_dentistId!.isEmpty) _dentistId = null;
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      AppSnackBars.error(context, friendlyError(e));
     }
   }
 
@@ -1240,13 +1270,15 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
     try {
       await widget.patientSession.refresh(keepSelection: true);
       if (!mounted) return;
-      final rows =
-          List<Map<String, dynamic>>.from(widget.patientSession.patients);
+      final rows = List<Map<String, dynamic>>.from(
+        widget.patientSession.patients,
+      );
       setState(() {
         _patients = rows;
         _loadingPatients = false;
         if (!_isEdit) {
-          final stillThere = _patientId != null &&
+          final stillThere =
+              _patientId != null &&
               rows.any((p) => widget.patientSession.pidOf(p) == _patientId);
           if (!stillThere) {
             _patientId = rows.isEmpty
@@ -1276,8 +1308,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
   DateTime get _end => _start.add(Duration(minutes: _durationMinutes));
 
   String _patientMenuLabel(Map<String, dynamic> row) {
-    final name =
-        '${row['first_name'] ?? ''} ${row['last_name'] ?? ''}'.trim();
+    final name = '${row['first_name'] ?? ''} ${row['last_name'] ?? ''}'.trim();
     return name.isEmpty
         ? AppLocalizations.of(context).reportsPatientFallback
         : name;
@@ -1308,13 +1339,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
       minute = 0;
       hour = (hour + 1) % 24;
     }
-    var pending = DateTime(
-      _start.year,
-      _start.month,
-      _start.day,
-      hour,
-      minute,
-    );
+    var pending = DateTime(_start.year, _start.month, _start.day, hour, minute);
     final picked = await showCupertinoModalPopup<DateTime>(
       context: context,
       builder: (ctx) {
@@ -1399,6 +1424,15 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
       );
       return;
     }
+    if (!_isEdit &&
+        _labMustAssign &&
+        (_dentistId == null || _dentistId!.isEmpty)) {
+      AppSnackBars.error(
+        context,
+        AppLocalizations.of(context).tr('appt.assignDentist'),
+      );
+      return;
+    }
     if (_end.isBefore(_start) || _end.isAtSameMomentAs(_start)) {
       AppSnackBars.error(
         context,
@@ -1426,6 +1460,7 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
           startTime: _start,
           endTime: _end,
           description: _descriptionCtrl.text.trim(),
+          assignTo: _labMustAssign ? _dentistId : null,
         );
       }
       if (!mounted) return;
@@ -1508,11 +1543,11 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
     }
     final patientLabel = _isEdit
         ? (widget.existing!.patientName.isEmpty
-            ? loc.reportsPatientFallback
-            : widget.existing!.patientName)
+              ? loc.reportsPatientFallback
+              : widget.existing!.patientName)
         : (selectedPatient == null
-            ? loc.appointmentsSelectPatient
-            : _patientMenuLabel(selectedPatient));
+              ? loc.appointmentsSelectPatient
+              : _patientMenuLabel(selectedPatient));
 
     final portrait = AppBreakpoints.isPortrait(context);
     return PopScope(
@@ -1544,127 +1579,103 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                   ),
                 ),
                 const SizedBox(height: 18),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 560),
-                  child: Stack(
-                    children: [
-                      Form(
-                        key: _formKey,
-                        child: SingleChildScrollView(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              if (!_isEdit)
-                                _sheetTile(
-                                  icon: Icons.person_outline,
-                                  label: AppLocalizations.of(context).reportsPatientFallback,
-                                  value: _loadingPatients && _patients.isEmpty
-                                      ? loc.loading
-                                      : patientLabel,
-                                  onTap: _saving || _loadingPatients
-                                      ? null
-                                      : () async {
-                                          final chosen =
-                                              await _pickPatientSheet();
-                                          if (chosen == null || !mounted) {
-                                            return;
-                                          }
-                                          setState(() => _patientId = chosen);
-                                        },
-                                )
-                              else
-                                _sheetTile(
-                                  icon: Icons.person_outline,
-                                  label: AppLocalizations.of(context).reportsPatientFallback,
-                                  value: patientLabel,
-                                ),
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: _sheetTile(
-                                      icon: Icons.calendar_today_outlined,
-                                      label: loc.appointmentsDate,
-                                      value: dateLabel,
-                                      onTap: _saving ? null : _pickDate,
-                                    ),
+                // Flexible: shrinks (and scrolls) when the dialog is short —
+                // landscape or with the keyboard up.
+                Flexible(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 560),
+                    child: Stack(
+                      children: [
+                        Form(
+                          key: _formKey,
+                          child: SingleChildScrollView(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (!_isEdit)
+                                  _sheetTile(
+                                    icon: Icons.person_outline,
+                                    label: AppLocalizations.of(
+                                      context,
+                                    ).reportsPatientFallback,
+                                    value: _loadingPatients && _patients.isEmpty
+                                        ? loc.loading
+                                        : patientLabel,
+                                    onTap: _saving || _loadingPatients
+                                        ? null
+                                        : () async {
+                                            final chosen =
+                                                await _pickPatientSheet();
+                                            if (chosen == null || !mounted) {
+                                              return;
+                                            }
+                                            setState(() => _patientId = chosen);
+                                          },
+                                  )
+                                else
+                                  _sheetTile(
+                                    icon: Icons.person_outline,
+                                    label: AppLocalizations.of(
+                                      context,
+                                    ).reportsPatientFallback,
+                                    value: patientLabel,
                                   ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: _sheetTile(
-                                      icon: Icons.schedule_outlined,
-                                      label: AppLocalizations.of(context).appointmentsStarts,
-                                      value: timeLabel,
-                                      onTap: _saving ? null : _pickTime,
-                                    ),
+                                if (!_isEdit && _labMustAssign) ...[
+                                  const SizedBox(height: 12),
+                                  _sheetTile(
+                                    icon: Icons.medical_services_outlined,
+                                    label: loc.tr('appt.dentist'),
+                                    value: () {
+                                      for (final d in _dentists) {
+                                        if ('${d['id']}' == _dentistId) {
+                                          final n = '${d['name'] ?? ''}'.trim();
+                                          return n.isEmpty
+                                              ? '${d['email'] ?? '—'}'
+                                              : n;
+                                        }
+                                      }
+                                      return loc.tr('appt.assignDentist');
+                                    }(),
+                                    onTap: _saving || _dentists.isEmpty
+                                        ? null
+                                        : () async {
+                                            final chosen =
+                                                await _pickDentistSheet();
+                                            if (chosen == null || !mounted) {
+                                              return;
+                                            }
+                                            setState(() => _dentistId = chosen);
+                                          },
                                   ),
                                 ],
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                loc.appointmentsDuration,
-                                style: AppFonts.style(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 13,
-                                  color: AppColors.navy,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              CupertinoSlidingSegmentedControl<int>(
-                                groupValue: _durations.contains(_durationMinutes)
-                                    ? _durationMinutes
-                                    : _durations.first,
-                                backgroundColor: AppColors.inset,
-                                thumbColor: Colors.white,
-                                children: {
-                                  for (final m in _durations)
-                                    m: Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 10,
-                                      ),
-                                      child: Text(
-                                        AppLocalizations.current.trp('ap.min', {'m': m}),
-                                        style: AppFonts.style(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          color: AppColors.navy,
-                                        ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _sheetTile(
+                                        icon: Icons.calendar_today_outlined,
+                                        label: loc.appointmentsDate,
+                                        value: dateLabel,
+                                        onTap: _saving ? null : _pickDate,
                                       ),
                                     ),
-                                },
-                                onValueChanged: _saving
-                                    ? (_) {}
-                                    : (v) {
-                                        if (v == null) return;
-                                        AppHaptics.selection();
-                                        setState(() => _durationMinutes = v);
-                                      },
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                loc.appointmentsEndsAt(endLabel),
-                                style: AppFonts.style(
-                                  color: AppColors.muted,
-                                  fontSize: 13,
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: _sheetTile(
+                                        icon: Icons.schedule_outlined,
+                                        label: AppLocalizations.of(
+                                          context,
+                                        ).appointmentsStarts,
+                                        value: timeLabel,
+                                        onTap: _saving ? null : _pickTime,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                              const SizedBox(height: 16),
-                              TextFormField(
-                                controller: _descriptionCtrl,
-                                enabled: !_saving,
-                                maxLines: 3,
-                                decoration: InputDecoration(
-                                  labelText: loc.appointmentsNotes,
-                                  hintText: loc.appointmentsNotesHint,
-                                  alignLabelWithHint: true,
-                                ),
-                              ),
-                              if (_isEdit) ...[
                                 const SizedBox(height: 16),
                                 Text(
-                                  loc.appointmentsStatus,
+                                  loc.appointmentsDuration,
                                   style: AppFonts.style(
                                     fontWeight: FontWeight.w600,
                                     fontSize: 13,
@@ -1672,55 +1683,123 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                                   ),
                                 ),
                                 const SizedBox(height: 8),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    for (final s in AppointmentStatuses.all)
-                                      SoftPillButton(
-                                        label: loc.appointmentStatusLabel(s),
-                                        selected: _status == s,
-                                        compact: false,
-                                        selectionHaptic: true,
-                                        onPressed: _saving
-                                            ? null
-                                            : () => setState(() => _status = s),
+                                CupertinoSlidingSegmentedControl<int>(
+                                  groupValue:
+                                      _durations.contains(_durationMinutes)
+                                      ? _durationMinutes
+                                      : _durations.first,
+                                  backgroundColor: AppColors.inset,
+                                  thumbColor: Colors.white,
+                                  children: {
+                                    for (final m in _durations)
+                                      m: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 10,
+                                        ),
+                                        child: Text(
+                                          AppLocalizations.current.trp(
+                                            'ap.min',
+                                            {'m': m},
+                                          ),
+                                          style: AppFonts.style(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            color: AppColors.navy,
+                                          ),
+                                        ),
                                       ),
-                                  ],
+                                  },
+                                  onValueChanged: _saving
+                                      ? (_) {}
+                                      : (v) {
+                                          if (v == null) return;
+                                          AppHaptics.selection();
+                                          setState(() => _durationMinutes = v);
+                                        },
                                 ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  loc.appointmentsEndsAt(endLabel),
+                                  style: AppFonts.style(
+                                    color: AppColors.muted,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                TextFormField(
+                                  controller: _descriptionCtrl,
+                                  enabled: !_saving,
+                                  maxLines: 3,
+                                  decoration: InputDecoration(
+                                    labelText: loc.appointmentsNotes,
+                                    hintText: loc.appointmentsNotesHint,
+                                    alignLabelWithHint: true,
+                                  ),
+                                ),
+                                if (_isEdit) ...[
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    loc.appointmentsStatus,
+                                    style: AppFonts.style(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
+                                      color: AppColors.navy,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: [
+                                      for (final s in AppointmentStatuses.all)
+                                        SoftPillButton(
+                                          label: loc.appointmentStatusLabel(s),
+                                          selected: _status == s,
+                                          compact: false,
+                                          selectionHaptic: true,
+                                          onPressed: _saving
+                                              ? null
+                                              : () =>
+                                                    setState(() => _status = s),
+                                        ),
+                                    ],
+                                  ),
+                                ],
                               ],
-                            ],
+                            ),
                           ),
                         ),
-                      ),
-                      if (_saving)
-                        Positioned.fill(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: BackdropFilter(
-                              filter:
-                                  ImageFilter.blur(sigmaX: 2.5, sigmaY: 2.5),
-                              child: ColoredBox(
-                                color: Colors.white.withValues(alpha: 0.45),
-                                child: Center(
-                                  child: ToothLoadingIndicator(
-                                    size: 40,
-                                    loadingText: loc.appointmentsSaving,
+                        if (_saving)
+                          Positioned.fill(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: BackdropFilter(
+                                filter: ImageFilter.blur(
+                                  sigmaX: 2.5,
+                                  sigmaY: 2.5,
+                                ),
+                                child: ColoredBox(
+                                  color: Colors.white.withValues(alpha: 0.45),
+                                  child: Center(
+                                    child: ToothLoadingIndicator(
+                                      size: 40,
+                                      loadingText: loc.appointmentsSaving,
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 18),
                 Row(
                   children: [
                     AppButtons.ghost(
-                      onPressed:
-                          _saving ? null : () => Navigator.pop(context),
+                      onPressed: _saving ? null : () => Navigator.pop(context),
                       label: loc.cancel,
                     ),
                     const Spacer(),
@@ -1742,35 +1821,41 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
   }
 
   Future<String?> _pickPatientSheet() async {
-    final maxH =
-        (MediaQuery.sizeOf(context).height * 0.55).clamp(280.0, 520.0);
-    return showCupertinoModalPopup<String>(
+    final loc = AppLocalizations.of(context);
+    final n = _patients.length;
+    // Compact dialog — names don't need a full-width sheet.
+    final listH = n == 0 ? 88.0 : (n * 52.0).clamp(52.0, 260.0);
+    return showCupertinoDialog<String>(
       context: context,
+      barrierDismissible: true,
       builder: (ctx) {
-        return Material(
-          color: AppColors.card,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-          child: SafeArea(
-            top: false,
-            child: SizedBox(
-              height: maxH,
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 72, vertical: 24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 360),
+            child: AdminCard(
+              padding: EdgeInsets.zero,
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
+                    padding: const EdgeInsets.fromLTRB(16, 14, 8, 8),
                     child: Row(
                       children: [
-                        Text(
-                          AppLocalizations.of(context).appointmentsSelectPatient,
-                          style: AppFonts.style(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.navy,
+                        Expanded(
+                          child: Text(
+                            loc.appointmentsSelectPatient,
+                            style: AppFonts.style(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.navy,
+                            ),
                           ),
                         ),
-                        const Spacer(),
                         AppButtons.icon(
-                          tooltip: AppLocalizations.of(context).refresh,
+                          tooltip: loc.refresh,
                           onPressed: _loadPatients,
                           icon: Icons.refresh_rounded,
                           busy: _loadingPatients,
@@ -1778,22 +1863,24 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                       ],
                     ),
                   ),
-                  Expanded(
+                  SizedBox(
+                    height: listH,
                     child: _patients.isEmpty
                         ? Center(
                             child: Padding(
-                              padding: const EdgeInsets.all(24),
+                              padding: const EdgeInsets.all(16),
                               child: Text(
-                                AppLocalizations.of(context)
-                                    .appointmentsNoPatientsYet,
+                                loc.appointmentsNoPatientsYet,
+                                textAlign: TextAlign.center,
                                 style: AppFonts.style(
                                   color: AppColors.muted,
-                                  fontSize: 15,
+                                  fontSize: 14,
                                 ),
                               ),
                             ),
                           )
                         : ListView.builder(
+                            padding: const EdgeInsets.only(bottom: 8),
                             itemCount: _patients.length,
                             itemBuilder: (context, i) {
                               final p = _patients[i];
@@ -1801,7 +1888,8 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                               final name = _patientMenuLabel(p);
                               final selected = id == _patientId;
                               return ListTile(
-                                leading: InitialsAvatar(name: name, size: 36),
+                                dense: true,
+                                leading: InitialsAvatar(name: name, size: 32),
                                 title: Text(
                                   name,
                                   style: AppFonts.style(
@@ -1809,18 +1897,107 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
                                         ? FontWeight.w700
                                         : FontWeight.w500,
                                     color: AppColors.navy,
+                                    fontSize: 14,
                                   ),
                                 ),
                                 trailing: selected
                                     ? const Icon(
                                         Icons.check_rounded,
                                         color: AppColors.dentalBlue,
+                                        size: 20,
                                       )
                                     : null,
                                 onTap: () => Navigator.pop(ctx, id),
                               );
                             },
                           ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<String?> _pickDentistSheet() async {
+    final loc = AppLocalizations.of(context);
+    final n = _dentists.length;
+    final listH = n == 0 ? 88.0 : (n * 56.0).clamp(56.0, 260.0);
+    return showCupertinoDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 72, vertical: 24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 360),
+            child: AdminCard(
+              padding: EdgeInsets.zero,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        loc.tr('appt.assignDentist'),
+                        style: AppFonts.style(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.navy,
+                        ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    height: listH,
+                    child: ListView.builder(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      itemCount: _dentists.length,
+                      itemBuilder: (context, i) {
+                        final d = _dentists[i];
+                        final id = '${d['id'] ?? ''}';
+                        final name = '${d['name'] ?? ''}'.trim();
+                        final label = name.isEmpty
+                            ? '${d['email'] ?? '—'}'
+                            : name;
+                        final selected = id == _dentistId;
+                        return ListTile(
+                          dense: true,
+                          leading: InitialsAvatar(name: label, size: 32),
+                          title: Text(
+                            label,
+                            style: AppFonts.style(
+                              fontWeight: selected
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                              color: AppColors.navy,
+                              fontSize: 14,
+                            ),
+                          ),
+                          subtitle:
+                              (d['clinic_name'] as String?)
+                                      ?.trim()
+                                      .isNotEmpty ==
+                                  true
+                              ? Text('${d['clinic_name']}')
+                              : null,
+                          trailing: selected
+                              ? const Icon(
+                                  Icons.check_rounded,
+                                  color: AppColors.dentalBlue,
+                                  size: 20,
+                                )
+                              : null,
+                          onTap: () => Navigator.pop(ctx, id),
+                        );
+                      },
+                    ),
                   ),
                 ],
               ),

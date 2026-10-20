@@ -84,6 +84,8 @@ def set_lab(
         "unassigned_at": None if lab_id else now,
         "updated_at": now,
     }
+    if lab_id:
+        patch["lab_join_deferred_at"] = None
     rows = _execute(
         get_supabase_admin().table("profiles").update(patch).eq("id", str(dentist["id"]))
     )
@@ -159,6 +161,37 @@ def grant(patient_id: str, user_id: str, actor_id: str) -> None:
             },
             on_conflict="patient_id,user_id",
         )
+    )
+
+
+def share_owned_with_lab(dentist_id: str, lab_id: str, patient_ids: list[str], *, actor_id: str) -> None:
+    """Auto-share the dentist's owned patients with `lab_id`."""
+    if not patient_ids:
+        return
+    owned = _execute(
+        get_supabase_admin().table("patients").select("id")
+        .eq("created_by", dentist_id).eq("deleted", False).in_("id", patient_ids)
+    )
+    for row in owned:
+        grant(str(row["id"]), lab_id, actor_id)
+
+
+def apply_transfer(dentist: dict[str, Any], to_lab_id: str, patient_ids: list[str], *, actor_id: str) -> None:
+    """Move a dentist to another lab and share the patients they bring."""
+    require_lab(to_lab_id)
+    set_lab(dentist, to_lab_id, actor_id=actor_id)
+    share_owned_with_lab(str(dentist["id"]), to_lab_id, patient_ids, actor_id=actor_id)
+
+
+def clear_pending_lab_moves(dentist_id: str) -> None:
+    """Cancel open join/transfer requests (e.g. admin force-assign)."""
+    _execute(
+        get_supabase_admin()
+        .table("lab_requests")
+        .update({"status": "rejected", "decided_at": pa.utc_now_iso()})
+        .eq("dentist_id", dentist_id)
+        .in_("kind", ["join", "transfer"])
+        .eq("status", "pending")
     )
 
 
@@ -342,13 +375,22 @@ def can_message(sender_id: str, recipient_id: str) -> bool:
     return messaging_rule(sender_id)(fetch_profile(recipient_id))
 
 
-def pending_join(dentist_id: str) -> dict[str, Any] | None:
-    """The dentist's open request to join a lab, for the blocking lab picker."""
+def _pending(dentist_id: str, kind: str, lab_col: str, name_key: str) -> dict[str, Any] | None:
     rows = _execute(
-        get_supabase_admin().table("lab_requests").select("id,lab_id,created_at")
-        .eq("dentist_id", dentist_id).eq("kind", "join").eq("status", "pending").limit(1)
+        get_supabase_admin().table("lab_requests").select("*")
+        .eq("dentist_id", dentist_id).eq("kind", kind).eq("status", "pending").limit(1)
     )
     if not rows:
         return None
-    lab = fetch_profile(str(rows[0]["lab_id"]))
-    return {**rows[0], "id": str(rows[0]["id"]), "lab_name": pa.profile_display_name(lab, fallback="") or None}
+    lab = fetch_profile(str(rows[0].get(lab_col) or ""))
+    return {**rows[0], "id": str(rows[0]["id"]), name_key: pa.profile_display_name(lab, fallback="") or None}
+
+
+def pending_join(dentist_id: str) -> dict[str, Any] | None:
+    """The dentist's open request to join a lab."""
+    return _pending(dentist_id, "join", "lab_id", "lab_name")
+
+
+def pending_transfer(dentist_id: str) -> dict[str, Any] | None:
+    """Open transfer request (current lab decides)."""
+    return _pending(dentist_id, "transfer", "to_lab_id", "to_lab_name")

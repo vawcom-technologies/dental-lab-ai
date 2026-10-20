@@ -175,10 +175,10 @@ class AppSidebar extends StatelessWidget {
           Icons.calendar_today_outlined,
           s.navAppointments,
         ),
-        _NavEntry(AppNavItem.camera, Icons.photo_camera_outlined, s.navCamera),
-        // Scans, shade and smile are the dentist's work; labs review them
-        // from the patient and the Review queue.
+        // Camera / scans / shade / smile are chairside dentist work; labs
+        // review from the patient record and the Review queue.
         if (!lab) ...[
+          _NavEntry(AppNavItem.camera, Icons.photo_camera_outlined, s.navCamera),
           _NavEntry(AppNavItem.scans, Icons.view_in_ar_outlined, s.navScans),
           _NavEntry(AppNavItem.shade, Icons.palette_outlined, s.navShade),
           _NavEntry(

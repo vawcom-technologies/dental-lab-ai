@@ -119,112 +119,117 @@ class _ChatScreenState extends State<ChatScreen> {
     final partner = active.partner;
     final messages = controller.messages;
 
+    // Shell doesn't resize for the keyboard; lift the composer ourselves.
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom;
     return AdminCard(
       padding: EdgeInsets.zero,
-      child: Column(
-        children: [
-          _ChatHeader(
-            partner: partner,
-            connected: controller.socketConnected,
-            showBack: widget.showBack,
-            onBack: widget.onBack,
-            onClose: widget.onClose,
-          ),
-          Container(
-            height: 0.6,
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            color: Colors.white.withValues(alpha: 0.45),
-          ),
-          Expanded(
-            child: ColoredBox(
-              color: _kChatCanvas,
-              child: controller.loadingMessages && messages.isEmpty
-                  ? ToothPageLoader(message: AppLocalizations.of(context).messagesLoadingChat)
-                  : messages.isEmpty
-                      ? Center(
-                          child: Text(
-                            AppLocalizations.of(context).messagesEmpty,
-                            style: const TextStyle(
-                              color: AppColors.muted,
-                              fontSize: 16,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: keyboard),
+        child: Column(
+          children: [
+            _ChatHeader(
+              partner: partner,
+              connected: controller.socketConnected,
+              showBack: widget.showBack,
+              onBack: widget.onBack,
+              onClose: widget.onClose,
+            ),
+            Container(
+              height: 0.6,
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              color: Colors.white.withValues(alpha: 0.45),
+            ),
+            Expanded(
+              child: ColoredBox(
+                color: _kChatCanvas,
+                child: controller.loadingMessages && messages.isEmpty
+                    ? ToothPageLoader(message: AppLocalizations.of(context).messagesLoadingChat)
+                    : messages.isEmpty
+                        ? Center(
+                            child: Text(
+                              AppLocalizations.of(context).messagesEmpty,
+                              style: const TextStyle(
+                                color: AppColors.muted,
+                                fontSize: 16,
+                              ),
                             ),
-                          ),
-                        )
-                      : Builder(
-                          builder: (context) {
-                            final me = controller.currentUserId;
-                            String? lastSeenMineId;
-                            if (me != null) {
-                              for (var i = messages.length - 1; i >= 0; i--) {
-                                final m = messages[i];
-                                if (m.senderId == me && m.isRead) {
-                                  lastSeenMineId = m.id;
-                                  break;
+                          )
+                        : Builder(
+                            builder: (context) {
+                              final me = controller.currentUserId;
+                              String? lastSeenMineId;
+                              if (me != null) {
+                                for (var i = messages.length - 1; i >= 0; i--) {
+                                  final m = messages[i];
+                                  if (m.senderId == me && m.isRead) {
+                                    lastSeenMineId = m.id;
+                                    break;
+                                  }
                                 }
                               }
-                            }
-                            return ListView.builder(
-                              controller: _scroll,
-                              reverse: true,
-                              padding:
-                                  const EdgeInsets.fromLTRB(16, 14, 16, 10),
-                              itemCount: messages.length +
-                                  (controller.loadingOlder ? 1 : 0),
-                              itemBuilder: (context, index) {
-                                if (controller.loadingOlder &&
-                                    index == messages.length) {
-                                  return const Padding(
-                                    padding: EdgeInsets.all(12),
-                                    child: Center(
-                                      child: ToothLoadingIndicator(size: 28),
-                                    ),
+                              return ListView.builder(
+                                controller: _scroll,
+                                reverse: true,
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                                itemCount: messages.length +
+                                    (controller.loadingOlder ? 1 : 0),
+                                itemBuilder: (context, index) {
+                                  if (controller.loadingOlder &&
+                                      index == messages.length) {
+                                    return const Padding(
+                                      padding: EdgeInsets.all(12),
+                                      child: Center(
+                                        child: ToothLoadingIndicator(size: 28),
+                                      ),
+                                    );
+                                  }
+                                  final message =
+                                      messages[messages.length - 1 - index];
+                                  final mine =
+                                      me != null && message.senderId == me;
+                                  return ChatMessageBubble(
+                                    message: message,
+                                    mine: mine,
+                                    mediaLink:
+                                        controller.apiService.chatMediaLink,
+                                    showSeenEye: mine &&
+                                        lastSeenMineId != null &&
+                                        message.id == lastSeenMineId,
+                                    onReply: () =>
+                                        controller.setReplyTo(message),
+                                    onPatientMention: (patientId) {
+                                      final session = widget.patientSession;
+                                      if (session == null ||
+                                          session.openingPatientDetail) {
+                                        return;
+                                      }
+                                      session.requestOpenPatientDetail(patientId);
+                                    },
                                   );
-                                }
-                                final message =
-                                    messages[messages.length - 1 - index];
-                                final mine =
-                                    me != null && message.senderId == me;
-                                return ChatMessageBubble(
-                                  message: message,
-                                  mine: mine,
-                                  mediaLink:
-                                      controller.apiService.chatMediaLink,
-                                  showSeenEye: mine &&
-                                      lastSeenMineId != null &&
-                                      message.id == lastSeenMineId,
-                                  onReply: () =>
-                                      controller.setReplyTo(message),
-                                  onPatientMention: (patientId) {
-                                    final session = widget.patientSession;
-                                    if (session == null ||
-                                        session.openingPatientDetail) {
-                                      return;
-                                    }
-                                    session.requestOpenPatientDetail(patientId);
-                                  },
-                                );
-                              },
-                            );
-                          },
-                        ),
+                                },
+                              );
+                            },
+                          ),
+              ),
             ),
-          ),
-          if (controller.replyTo != null)
-            _ReplyPreviewBar(
-              message: controller.replyTo!,
-              onClear: controller.clearReply,
-            ),
-          if (controller.canMessage(active))
-            ChatComposer(
-              controller: _compose,
-              sending: controller.sending,
-              patientSession: widget.patientSession,
-              onSend: _send,
-              onSendMedia: _sendMedia,
-            )
-          else
-            const ChatBlockedNotice(),
-        ],
+            if (controller.replyTo != null)
+              _ReplyPreviewBar(
+                message: controller.replyTo!,
+                onClear: controller.clearReply,
+              ),
+            if (controller.canMessage(active))
+              ChatComposer(
+                controller: _compose,
+                sending: controller.sending,
+                patientSession: widget.patientSession,
+                onSend: _send,
+                onSendMedia: _sendMedia,
+              )
+            else
+              const ChatBlockedNotice(),
+          ],
+        ),
       ),
     );
   }

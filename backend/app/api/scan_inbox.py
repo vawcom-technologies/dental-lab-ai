@@ -175,6 +175,7 @@ def _assign_scan(row: dict, item_id: str, patient_id: str, user_id: str, angle: 
             "file_url": key,
             "file_name": row.get("file_name") or "",
             "format": row.get("format") or "",
+            "on_case": False,  # Save to case attaches it, like a fresh upload
             "created_at": pm.utc_now_iso(),
         })["id"])
     except Exception:
@@ -226,8 +227,7 @@ def assign_inbox_item(item_id: str, body: AssignIn, user: AuthUser = Depends(get
         pm.delete_row(_TABLE, item_id)
     except Exception:
         logger.warning("inbox cleanup after assign failed item_id=%s", item_id, exc_info=True)
-    if not photo:
-        case_flow.after_change(body.patient_id, user.id, scan=True)
+    # Scans stay in the library until Save to case (shade/smile Save already attach).
     logger.info("inbox assign user_id=%s item_id=%s patient_id=%s", user.id, item_id, body.patient_id)
     return {
         "assigned": True,

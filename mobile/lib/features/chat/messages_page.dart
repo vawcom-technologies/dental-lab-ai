@@ -47,11 +47,18 @@ class _MessagesPageState extends State<MessagesPage> {
     } else {
       _controller = ChatController(api: widget.api);
       _ownsController = true;
-      _controller.start();
     }
     _controller.addListener(_onControllerChanged);
-    // Ensure latest inbox when opening the page.
-    _controller.loadInbox();
+    // Defer — loadInbox/start notify ListenableBuilders; doing that while
+    // MessagesPage is still mounting marks them dirty mid-build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_ownsController) {
+        _controller.start();
+      } else {
+        _controller.loadInbox();
+      }
+    });
   }
 
   void _onControllerChanged() {

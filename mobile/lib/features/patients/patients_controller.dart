@@ -20,7 +20,6 @@ class PatientsController extends ChangeNotifier {
 
   final List<GdprPatient> _patients = [];
   final List<PatientNote> _notes = [];
-  final List<PendingAccessRequest> _pendingRequests = [];
   final List<PatientAccessEntry> _accessEntries = [];
   PatientAccessOwner? _accessOwner;
   bool _accessViewerIsOwner = false;
@@ -31,7 +30,6 @@ class PatientsController extends ChangeNotifier {
   bool _loading = false;
   bool _loadingDetail = false;
   bool _loadingNotes = false;
-  bool _loadingPending = false;
   bool _loadingAccess = false;
   bool _mutating = false;
   String? _error;
@@ -41,8 +39,6 @@ class PatientsController extends ChangeNotifier {
   String? get currentUserId => _api.userId;
   List<GdprPatient> get patients => List.unmodifiable(_patients);
   List<PatientNote> get notes => List.unmodifiable(_notes);
-  List<PendingAccessRequest> get pendingRequests =>
-      List.unmodifiable(_pendingRequests);
   List<PatientAccessEntry> get accessEntries =>
       List.unmodifiable(_accessEntries);
   PatientAccessOwner? get accessOwner => _accessOwner;
@@ -52,12 +48,10 @@ class PatientsController extends ChangeNotifier {
   bool get loading => _loading;
   bool get loadingDetail => _loadingDetail;
   bool get loadingNotes => _loadingNotes;
-  bool get loadingPending => _loadingPending;
   bool get loadingAccess => _loadingAccess;
   bool get mutating => _mutating;
   String? get error => _error;
   GdprPatient? get selected => _selected;
-  int get pendingCount => _pendingRequests.length;
 
   int get totalCount => _patients.length;
 
@@ -106,7 +100,6 @@ class PatientsController extends ChangeNotifier {
         final match = _patients.where((p) => p.id == _selected!.id);
         _selected = match.isEmpty ? null : match.first;
       }
-      await loadPendingRequests(silent: true);
     } catch (e) {
       _reportError(e);
     } finally {
@@ -115,25 +108,6 @@ class PatientsController extends ChangeNotifier {
     }
   }
 
-  Future<void> loadPendingRequests({bool silent = false}) async {
-    if (_loadingPending) return;
-    if (!silent) {
-      _loadingPending = true;
-      notifyListeners();
-    }
-    try {
-      final rows = await _service.listPendingAccessRequests();
-      _pendingRequests
-        ..clear()
-        ..addAll(rows);
-    } catch (_) {
-      // Pending badge is primarily for owners; ignore soft failures on refresh.
-      if (!silent) rethrow;
-    } finally {
-      if (!silent) _loadingPending = false;
-      notifyListeners();
-    }
-  }
 
   Future<GdprPatient?> openPatient(String patientId) async {
     if (_loadingDetail) return null;
@@ -296,91 +270,6 @@ class PatientsController extends ChangeNotifier {
       _accessEntries.removeWhere((e) => e.userId == targetUserId);
       if (_selected?.id == patientId) {
         await loadAccess(patientId, silent: true);
-      }
-    } finally {
-      _mutating = false;
-      notifyListeners();
-      onAccessMutated?.call();
-    }
-  }
-
-  Future<void> approveAccessRequest(String requestId) async {
-    if (_mutating) return;
-    _mutating = true;
-    notifyListeners();
-    try {
-      await _service.resolveAccessRequest(
-        requestId: requestId,
-        action: 'approve',
-      );
-      _pendingRequests.removeWhere((r) => r.id == requestId);
-      // Refresh roster so newly approved staff visibility stays consistent.
-      final rows = await _service.listPatients();
-      _patients
-        ..clear()
-        ..addAll(rows);
-      await loadPendingRequests(silent: true);
-    } finally {
-      _mutating = false;
-      notifyListeners();
-      onAccessMutated?.call();
-    }
-  }
-
-  Future<void> rejectAccessRequest(String requestId) async {
-    if (_mutating) return;
-    _mutating = true;
-    notifyListeners();
-    try {
-      await _service.resolveAccessRequest(
-        requestId: requestId,
-        action: 'reject',
-      );
-      _pendingRequests.removeWhere((r) => r.id == requestId);
-      await loadPendingRequests(silent: true);
-    } finally {
-      _mutating = false;
-      notifyListeners();
-      onAccessMutated?.call();
-    }
-  }
-
-  Future<void> approveAccessEntry(PatientAccessEntry entry) async {
-    if (_mutating) return;
-    _mutating = true;
-    notifyListeners();
-    try {
-      await _service.resolveAccessRequest(
-        requestId: entry.id,
-        action: 'approve',
-      );
-      await loadPendingRequests(silent: true);
-      if (_selected != null) {
-        await loadAccess(_selected!.id, silent: true);
-      }
-      final rows = await _service.listPatients();
-      _patients
-        ..clear()
-        ..addAll(rows);
-    } finally {
-      _mutating = false;
-      notifyListeners();
-      onAccessMutated?.call();
-    }
-  }
-
-  Future<void> rejectAccessEntry(PatientAccessEntry entry) async {
-    if (_mutating) return;
-    _mutating = true;
-    notifyListeners();
-    try {
-      await _service.resolveAccessRequest(
-        requestId: entry.id,
-        action: 'reject',
-      );
-      await loadPendingRequests(silent: true);
-      if (_selected != null) {
-        await loadAccess(_selected!.id, silent: true);
       }
     } finally {
       _mutating = false;

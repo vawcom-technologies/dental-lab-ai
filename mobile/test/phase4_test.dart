@@ -22,12 +22,21 @@ class _Backend {
         baseUrl: 'http://test',
         httpClient: MockClient((req) async {
           calls.add('${req.method} ${req.url.path}');
-          final body = switch ('${req.method} ${req.url.path}') {
+          final path = '${req.method} ${req.url.path}';
+          final body = switch (path) {
             'GET /api/auth/me' => me,
             'GET /api/labs' => [
                 {'id': 'lab1', 'name': 'Dentallabor Süd'},
               ],
             'POST /api/auth/signin' => {'access_token': 't', 'user_id': 'd1', 'role': 'dentist'},
+            'POST /api/auth/me/lab-join-deferred' => {
+                ...me,
+                'lab_join_deferred_at': '2026-10-19T12:00:00Z',
+              },
+            'GET /api/patients' => {
+                'status': 'SUCCESS',
+                'payload': {'patients': <Map<String, dynamic>>[]},
+              },
             _ => <String, dynamic>{},
           };
           return http.Response(jsonEncode(body), 200, headers: {'content-type': 'application/json; charset=utf-8'});
@@ -56,6 +65,21 @@ void main() {
     await api.fetchMe(forceRefresh: true);
     expect(api.needsLab, isFalse);
     expect(api.labName, 'Dentallabor Süd');
+  });
+
+  test('needsLab is false after Request later (deferred)', () async {
+    final b = _Backend();
+    final api = b.api();
+    await api.signIn('d@x.de', 'pw');
+    await api.fetchMe(forceRefresh: true);
+    expect(api.needsLab, isTrue);
+    b.me = {
+      ...b.me,
+      'lab_join_deferred_at': '2026-10-19T12:00:00Z',
+    };
+    await api.fetchMe(forceRefresh: true);
+    expect(api.labJoinDeferred, isTrue);
+    expect(api.needsLab, isFalse);
   });
 
   testWidgets('join page: waiting state, withdraw, then into the app', (tester) async {
@@ -101,5 +125,30 @@ void main() {
   test('NO_LAB on create maps to a clear message (403 only)', () {
     expect(friendlyHttpError(statusCode: 403, code: 'NO_LAB'), AppLocalizations.current.tr('join.noLabError'));
     expect(friendlyHttpError(statusCode: 400, code: 'NO_LAB', detail: 'Choose a lab first.'), 'Choose a lab first.');
+  });
+
+  testWidgets('join page: Request later unlocks the app', (tester) async {
+    final b = _Backend();
+    final api = b.api();
+    await api.signIn('d@x.de', 'pw');
+    await api.fetchMe(forceRefresh: true);
+    var ready = false;
+    tester.view.physicalSize = const Size(1194, 834) * 2;
+    tester.view.devicePixelRatio = 2;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(LocaleScope(
+      controller: LocaleController(),
+      child: MaterialApp(home: JoinLabPage(api: api, onReady: () => ready = true)),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text(_de.tr('join.requestLater')), findsOneWidget);
+    await tester.tap(find.text(_de.tr('join.requestLater')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(_de.tr('join.requestLater')).last);
+    await tester.pumpAndSettle();
+    expect(b.calls, contains('POST /api/auth/me/lab-join-deferred'));
+    expect(ready, isTrue);
+    expect(api.labJoinDeferred, isTrue);
+    expect(api.needsLab, isFalse);
   });
 }

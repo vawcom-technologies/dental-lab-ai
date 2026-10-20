@@ -95,11 +95,12 @@ void main() {
       ));
       await _settle(tester);
       expect(find.text('Dr. Weiss'), findsOneWidget);
-      for (final tab in ['lab.tab.requests', 'lab.tab.transfers', 'lab.tab.sharing', 'lab.tab.settings']) {
+      for (final tab in ['lab.tab.requests', 'lab.tab.transfers', 'lab.tab.sharing']) {
         await tester.tap(find.text(_de.tr(tab)));
         await _settle(tester);
         expect(tester.takeException(), isNull, reason: tab);
       }
+      expect(find.text(_de.tr('lab.tab.settings')), findsNothing);
     });
   }
 

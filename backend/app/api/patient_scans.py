@@ -7,6 +7,7 @@ import logging
 import re
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from pydantic import BaseModel, Field
 
 from app.services.file_urls import client_file_url
 from app.ai.scan_quality import QUALITY_VERSION, validate_scan_bytes
@@ -15,6 +16,12 @@ from app.schemas_patient_media import DeleteOkOut, PatientScanOut
 from app.services import case_flow
 from app.services import patient_media as pm
 from app.services.shade_media import load_media_bytes
+
+
+class SaveScansToCaseIn(BaseModel):
+    """Omit scan_ids to save every library scan not yet on the case."""
+
+    scan_ids: list[str] | None = Field(default=None)
 
 patients_router = APIRouter()
 scans_router = APIRouter()
@@ -83,6 +90,7 @@ def _serialize(row: dict, validation: dict | None = None) -> PatientScanOut:
         file_name=str(row.get("file_name") or ""),
         format=str(row.get("format") or ""),
         created_at=row.get("created_at"),
+        on_case=bool(row.get("on_case")),
         validation_result=extra.get("result") or extra.get("validation_result"),
         prompt_rescan=bool(extra.get("prompt_rescan", False)),
         reasons=list(extra.get("reasons") or []),
@@ -102,8 +110,8 @@ def list_patient_scans(
     patient_id: str,
     user: AuthUser = Depends(get_current_user),
 ):
-    pm.require_patient_access(patient_id, user.id)
-    rows = pm.list_rows(_TABLE, patient_id)
+    patient = pm.require_patient_access(patient_id, user.id)
+    rows = case_flow.with_suggestion(patient, user, "scan", pm.list_rows(_TABLE, patient_id))
     return [_serialize(r) for r in rows]
 
 
@@ -119,21 +127,33 @@ async def upload_patient_scan(
     replaces: str | None = Form(None),
     user: AuthUser = Depends(get_current_user),
 ):
-    """`replaces`: id of a scan this one stands in for (removed after the upload)."""
-    pm.require_patient_access(patient_id, user.id)
-    case_flow.require_can_change(user)
-    old = pm.replaced_row(_TABLE, replaces, patient_id)
+    """`replaces`: id of a scan this one stands in for (removed after the upload).
+
+    New uploads stay in the library (`on_case=false`) until Save to case.
+    Replacing a case scan keeps the replacement on the case.
+    """
+    patient = pm.require_patient_access(patient_id, user.id)
+    lab = case_flow.edit_mode(user, patient) == "suggest"
+    old = None if lab else pm.replaced_row(_TABLE, replaces, patient_id)
+    on_case = bool(old and old.get("on_case"))
     logger.debug(
-        "upload scan patient_id=%s user_id=%s filename=%s",
+        "upload scan patient_id=%s user_id=%s filename=%s on_case=%s",
         patient_id,
         user.id,
         file.filename,
+        on_case,
     )
     # ponytail: whole scan in memory (validation needs it anyway); stream if scans outgrow RAM.
     data = await file.read()
     validation = await asyncio.to_thread(
         _validate, data, {"file_name": file.filename or "scan.ply", "patient_id": patient_id}
     )
+    if lab:
+        fake = case_flow.suggest_upload(
+            patient, user, "scan", replaces,
+            data=data, filename=file.filename, content_type=file.content_type, extra={"quality": validation},
+        )
+        return _serialize(fake, validation)
     row = pm.upload_and_insert(
         table=_TABLE,
         kind=_KIND,
@@ -142,10 +162,12 @@ async def upload_patient_scan(
         data=data,
         filename=file.filename,
         content_type=file.content_type,
+        extra={"on_case": on_case},
     )
     await asyncio.to_thread(_save_quality, str(row["id"]), validation)
     pm.remove_replaced(_TABLE, _KIND, old, keep_id=str(row["id"]))
-    case_flow.after_change(patient_id, user.id, scan=True)
+    if on_case:
+        case_flow.after_change(patient_id, user.id, scan=True)
     return _serialize(row, validation)
 
 
@@ -171,6 +193,37 @@ async def validate_patient_scan(
         await asyncio.to_thread(_save_quality, scan_id, validation)
         return _serialize(row, validation)
     return _serialize(row)
+
+
+@patients_router.post(
+    "/{patient_id}/scans/save-to-case",
+    response_model=list[PatientScanOut],
+    summary="Save library scans onto the patient case",
+)
+def save_scans_to_case(
+    patient_id: str,
+    body: SaveScansToCaseIn | None = None,
+    user: AuthUser = Depends(get_current_user),
+):
+    """Mark scans as on the case (same role as shade Accept / smile Save).
+
+    `scan_ids` set → only those. Omitted → every library scan not yet on the case.
+    Deleted scans are absent and never get attached.
+    """
+    case_flow.require_can_change(user, pm.require_patient_access(patient_id, user.id))
+    case_flow.require_unlocked(patient_id)
+    wanted = set(body.scan_ids) if body and body.scan_ids is not None else None
+    rows = pm.list_rows(_TABLE, patient_id)
+    if missing := (wanted or set()) - {str(r["id"]) for r in rows}:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Scan(s) not found: {', '.join(sorted(missing))}")
+    to_save = [r for r in rows if not r.get("on_case") and (wanted is None or str(r["id"]) in wanted)]
+    for r in to_save:
+        pm.update_row(_TABLE, str(r["id"]), {"on_case": True})
+    if to_save:
+        case_flow.after_change(patient_id, user.id, scan=True)
+    # Return the scans now on the case (including ones already saved).
+    on_case = [r for r in pm.list_rows(_TABLE, patient_id) if r.get("on_case")]
+    return [_serialize(r) for r in on_case]
 
 
 @scans_router.delete(

@@ -12,7 +12,7 @@ import 'lab_pickers.dart';
 import 'transfer_text.dart';
 
 /// The signed-in lab's hub: its dentists, join / removal requests, transfers
-/// between labs, sharing tickets and visibility settings.
+/// between labs and sharing tickets. Visibility settings live on Settings.
 class LabPage extends StatefulWidget {
   const LabPage({
     super.key,
@@ -65,20 +65,18 @@ class _LabPageState extends State<LabPage> {
               loc.tr('lab.tab.requests'),
               loc.tr('lab.tab.transfers'),
               loc.tr('lab.tab.sharing'),
-              loc.tr('lab.tab.settings'),
             ],
           ),
         ],
         body: AdminSwap(
-          index: t,
+          index: t.clamp(0, 3),
           builder: (i) {
             final on = widget.active && i == t;
             return switch (i) {
               0 => _dentists(loc, on),
               1 => _requests(loc, on),
               2 => _transfers(loc, on),
-              3 => _sharing(loc, on),
-              _ => _LabSettings(api: api, labId: labId),
+              _ => _sharing(loc, on),
             };
           },
         ),
@@ -171,38 +169,64 @@ class _LabPageState extends State<LabPage> {
     return AdminFuture<List<Map<String, dynamic>>>(
       key: const ValueKey('requests'),
       active: on,
-      load: () => api.labRequests(labId),
+      load: () async {
+        final rows = await api.labRequests(labId);
+        // Action inbox: pending joins/transfers + all removal requests.
+        return [
+          for (final r in rows)
+            if (r['kind'] == 'remove' ||
+                ((r['kind'] == 'join' || r['kind'] == 'transfer') &&
+                    r['status'] == 'pending'))
+              r,
+        ];
+      },
       empty: AdminEmpty(
         icon: Icons.inbox_outlined,
         title: loc.tr('lab.noRequests'),
         subtitle: loc.tr('lab.noRequestsSub'),
       ),
       builder: (context, rows, reload) {
-        // Pending joins first; then everything else, newest first.
-        final joins = rows.where((r) => r['kind'] == 'join').toList()
-          ..sort((a, b) => (a['status'] == 'pending' ? 0 : 1).compareTo(b['status'] == 'pending' ? 0 : 1));
+        final joins = rows.where((r) => r['kind'] == 'join').toList();
+        final transfers = rows.where((r) => r['kind'] == 'transfer').toList();
         final removals = rows.where((r) => r['kind'] == 'remove').toList();
         Widget card(Map<String, dynamic> r) {
           final d = r['dentist'] is Map ? Map<String, dynamic>.from(r['dentist'] as Map) : <String, dynamic>{};
           final name = '${d['name'] ?? ''}';
           final pending = r['status'] == 'pending';
           final join = r['kind'] == 'join';
+          final transfer = r['kind'] == 'transfer';
+          final toName = '${r['to_lab_name'] ?? ''}';
+          final bringN = (r['patient_ids'] is List)
+              ? (r['patient_ids'] as List).length
+              : 0;
           return AdminCard(
             child: AdminRow(
               leading: UserAvatar(name: name, url: d['avatar_url']?.toString(), size: 42),
               title: name.isEmpty ? '—' : name,
-              badges: [_statusBadge(loc, '${r['status']}')],
+              badges: [
+                _statusBadge(loc, '${r['status']}'),
+                if (transfer)
+                  AdminBadge(loc.tr('lab.transferBadge'), color: AppColors.dentalBlue),
+              ],
               lines: [
                 [?_str(d['clinic_name']), ?_str(d['email'])].join(' · '),
+                if (transfer && toName.isNotEmpty)
+                  loc.trp('lab.transferTo', {'lab': toName}),
+                if (bringN > 0) loc.trp('lab.bringCount', {'n': '$bringN'}),
                 if (_str(r['reason']) case final reason?) '${loc.tr('admin.reason')}: $reason',
                 adminWhen(context, DateTime.tryParse('${r['created_at'] ?? ''}')?.toLocal()),
               ],
               actions: [
-                if (join && pending) ...[
+                if ((join || transfer) && pending) ...[
                   AppButtons.secondary(
                     onPressed: () async {
-                      final ok = await adminRun(context, () => api.labDecideJoin(labId, '${r['id']}', accept: false),
-                          done: loc.trp('lab.joinRejected', {'name': name}));
+                      final ok = await adminRun(
+                        context,
+                        () => api.labDecideJoin(labId, '${r['id']}', accept: false),
+                        done: transfer
+                            ? loc.trp('lab.dentistXferRejected', {'name': name})
+                            : loc.trp('lab.joinRejected', {'name': name}),
+                      );
                       if (ok) reload();
                     },
                     label: loc.tr('admin.reject'),
@@ -210,9 +234,19 @@ class _LabPageState extends State<LabPage> {
                   ),
                   AppButtons.primary(
                     onPressed: () async {
-                      final ok = await adminRun(context, () => api.labDecideJoin(labId, '${r['id']}', accept: true),
-                          done: loc.trp('lab.joinAccepted', {'name': name}));
-                      if (ok) reload();
+                      final ok = await adminRun(
+                        context,
+                        () => api.labDecideJoin(labId, '${r['id']}', accept: true),
+                        done: transfer
+                            ? loc.trp('lab.dentistXferAccepted', {'name': name})
+                            : loc.trp('lab.joinAccepted', {'name': name}),
+                      );
+                      if (!ok || !mounted) return;
+                      if (join) {
+                        _tab.value = 0;
+                      } else {
+                        reload();
+                      }
                     },
                     icon: Icons.check_rounded,
                     label: loc.tr('lab.accept'),
@@ -228,6 +262,10 @@ class _LabPageState extends State<LabPage> {
           if (joins.isNotEmpty) ...[
             _header(loc.tr('lab.joinRequests')),
             adminSliverList(joins, id: (r) => 'j${r['id']}', (context, r) => card(r)),
+          ],
+          if (transfers.isNotEmpty) ...[
+            _header(loc.tr('lab.transferRequests')),
+            adminSliverList(transfers, id: (r) => 't${r['id']}', (context, r) => card(r)),
           ],
           if (removals.isNotEmpty) ...[
             _header(loc.tr('lab.ourRemovals')),
@@ -425,18 +463,18 @@ String? _str(Object? v) {
   return s.isEmpty ? null : s;
 }
 
-/// Hide-settings with what each one does.
-class _LabSettings extends StatefulWidget {
-  const _LabSettings({required this.api, required this.labId});
+/// Lab hide-from-directory toggles (used on the Settings page).
+class LabVisibilitySettings extends StatefulWidget {
+  const LabVisibilitySettings({super.key, required this.api, required this.labId});
 
   final ApiClient api;
   final String labId;
 
   @override
-  State<_LabSettings> createState() => _LabSettingsState();
+  State<LabVisibilitySettings> createState() => _LabVisibilitySettingsState();
 }
 
-class _LabSettingsState extends State<_LabSettings> {
+class _LabVisibilitySettingsState extends State<LabVisibilitySettings> {
   bool? _hidden, _hideDentists;
   Object? _error;
   bool _saving = false;
@@ -480,8 +518,8 @@ class _LabSettingsState extends State<_LabSettings> {
     final loc = AppLocalizations.of(context);
     if (_hidden == null) {
       return _error == null
-          ? const ToothPageLoader()
-          : AdminEmpty(icon: Icons.cloud_off_rounded, title: loc.tr('admin.loadFailed'), subtitle: friendlyError(_error!));
+          ? const SizedBox(height: 80, child: ToothPageLoader())
+          : Text(friendlyError(_error!), style: AppFonts.style(color: AppColors.danger));
     }
     Widget row(String title, String body, bool value, ValueChanged<bool> onChanged) => Padding(
           padding: const EdgeInsets.symmetric(vertical: 10),
@@ -503,20 +541,17 @@ class _LabSettingsState extends State<_LabSettings> {
             ],
           ),
         );
-    return ListView(
-      children: [
-        AdminCard(
-          padding: const EdgeInsets.fromLTRB(18, 8, 18, 8),
-          child: Column(
-            children: [
-              row(loc.tr('lab.hideLab'), loc.tr('lab.hideLabMsg'), _hidden!, (v) => _set(hidden: v)),
-              Divider(height: 1, color: AppColors.border.withValues(alpha: 0.5)),
-              row(loc.tr('lab.hideDentists'), loc.tr('lab.hideDentistsMsg'), _hideDentists!,
-                  (v) => _set(hideDentists: v)),
-            ],
-          ),
-        ),
-      ],
+    return AdminCard(
+      padding: const EdgeInsets.fromLTRB(18, 8, 18, 8),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          row(loc.tr('lab.hideLab'), loc.tr('lab.hideLabMsg'), _hidden!, (v) => _set(hidden: v)),
+          Divider(height: 1, color: AppColors.border.withValues(alpha: 0.5)),
+          row(loc.tr('lab.hideDentists'), loc.tr('lab.hideDentistsMsg'), _hideDentists!,
+              (v) => _set(hideDentists: v)),
+        ],
+      ),
     );
   }
 }

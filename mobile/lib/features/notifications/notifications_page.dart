@@ -17,11 +17,15 @@ class NotificationsPage extends StatefulWidget {
     super.key,
     required this.inbox,
     this.onNavigate,
+    this.onOpenTab,
     this.active = true,
   });
 
   final NotificationInboxController inbox;
   final ValueChanged<AppNavItem>? onNavigate;
+
+  /// Opens [item] on a given tab (lab / admin request queues).
+  final void Function(AppNavItem item, int tab)? onOpenTab;
   final bool active;
 
   @override
@@ -156,6 +160,16 @@ class _NotificationsPageState extends State<NotificationsPage> {
         nav(AppNavItem.settings);
       case 'export':
         nav(AppNavItem.patients);
+      // Lab requests (join, transfer, removal) carry no patient: open the
+      // queue where they're decided instead of the patients page.
+      case 'case_status'
+          when '${n['patient_id'] ?? ''}'.isEmpty &&
+              (_inbox.api.isAdmin || _inbox.api.isLaboratory):
+        final open = widget.onOpenTab;
+        if (open == null) break;
+        _inbox.api.isAdmin
+            ? open(AppNavItem.laboratories, 2) // Users › Removal requests
+            : open(AppNavItem.lab, 1); // My lab › Requests
       case 'case_status':
         if (status == CaseStatuses.pending || status == CaseStatuses.rejected) {
           nav(AppNavItem.scans);

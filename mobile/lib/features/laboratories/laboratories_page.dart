@@ -7,6 +7,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../admin/admin_models.dart';
 import '../admin/admin_widgets.dart';
+import '../lab/bring_patients_sheet.dart';
 
 /// Admin "System Users": labs with their dentists, unassigned dentists, and
 /// labs' requests to remove a dentist.
@@ -83,9 +84,22 @@ class _LaboratoriesPageState extends State<LaboratoriesPage> {
       isDestructive: to == null,
     );
     if (!ok || !mounted) return false;
+    var bring = <String>[];
+    if (to != null) {
+      // Admin force-move: optional patient bring (same as join/transfer).
+      final picked = await pickPatientsToBring(
+        context,
+        api,
+        title: loc.tr('join.bringTitle'),
+        message: loc.tr('join.bringMsg'),
+        ownerUserId: d.id,
+      );
+      if (picked == null || !mounted) return false;
+      bring = picked;
+    }
     return adminRun(
       context,
-      () => api.adminSetDentistLab(d.id, to?.id),
+      () => api.adminSetDentistLab(d.id, to?.id, patientIds: bring),
       done: to == null
           ? loc.trp('admin.removedFromLab', {'name': d.name})
           : loc.trp('admin.moved', {'name': d.name, 'lab': to.name}),

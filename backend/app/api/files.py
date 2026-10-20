@@ -7,6 +7,8 @@ import mimetypes
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.core.security import AuthUser, get_current_user
+from app.services import case_flow
+from app.services import patient_access as pa
 from app.services import patient_media as pm
 from app.services.shade_media import load_media_bytes
 
@@ -30,7 +32,13 @@ def get_file(
     table = _TABLES.get(kind)
     if table is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown file kind")
-    row = pm.fetch_row(table, row_id)
+    sugg = case_flow.parse_suggestion_id(row_id)
+    if sugg is not None:
+        # A lab suggestion's file (lives in patients.lab_review, not a table row).
+        patient = pa.fetch_patient(sugg[0])
+        row = case_flow.suggestion_row(patient, sugg[1]) if patient else None
+    else:
+        row = pm.fetch_row(table, row_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
     pm.require_patient_access(str(row.get("patient_id") or ""), user.id)

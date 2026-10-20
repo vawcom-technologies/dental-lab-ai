@@ -10,10 +10,11 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/page_kit.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../settings/settings_page.dart';
+import 'bring_patients_sheet.dart';
 
-/// What a dentist without a lab sees instead of the app: pick a lab and ask
-/// to join, or wait for the lab to accept. Rechecks /me on resume and on
-/// refresh; [onReady] fires once the dentist has a lab.
+/// Lab picker for dentists without a lab: request to join, wait for accept,
+/// or **Request later** to use the app without a lab. Rechecks /me on resume;
+/// [onReady] fires once they have a lab or deferred joining.
 class JoinLabPage extends StatefulWidget {
   const JoinLabPage({super.key, required this.api, required this.onReady});
 
@@ -55,6 +56,7 @@ class _JoinLabPageState extends State<JoinLabPage> with WidgetsBindingObserver {
     try {
       await api.fetchMe(forceRefresh: true);
       if (!mounted) return;
+      // Ready when they have a lab, or chose Request later.
       if (!api.needsLab) return widget.onReady();
     } catch (e) {
       // The lab list still works; say why the status couldn't be checked.
@@ -74,10 +76,34 @@ class _JoinLabPageState extends State<JoinLabPage> with WidgetsBindingObserver {
       confirmLabel: loc.tr('join.request'),
     );
     if (!ok || !mounted) return;
+    final bring = await pickPatientsToBring(
+      context,
+      api,
+      title: loc.tr('join.bringTitle'),
+      message: loc.tr('join.bringMsg'),
+    );
+    if (bring == null || !mounted) return;
     // 409 (already pending / already in a lab): the message says which; /me
     // then shows the real state either way.
-    await adminRun(context, () => api.requestJoinLab('${lab['id']}'), done: loc.trp('join.sent', {'lab': name}));
+    await adminRun(
+      context,
+      () => api.requestJoinLab('${lab['id']}', patientIds: bring),
+      done: loc.trp('join.sent', {'lab': name}),
+    );
     await _recheck();
+  }
+
+  Future<void> _requestLater() async {
+    final loc = AppLocalizations.of(context);
+    final ok = await AppDialogs.confirm(
+      context,
+      title: loc.tr('join.requestLaterTitle'),
+      message: loc.tr('join.requestLaterMsg'),
+      confirmLabel: loc.tr('join.requestLater'),
+    );
+    if (!ok || !mounted) return;
+    final done = await adminRun(context, api.deferLabJoin, done: loc.tr('join.requestLaterDone'));
+    if (done && mounted) widget.onReady();
   }
 
   Future<void> _withdraw() async {
@@ -173,10 +199,24 @@ class _JoinLabPageState extends State<JoinLabPage> with WidgetsBindingObserver {
         if (!snap.hasData) return const ToothPageLoader();
         final labs = snap.data!;
         if (labs.isEmpty) {
-          return AdminEmpty(
-            icon: Icons.search_off_rounded,
-            title: loc.tr(_q.isEmpty ? 'join.noLabs' : 'admin.noMatches'),
-            subtitle: loc.tr(_q.isEmpty ? 'join.noLabsSub' : 'admin.noMatchesSub'),
+          return Column(
+            children: [
+              Expanded(
+                child: AdminEmpty(
+                  icon: Icons.search_off_rounded,
+                  title: loc.tr(_q.isEmpty ? 'join.noLabs' : 'admin.noMatches'),
+                  subtitle: loc.tr(_q.isEmpty ? 'join.noLabsSub' : 'admin.noMatchesSub'),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: AppButtons.ghost(
+                  onPressed: _checking ? null : _requestLater,
+                  icon: Icons.schedule_rounded,
+                  label: loc.tr('join.requestLater'),
+                ),
+              ),
+            ],
           );
         }
         return IpadRefresh(
@@ -205,6 +245,18 @@ class _JoinLabPageState extends State<JoinLabPage> with WidgetsBindingObserver {
                   ),
                 );
               },
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 20, 8, 8),
+                child: Center(
+                  child: AppButtons.ghost(
+                    onPressed: _checking ? null : _requestLater,
+                    icon: Icons.schedule_rounded,
+                    label: loc.tr('join.requestLater'),
+                  ),
+                ),
+              ),
             ),
           ],
         );

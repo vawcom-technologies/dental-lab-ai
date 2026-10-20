@@ -799,49 +799,84 @@ class KpiTile extends StatelessWidget {
     return Pressable(
       onTap: onTap,
       scale: 0.97,
-      builder: (_, pressed) => AnimatedContainer(
-        duration: AppMotion.fast,
-        padding: const EdgeInsets.fromLTRB(16, 12, 14, 12),
-        decoration: BoxDecoration(
-          color: Color.alphaBlend(tint.withValues(alpha: pressed ? 0.16 : 0.10), Colors.white),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      builder: (_, pressed) => LayoutBuilder(
+        builder: (context, box) {
+          final tight = box.maxHeight.isFinite && box.maxHeight < 88;
+          final padV = tight ? 8.0 : 12.0;
+          final valueSize = tight ? 22.0 : 28.0;
+          return AnimatedContainer(
+            duration: AppMotion.fast,
+            padding: EdgeInsets.fromLTRB(16, padV, 14, padV),
+            decoration: BoxDecoration(
+              color: Color.alphaBlend(
+                  tint.withValues(alpha: pressed ? 0.16 : 0.10), Colors.white),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(icon, size: 24, color: tint),
-                const SizedBox(width: 8),
-                if (pill != null)
-                  Expanded(
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(999)),
-                      child: Text(pill!.$1,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppFonts.style(fontSize: 11, fontWeight: FontWeight.w700, color: pill!.$2)),
+                Row(
+                  children: [
+                    Icon(icon, size: tight ? 20 : 24, color: tint),
+                    const SizedBox(width: 8),
+                    if (pill != null)
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(999)),
+                            child: Text(
+                              pill!.$1,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppFonts.style(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: pill!.$2),
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
+                  ],
+                ),
+                const Spacer(),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppFonts.style(
+                      fontSize: tight ? 12 : 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.navy.withValues(alpha: 0.7)),
+                ),
+                SizedBox(height: tight ? 0 : 2),
+                value != null
+                    ? AdminCount(
+                        value!,
+                        style: AppFonts.style(
+                            fontSize: valueSize,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.navy,
+                            letterSpacing: -0.8),
+                      )
+                    : Text(
+                        text ?? '',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppFonts.style(
+                            fontSize: valueSize,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.navy,
+                            letterSpacing: -0.8),
+                      ),
               ],
             ),
-            const Spacer(),
-            Text(label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppFonts.style(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.navy.withValues(alpha: 0.7))),
-            const SizedBox(height: 2),
-            value != null
-                ? AdminCount(value!,
-                style: AppFonts.style(fontSize: 28, fontWeight: FontWeight.w700, color: AppColors.navy, letterSpacing: -0.8))
-                : Text(text ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: AppFonts.style(fontSize: 28, fontWeight: FontWeight.w700, color: AppColors.navy, letterSpacing: -0.8)),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -910,15 +945,53 @@ class PanelEmpty extends StatelessWidget {
   final String text;
 
   @override
-  Widget build(BuildContext context) => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AdminIcon(icon: icon, color: color, size: 48),
-            const SizedBox(height: 10),
-            Text(text, textAlign: TextAlign.center, style: AppFonts.style(fontSize: 13.5, fontWeight: FontWeight.w600, color: AppColors.navy)),
-          ],
-        ),
-      );
+  Widget build(BuildContext context) {
+    // Panel cards can be short (iPad landscape flex). Shrink / drop the icon
+    // instead of overflowing the Column.
+    return LayoutBuilder(
+      builder: (context, c) {
+        final h = c.maxHeight.isFinite ? c.maxHeight : 200.0;
+        final showIcon = h >= 56;
+        final tight = h < 96;
+        final iconSize = h < 72 ? 22.0 : (tight ? 28.0 : 48.0);
+        return ClipRect(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: c.maxWidth.isFinite ? c.maxWidth : 280,
+                    maxHeight: h,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (showIcon) ...[
+                        AdminIcon(icon: icon, color: color, size: iconSize),
+                        SizedBox(height: tight ? 4 : 10),
+                      ],
+                      Text(
+                        text,
+                        textAlign: TextAlign.center,
+                        maxLines: tight ? 2 : 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppFonts.style(
+                          fontSize: tight ? 12 : 13.5,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.navy,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 

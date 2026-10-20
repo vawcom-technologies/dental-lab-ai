@@ -18,6 +18,8 @@ class AppointmentCreate(BaseModel):
     description: str | None = None
     start_time: datetime
     end_time: datetime
+    # Dentist who should own the appointment on their calendar (labs pick one).
+    assign_to: UUID | None = None
 
     @model_validator(mode="after")
     def _end_after_start(self) -> AppointmentCreate:

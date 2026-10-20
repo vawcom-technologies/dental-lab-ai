@@ -16,14 +16,19 @@ Agreed rules for the admin / lab / dentist rework. Every phase builds against th
 - The admin can see everything, do everything, and override anything. **Every action a lab or dentist can take, the admin can take too**: each endpoint built in later phases accepts the admin as well as the role it's for.
 
 ### Lab membership
+- **One lab at a time.**
 - **Dentist without a lab**:
-  - sees a **lab picker** and can't do anything else until a lab accepts them;
-  - one pending request at a time;
+  - sees a **lab picker** after approval, with **Request later** to enter the app without a lab (persisted);
+  - can create patients and record scans / shade / smile with no lab; no own-lab share or submit-to-lab until they have a lab;
+  - can join later from **Settings**;
+  - one pending join request at a time;
   - if the lab rejects them they can ask again (labs keep no reject list).
+- **Bringing patients** when joining or transferring: the dentist multi-selects owned patients; on accept those are **auto-shared** with the destination lab (owner unchanged). Unselected stay private until shared later.
+- **Transfer to another lab**: the dentist requests a move (destination + patients to bring); the **current lab** approves or rejects. On approve they leave the old lab and join the new one (destination is notified; no veto). The **admin** can force the same move.
 - **Admin** can move a dentist straight to any lab; that lab's approval isn't needed.
-- **Lab** can request a dentist's removal; the **admin approves**. Dentists can't leave on their own.
+- **Lab** can request a dentist's removal; the **admin approves**. Dentists can't leave on their own (except via an approved transfer).
 - **When a dentist is removed**:
-  - they go back to having no lab (lab picker, plus the admin's "unassigned dentists" list);
+  - they go back to having no lab (lab picker / Settings join, plus the admin's "unassigned dentists" list);
   - their patients stay theirs, and sharing with other dentists stays in place;
   - the old lab loses access to open cases, and any case under review goes back to "in progress";
   - the old lab keeps **view-only access to completed cases**.
@@ -74,16 +79,21 @@ Two users can message each other if any of these is true:
 | From | To | Trigger |
 |---|---|---|
 | awaiting scans | in progress | A dentist uploads a scan, or assigns one from the Scan Inbox |
-| in progress | under review | **Automatically** when a scan, a saved shade analysis and a saved smile preview all exist **and** the patient is shared with the lab. Also re-checked whenever the patient gets shared with the lab. |
+| in progress | under review | When a **scan saved to the case**, a saved shade analysis and a saved smile preview all exist **and** the patient is shared with the lab, the app **asks to confirm** Submit (no silent auto-submit). |
 | in progress | under review | **"Submit to lab"** button. If items are missing, a warning names them and the dentist must confirm. |
+| (items) | — | Scans stay in the library until **Save to case**. Shade Accept/Save and smile Save already attach those items to the case. |
 | under review | completed | Lab approves |
-| under review | rejected | Lab rejects; **remarks required** and kept in the case history |
-| rejected | in progress | The dentist's first change to any item. **Automatic submission stays off** until the dentist submits by hand. |
+| under review | rejected | Lab rejects; **overall remarks required**, plus optional per-item (scan / shade / smile) ok or needs-work + note; kept in the case history |
+| (lab Review UI) | — | Tabs: Under review / Rejected / Accepted; rejecting clears the preview card; Open scan/shade/smile from the case (no sidebar for labs) |
+| rejected | (stays) | The dentist changes an item, or accepts / dismisses a lab suggestion. The case stays in the lab's **Rejected** tab marked **"Updated by dentist"**; the lab is notified and the app asks "Resubmit now?". |
+| rejected | under review | **"Resubmit to lab"** on the rejection banner (case panel and the scan / shade / smile pages). Blocked while lab suggestions are pending; asks first when nothing changed. |
+| (lab suggestions) | — | While a case is **under review**, its lab can use Scan / Shade / Smile (opened from the case, never from the sidebar). Saving stores a **suggestion** (one per item) — the dentist's items are untouched. Each page has a **Good to go / Needs work + note** bar (draft, prefills the reject sheet). With suggestions the lab **can't approve**: rejecting sends "Lab made changes, please confirm" with those items as needs work. The **owning dentist** accepts (it becomes the case item; a replaced scan goes back to the library) or dismisses each one, then resubmits. |
 | under review | (stays) | A scan, shade or smile is replaced; the lab is notified |
 | completed | under review | A scan, shade or smile is replaced, after a "this will reopen the case" prompt; the lab is notified |
 
 - **Which lab reviews**: the patient owner's lab. Other labs it's shared with only see the status.
 - **Under review or completed**: items can only be **replaced**, not deleted.
+- **Only the owning dentist** (`patients.created_by`; moves with a transfer) changes case items, resolves suggestions and submits. Dentists the patient is only shared with can view.
 - **Manual status dropdown**: removed. The admin can still change any status, and each change is logged.
 
 ### Deactivate vs delete
@@ -122,6 +132,7 @@ Two users can message each other if any of these is true:
 | `patient_access` (already exists, already has pending/approved/rejected) | Sharing tickets |
 | New `lab_transfers` table, `patient_access.ticket_lab_id` (Phase 3, migration 020) | Cross-lab transfers, both from a dentist and from a lab asking another lab to take the case: the request, both labs' decisions, the chosen dentist |
 | `patients.auto_submit` | Turns automatic submission off after a rejection |
+| `patients.lab_review` (migration 023) | Lab review workspace: draft per-item `feedback`, pending `suggestions` (files in R2, served as `/api/files/<kind>/s-<patient>-<item>`), `dentist_updated` marker for the Rejected tab |
 | `patients.unassigned_at`, `patients.waiting_lab_id` | Marks patients whose owner was deleted, or that are waiting for a lab (`waiting_lab_id`) to choose a dentist. While a lab-created patient waits, the creating lab is the temporary owner and the admin's list labels the patient "waiting for lab". |
 | New `case_events` table | Case history: created, submitted, approved, rejected with remarks, updated, reassigned, admin override |
 | **Delete** (Phase 2): `api/cases.py`, the `Case` model, and the `/api/cases` calls in `mobile/lib/core/api/api_client.dart` | All unused; the legacy models are tangled into reports and exports, so this goes with the status-flow work |

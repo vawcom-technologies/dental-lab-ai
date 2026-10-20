@@ -28,6 +28,7 @@ from app.schemas import (
     UserOut,
 )
 from app.services import avatars, labs
+from app.services import patient_access as pa
 from app.services.account_deletion import delete_account
 from app.services.email import send_account_deleted_email, send_welcome_email
 from app.services.profiles import (
@@ -443,6 +444,9 @@ def forgot_password(payload: ForgotPasswordRequest):
 def me(user: AuthUser = Depends(get_current_user)):
     profile = fetch_profile(user.id) or {}
     logger.debug("me user_id=%s email=%s role=%s", user.id, user.email, user.role)
+    is_dentist = user.role == "dentist"
+    has_lab = bool(profile.get("lab_id"))
+    deferred = profile.get("lab_join_deferred_at")
     return UserOut(
         id=user.id,
         email=user.email,
@@ -453,8 +457,25 @@ def me(user: AuthUser = Depends(get_current_user)):
         avatar_url=user.avatar_url,
         lab_id=str(profile.get("lab_id") or "") or None,
         lab_name=lab_name(profile),
-        pending_join=labs.pending_join(user.id) if user.role == "dentist" and not profile.get("lab_id") else None,
+        pending_join=labs.pending_join(user.id) if is_dentist and not has_lab else None,
+        lab_join_deferred_at=str(deferred) if deferred else None,
+        pending_transfer=labs.pending_transfer(user.id) if is_dentist and has_lab else None,
     )
+
+
+@router.post("/me/lab-join-deferred", response_model=UserOut, summary="Dentist: Request later on the lab picker")
+def defer_lab_join(user: AuthUser = Depends(get_current_user)):
+    """Mark that the dentist will join a lab later; unlocks the app without a lab."""
+    if user.role != "dentist":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only dentists can defer joining a lab")
+    profile = fetch_profile(user.id) or {}
+    if profile.get("lab_id"):
+        raise HTTPException(status.HTTP_409_CONFLICT, "You're already in a lab")
+    now = pa.utc_now_iso()
+    get_supabase_admin().table("profiles").update(
+        {"lab_join_deferred_at": now, "updated_at": now}
+    ).eq("id", user.id).execute()
+    return me(user)
 
 
 @router.post("/me/password", response_model=AuthMessageOut)

@@ -16,6 +16,8 @@ class PatientScanOut(BaseModel):
     file_name: str
     format: str = ""
     created_at: datetime | str | None = None
+    # Saved onto the patient case (lab review). Uploads start false.
+    on_case: bool = False
     # None = not checked yet (POST /api/scans/{id}/validate fills it in).
     validation_result: str | None = None
     prompt_rescan: bool = False

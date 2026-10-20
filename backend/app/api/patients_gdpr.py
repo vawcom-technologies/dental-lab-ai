@@ -175,6 +175,7 @@ def _patient_public(row: dict[str, Any]) -> dict[str, Any]:
         deleted_at=row.get("deleted_at"),
         created_at=row.get("created_at"),
         updated_at=row.get("updated_at"),
+        dentist_updated=bool((row.get("lab_review") or {}).get("dentist_updated")),
     ).model_dump(mode="json")
 
 
@@ -368,44 +369,33 @@ def list_patients(
 
 @router.get(
     "/access/pending",
-    summary="List pending access requests for owned patients",
+    summary="List pending sharing tickets this lab decides",
 )
 def list_pending_access_requests(user: AuthUser = Depends(get_current_user)):
+    """Sharing tickets (a dentist sharing with a colleague in the same lab)
+    waiting for this lab. Dentists never decide access requests."""
     action = "list_pending_access_requests"
-    try:
-        owned = (
-            get_supabase_admin()
-            .table("patients")
-            .select("id,first_name,last_name")
-            .eq("created_by", user.id)
-            .eq("deleted", False)
-            .execute()
-        )
-    except Exception as exc:
-        return _err(
-            action=action,
-            user_id=user.id,
-            http_code=502,
-            code="DB_ERROR",
-            message=str(exc),
-        )
-
-    owned_rows = getattr(owned, "data", None) or []
-    if not owned_rows:
-        return _ok(action=action, user_id=user.id, payload={"pending_requests": []})
-
-    patients_by_id = {str(r["id"]): r for r in owned_rows}
-    owned_ids = list(patients_by_id.keys())
-
     try:
         pending_res = (
             get_supabase_admin()
             .table("patient_access")
             .select("*")
             .eq("status", "pending")
-            .in_("patient_id", owned_ids)
+            .eq("ticket_lab_id", user.id)
             .order("created_at", desc=True)
             .execute()
+        )
+        pending_rows = getattr(pending_res, "data", None) or []
+        ids = list({str(r["patient_id"]) for r in pending_rows})
+        patients_res = (
+            get_supabase_admin()
+            .table("patients")
+            .select("id,first_name,last_name")
+            .in_("id", ids)
+            .eq("deleted", False)
+            .execute()
+            if ids
+            else None
         )
     except Exception as exc:
         return _err(
@@ -415,8 +405,8 @@ def list_pending_access_requests(user: AuthUser = Depends(get_current_user)):
             code="DB_ERROR",
             message=str(exc),
         )
-
-    pending_rows = getattr(pending_res, "data", None) or []
+    patients_by_id = {str(r["id"]): r for r in (getattr(patients_res, "data", None) or [])}
+    pending_rows = [r for r in pending_rows if str(r["patient_id"]) in patients_by_id]
     profile_ids: set[str] = set()
     for row in pending_rows:
         profile_ids.add(str(row.get("user_id") or ""))
@@ -462,7 +452,7 @@ def list_pending_access_requests(user: AuthUser = Depends(get_current_user)):
 
 @router.patch(
     "/access/requests/{request_id}",
-    summary="Approve or reject a pending access request (owner only)",
+    summary="Lab approves or rejects a pending sharing ticket",
 )
 def decide_access_request(
     request_id: str,
@@ -514,8 +504,8 @@ def decide_access_request(
             message="Patient not found",
             patient_id=patient_id,
         )
-    # Sharing tickets are the lab's call; older requests (no ticket lab) stay the owner's.
-    decider = str(access_row.get("ticket_lab_id") or patient.get("created_by") or "")
+    # Sharing tickets are the lab's call (dentists never decide access requests).
+    decider = str(access_row.get("ticket_lab_id") or "")
     if user.id != decider and not pa.is_admin(user.id):
         return _err(
             action=action,
@@ -581,8 +571,6 @@ def decide_access_request(
 
     updated = updated_rows[0] if updated_rows else {**access_row, **update}
     target_id = str(access_row.get("user_id") or "")
-    if decision == "approve":
-        case_flow.after_share(patient_id, target_id, user.id)
     name = _patient_display_name(patient)
     who = actor_label(target_id, fallback="a colleague")
     if decision == "approve":
@@ -635,31 +623,24 @@ def list_patient_access(
     owner_payload = {
         "user_id": owner_id,
         "full_name": _profile_display_name(owner_profile, owner_id),
-        "role": "Owner",
+        "role": (owner_profile or {}).get("role") or "dentist",
+        "email": ((owner_profile or {}).get("email") or "").strip() or None,
+        "clinic_name": ((owner_profile or {}).get("clinic_name") or "").strip()
+        or None,
     }
 
-    # Shared users must not see other staff on this patient's access list.
-    if not is_owner:
-        return _ok(
-            action=action,
-            user_id=user.id,
-            patient_id=patient_id,
-            payload={
-                "is_owner": False,
-                "owner": owner_payload,
-                "access_list": [],
-            },
-        )
-
     try:
-        result = (
+        query = (
             get_supabase_admin()
             .table("patient_access")
             .select("*")
             .eq("patient_id", patient_id)
             .order("created_at", desc=True)
-            .execute()
         )
+        # Shared users may see the owner + their own row only (not other staff).
+        if not is_owner:
+            query = query.eq("user_id", user.id)
+        result = query.execute()
     except Exception as exc:
         return _err(
             action=action,
@@ -682,12 +663,17 @@ def list_patient_access(
     access_list: list[dict[str, Any]] = []
     for row in rows:
         uid = str(row.get("user_id") or "")
+        profile = profiles_by_id.get(uid)
         requester_id = str(row.get("requested_by") or row.get("granted_by") or "")
         access_list.append(
             {
                 "access_id": str(row["id"]),
                 "user_id": uid,
-                "full_name": _profile_display_name(profiles_by_id.get(uid), uid),
+                "full_name": _profile_display_name(profile, uid),
+                "role": (profile or {}).get("role"),
+                "email": ((profile or {}).get("email") or "").strip() or None,
+                "clinic_name": ((profile or {}).get("clinic_name") or "").strip()
+                or None,
                 "status": row.get("status") or "approved",
                 "requested_by_name": _profile_display_name(
                     profiles_by_id.get(requester_id), requester_id
@@ -703,7 +689,7 @@ def list_patient_access(
         user_id=user.id,
         patient_id=patient_id,
         payload={
-            "is_owner": True,
+            "is_owner": is_owner,
             "owner": owner_payload,
             "access_list": access_list,
         },
@@ -847,11 +833,7 @@ def create_patient(
     logger.debug("create_patient user_id=%s", user.id)
     role = canonicalize_role(user.role, default="")
     owner_id, send_to = user.id, None
-    if role == "dentist" and not (fetch_profile(user.id) or {}).get("lab_id"):
-        return _err(
-            action=action, user_id=user.id, http_code=403, code="NO_LAB",
-            message="Join a lab before adding patients.",
-        )
+    # Dentists may create patients with or without a lab.
     if role in ("laboratory", "admin"):
         try:
             if payload.dentist_id:
@@ -902,15 +884,20 @@ def create_patient(
                 message="Insert returned no row",
             )
         patient_id = str(created["id"])
-        case_status.log_event(patient_id, actor_id=user.id, type="created", to_status="pending")
-        if send_to:
-            labs.open_transfer(
-                created, kind="handover", from_lab=user.id if role == "laboratory" else None,
-                to_lab=send_to, actor_id=user.id, status_="awaiting_recipient",
-            )
-        elif owner_id != user.id:
-            if role == "laboratory":
+        try:
+            case_status.log_event(patient_id, actor_id=user.id, type="created", to_status="pending")
+            if send_to:
+                labs.open_transfer(
+                    created, kind="handover", from_lab=user.id if role == "laboratory" else None,
+                    to_lab=send_to, actor_id=user.id, status_="awaiting_recipient",
+                )
+            elif owner_id != user.id and role == "laboratory":
                 labs.grant(patient_id, user.id, user.id)  # the creating lab keeps access
+        except Exception:
+            # Don't leave a half-linked patient (e.g. "waiting for lab" with no transfer).
+            get_supabase_admin().table("patients").delete().eq("id", patient_id).execute()
+            raise
+        if not send_to and owner_id != user.id:
             notify(
                 user_id=owner_id, type="case_status", patient_id=patient_id, actor_id=user.id,
                 message=f"{_patient_display_name(created)} was created and assigned to you.",
@@ -1276,7 +1263,6 @@ def grant_patient_access(
     who = actor_label(user.id)
     target_name = actor_label(target, fallback="a colleague")
     if approved:
-        case_flow.after_share(patient_id, target, user.id)
         notify_pair(
             counterpart_id=target,
             actor_id=user.id,

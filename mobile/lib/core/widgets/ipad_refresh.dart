@@ -9,14 +9,21 @@ class IpadRefresh extends StatelessWidget {
   });
 
   /// Full-viewport child (empty states). Still bounces so refresh works.
+  /// At least the viewport's height, but grows (and scrolls) when the child
+  /// is taller — SliverFillRemaining sized it from intrinsic height, which
+  /// can come out a few pixels short and overflow on small screens.
   IpadRefresh.fill({
     super.key,
     required this.onRefresh,
     required Widget child,
   }) : slivers = [
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: child,
+          SliverLayoutBuilder(
+            builder: (context, constraints) => SliverToBoxAdapter(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.remainingPaintExtent),
+                child: child,
+              ),
+            ),
           ),
         ];
 

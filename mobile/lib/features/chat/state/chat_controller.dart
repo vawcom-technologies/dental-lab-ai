@@ -593,7 +593,17 @@ class ChatController extends ChangeNotifier {
   @override
   void notifyListeners() {
     if (_disposed) return;
-    super.notifyListeners();
+    // Avoid setState-during-build when inbox/socket updates fire while a
+    // MessagesPage (or badge ListenableBuilder) is still mounting.
+    final phase = SchedulerBinding.instance.schedulerPhase;
+    if (phase == SchedulerPhase.idle ||
+        phase == SchedulerPhase.postFrameCallbacks) {
+      super.notifyListeners();
+      return;
+    }
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!_disposed) super.notifyListeners();
+    });
   }
 
   @override

@@ -103,7 +103,7 @@ void main() {
     expect(find.text('Choose a lab first.'), findsOneWidget);
   });
 
-  testWidgets('reject needs remarks', (tester) async {
+  testWidgets('reject needs remarks and sends per-item feedback', (tester) async {
     Map<String, dynamic>? sent;
     final api = ApiClient(
       baseUrl: 'http://test',
@@ -129,17 +129,28 @@ void main() {
     await tester.tap(reject);
     await tester.pumpAndSettle();
     expect(sent, isNull, reason: 'empty remarks must not send');
-    await tester.enterText(find.byType(TextField), 'Margin unclear on 21');
+    await tester.enterText(find.byType(TextField).first, 'Margin unclear on 21');
     await tester.pump();
     await tester.tap(reject);
     await tester.pumpAndSettle();
-    expect(sent, {'decision': 'reject', 'remarks': 'Margin unclear on 21'});
+    expect(sent!['decision'], 'reject');
+    expect(sent!['remarks'], 'Margin unclear on 21');
+    expect(sent!['items'], isA<List>());
+    expect((sent!['items'] as List).length, 3);
   });
 
-  testWidgets('rejection banner shows remarks', (tester) async {
+  testWidgets('rejection banner shows remarks and item notes', (tester) async {
     final info = CaseInfo(_summary(
       status: 'rejected',
-      rejection: {'remarks': 'Rescan 21 please', 'by': 'Dentallabor Süd', 'at': '2026-10-05T09:00:00Z'},
+      rejection: {
+        'remarks': 'Rescan 21 please',
+        'by': 'Dentallabor Süd',
+        'at': '2026-10-05T09:00:00Z',
+        'items': [
+          {'item': 'scan', 'status': 'needs_work', 'note': 'Blurry bite'},
+          {'item': 'shade', 'status': 'ok'},
+        ],
+      },
     ));
     await tester.pumpWidget(LocaleScope(
       controller: LocaleController(),
@@ -147,6 +158,81 @@ void main() {
     ));
     expect(find.text('Rescan 21 please'), findsOneWidget);
     expect(find.textContaining('Dentallabor Süd'), findsOneWidget);
+    expect(find.textContaining('Blurry bite'), findsOneWidget);
+    expect(find.textContaining(_de.tr('case.itemOk')), findsOneWidget);
+  });
+
+  testWidgets('banner: accept a lab suggestion, then Resubmit', (tester) async {
+    final calls = <String>[];
+    var accepted = false;
+    Map<String, dynamic> body() => {
+          ..._summary(status: 'rejected', rejection: {'remarks': 'Lab made changes, please confirm.', 'items': []}),
+          'is_owner': true,
+          'updated_since_rejection': accepted,
+          'lab_review': {
+            'suggestions': accepted
+                ? {}
+                : {'shade': {'id': 's-p1-shade', 'for_id': 'sh1', 'by': 'Dentallabor Süd'}},
+          },
+        };
+    final api = ApiClient(
+      baseUrl: 'http://test',
+      httpClient: MockClient((req) async {
+        calls.add('${req.method} ${req.url.path}');
+        if (req.url.path.endsWith('/accept')) accepted = true;
+        return http.Response(jsonEncode(body()), 200);
+      }),
+    );
+    final store = CaseStore(api);
+    await store.refresh('p1');
+    await tester.pumpWidget(LocaleScope(
+      controller: LocaleController(),
+      child: MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: store,
+            builder: (_, _) => CaseRejectionBanner(info: store.of('p1'), store: store, patientId: 'p1'),
+          ),
+        ),
+      ),
+    ));
+    final resubmit = find.widgetWithText(FilledButton, _de.tr('case.resubmit'));
+    expect(tester.widget<FilledButton>(resubmit).onPressed, isNull, reason: 'suggestion pending');
+    await tester.tap(find.text(_de.tr('case.accept')));
+    await tester.pumpAndSettle();
+    expect(calls, contains('POST /api/patients/p1/suggestions/shade/accept'));
+    expect(find.text(_de.tr('case.accept')), findsNothing);
+    expect(find.text(_de.tr('case.updatedChip')), findsOneWidget);
+    await tester.tap(find.text(_de.tr('case.resubmit')));
+    await tester.pumpAndSettle();
+    expect(calls.last, 'POST /api/patients/p1/submit');
+  });
+
+  testWidgets('feedback bar fills in the saved note once the case loads', (tester) async {
+    final api = ApiClient(
+      baseUrl: 'http://test',
+      httpClient: MockClient((req) async => http.Response(
+            jsonEncode({
+              ..._summary(status: 'in_review'),
+              'can_suggest': true,
+              'lab_review': {
+                'feedback': {'shade': {'status': 'needs_work', 'note': 'Too warm'}},
+                'suggestions': {},
+              },
+            }),
+            200,
+          )),
+    );
+    final store = CaseStore(api);
+    await tester.pumpWidget(LocaleScope(
+      controller: LocaleController(),
+      child: MaterialApp(
+        home: Scaffold(body: CaseFeedbackBar(store: store, patientId: 'p1', item: 'shade')),
+      ),
+    ));
+    await tester.runAsync(() => store.refresh('p1')); // arrives after the bar was built
+    await tester.pump();
+    expect(find.text('Too warm'), findsOneWidget);
   });
 
   test('replacement upload sends replaces', () async {

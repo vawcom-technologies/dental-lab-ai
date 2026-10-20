@@ -16,6 +16,7 @@ import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../cases/case_panel.dart';
 import '../cases/case_store.dart';
+import '../cases/submit_prompt.dart';
 import 'shade_action_bar.dart';
 import 'shade_override_pane.dart';
 import 'shade_photo_pane.dart';
@@ -1571,7 +1572,8 @@ class _ShadePageState extends State<ShadePage>
       widget.patientSession.cases.of(_patient == null ? null : _pid(_patient!));
 
   /// Labs review only: no upload / analyse / save / delete (server 403s).
-  bool get _readOnly => widget.api.isLaboratory;
+  /// Labs view; while reviewing they edit too, which saves as a suggestion.
+  bool get _readOnly => widget.api.isLaboratory && !(_caseInfo?.canSuggest ?? false);
 
   /// Saved shade detection the next new save stands in for (locked case).
   String? _replacingId;
@@ -2199,6 +2201,11 @@ class _ShadePageState extends State<ShadePage>
                   {'s': finalShade, 'w': who},
                 ),
         );
+        await maybePromptSubmitToLab(
+          context,
+          cases: widget.patientSession.cases,
+          patientId: _pid(_patient!),
+        );
       }
     } catch (e) {
       final msg = friendlyError(e);
@@ -2583,7 +2590,21 @@ class _ShadePageState extends State<ShadePage>
               ),
             ],
           ),
-          CaseRejectionBanner(info: _caseInfo, margin: const EdgeInsets.only(top: 12)),
+          CaseRejectionBanner(
+            info: _caseInfo,
+            margin: const EdgeInsets.only(top: 12),
+            store: widget.patientSession.cases,
+            patientId: _patient == null ? null : _pid(_patient!),
+            api: widget.api,
+          ),
+          if (_patient != null)
+            CaseFeedbackBar(
+            key: ValueKey('fb-shade-${_pid(_patient!)}'),
+            store: widget.patientSession.cases,
+            patientId: _pid(_patient!),
+            item: 'shade',
+            margin: const EdgeInsets.only(top: 12),
+          ),
           if (_replacingId != null)
             Padding(
               padding: const EdgeInsets.only(top: 12),

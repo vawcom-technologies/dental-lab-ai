@@ -58,7 +58,12 @@ class LabDashboardPage extends StatelessWidget {
     final transfers = (r[0] as List<Map<String, dynamic>>).where((t) => t['waiting_on_us'] == true).toList();
     final joins = (r[1] as List<Map<String, dynamic>>).where((j) => j['kind'] == 'join' && j['status'] == 'pending').toList();
     final tickets = r[2] as List<PendingAccessRequest>;
-    onWaiting?.call(transfers.length + joins.length + tickets.length);
+    final waiting = transfers.length + joins.length + tickets.length;
+    // Parent setState must not run while AdminFuture is still building.
+    final notify = onWaiting;
+    if (notify != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => notify(waiting));
+    }
     return (
       transfers,
       joins,

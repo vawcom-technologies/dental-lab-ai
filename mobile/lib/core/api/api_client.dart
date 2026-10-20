@@ -59,6 +59,8 @@ class ApiClient {
   String? _labId;
   String? _labName;
   Map<String, dynamic>? _pendingJoin;
+  Map<String, dynamic>? _pendingTransfer;
+  String? _labJoinDeferredAt;
   bool _labKnown = false;
 
   String? get token => _token;
@@ -84,10 +86,20 @@ class ApiClient {
   /// lab_name, created_at}`, or null. From /me only.
   Map<String, dynamic>? get pendingJoin => _pendingJoin;
 
-  /// A dentist must join a lab before using the app. False until the lab
-  /// info has been loaded (sign-in or /me), so a restored session doesn't
-  /// flash the lab picker.
-  bool get needsLab => isDentist && _labKnown && (_labId == null || _labId!.isEmpty);
+  /// Dentist in a lab: open transfer request to another lab.
+  Map<String, dynamic>? get pendingTransfer => _pendingTransfer;
+
+  /// Dentist chose "Request later" — app unlocks without a lab.
+  bool get labJoinDeferred =>
+      _labJoinDeferredAt != null && _labJoinDeferredAt!.isNotEmpty;
+
+  /// No lab yet and not deferred — show the join picker once.
+  /// False until lab info has been loaded so a restored session doesn't flash it.
+  bool get needsLab =>
+      isDentist &&
+      _labKnown &&
+      (_labId == null || _labId!.isEmpty) &&
+      !labJoinDeferred;
 
   /// Only fields present in [data] change (a token refresh may omit them).
   void _applyLab(Map<String, dynamic> data, {required bool withPending}) {
@@ -96,9 +108,16 @@ class ApiClient {
       _labKnown = true;
     }
     if (data.containsKey('lab_name')) _labName = data['lab_name'] as String?;
+    if (data.containsKey('lab_join_deferred_at')) {
+      _labJoinDeferredAt = _asString(data['lab_join_deferred_at']);
+    }
     if (withPending && data.containsKey('pending_join')) {
       final p = data['pending_join'];
       _pendingJoin = p is Map ? Map<String, dynamic>.from(p) : null;
+    }
+    if (withPending && data.containsKey('pending_transfer')) {
+      final p = data['pending_transfer'];
+      _pendingTransfer = p is Map ? Map<String, dynamic>.from(p) : null;
     }
   }
 
@@ -174,6 +193,8 @@ class ApiClient {
     _labId = null;
     _labName = null;
     _pendingJoin = null;
+    _pendingTransfer = null;
+    _labJoinDeferredAt = null;
     _labKnown = false;
     unawaited(_tokens.clear());
     unawaited(LocalEncryptedStore.clearAll());
@@ -796,6 +817,26 @@ class ApiClient {
     AppHaptics.success();
   }
 
+  /// Attach library scans to the patient case (like shade Accept / smile Save).
+  /// Omit [scanIds] to save every scan not yet on the case.
+  Future<List<Map<String, dynamic>>> saveScansToCase(
+    String patientId, {
+    List<String>? scanIds,
+  }) async {
+    final res = await _http.post(
+      Uri.parse('$baseUrl/api/patients/$patientId/scans/save-to-case'),
+      headers: _jsonHeaders,
+      body: jsonEncode({
+        if (scanIds != null) 'scan_ids': scanIds,
+      }),
+    );
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(_errorMessage(res));
+    }
+    AppHaptics.success();
+    return _decodeMapList(res.body);
+  }
+
   Future<List<Map<String, dynamic>>> listShadeDetections(
     String patientId, {
     bool forceRefresh = false,
@@ -1245,6 +1286,7 @@ class ApiClient {
     required DateTime startTime,
     required DateTime endTime,
     String? description,
+    String? assignTo,
   }) async {
     final res = await _http.post(
       Uri.parse('$baseUrl/api/appointments'),
@@ -1254,6 +1296,7 @@ class ApiClient {
         'start_time': startTime.toUtc().toIso8601String(),
         'end_time': endTime.toUtc().toIso8601String(),
         'description': ?description,
+        'assign_to': ?assignTo,
       }),
     );
     if (res.statusCode != 200 && res.statusCode != 201) {
@@ -1339,16 +1382,52 @@ class ApiClient {
     return _decodeMap(res.body);
   }
 
+  /// Lab, while reviewing: draft verdict for one item ([status] null clears it).
+  Future<Map<String, dynamic>> saveReviewDraft(
+    String patientId, {
+    required String item,
+    String? status,
+    String? note,
+  }) async {
+    final res = await _http.put(
+      Uri.parse('$baseUrl/api/patients/$patientId/review-draft'),
+      headers: _jsonHeaders,
+      body: jsonEncode({'item': item, 'status': status, 'note': note}),
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return _decodeMap(res.body);
+  }
+
+  /// Owning dentist: accept or dismiss the lab's suggestion for [item].
+  Future<Map<String, dynamic>> resolveSuggestion(
+    String patientId, {
+    required String item,
+    required bool accept,
+  }) async {
+    final res = await _http.post(
+      Uri.parse('$baseUrl/api/patients/$patientId/suggestions/$item/${accept ? 'accept' : 'dismiss'}'),
+      headers: _jsonHeaders,
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    AppHaptics.success();
+    return _decodeMap(res.body);
+  }
+
   /// Lab review: approve, or reject with [remarks] (required to reject).
   Future<Map<String, dynamic>> reviewCase(
     String patientId, {
     required bool approve,
     String? remarks,
+    List<Map<String, dynamic>>? items,
   }) async {
     final res = await _http.post(
       Uri.parse('$baseUrl/api/patients/$patientId/review'),
       headers: _jsonHeaders,
-      body: jsonEncode({'decision': approve ? 'approve' : 'reject', 'remarks': ?remarks}),
+      body: jsonEncode({
+        'decision': approve ? 'approve' : 'reject',
+        'remarks': ?remarks,
+        if (items != null) 'items': items,
+      }),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     AppHaptics.success();
@@ -1387,11 +1466,36 @@ class ApiClient {
         'hide_dentists': ?hideDentists,
       }) as Map);
 
-  /// Dentist asks to join a lab. 409: already pending / already in a lab.
-  Future<void> requestJoinLab(String labId) => _json('POST', 'labs/$labId/join-requests');
+  /// Dentist asks to join a lab. Optional [patientIds] auto-share on accept.
+  Future<void> requestJoinLab(String labId, {List<String> patientIds = const []}) =>
+      _json('POST', 'labs/$labId/join-requests', body: {
+        'patient_ids': patientIds,
+      });
 
   /// Withdraw the dentist's own pending join request.
   Future<void> withdrawJoinRequest() => _json('DELETE', 'labs/join-requests/mine');
+
+  /// Dentist: skip the lab picker for now (persisted on the server).
+  Future<Map<String, dynamic>> deferLabJoin() async {
+    final data = Map<String, dynamic>.from(
+      await _json('POST', 'auth/me/lab-join-deferred') as Map,
+    );
+    _applyProfile(data);
+    return data;
+  }
+
+  /// Dentist in a lab asks current lab to move them to [toLabId].
+  Future<void> requestLabTransfer({
+    required String toLabId,
+    List<String> patientIds = const [],
+  }) =>
+      _json('POST', 'labs/transfer-requests', body: {
+        'to_lab_id': toLabId,
+        'patient_ids': patientIds,
+      });
+
+  Future<void> withdrawLabTransfer() =>
+      _json('DELETE', 'labs/transfer-requests/mine');
 
   /// Lab directory for pickers: `[{id, name, avatar_url}]`, hidden labs left out.
   Future<List<Map<String, dynamic>>> searchLabs({String q = ''}) async =>
@@ -1488,8 +1592,15 @@ class ApiClient {
         'q': q,
       }));
 
-  Future<void> adminSetDentistLab(String dentistId, String? labId) =>
-      _admin('PUT', 'dentists/$dentistId/lab', body: {'lab_id': labId});
+  Future<void> adminSetDentistLab(
+    String dentistId,
+    String? labId, {
+    List<String> patientIds = const [],
+  }) =>
+      _admin('PUT', 'dentists/$dentistId/lab', body: {
+        'lab_id': labId,
+        'patient_ids': patientIds,
+      });
 
   Future<List<Map<String, dynamic>>> adminRemovalRequests() async =>
       _adminList(await _admin('GET', 'lab-requests',

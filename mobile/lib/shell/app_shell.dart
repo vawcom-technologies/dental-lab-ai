@@ -103,10 +103,15 @@ class _AppShellState extends State<AppShell> {
       });
     };
     _inbox.addListener(_onInboxChanged);
-    // Warm patient list + chat so the first workflow page opens faster.
+    // Warm patient list + chat after first frame — start()/loadInbox notify
+    // listeners, and doing that while the shell is still mounting dirties
+    // badge ListenableBuilders mid-build.
     _patients.ensureLoaded();
-    _chat.start();
-    _inbox.start();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _chat.start();
+      _inbox.start();
+    });
     // Dentists: learn whether they have a lab (a restored session doesn't say).
     if (widget.api.isDentist) {
       widget.api.fetchMe(forceRefresh: true).then((_) {
@@ -221,7 +226,9 @@ class _AppShellState extends State<AppShell> {
       _pingInbox();
     }
     if (item == AppNavItem.messages) {
-      _chat.loadInbox();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _chat.loadInbox();
+      });
     }
   }
 
@@ -262,8 +269,12 @@ class _AppShellState extends State<AppShell> {
     return ListenableBuilder(
       listenable: _patients,
       builder: (context, _) {
+        // Keyboard overlays content — don't shrink the shell (sidebar / chrome
+        // stay put under dialogs). Pages that need the inset (e.g. Messages)
+        // pad themselves.
         return Scaffold(
           backgroundColor: Colors.transparent,
+          resizeToAvoidBottomInset: false,
           body: BusyBarrier(
             busy: _patients.openingPatientDetail,
             message: AppLocalizations.of(context).patientsOpening,
@@ -319,6 +330,7 @@ class _AppShellState extends State<AppShell> {
                       child: Scaffold(
                         key: _scaffoldKey,
                         backgroundColor: Colors.transparent,
+                        resizeToAvoidBottomInset: false,
                         drawer: Drawer(
                           backgroundColor: AppColors.sidebarBg,
                           width: (screen.width * 0.86).clamp(260.0, 320.0),
@@ -507,7 +519,12 @@ class _AppShellState extends State<AppShell> {
         if (!widget.api.isLaboratory) {
           return _ForbiddenRedirect(onLeave: () => _go(AppNavItem.dashboard));
         }
-        return ReviewPage(api: widget.api, cases: _patients.cases, active: active);
+        return ReviewPage(
+          api: widget.api,
+          cases: _patients.cases,
+          patients: _patients,
+          active: active,
+        );
       case AppNavItem.adminSignups:
         if (!widget.api.isAdmin) {
           return _ForbiddenRedirect(
@@ -523,6 +540,10 @@ class _AppShellState extends State<AppShell> {
         return NotificationsPage(
           inbox: _inbox,
           onNavigate: _go,
+          onOpenTab: (item, tab) {
+            _adminTabs[item]?.value = tab;
+            _go(item);
+          },
           active: active,
         );
       case AppNavItem.reports:

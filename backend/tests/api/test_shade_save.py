@@ -19,7 +19,7 @@ def env(monkeypatch):
     rows, puts = [], []
     monkeypatch.setattr(r2, "bucket_for", lambda k: f"bucket-{k}")
     monkeypatch.setattr(r2, "get_r2_client", lambda: type("C", (), {"put_object": lambda self, **kw: puts.append(kw)})())
-    monkeypatch.setattr(pm, "require_patient_access", lambda p, u: {})
+    monkeypatch.setattr(pm, "require_patient_access", lambda p, u: {"id": p, "created_by": "u1"})
     monkeypatch.setattr(pm, "find_row_by_key", lambda t, p, k: next((r for r in rows if (r["patient_id"], r["file_key"]) == (p, k)), None))
     monkeypatch.setattr(pm, "insert_row", lambda t, r: rows.append({**r, "id": f"s{len(rows)}"}) or rows[-1])
     monkeypatch.setattr(pm, "update_row", lambda t, i, patch: next(r for r in rows if r["id"] == i).update(patch) or next(r for r in rows if r["id"] == i))
