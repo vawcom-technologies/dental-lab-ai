@@ -9,6 +9,7 @@ import '../../core/l10n/app_localizations.dart';
 import '../../core/navigation/app_page_routes.dart';
 import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/page_kit.dart';
 import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../cases/case_panel.dart';
@@ -704,91 +705,162 @@ class _ScansPageState extends State<ScansPage>
     );
   }
 
+  /// The patient's scans (inspector's lower section), with a short empty
+  /// state when there are none.
+  Widget _scanLibrary(AppLocalizations loc, bool canUpload) {
+    final Widget body;
+    if (_mediaLoading) {
+      body = Padding(
+        padding: const EdgeInsets.symmetric(vertical: 28),
+        child: Center(child: ToothLoadingIndicator(size: 36, loadingText: loc.tr('s.loading'))),
+      );
+    } else if (_scans.isEmpty) {
+      body = Padding(
+        padding: const EdgeInsets.fromLTRB(16, 18, 16, 20),
+        child: Column(
+          children: [
+            const AdminIcon(icon: Icons.view_in_ar_outlined, size: 52, color: AppColors.muted),
+            const SizedBox(height: 12),
+            Text(
+              _patient == null ? loc.scansSelectPatient : loc.scansEmptyFor(_patientLabel),
+              textAlign: TextAlign.center,
+              style: AppFonts.style(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.navy),
+            ),
+            if (_patient != null && !_readOnly) ...[
+              const SizedBox(height: 4),
+              Text(loc.tr('s.formats'),
+                  textAlign: TextAlign.center, style: AppFonts.style(fontSize: 12.5, color: AppColors.muted)),
+            ],
+          ],
+        ),
+      );
+    } else {
+      body = Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        child: Column(
+          children: [
+            for (var i = 0; i < _scans.length; i++) ...[
+              if (i > 0) const SizedBox(height: 2),
+              _scanListTile(scan: _scans[i], index: i, loc: loc),
+            ],
+          ],
+        ),
+      );
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+          child: SectionLabel(_scans.isEmpty ? loc.navScans : '${loc.navScans} (${_scans.length})'),
+        ),
+        body,
+      ],
+    );
+  }
+
   Widget _scanListTile({
     required Map<String, dynamic> scan,
     required int index,
     required AppLocalizations loc,
   }) {
     final selected = index == _selected;
-    final file = '${scan['filename'] ?? '${AppLocalizations.current.tr('s.scan')} #${scan['id']}'}';
-    final short = file.length > 28 ? '${file.substring(0, 26)}…' : file;
+    final file = '${scan['filename'] ?? '${loc.tr('s.scan')} #${scan['id']}'}';
     final onCase = scan['on_case'] == true;
-    final subtitle =
-        '${scan['patient_name'] ?? _patientLabel}'
-        ' · ${scan['validation_result'] != null ? AppLocalizations.current.tr('sq.r.${scan['validation_result']}') : (scan['_q'] == 'error' ? '—' : '…')}'
-        ' · ${onCase ? loc.tr('s.onCase') : loc.tr('s.libraryOnly')}'
-        ' · #${scan['id']}';
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final w = constraints.maxWidth;
-        final showDelete = w >= 88;
-        final showSubtitle = w >= 72;
-        return Material(
-          color: selected ? AppColors.sidebarActive : Colors.transparent,
-          child: InkWell(
-            onTap: () {
-              setState(() => _selected = index);
-              unawaited(_checkQuality(scan)); // retries a failed check
-              _loadPreviewFor(scan);
-            },
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(showDelete ? 12 : 6, 8, 4, 8),
-              child: Row(
+    final result = scan['validation_result'] as String?;
+    final (Color dot, String quality) = switch (result) {
+      'good' => (AppColors.success, loc.tr('sq.r.good')),
+      'bad' => (AppColors.danger, loc.tr('sq.r.bad')),
+      null => (AppColors.muted, scan['_q'] == 'error' ? '—' : loc.tr('s.qChecking')),
+      _ => (AppColors.warning, loc.tr('sq.r.$result')),
+    };
+    final when = DateTime.tryParse('${scan['uploaded_at'] ?? scan['created_at'] ?? ''}')?.toLocal();
+    final subtitle = [
+      quality,
+      onCase ? loc.tr('s.onCase') : loc.tr('s.libraryOnly'),
+      if (when != null) adminWhen(context, when),
+    ].join(' · ');
+    // Rounded, inset rows: the selection reads as a pill inside the card,
+    // never a strip that misses the card's edge.
+    return Material(
+      color: selected ? AppColors.dentalBlue.withValues(alpha: 0.10) : Colors.transparent,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          setState(() => _selected = index);
+          unawaited(_checkQuality(scan)); // retries a failed check
+          _loadPreviewFor(scan);
+        },
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(10, 10, 4, 10),
+          child: Row(
+            children: [
+              Stack(
+                clipBehavior: Clip.none,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          short,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        if (showSubtitle) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            subtitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 11.5,
-                              color: AppColors.muted,
-                            ),
-                          ),
-                        ],
-                      ],
+                  AdminIcon(
+                    icon: Icons.view_in_ar_outlined,
+                    size: 38,
+                    color: selected ? AppColors.dentalBlue : AppColors.navy,
+                  ),
+                  Positioned(
+                    right: -2,
+                    bottom: -2,
+                    child: Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: dot,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2),
+                      ),
                     ),
                   ),
-                  if (showDelete && !_readOnly)
-                    IconButton(
-                      tooltip: _case?.locked == true ? loc.tr('case.replace') : loc.scansDelete,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints.tightFor(
-                        width: 32,
-                        height: 32,
-                      ),
-                      style: IconButton.styleFrom(
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      onPressed: _busy ? null : () => _removeOrReplace(scan),
-                      icon: Icon(
-                        _case?.locked == true ? Icons.swap_horiz_rounded : Icons.delete_outline,
-                        size: 18,
-                        color: _case?.locked == true ? AppColors.dentalBlue : AppColors.danger,
-                      ),
-                    ),
                 ],
               ),
-            ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      file,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppFonts.style(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: selected ? AppColors.dentalBlue : AppColors.navy,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppFonts.style(fontSize: 12, color: AppColors.muted),
+                    ),
+                  ],
+                ),
+              ),
+              if (!_readOnly)
+                IconButton(
+                  tooltip: _case?.locked == true ? loc.tr('case.replace') : loc.scansDelete,
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _busy ? null : () => _removeOrReplace(scan),
+                  icon: Icon(
+                    _case?.locked == true ? Icons.swap_horiz_rounded : Icons.delete_outline_rounded,
+                    size: 20,
+                    color: _case?.locked == true ? AppColors.dentalBlue : AppColors.danger,
+                  ),
+                ),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
@@ -841,6 +913,7 @@ class _ScansPageState extends State<ScansPage>
                             icon: Icons.view_in_ar_outlined,
                             title: loc.scansTitle,
                             subtitle: loc.scansSubtitle,
+                            subtitleAsInfo: true,
                             actions: [
                               PatientPickerButton(
                                 patients: _patients,
@@ -963,243 +1036,36 @@ class _ScansPageState extends State<ScansPage>
                 ),
                 Expanded(
                   child: AdaptiveSplit(
-                    // Portrait: mesh stage first, compact library under it.
+                    // Viewer is the hero; the inspector sits on the right
+                    // (portrait: under it) and fades out in fullscreen.
+                    panelOnRight: true,
                     narrowContentFirst: true,
-                    narrowPanelHeight: 200 * chrome,
-                    narrowContentMinHeight: 260,
-                    panelFraction: 0.32 * chrome.clamp(0.001, 1.0),
-                    minPanelWidth: 260 * chrome,
-                    maxPanelWidth: 380 * chrome,
-                    gap: 12 * chrome,
+                    narrowPanelHeight: MediaQuery.sizeOf(context).height * 0.36 * chrome,
+                    narrowContentMinHeight: 280,
+                    panelFraction: 0.34 * chrome.clamp(0.001, 1.0),
+                    minPanelWidth: 300 * chrome,
+                    maxPanelWidth: 400 * chrome,
+                    gap: 16 * chrome,
                     panel: IgnorePointer(
                       ignoring: t > 0.2,
                       child: Opacity(
                         opacity: chrome,
-                        child: LayoutBuilder(
-                          builder: (context, panelBox) {
-                            final showUpload = panelBox.maxHeight >= 220;
-                            return ClipRect(
-                              child: Column(
-                                children: [
-                                  if (showUpload) ...[
-                                    InkWell(
-                                      onTap: canUpload ? _upload : null,
-                                      borderRadius: AppRadii.border,
-                                      child: SectionCard(
-                                        child: Column(
-                                          children: [
-                                            const Icon(
-                                              Icons.cloud_upload_outlined,
-                                              color: AppColors.dentalBlue,
-                                              size: 28,
-                                            ),
-                                            const SizedBox(height: 8),
-                                            Text(
-                                              _busy
-                                                  ? loc.scansUploading
-                                                  : loc.scansUpload,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              loc.scansSubtitle,
-                                              textAlign: TextAlign.center,
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                color: AppColors.muted,
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 12),
-                                  ],
-                                  Expanded(
-                                    child: SectionCard(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 8,
-                                      ),
-                                      child: _mediaLoading
-                                          ? Center(
-                                              child: ToothLoadingIndicator(
-                                                size: 40,
-                                                loadingText: AppLocalizations.of(context).tr('s.loading'),
-                                              ),
-                                            )
-                                          : _scans.isEmpty
-                                              ? Center(
-                                                  child: Text(
-                                                    _patient == null
-                                                        ? loc.scansSelectPatient
-                                                        : loc.scansEmptyFor(
-                                                            _patientLabel,
-                                                          ),
-                                                    style: const TextStyle(
-                                                      color: AppColors.muted,
-                                                    ),
-                                                    textAlign: TextAlign.center,
-                                                  ),
-                                                )
-                                              : ListView.builder(
-                                                  itemCount: _scans.length,
-                                                  itemBuilder: (context, i) {
-                                                    return _scanListTile(
-                                                      scan: _scans[i],
-                                                      index: i,
-                                                      loc: loc,
-                                                    );
-                                                  },
-                                                ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
+                        child: _inspector(scan, loc, canUpload: canUpload, needsRescan: needsRescan),
                       ),
                     ),
-                    content: SectionCard(
-                      depth: chrome <= 0 ? 0 : chrome,
-                      color: Color.lerp(
-                        AppColors.card,
-                        const Color(0xFF15283F),
-                        t,
-                      ),
-                      padding: EdgeInsets.all(18 * chrome),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    content: ClipRRect(
+                      borderRadius: BorderRadius.circular(20 * chrome),
+                      child: Stack(
+                        fit: StackFit.expand,
                         children: [
-                          ClipRect(
-                            child: Align(
-                              alignment: Alignment.topCenter,
-                              heightFactor: chrome,
-                              child: Opacity(
-                                opacity: chrome,
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        scan == null
-                                            ? loc.scansNoneSelected
-                                            : '${scan['filename'] ?? '${AppLocalizations.current.tr('s.scan')} #${scan['id']}'}'
-                                                ' · ${scan['patient_name'] ?? _patientLabel}',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 16,
-                                        ),
-                                      ),
-                                    ),
-                                    if (scan != null && !_readOnly)
-                                      _case?.locked == true
-                                          ? TextButton.icon(
-                                              onPressed: _busy ? null : () => _removeOrReplace(scan),
-                                              icon: const Icon(Icons.swap_horiz_rounded),
-                                              label: Text(loc.tr('case.replace')),
-                                            )
-                                          : IconButton(
-                                              tooltip: loc.scansDelete,
-                                              onPressed: _busy
-                                                  ? null
-                                                  : () => _removeOrReplace(scan),
-                                              icon: const Icon(
-                                                Icons.delete_outline,
-                                                color: AppColors.danger,
-                                              ),
-                                            ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                          if (chrome > 0.01) SizedBox(height: 16 * chrome),
-                          Expanded(
-                            child: Stack(
-                              fit: StackFit.expand,
-                              clipBehavior: Clip.hardEdge,
-                              children: [
-                                _meshViewer(scan),
-                                Positioned(
-                                  right: 12,
-                                  bottom: 12,
-                                  child: SafeArea(
-                                    child: _ScanFullscreenButton(
-                                      fullscreen: t > 0.5,
-                                      onTap: _toggleFullscreen,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          ClipRect(
-                            child: Align(
-                              alignment: Alignment.bottomCenter,
-                              heightFactor: chrome,
-                              child: Opacity(
-                                opacity: chrome,
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    const SizedBox(height: 16),
-                                    if (scan == null) ...[
-                                      Container(
-                                        width: double.infinity,
-                                        padding: const EdgeInsets.all(12),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.border
-                                              .withValues(alpha: 0.35),
-                                          borderRadius: AppRadii.border,
-                                        ),
-                                        child: Text(
-                                          _patient == null
-                                              ? loc.scansQualityNeedPatient
-                                              : loc.scansQualityNeedUpload,
-                                          style: const TextStyle(
-                                            color: AppColors.muted,
-                                            fontWeight: FontWeight.w600,
-                                            height: 1.35,
-                                          ),
-                                        ),
-                                      ),
-                                    ] else ...[
-                                      const SizedBox(height: 12),
-                                      _qualityStatus(scan, loc),
-                                      if (_incoming == null &&
-                                          _issuesFor(scan).isNotEmpty) ...[
-                                        const SizedBox(height: 10),
-                                        for (final issue in _issuesFor(scan))
-                                          _issueCard(issue, loc),
-                                        const SizedBox(height: 12),
-                                      ],
-                                      if (_incoming == null && needsRescan) ...[
-                                        const SizedBox(height: 10),
-                                        SizedBox(
-                                          width: double.infinity,
-                                          child: FilledButton.icon(
-                                            onPressed:
-                                                canUpload ? _upload : null,
-                                            icon: const Icon(Icons.refresh),
-                                            label: Text(loc.scansRescanNow),
-                                            style: FilledButton.styleFrom(
-                                              backgroundColor:
-                                                  AppColors.danger,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ],
-                                ),
+                          _meshViewer(scan),
+                          Positioned(
+                            right: 12,
+                            bottom: 12,
+                            child: SafeArea(
+                              child: _ScanFullscreenButton(
+                                fullscreen: t > 0.5,
+                                onTap: _toggleFullscreen,
                               ),
                             ),
                           ),
@@ -1213,6 +1079,83 @@ class _ScansPageState extends State<ScansPage>
           ),
         );
       },
+    );
+  }
+
+  /// Right-hand card: the selected scan (name, quality, issues, its
+  /// actions) on top, the patient's scans underneath.
+  Widget _inspector(
+    Map<String, dynamic>? scan,
+    AppLocalizations loc, {
+    required bool canUpload,
+    required bool needsRescan,
+  }) {
+    final when = scan == null ? null : DateTime.tryParse('${scan['uploaded_at'] ?? scan['created_at'] ?? ''}')?.toLocal();
+    final onCase = scan?['on_case'] == true;
+    final selected = scan == null
+        ? <Widget>[
+            Text(
+              _patient == null ? loc.scansQualityNeedPatient : loc.scansQualityNeedUpload,
+              style: AppFonts.style(fontSize: 13.5, height: 1.4, color: AppColors.muted),
+            ),
+          ]
+        : <Widget>[
+            Text(
+              '${scan['filename'] ?? '${loc.tr('s.scan')} #${scan['id']}'}',
+              style: AppFonts.style(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.navy, height: 1.25),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              [if (when != null) adminWhen(context, when), onCase ? loc.tr('s.onCase') : loc.tr('s.libraryOnly')].join(' · '),
+              style: AppFonts.style(fontSize: 12.5, color: AppColors.muted),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(12)),
+              child: _qualityStatus(scan, loc),
+            ),
+            if (_incoming == null)
+              for (final issue in _issuesFor(scan)) _issueCard(issue, loc),
+            if (!_readOnly) ...[
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (_incoming == null && needsRescan)
+                    AppButtons.danger(
+                      onPressed: canUpload ? _upload : null,
+                      icon: Icons.refresh_rounded,
+                      label: loc.scansRescanNow,
+                      compact: true,
+                    ),
+                  AppButtons.ghost(
+                    onPressed: _busy ? null : () => _removeOrReplace(scan),
+                    icon: _case?.locked == true ? Icons.swap_horiz_rounded : Icons.delete_outline_rounded,
+                    label: _case?.locked == true ? loc.tr('case.replace') : loc.scansDelete,
+                    compact: true,
+                  ),
+                ],
+              ),
+            ],
+          ];
+    return AdminCard(
+      padding: EdgeInsets.zero,
+      child: CustomScrollView(
+        primary: false,
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
+            sliver: SliverList.list(children: selected),
+          ),
+          SliverToBoxAdapter(
+            child: Divider(height: 28, indent: 18, endIndent: 18, color: AppColors.border.withValues(alpha: 0.6)),
+          ),
+          SliverToBoxAdapter(child: _scanLibrary(loc, canUpload)),
+          const SliverToBoxAdapter(child: SizedBox(height: 10)),
+        ],
+      ),
     );
   }
 

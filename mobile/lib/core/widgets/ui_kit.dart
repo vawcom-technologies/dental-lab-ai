@@ -238,10 +238,14 @@ class PageHeader extends StatelessWidget {
     this.icon,
     this.actions = const [],
     this.chromeActions = const [],
+    this.subtitleAsInfo = false,
   });
 
   final String title;
   final String? subtitle;
+
+  /// Hide [subtitle] behind an ⓘ next to the title; tapping it shows the text.
+  final bool subtitleAsInfo;
   final IconData? icon;
 
   /// Primary / secondary CTAs — never frosted.
@@ -258,19 +262,36 @@ class PageHeader extends StatelessWidget {
     Widget titleBlock(bool compact) => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          title,
-          maxLines: phone ? 2 : 1,
-          overflow: TextOverflow.ellipsis,
-          softWrap: phone,
-          style: AppFonts.style(
-            fontSize: phone ? 20 : (compact ? 22 : 28),
-            fontWeight: FontWeight.w700,
-            color: AppColors.navy,
-            letterSpacing: -0.4,
-          ),
+        Row(
+          children: [
+            Flexible(
+              child: Text(
+                title,
+                maxLines: phone ? 2 : 1,
+                overflow: TextOverflow.ellipsis,
+                softWrap: phone,
+                style: AppFonts.style(
+                  fontSize: phone ? 20 : (compact ? 22 : 28),
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.navy,
+                  letterSpacing: -0.4,
+                ),
+              ),
+            ),
+            if (subtitleAsInfo && subtitle != null)
+              Tooltip(
+                message: subtitle!,
+                triggerMode: TooltipTriggerMode.tap,
+                showDuration: const Duration(seconds: 5),
+                preferBelow: true,
+                child: const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: Icon(Icons.info_outline_rounded, size: 20, color: AppColors.muted),
+                ),
+              ),
+          ],
         ),
-        if (subtitle != null) ...[
+        if (subtitle != null && !subtitleAsInfo) ...[
           const SizedBox(height: 2),
           Text(
             subtitle!,

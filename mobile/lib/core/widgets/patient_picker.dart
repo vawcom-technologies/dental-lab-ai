@@ -60,7 +60,8 @@ class _PatientPickerButtonState extends State<PatientPickerButton> {
             ? loc.patientNoneYet
             : loc.patientAvailableCount(widget.patients.length))
         : (widget.caseId == null
-            ? loc.patientReadyForDetect
+            // Case status means something on every tool page.
+            ? loc.statusLabel('${selected['status'] ?? 'pending'}')
             : loc.patientCaseId(widget.caseId!));
     final emptyHint = widget.emptyHint ?? loc.patientEmptyHint;
 

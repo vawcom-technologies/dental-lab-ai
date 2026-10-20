@@ -61,14 +61,11 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
   Float32List? _srcPositions;
   Uint32List? _srcIndices;
   bool _hasVertexColors = false;
-  int _loadedTris = 0;
 
   bool _colored = true;
-  bool _canSolid = false;
   bool _sceneReady = false;
   bool _meshLoading = false;
   String? _meshError;
-  int? _loadedVerts;
   Object? _loadToken;
   Size? _viewSize;
 
@@ -220,10 +217,7 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
       _disposeMeshObjects(disposeGeometry: true);
       if (mounted) {
         setState(() {
-          _canSolid = false;
           _meshError = null;
-          _loadedVerts = null;
-          _loadedTris = 0;
           _meshLoading = false;
         });
       }
@@ -258,8 +252,6 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
       }
 
       final hasFaces = _geometryHasFaces(geometry);
-      final idx = geometry.getIndex();
-      final triCount = idx != null ? idx.count ~/ 3 : 0;
       if (hasFaces && geometry.getAttribute(three.Attribute.normal) == null) {
         geometry.computeVertexNormals();
       }
@@ -268,17 +260,12 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
       _geometry = geometry;
       _srcPositions = srcPositions;
       _srcIndices = srcIndices;
-      _loadedTris = triCount;
       _installObjects(geometry, hasFaces: hasFaces);
 
-      final pos = geometry.getAttribute(three.Attribute.position);
-      final nVerts = pos is three.BufferAttribute ? pos.count : null;
       _frameCamera(geometry);
 
       if (!identical(_loadToken, token) || !mounted) return;
       setState(() {
-        _canSolid = hasFaces;
-        _loadedVerts = nVerts;
         _meshLoading = false;
         _meshError = null;
         _installRough();
@@ -289,8 +276,6 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
       setState(() {
         _meshLoading = false;
         _meshError = friendlyError(e);
-        _canSolid = false;
-        _loadedVerts = null;
       });
     }
   }
@@ -819,17 +804,6 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
                         AppLocalizations.current.tr('ms.rough'),
                       ),
                     ),
-                  Positioned(
-                    left: 12,
-                    bottom: 10,
-                    child: Text(
-                      _hudLabel,
-                      style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 11.5,
-                      ),
-                    ),
-                  ),
                 ],
               ],
             );
@@ -839,15 +813,4 @@ class _GpuMeshViewerHostState extends State<GpuMeshViewerHost>
     );
   }
 
-  String get _hudLabel {
-    final n = widget.vertexCount ?? _loadedVerts;
-    if (_canSolid) {
-      // Must NOT look like CpuMeshViewer ("web · N tris · drag/pinch").
-      return AppLocalizations.current.trp('ms.gpuTris', {'n': n ?? '—', 't': _loadedTris});
-    }
-    if (!_canSolid && _hasSource) {
-      return AppLocalizations.current.trp('ms.gpuNoFaces', {'n': n ?? '—'});
-    }
-    return AppLocalizations.current.trp('ms.gpuPts', {'n': n ?? '—'});
-  }
 }
