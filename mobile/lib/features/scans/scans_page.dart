@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/haptics/app_haptics.dart';
 import '../../core/layout/adaptive.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/navigation/app_page_routes.dart';
@@ -1073,7 +1075,13 @@ class _ScansPageState extends State<ScansPage>
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          _meshViewer(scan),
+                          // Hold the viewer: native action sheet for the
+                          // shown scan, like holding the Shade photo. Drags
+                          // still rotate the model (they win the gesture).
+                          GestureDetector(
+                            onLongPress: scan == null || t > 0.5 ? null : () => _showScanActions(scan),
+                            child: _meshViewer(scan),
+                          ),
                           Positioned(
                             right: 12,
                             bottom: 12,
@@ -1128,10 +1136,35 @@ class _ScansPageState extends State<ScansPage>
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(12)),
-              child: _qualityStatus(scan, loc),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _qualityStatus(scan, loc),
+                  // The reasons open in a sheet instead of stacking here.
+                  if (_incoming == null && _issuesFor(scan).isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Wrap(
+                      alignment: WrapAlignment.spaceBetween,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        Text(
+                          loc.trp('sq.issueCount', {'n': _issuesFor(scan).length}),
+                          style: AppFonts.style(fontSize: 12.5, color: AppColors.muted),
+                        ),
+                        AppButtons.ghost(
+                          onPressed: () => _showScanIssues(scan),
+                          icon: Icons.info_outline_rounded,
+                          label: loc.tr('sq.viewDetails'),
+                          compact: true,
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
             ),
-            if (_incoming == null)
-              for (final issue in _issuesFor(scan)) _issueCard(issue, loc),
             if (!_readOnly) ...[
               const SizedBox(height: 14),
               Wrap(
@@ -1170,6 +1203,140 @@ class _ScansPageState extends State<ScansPage>
           SliverToBoxAdapter(child: _scanLibrary(loc, canUpload)),
           const SliverToBoxAdapter(child: SizedBox(height: 10)),
         ],
+      ),
+    );
+  }
+
+  /// Hold a scan: iPad action sheet with why it's bad, rescan and delete.
+  Future<void> _showScanActions(Map<String, dynamic> scan) async {
+    final loc = AppLocalizations.of(context);
+    final issues = _incoming == null ? _issuesFor(scan) : const <Map<String, dynamic>>[];
+    final bad = scan['prompt_rescan'] == true || scan['validation_result'] == 'bad';
+    final locked = _case?.locked == true;
+    AppHaptics.selection();
+    await showCupertinoModalPopup<void>(
+      context: context,
+      builder: (ctx) => CupertinoActionSheet(
+        title: Text('${scan['filename'] ?? '${loc.tr('s.scan')} #${scan['id']}'}'),
+        message: Text(loc.tr(bad ? 's.qBad' : 'sq.holdMsg')),
+        actions: [
+          if (issues.isNotEmpty)
+            CupertinoActionSheetAction(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _showScanIssues(scan);
+              },
+              child: Text(loc.tr('sq.whyBad')),
+            ),
+          if (bad && !_readOnly && !_busy && _patient != null)
+            CupertinoActionSheetAction(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _upload();
+              },
+              child: Text(loc.scansRescanNow),
+            ),
+          if (!_readOnly)
+            CupertinoActionSheetAction(
+              isDestructiveAction: !locked,
+              onPressed: () {
+                Navigator.pop(ctx);
+                if (!_busy) _removeOrReplace(scan);
+              },
+              child: Text(locked ? loc.tr('case.replace') : loc.scansDelete),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          isDefaultAction: true,
+          onPressed: () => Navigator.pop(ctx),
+          child: Text(loc.cancel),
+        ),
+      ),
+    );
+  }
+
+  /// Why a scan failed the quality check: each finding, how serious, what
+  /// it means — in a centred iPad-style sheet, with Rescan.
+  Future<void> _showScanIssues(Map<String, dynamic> scan) async {
+    final loc = AppLocalizations.of(context);
+    final issues = _issuesFor(scan);
+    final bad = scan['prompt_rescan'] == true || scan['validation_result'] == 'bad';
+    await AppDialogs.sheet<void>(
+      context: context,
+      maxWidth: 560,
+      builder: (ctx) => Material(
+        type: MaterialType.transparency,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * 0.8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 20, 12, 4),
+                child: Row(
+                  children: [
+                    AdminIcon(
+                      icon: bad ? Icons.error_outline_rounded : Icons.warning_amber_rounded,
+                      color: bad ? AppColors.danger : AppColors.warning,
+                      size: 44,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(loc.tr(bad ? 'sq.badTitle' : 'sq.reviewTitle'),
+                              style: AppFonts.style(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.navy)),
+                          Text('${scan['filename'] ?? ''}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppFonts.style(fontSize: 12.5, color: AppColors.muted)),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: loc.commonClose,
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, color: AppColors.muted),
+                    ),
+                  ],
+                ),
+              ),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.fromLTRB(22, 8, 22, 8),
+                  children: [for (final issue in issues) _issueCard(issue, loc)],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 10, 22, 18),
+                child: Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    AppButtons.ghost(onPressed: () => Navigator.pop(ctx), label: loc.commonClose, compact: true),
+                    if (bad && !_readOnly) ...[
+                      AppButtons.danger(
+                        compact: true,
+                        onPressed: _busy || _patient == null
+                            ? null
+                            : () {
+                                Navigator.pop(ctx);
+                                _upload();
+                              },
+                        icon: Icons.refresh_rounded,
+                        label: loc.scansRescanNow,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

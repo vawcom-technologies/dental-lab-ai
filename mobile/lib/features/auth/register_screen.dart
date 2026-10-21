@@ -22,7 +22,10 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  final _name = TextEditingController();
+  // Dentists: first + last name; labs: the lab's name.
+  final _first = TextEditingController();
+  final _last = TextEditingController();
+  final _labName = TextEditingController();
   final _email = TextEditingController();
   final _clinic = TextEditingController();
   final _phone = TextEditingController();
@@ -46,7 +49,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   void dispose() {
-    _name.dispose();
+    _first.dispose();
+    _last.dispose();
+    _labName.dispose();
     _email.dispose();
     _clinic.dispose();
     _phone.dispose();
@@ -56,7 +61,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _submit() async {
-    final name = _name.text.trim();
+    final dentist = _role == AppRoles.dentist;
+    final first = capitalizeName(_first.text);
+    final last = capitalizeName(_last.text);
+    final name = dentist ? '$first $last'.trim() : _labName.text.trim();
     final email = _email.text.trim();
     final clinic = _clinic.text.trim();
     final phoneLocal = _phone.text.trim();
@@ -67,6 +75,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
     if (name.isEmpty ||
+        (dentist && (first.isEmpty || last.isEmpty)) ||
         email.isEmpty ||
         clinic.isEmpty ||
         phoneLocal.isEmpty ||
@@ -198,10 +207,34 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   onTap: _loading ? null : _pickAvatar,
                 ),
                 const SizedBox(height: 18),
-                TextField(
-                  controller: _name,
-                  decoration: InputDecoration(labelText: loc.fullName),
-                ),
+                if (_role == AppRoles.dentist)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _first,
+                          textCapitalization: TextCapitalization.words,
+                          textInputAction: TextInputAction.next,
+                          decoration: InputDecoration(labelText: '${loc.tr('auth.firstName')} *'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: _last,
+                          textCapitalization: TextCapitalization.words,
+                          textInputAction: TextInputAction.next,
+                          decoration: InputDecoration(labelText: '${loc.tr('auth.lastName')} *'),
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  TextField(
+                    controller: _labName,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: InputDecoration(labelText: '${loc.tr('auth.labName')} *'),
+                  ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _email,
@@ -390,4 +423,16 @@ class _AvatarPicker extends StatelessWidget {
       ],
     );
   }
+}
+
+/// "anna-lena  müller" → "Anna-Lena Müller": first letter of every word
+/// (and after a hyphen) capitalised, the rest kept as typed.
+String capitalizeName(String raw) {
+  String cap(String w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1);
+  return raw
+      .trim()
+      .split(RegExp(r'\s+'))
+      .where((w) => w.isNotEmpty)
+      .map((w) => w.split('-').map(cap).join('-'))
+      .join(' ');
 }

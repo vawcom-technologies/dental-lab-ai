@@ -258,13 +258,14 @@ void main() {
 
       // Reject list lives in Settings: beside the section list, or pushed.
       await _open(tester, _de.navSettings, phone: phone);
-      await _tapText(tester, _de.tr('admin.rejectList'));
+      // Settings tabs scroll sideways on narrow screens.
+      final rejectTab = find.text(_de.tr('admin.rejectList'), skipOffstage: false);
+      await tester.ensureVisible(rejectTab.last);
+      await _settle(tester);
+      await tester.tap(rejectTab.last);
+      await _settle(tester);
       expect(find.text('spam@example.com'), findsOneWidget);
       expect(tester.takeException(), isNull, reason: 'reject list');
-      if (find.byType(BackButton).evaluate().isNotEmpty) {
-        await tester.pageBack();
-        await _settle(tester);
-      }
 
       await _open(tester, _de.navLaboratories, phone: phone);
       // Wide: pick a lab, its dentists and actions show in the side panel.

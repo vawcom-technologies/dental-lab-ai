@@ -1,9 +1,12 @@
 import 'dart:convert';
 
 import 'package:dental_lab_ai/core/api/api_client.dart';
+import 'package:dental_lab_ai/core/l10n/app_localizations.dart';
 import 'package:dental_lab_ai/core/l10n/locale_controller.dart';
 import 'package:dental_lab_ai/core/session/patient_session.dart';
+import 'package:dental_lab_ai/features/scans/mesh_viewer.dart';
 import 'package:dental_lab_ai/features/scans/scans_page.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -95,4 +98,42 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
   }
+
+  testWidgets('scans: hold the viewer for the action sheet; bad-scan details open in a sheet', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({});
+    tester.view.physicalSize = const Size(1180, 820) * 2;
+    tester.view.devicePixelRatio = 2;
+    addTearDown(tester.view.reset);
+    final api = _api();
+    await tester.runAsync(() => api.signIn('a@b.de', 'x'));
+    final session = PatientSession(api);
+    await tester.runAsync(() => session.ensureLoaded());
+    session.select(session.patients.first);
+    await tester.pumpWidget(LocaleScope(
+      controller: LocaleController(),
+      child: MaterialApp(home: Scaffold(body: ScansPage(api: api, patientSession: session, active: true))),
+    ));
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+    final de = AppLocalizations('de');
+    // Hold the viewer (not the list row).
+    await tester.longPress(find.byType(MeshViewer));
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+    expect(find.byType(CupertinoActionSheet), findsOneWidget);
+    expect(find.text(de.scansDelete), findsWidgets);
+    expect(find.text(de.tr('sq.whyBad')), findsOneWidget);
+    await tester.tap(find.text(de.tr('sq.whyBad')));
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+    expect(find.byType(CupertinoActionSheet), findsNothing);
+    expect(find.text(de.tr('sq.badTitle')), findsOneWidget);
+    expect(find.text(de.tr('sq.holes.t')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
 }

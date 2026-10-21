@@ -83,14 +83,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _fillDemo() {
-    AppHaptics.selection();
-    setState(() {
-      _email.text = 'dentist@elitedent.demo';
-      _password.text = 'demo1234';
-    });
-  }
-
   @override
   void dispose() {
     _email.dispose();
@@ -232,15 +224,6 @@ class _LoginScreenState extends State<LoginScreen> {
         OutlinedButton(
           onPressed: _loading ? null : _openRegister,
           child: Text(loc.createProfile),
-        ),
-        const SizedBox(height: 14),
-        TextButton(
-          onPressed: _loading ? null : _fillDemo,
-          child: Text(
-            loc.useDemo,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 12, height: 1.3),
-          ),
         ),
       ],
     );
