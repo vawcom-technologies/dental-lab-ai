@@ -401,6 +401,12 @@ class AppLocalizations {
   String get reportsFollowUpHint => _t('reports.followUpHint');
   String get reportsAllClear => _t('reports.allClear');
   String get reportsPatientFallback => _t('reports.patientFallback');
+  String get reportsActivity => _t('reports.activity');
+  String get reportsActivityHint => _t('reports.activityHint');
+  String get reportsCoverageShort => _t('reports.coverageShort');
+  String get reportsOpened => _t('reports.opened');
+  String get reportsFinished => _t('reports.finished');
+  String get reportsCoverageHint => _t('reports.coverageHint');
 
   // ── Case statuses ────────────────────────────────────────────────────────
   String statusLabel(String key) {
@@ -2065,6 +2071,12 @@ class AppLocalizations {
     'reports.followUpHint': 'Cases that need a follow-up',
     'reports.allClear': 'All clear',
     'reports.patientFallback': 'Patient',
+    'reports.activity': 'New vs completed',
+    'reports.activityHint': 'Cases opened and finished in this period',
+    'reports.coverageShort': 'Coverage',
+    'reports.opened': 'Opened',
+    'reports.finished': 'Finished',
+    'reports.coverageHint': 'Patients with scans, photos, shade, or smile',
     'notifications.subtitle':
         'Action items from your patients — scans needed, lab review, shade confirms',
     'notifications.empty': "You're all caught up — no notifications here",
@@ -3859,6 +3871,12 @@ class AppLocalizations {
     'reports.followUpHint': 'Fälle, die eine Nachverfolgung brauchen',
     'reports.allClear': 'Alles erledigt',
     'reports.patientFallback': 'Patient',
+    'reports.activity': 'Neu vs. abgeschlossen',
+    'reports.activityHint': 'Im Zeitraum eröffnete und abgeschlossene Fälle',
+    'reports.coverageShort': 'Abdeckung',
+    'reports.opened': 'Eröffnet',
+    'reports.finished': 'Fertig',
+    'reports.coverageHint': 'Patienten mit Scans, Fotos, Farbe oder Lächeln',
     'notifications.subtitle':
         'Aufgaben zu Ihren Patienten — Scans nötig, Laborprüfung, Farbbestätigung',
     'notifications.empty': 'Alles erledigt — keine Benachrichtigungen',

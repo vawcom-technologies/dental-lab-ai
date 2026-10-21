@@ -20,6 +20,14 @@ DROP POLICY IF EXISTS patients_insert_authenticated ON public.patients;
 DROP POLICY IF EXISTS patients_update_owner ON public.patients;
 DROP POLICY IF EXISTS patients_delete_owner ON public.patients;
 DROP POLICY IF EXISTS notifications_update_own ON public.notifications;
+DROP POLICY IF EXISTS appointments_insert_authenticated ON public.appointments;
+DROP POLICY IF EXISTS appointments_update_authenticated ON public.appointments;
+DROP POLICY IF EXISTS appointments_delete_authenticated ON public.appointments;
+DROP POLICY IF EXISTS patient_access_request_shared ON public.patient_access;
+DROP POLICY IF EXISTS patient_access_manage_owner ON public.patient_access;
+DROP POLICY IF EXISTS patient_audit_logs_insert ON public.patient_audit_logs;
+DROP POLICY IF EXISTS patient_notes_insert ON public.patient_notes;
+DROP POLICY IF EXISTS patient_notes_modify ON public.patient_notes;
 
 -- 3. profiles holds role / verified / lab_id: a self-update policy would let
 --    anyone make themselves admin. It isn't created in these migrations, so
