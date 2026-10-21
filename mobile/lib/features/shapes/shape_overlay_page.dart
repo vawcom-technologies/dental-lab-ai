@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:image/image.dart' as imglib;
@@ -161,262 +162,118 @@ class ShapeLibrary {
 }
 
 /// Accordion of Batem smile models — jaw sections and rows open independently.
-class BatemModelAccordion extends StatefulWidget {
-  const BatemModelAccordion({
+/// Batem models as a grid of big thumbnails per jaw. One tap picks a model
+/// (a tap on a picked one removes it); a check marks the picked ones.
+class BatemModelGrid extends StatelessWidget {
+  const BatemModelGrid({
     super.key,
     required this.selectedIndexes,
-    required this.openIds,
-    required this.onToggle,
     required this.onSelect,
-    this.shrinkWrap = false,
   });
 
   final Set<int> selectedIndexes;
-  final Set<int> openIds;
-  final ValueChanged<int> onToggle;
   final ValueChanged<int> onSelect;
-  final bool shrinkWrap;
-
-  @override
-  State<BatemModelAccordion> createState() => _BatemModelAccordionState();
-}
-
-class _BatemModelAccordionState extends State<BatemModelAccordion> {
-  final _openArch = <String>{'upper', 'lower'};
 
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
-    final children = <Widget>[
-      _archHeader('upper', loc.smileUpperJaw),
-      if (_openArch.contains('upper'))
-        ..._rowsFor(ShapeLibrary.items, startIndex: 0),
-      _archHeader('lower', loc.smileLowerJaw),
-      if (_openArch.contains('lower'))
-        ..._rowsFor(
-          ShapeLibrary.lowerArchItems,
-          startIndex: ShapeLibrary.items.length,
-        ),
-    ];
+    Widget section(String label, List<ShapeLibraryItem> items, int start) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(padding: const EdgeInsets.fromLTRB(2, 6, 2, 10), child: SectionLabel(label)),
+            LayoutBuilder(
+              builder: (context, box) {
+                final cols = box.maxWidth >= 300 ? 2 : 1;
+                final w = (box.maxWidth - (cols - 1) * 10) / cols;
+                return Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    for (var i = 0; i < items.length; i++)
+                      SizedBox(
+                        width: w,
+                        child: _ModelTile(
+                          key: ValueKey('batem-${items[i].id}'),
+                          item: items[i],
+                          selected: selectedIndexes.contains(start + i),
+                          onTap: () => onSelect(start + i),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ],
+        );
     return ListView(
       primary: false,
-      padding: const EdgeInsets.only(bottom: 8),
-      shrinkWrap: widget.shrinkWrap,
-      physics: widget.shrinkWrap ? const NeverScrollableScrollPhysics() : null,
-      children: children,
+      padding: const EdgeInsets.only(bottom: 12),
+      children: [
+        section(loc.smileUpperJaw, ShapeLibrary.items, 0),
+        const SizedBox(height: 14),
+        section(loc.smileLowerJaw, ShapeLibrary.lowerArchItems, ShapeLibrary.items.length),
+      ],
     );
   }
+}
 
-  Widget _archHeader(String id, String label) {
-    final open = _openArch.contains(id);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Material(
-        color: AppColors.neo,
-        borderRadius: BorderRadius.circular(10),
-        child: InkWell(
-          onTap: () {
-            setState(() {
-              if (open) {
-                _openArch.remove(id);
-              } else {
-                _openArch.add(id);
-              }
-            });
-          },
-          borderRadius: BorderRadius.circular(10),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    label,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 13,
-                      color: AppColors.navy,
-                    ),
-                  ),
-                ),
-                Icon(
-                  open
-                      ? Icons.keyboard_arrow_up_rounded
-                      : Icons.keyboard_arrow_down_rounded,
-                  color: AppColors.navy,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+class _ModelTile extends StatelessWidget {
+  const _ModelTile({super.key, required this.item, required this.selected, required this.onTap});
 
-  List<Widget> _rowsFor(List<ShapeLibraryItem> items, {required int startIndex}) {
-    final loc = AppLocalizations.of(context);
-    return [
-      for (var i = 0; i < items.length; i++)
-        _modelRow(
-          loc: loc,
-          item: items[i],
-          catalogIndex: startIndex + i,
-        ),
-    ];
-  }
+  final ShapeLibraryItem item;
+  final bool selected;
+  final VoidCallback onTap;
 
-  Widget _modelRow({
-    required AppLocalizations loc,
-    required ShapeLibraryItem item,
-    required int catalogIndex,
-  }) {
-    final selected = widget.selectedIndexes.contains(catalogIndex);
-    final open = widget.openIds.contains(item.id);
-    return Padding(
-      key: ValueKey('batem-${item.id}'),
-      padding: const EdgeInsets.only(bottom: 8),
-      child: DecoratedBox(
+  @override
+  Widget build(BuildContext context) {
+    return Pressable(
+      onTap: onTap,
+      scale: 0.97,
+      builder: (_, _) => AnimatedContainer(
+        duration: AppMotion.fast,
+        padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-          color: selected
-              ? AppColors.dentalBlue.withValues(alpha: 0.06)
-              : Colors.white,
-          borderRadius: BorderRadius.circular(12),
+          color: selected ? AppColors.dentalBlue.withValues(alpha: 0.10) : AppColors.surface,
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: selected ? AppColors.dentalBlue : AppColors.border,
-            width: selected ? 1.8 : 1,
+            color: selected ? AppColors.dentalBlue : AppColors.border.withValues(alpha: 0.6),
+            width: selected ? 2 : 1,
           ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            InkWell(
-              onTap: () => widget.onToggle(item.id),
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(12),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 10, 8, 10),
-                child: Row(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: ColoredBox(
-                        color: const Color(0xFF0F1724),
-                        child: SizedBox(
-                          width: 48,
-                          height: 36,
-                          child: ShapeToothImage(
-                            item: item,
-                            fit: BoxFit.contain,
-                          ),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: ColoredBox(
+                color: const Color(0xFF0F1724),
+                child: SizedBox(
+                  height: 84,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Padding(padding: const EdgeInsets.all(8), child: ShapeToothImage(item: item, fit: BoxFit.contain)),
+                      if (selected)
+                        const Positioned(
+                          top: 6,
+                          right: 6,
+                          child: Icon(Icons.check_circle, color: AppColors.dentalBlue, size: 22),
                         ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        shapeLabel(context, item),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
-                          color: selected
-                              ? AppColors.dentalBlue
-                              : AppColors.navy,
-                        ),
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: open
-                            ? AppColors.dentalBlue.withValues(alpha: 0.12)
-                            : AppColors.neo,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        open ? loc.smileModelOpen : loc.smileModelClosed,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: open
-                              ? AppColors.dentalBlue
-                              : AppColors.muted,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Icon(
-                      open
-                          ? Icons.keyboard_arrow_up_rounded
-                          : Icons.keyboard_arrow_down_rounded,
-                      color: AppColors.navy,
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-            ClipRect(
-              child: AnimatedSize(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOut,
-                alignment: Alignment.topCenter,
-                child: open
-                    ? Padding(
-                        padding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Material(
-                              color: const Color(0xFF0F1724),
-                              borderRadius: BorderRadius.circular(10),
-                              clipBehavior: Clip.antiAlias,
-                              child: InkWell(
-                                onTap: () => widget.onSelect(catalogIndex),
-                                child: SizedBox(
-                                  height: 120,
-                                  child: Stack(
-                                    fit: StackFit.expand,
-                                    children: [
-                                      Padding(
-                                        padding: const EdgeInsets.all(8),
-                                        child: ShapeToothImage(
-                                          item: item,
-                                          fit: BoxFit.contain,
-                                        ),
-                                      ),
-                                      if (selected)
-                                        const Positioned(
-                                          top: 8,
-                                          right: 8,
-                                          child: Icon(
-                                            Icons.check_circle,
-                                            color: AppColors.dentalBlue,
-                                            size: 22,
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            FilledButton(
-                              onPressed: () => widget.onSelect(catalogIndex),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: AppColors.navy,
-                                minimumSize: const Size.fromHeight(36),
-                              ),
-                              child: Text(loc.smileUseThisModel),
-                            ),
-                          ],
-                        ),
-                      )
-                    : const SizedBox(width: double.infinity),
+            const SizedBox(height: 6),
+            Text(
+              shapeLabel(context, item),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: AppFonts.style(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: selected ? AppColors.dentalBlue : AppColors.navy,
               ),
             ),
           ],
@@ -505,8 +362,8 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
   bool _showOverlay = true;
   bool _comparing = false;
   bool _showGuides = true;
-  bool _placementOpen = true;
-  final Set<int> _openBatemIds = {ShapeLibrary.items.first.id};
+  /// Right panel: 0 = Models, 1 = Adjust.
+  int _railTab = 0;
 
   double _baseScale = 1.0;
   double _baseRotation = 0;
@@ -916,9 +773,6 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     }
     _lowerActive = _upperIndex == null ||
         (overlay['active_jaw'] == 'lower' && _lowerIndex != null);
-    _openBatemIds
-      ..clear()
-      ..addAll([for (final (_, it) in _chosen) it.id]);
     _centeredOnce = true;
     _dirty = false;
   }
@@ -1069,17 +923,10 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
         _status = AppLocalizations.of(context).trp('sh.rm', {'n': shapeLabel(context, item)});
       } else {
         _lowerActive = lower;
-        _openBatemIds.add(item.id);
         _status = AppLocalizations.of(context).trp('sh.sel', {'n': shapeLabel(context, item)});
         _showOverlay = true;
       }
       _dirty = true;
-    });
-  }
-
-  void _toggleBatem(int id) {
-    setState(() {
-      if (!_openBatemIds.remove(id)) _openBatemIds.add(id);
     });
   }
 
@@ -1120,50 +967,6 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       _offset += Offset(dx, dy);
       _dirty = true;
     });
-  }
-
-  Widget _nudgeControls() {
-    // Four 36px buttons + gaps (~168) plus the label overflow a narrow rail
-    // (~133). Scale the pad down when space is tight; full size when wide.
-    return Padding(
-      padding: const EdgeInsets.only(top: 10, bottom: 12),
-      child: Row(
-        children: [
-          Text(
-            AppLocalizations.of(context).smileNudge,
-            style: const TextStyle(fontSize: 12, color: AppColors.muted),
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerRight,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _NudgeBtn(
-                    icon: Icons.keyboard_arrow_left,
-                    onTap: () => _nudge(-4, 0),
-                  ),
-                  _NudgeBtn(
-                    icon: Icons.keyboard_arrow_up,
-                    onTap: () => _nudge(0, -4),
-                  ),
-                  _NudgeBtn(
-                    icon: Icons.keyboard_arrow_down,
-                    onTap: () => _nudge(0, 4),
-                  ),
-                  _NudgeBtn(
-                    icon: Icons.keyboard_arrow_right,
-                    onTap: () => _nudge(4, 0),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   Offset _localDragDelta(Offset screenDelta) {
@@ -1248,11 +1051,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     }
   }
 
-  String get _patientName {
-    final p = _patient;
-    if (p == null) return '—';
-    return '${p['first_name']} ${p['last_name']}';
-  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -1519,6 +1318,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       icon: Icons.sentiment_satisfied_alt_outlined,
       title: AppLocalizations.of(context).smileTitle,
       subtitle: AppLocalizations.of(context).smilePageSubtitle,
+      subtitleAsInfo: true,
       actions: [
         PatientPickerButton(
           patients: _patients,
@@ -1906,374 +1706,185 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     return '${_lowerActive ? loc.smileLowerJaw : loc.smileUpperJaw} · ${shapeLabel(context, sel)}';
   }
 
-  Widget _libraryHeader() {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            AppLocalizations.of(context).smileBatemModels,
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 15,
-              color: AppColors.navy,
-            ),
-          ),
-        ),
-        Text(
-          '${_chosen.length}/2',
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: AppColors.muted,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _batemList({required bool shrinkWrap}) {
-    return BatemModelAccordion(
-      selectedIndexes: {?_upperIndex, ?_lowerIndex},
-      openIds: _openBatemIds,
-      onToggle: _toggleBatem,
-      onSelect: _selectShape,
-      shrinkWrap: shrinkWrap,
-    );
-  }
-
-  Widget _compactRail() {
-    return SingleChildScrollView(
-      physics: const AlwaysScrollableScrollPhysics(
-        parent: BouncingScrollPhysics(),
-      ),
-      padding: const EdgeInsets.only(bottom: 12),
+  Widget _buildRail() {
+    final loc = AppLocalizations.of(context);
+    return SectionCard(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _libraryHeader(),
-          const SizedBox(height: 2),
-          Text(
-            _activeLabel,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: AppColors.dentalBlue,
+          // Two clear modes, each with the whole panel.
+          SizedBox(
+            width: double.infinity,
+            child: CupertinoSlidingSegmentedControl<int>(
+              groupValue: _railTab,
+              backgroundColor: AppColors.inset.withValues(alpha: 0.7),
+              thumbColor: Colors.white,
+              children: {
+                0: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 9),
+                  child: Text('${loc.smileBatemModels} (${_chosen.length}/2)',
+                      style: AppFonts.style(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.navy)),
+                ),
+                1: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 9),
+                  child: Text(loc.smilePlacement,
+                      style: AppFonts.style(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.navy)),
+                ),
+              },
+              onValueChanged: (v) => setState(() => _railTab = v ?? 0),
             ),
           ),
-          const SizedBox(height: 10),
-          _batemList(shrinkWrap: true),
-          const SizedBox(height: 8),
-          const Divider(height: 1),
-          const SizedBox(height: 4),
-          Text(
-            AppLocalizations.of(context).smilePlacement,
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 13,
+          const SizedBox(height: 12),
+          Expanded(
+            child: AppSwitcher(
+              child: KeyedSubtree(
+                key: ValueKey(_railTab),
+                child: _railTab == 0
+                    ? BatemModelGrid(selectedIndexes: {?_upperIndex, ?_lowerIndex}, onSelect: _selectShape)
+                    : _adjustTab(loc),
+              ),
             ),
-          ),
-          const SizedBox(height: 2),
-          _SliderRow(
-            label: AppLocalizations.of(context).smileSize,
-            value: _scale,
-            min: 0.15,
-            max: 8.0,
-            display: '×${_scale.toStringAsFixed(2)}',
-            onChanged: (v) => setState(() {
-              _scale = v;
-              _dirty = true;
-            }),
-          ),
-          _SliderRow(
-            label: AppLocalizations.of(context).smileWidth,
-            value: _width,
-            min: 0.4,
-            max: 2.4,
-            display: '×${_width.toStringAsFixed(2)}',
-            onChanged: (v) => setState(() {
-              _width = v;
-              _dirty = true;
-            }),
-          ),
-          _SliderRow(
-            label: AppLocalizations.of(context).smileHeight,
-            value: _height,
-            min: 0.4,
-            max: 2.4,
-            display: '×${_height.toStringAsFixed(2)}',
-            onChanged: (v) => setState(() {
-              _height = v;
-              _dirty = true;
-            }),
-          ),
-          _SliderRow(
-            label: AppLocalizations.of(context).smileRotate,
-            value: _rotation,
-            min: -35,
-            max: 35,
-            display: '${_rotation.toStringAsFixed(0)}°',
-            onChanged: (v) => setState(() {
-              _rotation = v;
-              _dirty = true;
-            }),
-          ),
-          _SliderRow(
-            label: AppLocalizations.of(context).smileBlend,
-            value: _opacity,
-            min: 0.25,
-            max: 1.0,
-            display: '${(_opacity * 100).round()}%',
-            onChanged: (v) => setState(() {
-              _opacity = v;
-              _dirty = true;
-            }),
-          ),
-          _nudgeControls(),
-          Row(
-            children: [
-              Expanded(
-                child: FilterChip(
-                  label: Text(AppLocalizations.of(context).smileGuides, style: const TextStyle(fontSize: 12)),
-                  selected: _showGuides,
-                  onSelected: (v) => setState(() => _showGuides = v),
-                  visualDensity: VisualDensity.compact,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _lastCanvas == null
-                      ? null
-                      : () => _resetTransform(_lastCanvas!),
-                  child: Text(AppLocalizations.of(context).shadeReset, style: const TextStyle(fontSize: 12)),
-                ),
-              ),
-            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _buildRail() {
-    return SectionCard(
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final compact = AppBreakpoints.isPortrait(context) ||
-              (constraints.hasBoundedHeight && constraints.maxHeight < 420);
-          if (compact) return _compactRail();
-
-          final short =
-              constraints.hasBoundedHeight && constraints.maxHeight < 560;
-          final previewH = short ? 72.0 : 100.0;
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+  /// Placement of the active jaw's model: big sliders with − / + steps,
+  /// a move pad, guides and reset.
+  Widget _adjustTab(AppLocalizations loc) {
+    if (_chosen.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
+              const Icon(Icons.sentiment_satisfied_alt_outlined, size: 40, color: AppColors.muted),
+              const SizedBox(height: 10),
+              Text(loc.tr('smile.pickFirst'),
+                  textAlign: TextAlign.center, style: AppFonts.style(fontSize: 14, color: AppColors.muted, height: 1.4)),
+              const SizedBox(height: 12),
+              AppButtons.secondary(onPressed: () => setState(() => _railTab = 0), label: loc.smileBatemModels, compact: true),
+            ],
+          ),
+        ),
+      );
+    }
+    final enabled = _photoBytes != null;
+    void set(void Function() f) => setState(() {
+          f();
+          _dirty = true;
+        });
+    return ListView(
+      primary: false,
+      padding: const EdgeInsets.only(bottom: 12),
+      children: [
+        if (_upperIndex != null && _lowerIndex != null) ...[
+          SizedBox(
+            width: double.infinity,
+            child: CupertinoSlidingSegmentedControl<bool>(
+              groupValue: _lowerActive,
+              children: {
+                false: Padding(padding: const EdgeInsets.symmetric(vertical: 7), child: Text(loc.smileUpperJaw)),
+                true: Padding(padding: const EdgeInsets.symmetric(vertical: 7), child: Text(loc.smileLowerJaw)),
+              },
+              onValueChanged: (v) => setState(() => _lowerActive = v ?? false),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        Row(
+          children: [
+            if (_selected != null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: ColoredBox(
+                  color: const Color(0xFF0F1724),
+                  child: SizedBox(width: 52, height: 40, child: ShapeToothImage(item: _selected!, fit: BoxFit.contain)),
+                ),
+              ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(_activeLabel,
+                  style: AppFonts.style(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.dentalBlue)),
+            ),
+          ],
+        ),
+        if (!enabled)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(loc.tr('smile.photoFirst'), style: AppFonts.style(fontSize: 12.5, color: AppColors.muted)),
+          ),
+        const SizedBox(height: 8),
+        _AdjustRow(
+          label: loc.smileSize,
+          display: '×${_scale.toStringAsFixed(2)}',
+          value: _scale, min: 0.15, max: 8.0, step: 0.05, enabled: enabled,
+          onChanged: (v) => set(() => _scale = v),
+        ),
+        _AdjustRow(
+          label: loc.smileWidth,
+          display: '×${_width.toStringAsFixed(2)}',
+          value: _width, min: 0.4, max: 2.4, step: 0.05, enabled: enabled,
+          onChanged: (v) => set(() => _width = v),
+        ),
+        _AdjustRow(
+          label: loc.smileHeight,
+          display: '×${_height.toStringAsFixed(2)}',
+          value: _height, min: 0.4, max: 2.4, step: 0.05, enabled: enabled,
+          onChanged: (v) => set(() => _height = v),
+        ),
+        _AdjustRow(
+          label: loc.smileRotate,
+          display: '${_rotation.toStringAsFixed(0)}°',
+          value: _rotation, min: -35, max: 35, step: 1, enabled: enabled,
+          onChanged: (v) => set(() => _rotation = v),
+        ),
+        _AdjustRow(
+          label: loc.smileBlend,
+          display: '${(_opacity * 100).round()}%',
+          value: _opacity, min: 0.25, max: 1.0, step: 0.05, enabled: enabled,
+          onChanged: (v) => set(() => _opacity = v),
+        ),
+        const SizedBox(height: 6),
+        Text(loc.smileNudge, style: AppFonts.style(fontSize: 13.5, fontWeight: FontWeight.w600, color: AppColors.navy)),
+        const SizedBox(height: 8),
+        // Cross-shaped pad with big targets.
+        Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _NudgeBtn(icon: Icons.keyboard_arrow_up, onTap: enabled ? () => _nudge(0, -4) : null),
               Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Expanded(
-                    child: Text(
-                      AppLocalizations.of(context).smileBatemModels,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15,
-                        color: AppColors.navy,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    '${_chosen.length}/2',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.muted,
-                    ),
-                  ),
+                  _NudgeBtn(icon: Icons.keyboard_arrow_left, onTap: enabled ? () => _nudge(-4, 0) : null),
+                  const SizedBox(width: 52),
+                  _NudgeBtn(icon: Icons.keyboard_arrow_right, onTap: enabled ? () => _nudge(4, 0) : null),
                 ],
               ),
-              const SizedBox(height: 2),
-              Text(
-                _activeLabel,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.dentalBlue,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Container(
-                height: previewH,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0F1724),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: AppColors.dentalBlue.withValues(alpha: 0.45),
-                    width: 1.5,
-                  ),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: _selected == null
-                    ? null
-                    : ShapeToothImage(item: _selected!, fit: BoxFit.contain),
-              ),
-              const SizedBox(height: 12),
-              Expanded(
-                flex: _placementOpen ? 2 : 5,
-                child: NotificationListener<ScrollNotification>(
-                  onNotification: (n) {
-                    if (_placementOpen &&
-                        n is ScrollUpdateNotification &&
-                        (n.scrollDelta ?? 0).abs() > 0) {
-                      setState(() => _placementOpen = false);
-                    }
-                    return false;
-                  },
-                  child: _batemList(shrinkWrap: false),
-                ),
-              ),
-              const SizedBox(height: 4),
-              const Divider(height: 1),
-              InkWell(
-                onTap: () => setState(() => _placementOpen = !_placementOpen),
-                borderRadius: BorderRadius.circular(6),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          AppLocalizations.of(context).smilePlacement,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                      Icon(
-                        _placementOpen
-                            ? Icons.expand_more
-                            : Icons.expand_less,
-                        size: 20,
-                        color: AppColors.muted,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              // Placement sliders scroll inside remaining space — no bottom overflow.
-              if (_placementOpen)
-                Flexible(
-                  flex: 3,
-                  child: SingleChildScrollView(
-                    physics: const BouncingScrollPhysics(),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _SliderRow(
-                          label: AppLocalizations.of(context).smileSize,
-                          value: _scale,
-                          min: 0.15,
-                          max: 8.0,
-                          display: '×${_scale.toStringAsFixed(2)}',
-                          onChanged: (v) => setState(() {
-                            _scale = v;
-                            _dirty = true;
-                          }),
-                        ),
-                        _SliderRow(
-                          label: AppLocalizations.of(context).smileWidth,
-                          value: _width,
-                          min: 0.4,
-                          max: 2.4,
-                          display: '×${_width.toStringAsFixed(2)}',
-                          onChanged: (v) => setState(() {
-                            _width = v;
-                            _dirty = true;
-                          }),
-                        ),
-                        _SliderRow(
-                          label: AppLocalizations.of(context).smileHeight,
-                          value: _height,
-                          min: 0.4,
-                          max: 2.4,
-                          display: '×${_height.toStringAsFixed(2)}',
-                          onChanged: (v) => setState(() {
-                            _height = v;
-                            _dirty = true;
-                          }),
-                        ),
-                        _SliderRow(
-                          label: AppLocalizations.of(context).smileRotate,
-                          value: _rotation,
-                          min: -35,
-                          max: 35,
-                          display: '${_rotation.toStringAsFixed(0)}°',
-                          onChanged: (v) => setState(() {
-                            _rotation = v;
-                            _dirty = true;
-                          }),
-                        ),
-                        _SliderRow(
-                          label: AppLocalizations.of(context).smileBlend,
-                          value: _opacity,
-                          min: 0.25,
-                          max: 1.0,
-                          display: '${(_opacity * 100).round()}%',
-                          onChanged: (v) => setState(() {
-                            _opacity = v;
-                            _dirty = true;
-                          }),
-                        ),
-                        _nudgeControls(),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: FilterChip(
-                                label: Text(
-                                  AppLocalizations.of(context).smileGuides,
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                                selected: _showGuides,
-                                onSelected: (v) =>
-                                    setState(() => _showGuides = v),
-                                visualDensity: VisualDensity.compact,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: _lastCanvas == null
-                                    ? null
-                                    : () => _resetTransform(_lastCanvas!),
-                                child: Text(
-                                  AppLocalizations.of(context).shadeReset,
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _patientName,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: AppColors.muted,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                      ],
-                    ),
-                  ),
-                ),
+              _NudgeBtn(icon: Icons.keyboard_arrow_down, onTap: enabled ? () => _nudge(0, 4) : null),
             ],
-          );
-        },
-      ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: Text(loc.smileGuides, style: AppFonts.style(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.navy)),
+            ),
+            CupertinoSwitch(value: _showGuides, onChanged: (v) => setState(() => _showGuides = v)),
+          ],
+        ),
+        const SizedBox(height: 10),
+        AppButtons.secondary(
+          onPressed: _lastCanvas == null || !enabled ? null : () => _resetTransform(_lastCanvas!),
+          icon: Icons.restart_alt_rounded,
+          label: loc.shadeReset,
+        ),
+      ],
     );
   }
 }
@@ -2457,22 +2068,22 @@ class _NudgeBtn extends StatelessWidget {
   const _NudgeBtn({required this.icon, required this.onTap});
 
   final IconData icon;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(left: 6),
+      padding: const EdgeInsets.all(3),
       child: Material(
         color: AppColors.inset,
-        borderRadius: AppRadii.borderSm,
+        borderRadius: BorderRadius.circular(14),
         child: InkWell(
           onTap: onTap,
-          borderRadius: AppRadii.borderSm,
+          borderRadius: BorderRadius.circular(14),
           child: SizedBox(
-            width: 36,
-            height: 36,
-            child: Icon(icon, size: 22, color: AppColors.navy),
+            width: 52,
+            height: 52,
+            child: Icon(icon, size: 28, color: onTap == null ? AppColors.muted : AppColors.navy),
           ),
         ),
       ),
@@ -2480,65 +2091,81 @@ class _NudgeBtn extends StatelessWidget {
   }
 }
 
-class _SliderRow extends StatelessWidget {
-  const _SliderRow({
+/// One placement control: label + value, then − [big slider] +.
+class _AdjustRow extends StatelessWidget {
+  const _AdjustRow({
     required this.label,
+    required this.display,
     required this.value,
     required this.min,
     required this.max,
-    required this.display,
+    required this.step,
     required this.onChanged,
+    this.enabled = true,
   });
 
   final String label;
+  final String display;
   final double value;
   final double min;
   final double max;
-  final String display;
+  final double step;
+  final bool enabled;
   final ValueChanged<double> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        SizedBox(
-          width: 80,
-          // One line; long labels ("Überblendung") shrink rather than wrap.
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              label,
-              maxLines: 1,
-              style: const TextStyle(fontSize: 11, color: AppColors.muted),
+    final v = value.clamp(min, max);
+    void bump(double d) => onChanged((v + d).clamp(min, max).toDouble());
+    Widget stepBtn(IconData icon, double d) => Material(
+          color: AppColors.inset,
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            onTap: enabled ? () => bump(d) : null,
+            borderRadius: BorderRadius.circular(12),
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: Icon(icon, size: 22, color: enabled ? AppColors.navy : AppColors.muted),
             ),
           ),
-        ),
-        Expanded(
-          child: SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: 3,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            ),
-            child: Slider(
-              value: value.clamp(min, max),
-              min: min,
-              max: max,
-              onChanged: onChanged,
-            ),
+        );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(label, style: AppFonts.style(fontSize: 13.5, fontWeight: FontWeight.w600, color: AppColors.navy)),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(999)),
+                child: Text(display, style: AppFonts.style(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.navy)),
+              ),
+            ],
           ),
-        ),
-        SizedBox(
-          width: 40,
-          child: Text(
-            display,
-            textAlign: TextAlign.right,
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              stepBtn(Icons.remove_rounded, -step),
+              Expanded(
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 6,
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 12),
+                    overlayShape: const RoundSliderOverlayShape(overlayRadius: 24),
+                  ),
+                  child: Slider(value: v, min: min, max: max, onChanged: enabled ? onChanged : null),
+                ),
+              ),
+              stepBtn(Icons.add_rounded, step),
+            ],
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

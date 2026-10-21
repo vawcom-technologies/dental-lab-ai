@@ -22,28 +22,29 @@ void main() {
     return controller;
   }
 
-  testWidgets('each Batem model starts Closed except the selected one',
-      (tester) async {
-    tester.view.physicalSize = const Size(420, 1800);
+  testWidgets('models grid: every model visible, one tap picks, check marks it', (tester) async {
+    tester.view.physicalSize = const Size(420, 2400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-
     final controller = await englishLocale();
-    final openIds = <int>{ShapeLibrary.items.first.id};
-
+    final picked = <int>[];
+    var selected = <int>{0};
     await tester.pumpWidget(
       LocaleScope(
         controller: controller,
         child: MaterialApp(
           home: Scaffold(
-            body: SizedBox(
-              width: 400,
-              height: 1700,
-              child: BatemModelAccordion(
-                selectedIndexes: {0},
-                openIds: openIds,
-                onToggle: (_) {},
-                onSelect: (_) {},
+            body: StatefulBuilder(
+              builder: (context, set) => SizedBox(
+                width: 400,
+                height: 2300,
+                child: BatemModelGrid(
+                  selectedIndexes: selected,
+                  onSelect: (i) => set(() {
+                    picked.add(i);
+                    selected = {...selected, i};
+                  }),
+                ),
               ),
             ),
           ),
@@ -51,65 +52,13 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-
-    expect(find.text('Open'), findsOneWidget);
-    expect(find.text('Closed'), findsNWidgets(ShapeLibrary.total - 1));
-    expect(find.text('Use this model'), findsOneWidget);
-  });
-
-  testWidgets('Batem models open and close independently', (tester) async {
-    tester.view.physicalSize = const Size(420, 2000);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-
-    final controller = await englishLocale();
-    var selected = 0;
-    final openIds = <int>{ShapeLibrary.items.first.id};
-
-    await tester.pumpWidget(
-      LocaleScope(
-        controller: controller,
-        child: MaterialApp(
-          home: Scaffold(
-            body: SizedBox(
-              width: 400,
-              height: 1900,
-              child: StatefulBuilder(
-                builder: (context, setState) {
-                  return BatemModelAccordion(
-                    selectedIndexes: {selected},
-                    openIds: openIds,
-                    onToggle: (id) => setState(() {
-                      if (!openIds.remove(id)) openIds.add(id);
-                    }),
-                    onSelect: (i) => setState(() {
-                      selected = i;
-                      openIds.add(ShapeLibrary.at(i).id);
-                    }),
-                  );
-                },
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
+    expect(tester.takeException(), isNull);
+    // No open/close step and no "Use this model" button any more.
+    expect(find.text('Use this model'), findsNothing);
+    expect(find.byIcon(Icons.check_circle), findsOneWidget);
     await tester.tap(find.text('Classic oval'));
     await tester.pumpAndSettle();
-
-    expect(find.text('Open'), findsNWidgets(2));
-    expect(find.text('Use this model'), findsNWidgets(2));
-
-    await tester.tap(find.text('Use this model').last);
-    await tester.pumpAndSettle();
-    expect(selected, 1);
-
-    await tester.tap(find.text('Soft oval'));
-    await tester.pumpAndSettle();
-    expect(find.text('Open'), findsOneWidget);
-    expect(openIds.contains(1), isFalse);
-    expect(openIds.contains(2), isTrue);
+    expect(picked, [1]);
+    expect(find.byIcon(Icons.check_circle), findsNWidgets(2));
   });
 }
