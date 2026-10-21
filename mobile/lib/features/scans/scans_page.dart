@@ -1050,7 +1050,22 @@ class _ScansPageState extends State<ScansPage>
                       ignoring: t > 0.2,
                       child: Opacity(
                         opacity: chrome,
-                        child: _inspector(scan, loc, canUpload: canUpload, needsRescan: needsRescan),
+                        // Fullscreen shrinks this column to 0: keep the
+                        // inspector at its own width and clip it instead of
+                        // squeezing (and overflowing) its rows.
+                        child: LayoutBuilder(
+                          builder: (context, box) {
+                            final w = box.maxWidth < 300 ? 300.0 : box.maxWidth;
+                            return ClipRect(
+                              child: OverflowBox(
+                                alignment: Alignment.topLeft,
+                                minWidth: w,
+                                maxWidth: w,
+                                child: _inspector(scan, loc, canUpload: canUpload, needsRescan: needsRescan),
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ),
                     content: ClipRRect(

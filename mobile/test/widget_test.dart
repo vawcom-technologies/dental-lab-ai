@@ -3,8 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dental_lab_ai/core/api/api_client.dart';
 import 'package:dental_lab_ai/core/l10n/app_localizations.dart';
 import 'package:dental_lab_ai/core/l10n/locale_controller.dart';
-import 'package:dental_lab_ai/core/session/patient_session.dart';
-import 'package:dental_lab_ai/features/shade/shade_page.dart';
 import 'package:dental_lab_ai/features/shade/tooth_overlay.dart';
 import 'package:dental_lab_ai/main.dart';
 
@@ -52,44 +50,6 @@ void main() {
     expect(find.text(AppLocalizations.current.signIn), findsWidgets);
   });
 
-  testWidgets('Session panel collapses and reopens with swipes',
-      (tester) async {
-    tester.view.physicalSize = const Size(1366, 1024);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-
-    final api = _EmptyApi();
-    await tester.pumpWidget(
-      LocaleScope(
-        controller: LocaleController(),
-        child: MaterialApp(
-          home: Scaffold(
-            body: ShadePage(
-              api: api,
-              patientSession: PatientSession(api),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.fling(
-      find.byKey(const ValueKey('session-panel')),
-      const Offset(300, 0),
-      800,
-    );
-    await tester.pumpAndSettle();
-    expect(find.byTooltip(AppLocalizations.current.shadeOpenSession), findsOneWidget);
-
-    await tester.fling(
-      find.byKey(const ValueKey('session-panel')),
-      const Offset(-300, 0),
-      800,
-    );
-    await tester.pumpAndSettle();
-    expect(find.byTooltip(AppLocalizations.current.shadeCloseSession), findsOneWidget);
-  });
 }
 
 class _EmptyApi extends ApiClient {

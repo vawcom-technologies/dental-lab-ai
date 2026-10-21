@@ -18,11 +18,11 @@ import '../cases/case_panel.dart';
 import '../cases/case_store.dart';
 import '../cases/submit_prompt.dart';
 import 'shade_action_bar.dart';
-import 'shade_override_pane.dart';
 import 'shade_photo_pane.dart';
 import 'shade_result_pane.dart';
-import 'shade_session_pane.dart';
 import 'shade_shared.dart';
+import 'shade_zone_picker.dart';
+import '../../core/widgets/page_kit.dart';
 import 'tooth_overlay.dart';
 import '../../core/errors/user_facing_error.dart';
 
@@ -67,10 +67,7 @@ class _ShadePageState extends State<ShadePage>
   bool _busy = false;
   bool _saving = false;
   bool _loading = true;
-  bool _sessionCollapsed = false;
 
-  /// Keep session open in portrait after the user explicitly expands it.
-  bool _sessionPinnedOpen = false;
   String? _saveStatus;
   String? _error;
   Uint8List? _previewBytes;
@@ -145,11 +142,8 @@ class _ShadePageState extends State<ShadePage>
   /// Shade picked in Manual Override but not yet committed via zone Override.
   String? _pendingShade;
 
-  /// Gum shade picked in Manual Override but not yet committed via gum Override.
+  /// Gum shade picked but not yet committed.
   String? _pendingGumShade;
-
-  /// 0 = tooth shades, 1 = gum shades on the Manual Override card.
-  int _overrideTab = 0;
 
   /// Result-card overall Top match pick — Save override without zone Override.
   bool _overallShadePick = false;
@@ -157,8 +151,6 @@ class _ShadePageState extends State<ShadePage>
   // Manual outline nudge (dentist adjusts auto edges slightly)
   bool _editOutlineMode = false;
 
-  /// Session collapse to restore when outline edit ends.
-  bool? _sessionCollapsedBeforeEdit;
   List<List<double>>? _editOutline;
   List<List<double>>? _editOutlineBackup;
   List<double>? _editBulges;
@@ -785,7 +777,6 @@ class _ShadePageState extends State<ShadePage>
     setState(() {
       _selectedToothIndex = index;
       _focusZone = nextZone;
-      _overrideTab = 0;
       if (!same) {
         _pendingShade = null;
         _overallShadePick = false;
@@ -848,20 +839,6 @@ class _ShadePageState extends State<ShadePage>
     _persist(acceptAi: false);
   }
 
-  void _applyGumShadeChoice(String shade) {
-    if (shade.isEmpty || !kGingivaShades.contains(shade)) return;
-    setState(() {
-      _pendingGumShade = shade;
-      _overrideTab = 1;
-      _saveStatus = null;
-      _error = null;
-    });
-    _toast(
-      AppLocalizations.of(context).trp('sh.selGum', {'s': shade}),
-      bg: AppColors.navy,
-    );
-  }
-
   void _commitPendingGumOverride() {
     final shade = _pendingGumShade;
     if (shade == null || !kGingivaShades.contains(shade)) {
@@ -882,40 +859,43 @@ class _ShadePageState extends State<ShadePage>
     _persist(acceptAi: false, gumOnly: true);
   }
 
-  void _focusGumOverrideTab() {
+  /// Tap a zone → pick its shade in one step. Applies through the same
+  /// commit (and save) the old "Override" button used.
+  Future<void> _pickZoneShade(int index, String zone) async {
     if (_editOutlineMode || _busy) return;
-    if (_overrideTab != 1) setState(() => _overrideTab = 1);
-  }
-
-  void _beginGumOverride() {
-    if (_editOutlineMode || _busy) return;
-    if (_overrideTab != 1) setState(() => _overrideTab = 1);
-    if (_pendingGumShade != null) {
-      _commitPendingGumOverride();
-      return;
-    }
-    _toast(
-      AppLocalizations.of(context).tr('sh.chooseGum5'),
-      bg: AppColors.navy,
-    );
-  }
-
-  void _beginZoneOverride(int index, String zone) {
-    if (_editOutlineMode || _busy) return;
-    if (_overrideTab != 0) setState(() => _overrideTab = 0);
-    if (_pendingShade != null) {
-      _commitPendingOverride(index: index, zone: zone);
-      return;
-    }
-    // No pending pick — focus the zone so Manual Override targets it.
     _selectTooth(index, zone: zone);
-    if (!mounted) return;
-    _toast(
-      AppLocalizations.of(context).trp('sh.chooseFor', {
-        't': '${_toothLabelFor(index)} · ${capitalizeZone(zone)}',
-      }),
-      bg: AppColors.navy,
+    final tooth = _selectedTooth;
+    final z = tooth == null ? null : _zoneOf(tooth, zone);
+    final raw = z?['top_matches'];
+    final picked = await pickZoneShade(
+      context,
+      title: '${_toothLabelFor(index)} · ${capitalizeZone(zone)}',
+      shades: kAllowedShades,
+      swatch: shadeSwatch,
+      detected: z?['detected_shade'] as String?,
+      current: _zoneEffective(z),
+      matches: raw is List ? [for (final m in raw) if (m is Map) Map<String, dynamic>.from(m)] : const [],
+      guideImages: true,
+      preview: _previewBytes == null ? null : _pickerPhoto(),
     );
+    if (picked == null || !mounted || _readOnly) return;
+    setState(() => _pendingShade = picked);
+    _commitPendingOverride(index: index, zone: zone);
+  }
+
+  Future<void> _pickGumShade() async {
+    if (_editOutlineMode || _busy) return;
+    final picked = await pickZoneShade(
+      context,
+      title: AppLocalizations.of(context).tr('sh.pickGumTitle'),
+      shades: kGingivaShades,
+      swatch: gingivaSwatch,
+      detected: gumDetectedShade(_gum),
+      current: gumEffectiveShade(_gum),
+    );
+    if (picked == null || !mounted || _readOnly) return;
+    setState(() => _pendingGumShade = picked);
+    _commitPendingGumOverride();
   }
 
   void _deleteSelectedTooth() {
@@ -1129,8 +1109,6 @@ class _ShadePageState extends State<ShadePage>
         : zeroBulges(verts.length);
     setState(() {
       _editOutlineMode = true;
-      _sessionCollapsedBeforeEdit ??= _sessionCollapsed;
-      _sessionCollapsed = true;
       _editOutline = verts;
       _editOutlineBackup = OutlineEditHistory.cloneVerts(verts);
       _editBulges = bulges;
@@ -1281,10 +1259,6 @@ class _ShadePageState extends State<ShadePage>
   }
 
   void _exitOutlineEdit({bool clearStatus = true}) {
-    if (_sessionCollapsedBeforeEdit != null) {
-      _sessionCollapsed = _sessionCollapsedBeforeEdit!;
-      _sessionCollapsedBeforeEdit = null;
-    }
     _editOutlineMode = false;
     _editOutline = null;
     _editOutlineBackup = null;
@@ -1328,7 +1302,6 @@ class _ShadePageState extends State<ShadePage>
     _finalShade = null;
     _pendingShade = null;
     _pendingGumShade = null;
-    _overrideTab = 0;
     _overallShadePick = false;
     _gum = null;
     _guideLines = const {};
@@ -1587,7 +1560,12 @@ class _ShadePageState extends State<ShadePage>
   void didUpdateWidget(covariant ShadePage oldWidget) {
     super.didUpdateWidget(oldWidget);
     // Leaving the tab (e.g. a handoff) must not leave full screen over it.
-    if (!widget.active && _fullscreenPortal.isShowing) _fullscreenPortal.hide();
+    // didUpdateWidget can run mid-layout; the overlay can't change then.
+    if (!widget.active && _fullscreenPortal.isShowing) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !widget.active && _fullscreenPortal.isShowing) _fullscreenPortal.hide();
+      });
+    }
     if (widget.active && !oldWidget.active) {
       _onPageActivated();
     }
@@ -1595,6 +1573,7 @@ class _ShadePageState extends State<ShadePage>
 
   @override
   void dispose() {
+    _pickerTransform.dispose();
     widget.patientSession.cases.removeListener(_onCase);
     _rotateFade.dispose();
     _shadeScroll.dispose();
@@ -1907,7 +1886,6 @@ class _ShadePageState extends State<ShadePage>
       _focusView = false;
       if (_fullscreenPortal.isShowing) _fullscreenPortal.hide();
       _pendingGumShade = null;
-      _overrideTab = 0;
       _syncUiFromSelection();
       _saveStatus = teeth.isEmpty
           ? () {
@@ -2501,6 +2479,45 @@ class _ShadePageState extends State<ShadePage>
     );
   }
 
+  /// Read-only, zoomable copy of the photo view with only the selected
+  /// tooth highlighted — shown beside the zone shade picker.
+  final _pickerTransform = TransformationController();
+
+  Widget _pickerPhoto() {
+    _pickerTransform.value = Matrix4.identity();
+    return ColoredBox(
+      color: const Color(0xFF15283F),
+      child: ShadePhotoPane(
+        previewBytes: _previewBytes,
+        busy: false,
+        editOutlineMode: false,
+        teeth: _teeth,
+        selectedToothIndex: _selectedToothIndex,
+        analysisImageSize: _overlayImageSize,
+        focusZone: _focusZone,
+        focusSelected: true,
+        viewOnly: true,
+        editOutline: null,
+        editBulges: null,
+        activeHandleIndex: null,
+        activeEdgeIndex: null,
+        photoTransformController: _pickerTransform,
+        dragTick: _dragTick,
+        canUndo: false,
+        canRedo: false,
+        onUpload: null,
+        onClearPhoto: () {},
+        onSelectTooth: (_) {},
+        onHandleDragStart: (_, _) {},
+        onHandleDragUpdate: (_, _) {},
+        onHandleDragEnd: () {},
+        onEdgeDoubleTap: (_, _) {},
+        onUndo: () {},
+        onRedo: () {},
+      ),
+    );
+  }
+
   Widget _buildFullscreenPhoto() {
     return Positioned.fill(
       child: TweenAnimationBuilder<double>(
@@ -2524,6 +2541,260 @@ class _ShadePageState extends State<ShadePage>
     );
   }
 
+  /// The VITA guide as real tooth photos. A tap sets that shade on the
+  /// focused tooth zone (same commit + save as the zone picker).
+  Widget _vitaGuide(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+    final idx = _selectedToothIndex;
+    final tooth = _selectedTooth;
+    final current = tooth == null ? null : _zoneEffective(_zoneOf(tooth, _focusZone));
+    final target = idx == null ? null : '${_toothLabelFor(idx)} · ${capitalizeZone(_focusZone)}';
+    return AdminCard(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              SectionLabel(loc.tr('sh.pickGuide')),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  target == null ? loc.tr('sh.selZone') : loc.trp('sh.guideTapFor', {'t': target}),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppFonts.style(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.dentalBlue),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 92,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: kVitaShades.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 6),
+              itemBuilder: (context, i) {
+                final v = kVitaShades[i];
+                final on = v == current;
+                return Pressable(
+                  onTap: _readOnly || idx == null || _busy
+                      ? null
+                      : () {
+                          setState(() => _pendingShade = v);
+                          _commitPendingOverride(index: idx, zone: _focusZone);
+                        },
+                  scale: 0.94,
+                  builder: (_, _) => Column(
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: on ? AppColors.dentalBlue : Colors.transparent, width: 2),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: Image.asset(
+                            vitaToothAsset(v),
+                            width: 40,
+                            height: 64,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => Container(width: 40, height: 64, color: shadeSwatch(v)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(v,
+                          style: AppFonts.style(
+                            fontSize: 11,
+                            fontWeight: on ? FontWeight.w800 : FontWeight.w600,
+                            color: on ? AppColors.dentalBlue : AppColors.navy,
+                          )),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Saved shades for this patient (replaces the Session column): tap a card
+  /// to reopen it, ✕ to delete (or replace on a locked case).
+  Widget _sessionStrip(BuildContext context, List<Map<String, dynamic>> shown) {
+    final loc = AppLocalizations.of(context);
+    final active = _sessionKey();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+          child: SectionLabel('${loc.tr('sh.savedShades')} (${shown.length})'),
+        ),
+        SizedBox(
+          height: 84,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: shown.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 10),
+            itemBuilder: (context, i) {
+              final h = shown[i];
+              final shade = '${h['shade'] ?? '—'}';
+              final key = '${h['session_key'] ?? ''}';
+              final selected = active != null && key == active;
+              final thumb = _sessionThumbnail(h);
+              return Pressable(
+                onTap: () => _openHistoryAt(_history.indexOf(h)),
+                scale: 0.97,
+                builder: (_, _) => AnimatedContainer(
+                  duration: AppMotion.fast,
+                  width: 270,
+                  padding: const EdgeInsets.fromLTRB(8, 8, 4, 8),
+                  decoration: BoxDecoration(
+                    color: selected ? AppColors.dentalBlue.withValues(alpha: 0.08) : AppColors.card,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: selected ? AppColors.dentalBlue : AppColors.border.withValues(alpha: 0.6),
+                      width: selected ? 1.6 : 1,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: SizedBox(
+                          width: 64,
+                          height: 64,
+                          child: thumb ?? const ColoredBox(color: AppColors.inset),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Container(
+                        width: 36,
+                        height: 36,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: shade == '—' ? AppColors.border : shadeSwatch(shade),
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                        child: Text(shade,
+                            style: AppFonts.style(fontSize: 12, fontWeight: FontWeight.w800, color: const Color(0xFF3F3214))),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          h['not_analysed'] == true
+                              ? loc.tr('sh.notAnalysed')
+                              : selected
+                                  ? loc.tr('sh.editingNow')
+                                  : loc.tr('sh.tapToOpen'),
+                          maxLines: 2,
+                          style: AppFonts.style(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: selected ? AppColors.dentalBlue : AppColors.muted,
+                          ),
+                        ),
+                      ),
+                      if (!_readOnly)
+                        IconButton(
+                          tooltip: _caseInfo?.locked == true ? loc.tr('case.replace') : loc.commonDelete,
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () => _deleteHistoryAt(_history.indexOf(h)),
+                          icon: Icon(
+                            _caseInfo?.locked == true ? Icons.swap_horiz_rounded : Icons.close_rounded,
+                            size: 18,
+                            color: AppColors.muted,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Always on screen once there's a photo: what will be saved, and the two
+  /// ways to save it. Same actions the results card used to hold at its end.
+  Widget _saveBar(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+    final detected = _resultDisplayShade();
+    final corrected = _selected != '—' && _selected != detected;
+    final shown = corrected ? _selected : detected;
+    final saved = _finalShade != null && _finalShade == shown;
+    final status = saved
+        ? loc.trp('sh.savedFinal', {'s': _finalShade})
+        : corrected
+            ? loc.trp('sh.barCorrection', {'s': _selected})
+            : detected == '—'
+                ? loc.shadeNoDetectionYet
+                : _confidence > 0
+                    ? '${loc.tr('sh.barAi')} · ${(_confidence * 100).round()}% ${loc.tr('sh.match')}'
+                    : loc.tr('sh.barAi');
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: AdminCard(
+        padding: const EdgeInsets.fromLTRB(14, 10, 12, 10),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: shown == '—' ? AppColors.border : shadeSwatch(shown),
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(shown,
+                      style: AppFonts.style(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.navy, height: 1.1)),
+                  Text(
+                    status,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppFonts.style(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: saved
+                          ? AppColors.success
+                          : corrected
+                              ? AppColors.warning
+                              : AppColors.muted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            AppButtons.secondary(
+              onPressed: _saving ? null : () => _persist(acceptAi: false),
+              label: corrected ? loc.shadeSaveOverrideShade(_selected) : loc.shadeSaveOverride,
+            ),
+            const SizedBox(width: 8),
+            AppButtons.primary(
+              onPressed: _saving || detected == '—' ? null : () => _persist(acceptAi: true),
+              busy: _saving,
+              icon: Icons.check_rounded,
+              label: detected == '—' ? loc.shadeAcceptAi : loc.shadeAcceptShade(detected),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     _error = AppSnackBars.drain(context, _error);
@@ -2540,8 +2811,6 @@ class _ShadePageState extends State<ShadePage>
     _wasPortrait = portrait;
     final phone = AppBreakpoints.isPhone(context);
     final shown = _patientHistory;
-    final sessionCollapsed =
-        _sessionCollapsed || ((portrait || phone) && !_sessionPinnedOpen);
 
     final page = Padding(
       padding: AppBreakpoints.pagePadding(
@@ -2555,6 +2824,7 @@ class _ShadePageState extends State<ShadePage>
             icon: Icons.palette_outlined,
             title: AppLocalizations.of(context).shadeTitle,
             subtitle: AppLocalizations.of(context).shadeSubtitle,
+            subtitleAsInfo: true,
             actions: [
               PatientPickerButton(
                 patients: _patients,
@@ -2696,13 +2966,14 @@ class _ShadePageState extends State<ShadePage>
                               }
                             },
                             onDeleteTooth: _readOnly ? null : _deleteSelectedTooth,
-                            onBeginZoneOverride: _beginZoneOverride,
-                            onSelectGum: _focusGumOverrideTab,
-                            onBeginGumOverride: _beginGumOverride,
+                            onBeginZoneOverride: _pickZoneShade,
+                            onSelectGum: _pickGumShade,
+                            onBeginGumOverride: _pickGumShade,
                             onOverallShade: (s) =>
                                 _applyShadeChoice(s, overall: true),
-                            onAcceptAi: _readOnly ? null : () => _persist(acceptAi: true),
-                            onSaveOverride: _readOnly ? null : () => _persist(acceptAi: false),
+                            // Accept / Save live in the pinned bar under the page.
+                            onAcceptAi: null,
+                            onSaveOverride: null,
                             magnifierFocal: _magnifierFocal,
                             magnifierViewSize: _magnifierViewSize,
                             previewBytes: _previewBytes,
@@ -2811,40 +3082,17 @@ class _ShadePageState extends State<ShadePage>
                                       child: resultPane(true),
                                     ),
                                   ),
-                                if (!editing)
+                                // VITA shade guide (real tooth photos) under the results.
+                                if (!editing && _teeth.isNotEmpty)
                                   SliverPadding(
-                                    padding: EdgeInsets.fromLTRB(
-                                      2,
-                                      showActions ? 8 : 0,
-                                      2,
-                                      28,
-                                    ),
-                                    sliver: SliverToBoxAdapter(
-                                      child: ShadeOverridePane(
-                                        focusZone: _focusZone,
-                                        selectedToothIndex: _selectedToothIndex,
-                                        selectedToothLabel:
-                                            _selectedTooth == null
-                                            ? null
-                                            : toothDisplayLabel(
-                                                _selectedTooth!,
-                                              ),
-                                        selected: _selected,
-                                        topMatches: _topMatches,
-                                        overallTopMatches: _overallTopMatches,
-                                        swatch: shadeSwatch,
-                                        onShadeChoice: _applyShadeChoice,
-                                        onOverallShadeChoice: (s) =>
-                                            _applyShadeChoice(s, overall: true),
-                                        selectedGum:
-                                            _pendingGumShade ??
-                                            gumEffectiveShade(_gum),
-                                        onGumShadeChoice: _applyGumShadeChoice,
-                                        tab: _overrideTab,
-                                        onTabChanged: (t) =>
-                                            setState(() => _overrideTab = t),
-                                      ),
-                                    ),
+                                    padding: const EdgeInsets.fromLTRB(2, 8, 2, 0),
+                                    sliver: SliverToBoxAdapter(child: _vitaGuide(context)),
+                                  ),
+                                // Saved shades for this patient, as a strip.
+                                if (!editing && shown.isNotEmpty)
+                                  SliverPadding(
+                                    padding: const EdgeInsets.fromLTRB(2, 8, 2, 16),
+                                    sliver: SliverToBoxAdapter(child: _sessionStrip(context, shown)),
                                   ),
                               ],
                             ),
@@ -2852,30 +3100,13 @@ class _ShadePageState extends State<ShadePage>
                         },
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    ShadeSessionPane(
-                      collapsed: sessionCollapsed,
-                      // 300pt list only when photo + result still get ≥688pt.
-                      wide: workspace.maxWidth >= 1000,
-                      history: shown,
-                      activeSessionKey: _sessionKey(),
-                      swatch: shadeSwatch,
-                      onCollapseChanged: (v) => setState(() {
-                        _sessionCollapsed = v;
-                        _sessionPinnedOpen = !v;
-                      }),
-                      onOpen: (i) => _openHistoryAt(_history.indexOf(shown[i])),
-                      onDelete: _readOnly
-                          ? null
-                          : (i) => _deleteHistoryAt(_history.indexOf(shown[i])),
-                      replaceInsteadOfDelete: _caseInfo?.locked == true,
-                      thumbnail: _sessionThumbnail,
-                    ),
                   ],
                 );
               },
             ),
           ),
+          if (!_readOnly && !_editOutlineMode && (_previewBytes != null || _teeth.isNotEmpty))
+            _saveBar(context),
         ],
       ),
     );

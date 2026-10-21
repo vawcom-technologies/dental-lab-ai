@@ -123,9 +123,10 @@ void main() {
       expect(_headerOneRow(tester), isTrue,
           reason: 'landscape header should fit on one row');
 
+      // Shade: no side Session column any more (history is a strip).
       await _open(tester, AppNavItem.shade);
-      final pane = tester.getSize(find.byType(ShadeSessionPane)).width;
-      expect(pane, 300);
+      expect(find.byType(ShadeSessionPane), findsNothing);
+      expect(tester.takeException(), isNull);
       await _unmount(tester);
     });
 

@@ -35,4 +35,40 @@ void main() {
     await tester.pump();
     expect(tester.getCenter(find.byType(ToothLoadingIndicator)).dx, closeTo(300, 1));
   });
+
+  testWidgets('hiding the page during layout does not assert (shell tab switch)', (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final on = ValueNotifier(true);
+    await tester.pumpWidget(LocaleScope(
+      controller: LocaleController(),
+      child: MaterialApp(
+        home: Scaffold(
+          body: PageArea(
+            child: ValueListenableBuilder<bool>(
+              valueListenable: on,
+              builder: (_, v, _) => TickerMode(
+                enabled: v,
+                // Rebuilt from layout, like AdminFuture's pages.
+                child: LayoutBuilder(builder: (_, _) => const ToothPageLoader()),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    expect(find.byType(ToothLoadingIndicator), findsOneWidget);
+    on.value = false;
+    await tester.pump();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(find.byType(ToothLoadingIndicator), findsNothing);
+    on.value = true;
+    await tester.pump();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(find.byType(ToothLoadingIndicator), findsOneWidget);
+  });
 }

@@ -67,6 +67,7 @@ class ShadePhotoPane extends StatelessWidget {
     this.onToggleFocus,
     this.fullscreen = false,
     this.onToggleFullscreen,
+    this.viewOnly = false,
   });
 
   final Uint8List? previewBytes;
@@ -89,6 +90,9 @@ class ShadePhotoPane extends StatelessWidget {
   /// Shown full screen (expand ↔ exit icon); null toggle = no photo yet.
   final bool fullscreen;
   final VoidCallback? onToggleFullscreen;
+
+  /// Look-only copy (shade picker): no toolbar or gesture hints.
+  final bool viewOnly;
   final List<List<double>>? editOutline;
   final List<double>? editBulges;
   final int? activeHandleIndex;
@@ -452,7 +456,7 @@ class ShadePhotoPane extends StatelessWidget {
                     ),
                   ),
                 ),
-              if (teeth.isNotEmpty && !busy)
+              if (teeth.isNotEmpty && !busy && !viewOnly)
                 Positioned(
                   left: 12,
                   right: 12,
@@ -490,7 +494,7 @@ class ShadePhotoPane extends StatelessWidget {
                     ),
                   ),
                 ),
-              if (teeth.isNotEmpty && !busy && !editOutlineMode)
+              if (teeth.isNotEmpty && !busy && !editOutlineMode && !viewOnly)
                 Positioned(
                   top: 10,
                   left: 10,

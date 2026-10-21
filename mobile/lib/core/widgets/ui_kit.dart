@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
@@ -309,7 +307,9 @@ class PageHeader extends StatelessWidget {
 
     final trailing = [
       if (chromeActions.isNotEmpty)
-        GlassSurface(
+        // Hug the icons; the tray otherwise fills the width it's offered.
+        IntrinsicWidth(
+          child: GlassSurface(
           borderRadius: BorderRadius.circular(16),
           blur: 16,
           tint: Colors.white.withValues(alpha: 0.48),
@@ -321,6 +321,7 @@ class PageHeader extends StatelessWidget {
             crossAxisAlignment: WrapCrossAlignment.center,
             children: chromeActions,
           ),
+        ),
         ),
       if (actions.isNotEmpty)
         Wrap(
@@ -369,20 +370,20 @@ class PageHeader extends StatelessWidget {
             ],
           );
         }
-        // Buttons take what they need while the title keeps 320pt; past
-        // that they stack in place instead of running off the edge.
+        // Buttons at their natural width (a Wrap shrinks to its content);
+        // the title keeps at least 330pt, and past that buttons wrap in place.
         return Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(child: ident),
             const SizedBox(width: 10),
             ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: math.max(0, maxW - 330)),
-              child: OverflowBar(
+              constraints: BoxConstraints(maxWidth: (maxW - 340).clamp(0.0, double.infinity)),
+              child: Wrap(
                 spacing: 10,
-                overflowSpacing: 8,
-                alignment: MainAxisAlignment.end,
-                overflowAlignment: OverflowBarAlignment.end,
+                runSpacing: 8,
+                alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: trailing,
               ),
             ),

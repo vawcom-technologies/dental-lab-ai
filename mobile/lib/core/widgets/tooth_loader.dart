@@ -296,12 +296,20 @@ class _ToothPageLoaderState extends State<ToothPageLoader> {
       area?._loaders.add(this);
     }
     // Hidden shell pages keep their state but mustn't draw over the active one.
-    if (area != null && TickerMode.valuesOf(context).enabled) {
-      _portal.show();
-    } else if (_portal.isShowing) {
-      _portal.hide();
-    }
+    // This can run mid-layout (LayoutBuilder), where the overlay can't be
+    // toggled: draw from [_active] now, toggle the portal after the frame.
+    _active = area != null && TickerMode.valuesOf(context).enabled;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_active && !_portal.isShowing) {
+        _portal.show();
+      } else if (!_active && _portal.isShowing) {
+        _portal.hide();
+      }
+    });
   }
+
+  bool _active = false;
 
   @override
   void dispose() {
@@ -336,6 +344,7 @@ class _ToothPageLoaderState extends State<ToothPageLoader> {
     return OverlayPortal(
       controller: _portal,
       overlayChildBuilder: (context) {
+        if (!_active) return const SizedBox.shrink();
         final rect = area.rect;
         if (rect == null) {
           // Page not laid out yet (first frame): place it on the next one.
