@@ -243,6 +243,7 @@ class PatientNote {
     required this.authorId,
     required this.noteContent,
     this.authorName,
+    this.authorRole,
     this.createdAt,
     this.updatedAt,
   });
@@ -252,23 +253,43 @@ class PatientNote {
   final String authorId;
   final String noteContent;
   final String? authorName;
+  /// dentist | laboratory | admin — from the author's profile.
+  final String? authorRole;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
-  String get displayAuthorName {
+  String displayAuthorName([AppLocalizations? loc]) {
+    final l = loc ?? AppLocalizations.current;
     final name = authorName?.trim();
-    if (name != null && name.isNotEmpty) return name;
-    return AppLocalizations.current.tr('p.unknownPr');
+    if (name != null &&
+        name.isNotEmpty &&
+        name.toLowerCase() != 'unknown practitioner') {
+      return name;
+    }
+    return l.tr('p.unknownPr');
+  }
+
+  String? authorRoleLabel(AppLocalizations loc) {
+    switch ((authorRole ?? '').toLowerCase()) {
+      case 'laboratory':
+        return loc.tr('p.noteFromLab');
+      case 'dentist':
+        return loc.tr('p.noteFromDentist');
+      default:
+        return null;
+    }
   }
 
   factory PatientNote.fromJson(Map<String, dynamic> json) {
     final name = (json['author_name'] as String?)?.trim();
+    final role = (json['author_role'] as String?)?.trim().toLowerCase();
     return PatientNote(
       id: '${json['id'] ?? ''}',
       patientId: '${json['patient_id'] ?? ''}',
       authorId: '${json['author_id'] ?? ''}',
       noteContent: (json['note_content'] as String?) ?? '',
       authorName: (name == null || name.isEmpty) ? null : name,
+      authorRole: (role == null || role.isEmpty) ? null : role,
       createdAt: _parseDate(json['created_at']),
       updatedAt: _parseDate(json['updated_at']),
     );
@@ -277,6 +298,7 @@ class PatientNote {
   PatientNote copyWith({
     String? noteContent,
     String? authorName,
+    String? authorRole,
     DateTime? updatedAt,
   }) {
     return PatientNote(
@@ -285,6 +307,7 @@ class PatientNote {
       authorId: authorId,
       noteContent: noteContent ?? this.noteContent,
       authorName: authorName ?? this.authorName,
+      authorRole: authorRole ?? this.authorRole,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
@@ -356,7 +357,20 @@ class _ToothPageLoaderState extends State<ToothPageLoader> {
         if (area._loaders.isEmpty || !identical(area._loaders.first, this)) {
           return const SizedBox.shrink();
         }
-        return Positioned.fromRect(rect: rect, child: IgnorePointer(child: _loader(context)));
+        return Positioned.fromRect(
+          rect: rect,
+          child: IgnorePointer(
+            child: ClipRect(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: ColoredBox(
+                  color: Colors.white.withValues(alpha: 0.28),
+                  child: _loader(context),
+                ),
+              ),
+            ),
+          ),
+        );
       },
       child: const SizedBox.expand(),
     );

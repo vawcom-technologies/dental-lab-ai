@@ -12,7 +12,8 @@ from app.ai.scan_quality import validate_ply_bytes
 from app.ai.shade_analyze import analyze_shade_from_bytes, analyze_tooth_from_outline_bytes
 from app.ai.shade_segment_ab import compare_segmentation, summarize_ab
 from app.core.config import settings
-from app.core.security import AuthUser, get_current_user
+from app.core.security import AuthUser, get_current_user, require_admin
+from app.core.uploads import IMAGE_MAX_BYTES, SCAN_MAX_BYTES, read_capped
 from app.schemas import ScanValidateOut, ShadeAnalyzeOut
 from app.services import patient_media as pm
 from app.services.shade_media import load_media_bytes
@@ -79,7 +80,7 @@ def _load_detection_for_user(shade_detection_id: str, user: AuthUser) -> dict:
 
 
 @router.get("/shade/segment-status")
-async def shade_segment_status():
+async def shade_segment_status(_: AuthUser = Depends(require_admin)):
     """Ops check: is KAIST actually loadable (vendor + complete weights)?"""
     from app.ai.shade_segment_kaist import kaist_segment_status
 
@@ -126,8 +127,9 @@ def _cpu_runtime() -> dict:
 async def shade_suggest(
     file: UploadFile = File(...),
     from_camera: bool = Form(False),
+    _: AuthUser = Depends(get_current_user),
 ):
-    data = await file.read()
+    data = await read_capped(file, IMAGE_MAX_BYTES)
     if not data:
         raise HTTPException(status_code=400, detail="Empty file")
     try:
@@ -158,6 +160,7 @@ async def shade_resample_outline(
     outline_json: str = Form(...),
     tooth_index: int = Form(0),
     arch: str | None = Form(None),
+    _: AuthUser = Depends(get_current_user),
 ):
     """Re-match zones after the dentist edits a tooth outline polygon."""
     try:
@@ -166,7 +169,7 @@ async def shade_resample_outline(
         raise HTTPException(status_code=400, detail="outline_json must be JSON") from exc
     if not isinstance(outline, list) or len(outline) < 3:
         raise HTTPException(status_code=400, detail="outline needs at least 3 points")
-    data = await file.read()
+    data = await read_capped(file, IMAGE_MAX_BYTES)
     try:
         return await asyncio.to_thread(
             analyze_tooth_from_outline_bytes,
@@ -208,7 +211,7 @@ async def shade_segment_ab(
 ):
     """Debug A/B: classical CV vs RF-DETR / PLAK segmentation summary."""
     _ = user
-    data = await file.read()
+    data = await read_capped(file, IMAGE_MAX_BYTES)
     from PIL import Image, ImageOps
     import io
     import numpy as np
@@ -227,8 +230,8 @@ async def shade_segment_ab(
 
 
 @router.post("/scan/validate", response_model=ScanValidateOut)
-async def scan_validate(file: UploadFile = File(...)):
-    data = await file.read()
+async def scan_validate(file: UploadFile = File(...), _: AuthUser = Depends(get_current_user)):
+    data = await read_capped(file, SCAN_MAX_BYTES)
     result = await asyncio.to_thread(
         validate_ply_bytes, data, filename=file.filename or "scan.ply"
     )

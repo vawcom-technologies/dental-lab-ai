@@ -158,7 +158,16 @@ class _SplitListState<T> extends State<SplitList<T>> {
           },
         );
         if (!split) return list;
+        // After approve/reject/reload the selected row may be gone — clear the
+        // right panel instead of keeping a stale detail card.
         final picked = _items.where((it) => it.id == _picked).firstOrNull;
+        if (_picked != null && picked == null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && _picked != null && !_items.any((it) => it.id == _picked)) {
+              setState(() => _picked = null);
+            }
+          });
+        }
         return Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

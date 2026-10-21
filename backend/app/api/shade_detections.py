@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.services.file_urls import client_file_url
 from app.core.security import AuthUser, get_current_user
+from app.core.uploads import IMAGE_MAX_BYTES, read_capped
 from app.schemas_patient_media import DeleteOkOut, ShadeDetectionOut
 from app.services import case_flow
 from app.services import patient_media as pm
@@ -93,7 +94,7 @@ async def upload_shade_detection(
     lab = case_flow.edit_mode(user, patient) == "suggest"
     old = None if lab else pm.replaced_row(_TABLE, replaces, patient_id)
     if file is not None:
-        data, filename, ctype = await file.read(), file.filename, file.content_type
+        data, filename, ctype = await read_capped(file, IMAGE_MAX_BYTES), file.filename, file.content_type
     elif photo_id:
         photo = pm.fetch_row("patient_photos", photo_id)
         if photo is None or str(photo.get("patient_id")) != patient_id:

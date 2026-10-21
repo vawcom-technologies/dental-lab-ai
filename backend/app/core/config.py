@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     # Prefer a long random secret; derived via SHA-256 → Fernet key.
     patient_notes_encryption_key: str = ""
 
+    # Browser origins allowed to call the API (comma-separated). The iPad
+    # app isn't a browser and isn't affected; the scan-upload page is served
+    # by the API itself (same origin).
+    cors_origins: str = "https://www.elite-d.de,https://elite-d.de"
+    # Swagger /docs + /openapi.json: off in production unless set.
+    enable_docs: bool = False
+
     # INFO in production — DEBUG logs request metadata only (no bodies).
     log_level: str = "INFO"
 

@@ -6,10 +6,13 @@ import 'package:http/http.dart' as http;
 
 import '../../features/appointments/models/appointment.dart';
 import '../auth/app_roles.dart';
+import '../l10n/app_localizations.dart';
 import '../auth/auth_aware_http_client.dart';
 import '../auth/session_coordinator.dart';
 import '../auth/token_store.dart';
 import '../errors/user_facing_error.dart';
+import '../l10n/locale_controller.dart';
+import '../l10n/server_text.dart';
 import '../haptics/app_haptics.dart';
 import '../offline/sync_queue.dart';
 import 'api_host.dart';
@@ -387,7 +390,7 @@ class ApiClient {
     final res = await _http.post(
       Uri.parse('$baseUrl/api/auth/forgot-password'),
       headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({'email': email}),
+      body: jsonEncode({'email': email, 'lang': LocaleController.current}),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return jsonDecode(res.body) as Map<String, dynamic>;
@@ -444,7 +447,7 @@ class ApiClient {
     try {
       final body = jsonDecode(res.body);
       if (body is Map && body['message'] is String) {
-        return body['message'] as String;
+        return localizeServerText(body['message'] as String);
       }
     } catch (_) {}
     return 'Password updated';
@@ -461,7 +464,7 @@ class ApiClient {
     try {
       final body = jsonDecode(res.body);
       if (body is Map && body['message'] is String) {
-        return body['message'] as String;
+        return localizeServerText(body['message'] as String);
       }
     } catch (_) {}
     return 'Account deleted';
@@ -485,8 +488,7 @@ class ApiClient {
       if (status == 'ERROR') {
         final err = decoded['error'];
         final msg = err is Map
-            ? '${err['message'] ?? 'Failed to list patients'}'
-            : 'Failed to list patients';
+            ? '${err['message'] ?? AppLocalizations.current.errGeneric}' : AppLocalizations.current.errGeneric;
         throw Exception(msg);
       }
       final payload = decoded['payload'];
@@ -542,8 +544,7 @@ class ApiClient {
       if (status == 'ERROR') {
         final err = decoded['error'];
         final msg = err is Map
-            ? '${err['message'] ?? 'Failed to create patient'}'
-            : 'Failed to create patient';
+            ? '${err['message'] ?? AppLocalizations.current.errGeneric}' : AppLocalizations.current.errGeneric;
         throw Exception(msg);
       }
       final payload = decoded['payload'];
@@ -551,7 +552,7 @@ class ApiClient {
       if (patient is Map) return Map<String, dynamic>.from(patient);
       return Map<String, dynamic>.from(decoded);
     }
-      throw Exception('Could not create the patient. Please try again.');
+      throw Exception(AppLocalizations.current.errGeneric);
   }
 
   Future<Map<String, dynamic>> updatePatient(
@@ -564,13 +565,13 @@ class ApiClient {
       body: jsonEncode({'fields_to_update': fieldsToUpdate}),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    final payload = _agentPayload(res, fallback: 'Failed to update patient');
+    final payload = _agentPayload(res, fallback: AppLocalizations.current.errGeneric);
     final patient = payload['patient'];
     if (patient is Map) {
       AppHaptics.selection();
       return Map<String, dynamic>.from(patient);
     }
-    throw Exception('Could not update the patient. Please try again.');
+    throw Exception(AppLocalizations.current.errGeneric);
   }
 
   Future<void> deletePatient(Object id, {bool hard = false}) async {
@@ -590,8 +591,7 @@ class ApiClient {
           final err = decoded['error'];
           throw Exception(
             err is Map
-                ? '${err['message'] ?? 'Delete failed'}'
-                : 'Delete failed',
+                ? '${err['message'] ?? AppLocalizations.current.errGeneric}' : AppLocalizations.current.errGeneric,
           );
         }
       } catch (e) {
@@ -601,7 +601,8 @@ class ApiClient {
     AppHaptics.warn();
   }
 
-  Map<String, dynamic> _agentPayload(http.Response res, {String fallback = 'Request failed'}) {
+  Map<String, dynamic> _agentPayload(http.Response res, {String? fallback}) {
+    fallback ??= AppLocalizations.current.errGeneric;
     final decoded = jsonDecode(res.body);
     if (decoded is! Map) throw Exception(fallback);
     if ('${decoded['status'] ?? ''}' == 'ERROR') {
@@ -624,7 +625,7 @@ class ApiClient {
       headers: _getHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    final payload = _agentPayload(res, fallback: 'Failed to list photos');
+    final payload = _agentPayload(res, fallback: AppLocalizations.current.errGeneric);
     final photos = payload['photos'];
     if (photos is! List) return const [];
     return photos
@@ -662,7 +663,7 @@ class ApiClient {
       }
       throw Exception(_errorMessage(res));
     }
-    final payload = _agentPayload(res, fallback: 'Failed to upload photo');
+    final payload = _agentPayload(res, fallback: AppLocalizations.current.errGeneric);
     final photo = payload['photo'];
     if (photo is Map) return Map<String, dynamic>.from(photo);
     return payload;
@@ -680,7 +681,7 @@ class ApiClient {
       throw Exception(_errorMessage(res));
     }
     if (res.body.isNotEmpty) {
-      _agentPayload(res, fallback: 'Failed to delete photo');
+      _agentPayload(res, fallback: AppLocalizations.current.errGeneric);
     }
     AppHaptics.warn();
   }
@@ -696,7 +697,7 @@ class ApiClient {
       body: jsonEncode({'filename': filename}),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    final payload = _agentPayload(res, fallback: 'Failed to rename photo');
+    final payload = _agentPayload(res, fallback: AppLocalizations.current.errGeneric);
     final photo = payload['photo'];
     if (photo is Map) return Map<String, dynamic>.from(photo);
     return payload;
@@ -718,7 +719,7 @@ class ApiClient {
   Map<String, dynamic> _decodeMap(String body) {
     final decoded = jsonDecode(body);
     if (decoded is Map) return Map<String, dynamic>.from(decoded);
-    throw Exception('Something went wrong. Please try again.');
+    throw Exception(AppLocalizations.current.errGeneric);
   }
 
   Future<List<Map<String, dynamic>>> listPatientScans(
@@ -988,7 +989,7 @@ class ApiClient {
       headers: _getAuthHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) {
-      throw Exception('Could not download the file. Please try again.');
+      throw Exception(AppLocalizations.current.errGeneric);
     }
     return res.bodyBytes;
   }
@@ -1680,7 +1681,7 @@ class ApiClient {
     final decoded = jsonDecode(res.body);
     if (decoded is Map<String, dynamic>) return decoded;
     if (decoded is Map) return Map<String, dynamic>.from(decoded);
-    throw Exception('Invalid interpreter catalog');
+    throw Exception(AppLocalizations.current.errGeneric);
   }
 
   Future<Map<String, dynamic>> interpreterTurn({
@@ -1702,7 +1703,7 @@ class ApiClient {
         )
         .timeout(const Duration(seconds: 45));
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return _mapBody(res, fallback: 'Translation failed');
+    return _mapBody(res, fallback: AppLocalizations.current.errGeneric);
   }
 
   Future<Map<String, dynamic>> interpreterTurnAudio({
@@ -1726,7 +1727,7 @@ class ApiClient {
     final streamed = await _http.send(req);
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return _mapBody(res, fallback: 'Voice translation failed');
+    return _mapBody(res, fallback: AppLocalizations.current.errGeneric);
   }
 
   /// MP3 for interpreter languages without an Apple voice.

@@ -20,6 +20,7 @@ class LabPage extends StatefulWidget {
     super.key,
     required this.api,
     required this.onOpenPatient,
+    this.onWaiting,
     this.tab,
     this.active = true,
   });
@@ -31,6 +32,9 @@ class LabPage extends StatefulWidget {
 
   /// Opens a patient's detail (Patients page) — e.g. one waiting on us.
   final ValueChanged<String> onOpenPatient;
+
+  /// Sidebar badge: transfers + joins + sharing tickets waiting on this lab.
+  final ValueChanged<int>? onWaiting;
   final bool active;
 
   @override
@@ -45,9 +49,42 @@ class _LabPageState extends State<LabPage> {
   String get labId => api.userId ?? '';
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.active) _refreshWaiting();
+  }
+
+  @override
+  void didUpdateWidget(covariant LabPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active) _refreshWaiting();
+  }
+
+  @override
   void dispose() {
     _own?.dispose();
     super.dispose();
+  }
+
+  /// Keep the sidebar lab badge in sync after approve/reject on this page.
+  Future<void> _refreshWaiting() async {
+    final notify = widget.onWaiting;
+    if (notify == null || labId.isEmpty) return;
+    try {
+      final r = await Future.wait<Object>([
+        api.labTransfers(labId),
+        api.labRequests(labId),
+        PatientsApiService(api).listPendingAccessRequests(forceRefresh: true),
+      ]);
+      final transfers = (r[0] as List<Map<String, dynamic>>)
+          .where((t) => t['waiting_on_us'] == true)
+          .length;
+      final joins = (r[1] as List<Map<String, dynamic>>)
+          .where((j) => j['kind'] == 'join' && j['status'] == 'pending')
+          .length;
+      final tickets = (r[2] as List<PendingAccessRequest>).length;
+      if (mounted) notify(transfers + joins + tickets);
+    } catch (_) {}
   }
 
   @override
@@ -294,7 +331,10 @@ class _LabPageState extends State<LabPage> {
                         ? loc.trp('lab.dentistXferRejected', {'name': name})
                         : loc.trp('lab.joinRejected', {'name': name}),
                   );
-                  if (ok) reload();
+                  if (ok) {
+                    reload();
+                    _refreshWaiting();
+                  }
                 },
                 label: loc.tr('admin.reject'),
                 compact: true,
@@ -309,6 +349,7 @@ class _LabPageState extends State<LabPage> {
                         : loc.trp('lab.joinAccepted', {'name': name}),
                   );
                   if (!ok || !mounted) return;
+                  _refreshWaiting();
                   if (join) {
                     _tab.value = 0;
                   } else {
@@ -412,7 +453,10 @@ class _LabPageState extends State<LabPage> {
             if (waiting) ...[
               AppButtons.secondary(
                 onPressed: () async {
-                  if (await _rejectTransfer(t)) reload();
+                  if (await _rejectTransfer(t)) {
+                    reload();
+                    _refreshWaiting();
+                  }
                 },
                 label: loc.tr('admin.reject'),
                 compact: true,
@@ -422,7 +466,10 @@ class _LabPageState extends State<LabPage> {
                   onPressed: () async {
                     final ok = await adminRun(context, () => api.transferForward('${t['id']}'),
                         done: loc.trp('lab.forwarded', {'lab': lab(t['to_lab'])}));
-                    if (ok) reload();
+                    if (ok) {
+                      reload();
+                      _refreshWaiting();
+                    }
                   },
                   icon: Icons.send_rounded,
                   label: loc.tr('lab.forward'),
@@ -431,7 +478,10 @@ class _LabPageState extends State<LabPage> {
               if (status == 'awaiting_recipient')
                 AppButtons.primary(
                   onPressed: () async {
-                    if (await _acceptTransfer(t)) reload();
+                    if (await _acceptTransfer(t)) {
+                      reload();
+                      _refreshWaiting();
+                    }
                   },
                   icon: Icons.check_rounded,
                   label: loc.tr('lab.accept'),
@@ -464,7 +514,10 @@ class _LabPageState extends State<LabPage> {
             () => service.resolveAccessRequest(requestId: r.id, action: approve ? 'approve' : 'reject'),
             done: loc.tr(approve ? 'lab.ticketApproved' : 'lab.ticketRejected'),
           );
-          if (ok) reload();
+          if (ok) {
+            reload();
+            _refreshWaiting();
+          }
         }
 
         final when = adminWhen(context, r.createdAt?.toLocal());
@@ -776,6 +829,23 @@ class _LabVisibilitySettingsState extends State<LabVisibilitySettings> {
     if (mounted) setState(() => _saving = false);
   }
 
+  /// Turning hide on: recommend staying visible, then confirm.
+  Future<void> _onToggle({required bool enabling, required Future<void> Function() apply}) async {
+    if (enabling) {
+      final loc = AppLocalizations.of(context);
+      final ok = await AppDialogs.confirm(
+        context,
+        title: loc.tr('lab.hideWarnTitle'),
+        message: loc.tr('lab.hideWarnMsg'),
+        confirmLabel: loc.tr('lab.hideWarnConfirm'),
+        cancelLabel: loc.tr('lab.hideWarnKeep'),
+        isDestructive: true,
+      );
+      if (!ok || !mounted) return;
+    }
+    await apply();
+  }
+
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
@@ -809,10 +879,19 @@ class _LabVisibilitySettingsState extends State<LabVisibilitySettings> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          row(loc.tr('lab.hideLab'), loc.tr('lab.hideLabMsg'), _hidden!, (v) => _set(hidden: v)),
+          row(
+            loc.tr('lab.hideLab'),
+            loc.tr('lab.hideLabMsg'),
+            _hidden!,
+            (v) => _onToggle(enabling: v, apply: () => _set(hidden: v)),
+          ),
           Divider(height: 1, color: AppColors.border.withValues(alpha: 0.5)),
-          row(loc.tr('lab.hideDentists'), loc.tr('lab.hideDentistsMsg'), _hideDentists!,
-              (v) => _set(hideDentists: v)),
+          row(
+            loc.tr('lab.hideDentists'),
+            loc.tr('lab.hideDentistsMsg'),
+            _hideDentists!,
+            (v) => _onToggle(enabling: v, apply: () => _set(hideDentists: v)),
+          ),
         ],
       ),
     );

@@ -321,6 +321,10 @@ class AppLocalizations {
         return _t('notifications.typeScanQuality');
       case 'shade':
         return _t('notifications.typeShade');
+      case 'smile':
+        return _t('notifications.typeSmile');
+      case 'note':
+        return _t('notifications.typeNote');
       case 'appointment':
         return _t('notifications.typeAppointment');
       case 'scan_body':
@@ -994,6 +998,29 @@ class AppLocalizations {
         'name': m[2]!,
       });
     }
+    m = RegExp(r"^You set the appointment for (.+) to (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgYouSetApptStatus', {
+        'name': m[1]!,
+        'status': appointmentStatusLabel(m[2]!),
+      });
+    }
+    m = RegExp(r"^(.+) set the appointment for (.+) to (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgSetApptStatus', {
+        'who': m[1]!,
+        'name': m[2]!,
+        'status': appointmentStatusLabel(m[3]!),
+      });
+    }
+    m = RegExp(r"^You added a note for (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgYouAddedNote', {'name': m[1]!});
+    }
+    m = RegExp(r"^(.+) added a note for (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgAddedNote', {'who': m[1]!, 'name': m[2]!});
+    }
 
     m = RegExp(r"^(.+) uploaded a 3D scan for (.+)\.$").firstMatch(msg);
     if (m != null) {
@@ -1047,6 +1074,10 @@ class AppLocalizations {
           return fill('notifications.fallbackShade', {'name': name});
         case 'appointment':
           return fill('notifications.fallbackAppointment', {'name': name});
+        case 'note':
+          return fill('notifications.fallbackNote', {'name': name});
+        case 'smile':
+          return fill('notifications.fallbackSmile', {'name': name});
         case 'case_status':
           return fill('notifications.fallbackCase', {'name': name});
         case 'scan_body':
@@ -1258,6 +1289,10 @@ class AppLocalizations {
     'lab.hideLabMsg': 'Hidden labs don\'t appear when dentists pick a lab or start a transfer. You then only get dentists the admin assigns to you.',
     'lab.hideDentists': 'Hide our dentists from other labs',
     'lab.hideDentistsMsg': 'Other labs won\'t see your dentists listed under your lab.',
+    'lab.hideWarnTitle': 'Stay visible?',
+    'lab.hideWarnMsg': 'We recommend you keep this off. Hiding reduces how dentists and labs find you, and you may miss new cases and transfers.',
+    'lab.hideWarnConfirm': 'Hide anyway',
+    'lab.hideWarnKeep': 'Keep visible',
     'lab.patientFor': 'Who is this patient for?',
     'lab.assignDentist': 'Assign to dentist',
     'lab.sendToLab': 'Send to another lab',
@@ -2003,7 +2038,7 @@ class AppLocalizations {
     'reports.exports': 'Exports',
     'reports.exportsHint':
         'A printable clinic summary for the selected period.',
-    'reports.summaryExport': 'Clinic summary',
+    'reports.summaryExport': 'Share summary',
     'reports.summaryTitle': 'Clinic report summary',
     'reports.close': 'Close',
     'reports.newInPeriod': 'new in period',
@@ -2017,6 +2052,10 @@ class AppLocalizations {
     'reports.casesCol': 'Cases',
     'reports.artifacts': 'Artifacts',
     'reports.copy': 'Copy',
+    'reports.copied': 'Clinic summary copied — paste it anywhere to share',
+    'reports.share': 'Share…',
+    'reports.shareHint': 'Share this clinic summary as plain text, or copy it to paste elsewhere.',
+    'reports.throughputHint': 'Cases opened vs completed each week',
     'reports.periodLine': 'Period: {period}',
     'reports.activeShort': 'Active',
     'reports.avgTimeShort': 'Avg. time',
@@ -2041,6 +2080,8 @@ class AppLocalizations {
     'notifications.typeCase': 'Case',
     'notifications.typeScanQuality': 'Scan quality',
     'notifications.typeShade': 'Shade',
+    'notifications.typeSmile': 'Smile preview',
+    'notifications.typeNote': 'Clinical note',
     'notifications.typeAppointment': 'Appointment',
     'notifications.typeScanBody': 'Scan body',
     'notifications.typeSync': 'Sync',
@@ -2447,6 +2488,12 @@ class AppLocalizations {
         '{who} cancelled an appointment for {name}.',
     'notifications.msgYouUpdatedAppt': 'You updated an appointment for {name}.',
     'notifications.msgUpdatedAppt': '{who} updated an appointment for {name}.',
+    'notifications.msgYouSetApptStatus':
+        'You set the appointment for {name} to {status}.',
+    'notifications.msgSetApptStatus':
+        '{who} set the appointment for {name} to {status}.',
+    'notifications.msgYouAddedNote': 'You added a note for {name}.',
+    'notifications.msgAddedNote': '{who} added a note for {name}.',
     'notifications.msgUploadedScan': '{who} uploaded a 3D scan for {name}.',
     'notifications.msgSavedShade': '{who} saved a shade photo for {name}.',
     'notifications.msgSavedSmile': '{who} saved a smile preview for {name}.',
@@ -2460,6 +2507,8 @@ class AppLocalizations {
     'notifications.fallbackScanQuality': 'Scan quality alert for {name}',
     'notifications.fallbackShade': 'Shade update for {name}',
     'notifications.fallbackAppointment': 'Appointment update for {name}',
+    'notifications.fallbackNote': 'New note for {name}',
+    'notifications.fallbackSmile': 'Smile update for {name}',
     'notifications.fallbackCase': 'Case update for {name}',
     'notifications.fallbackScanBody': 'Scan body update for {name}',
     'notifications.fallbackSync': 'Sync update for {name}',
@@ -2734,6 +2783,8 @@ class AppLocalizations {
     'ch.vidFail': 'Could not load video',
     'p.unnamed': 'Unnamed patient',
     'p.unknownPr': 'Unknown Practitioner',
+    'p.noteFromLab': 'From lab',
+    'p.noteFromDentist': 'From dentist',
     'p.owner': 'Owner',
     'p.busy': 'Another patient change is already in progress',
     'lab.busy': 'Another laboratory action is already in progress',
@@ -2877,6 +2928,8 @@ class AppLocalizations {
     'ms.gpuPts': 'ipad-gpu · {n} pts',
     'img.read': 'Could not read this photo. Try another image.',
     'img.heic': 'Could not read this photo. Export it as JPEG from Photos and try again.',
+    'offline.tooLarge': 'This file is too large for the encrypted offline cache on this device. Connect to the network and upload again.',
+    'offline.tooLargeWeb': 'This file is too large for the browser offline cache. Stay online and upload again — files go straight to the server when connected.',
     'err.unexpected': 'An unexpected error occurred.',
     'err.network': 'Connection problem. Please check your internet connection and try again.',
     'sh.dragBottomLip': 'Drag the horizontal line at the bottom lip up or down to adjust it.',
@@ -3019,6 +3072,10 @@ class AppLocalizations {
     'lab.hideLabMsg': 'Verborgene Labore erscheinen nicht, wenn Zahnärzte ein Labor wählen oder eine Übergabe starten. Sie erhalten dann nur Zahnärzte, die der Admin zuweist.',
     'lab.hideDentists': 'Unsere Zahnärzte vor anderen Laboren verbergen',
     'lab.hideDentistsMsg': 'Andere Labore sehen Ihre Zahnärzte nicht unter Ihrem Labor.',
+    'lab.hideWarnTitle': 'Sichtbar bleiben?',
+    'lab.hideWarnMsg': 'Wir empfehlen, dies ausgeschaltet zu lassen. Verbergen erschwert es Zahnärzten und Laboren, Sie zu finden, und Sie können neue Fälle und Übergaben verpassen.',
+    'lab.hideWarnConfirm': 'Trotzdem verbergen',
+    'lab.hideWarnKeep': 'Sichtbar bleiben',
     'lab.patientFor': 'Für wen ist dieser Patient?',
     'lab.assignDentist': 'Zahnarzt zuweisen',
     'lab.sendToLab': 'An anderes Labor senden',
@@ -3775,7 +3832,7 @@ class AppLocalizations {
     'reports.exports': 'Exporte',
     'reports.exportsHint':
         'Eine druckbare Klinikübersicht für den ausgewählten Zeitraum.',
-    'reports.summaryExport': 'Klinikübersicht',
+    'reports.summaryExport': 'Übersicht teilen',
     'reports.summaryTitle': 'Klinikbericht',
     'reports.close': 'Schließen',
     'reports.newInPeriod': 'neu im Zeitraum',
@@ -3789,6 +3846,10 @@ class AppLocalizations {
     'reports.casesCol': 'Fälle',
     'reports.artifacts': 'Artefakte',
     'reports.copy': 'Kopieren',
+    'reports.copied': 'Klinik-Zusammenfassung kopiert — zum Teilen einfach einfügen',
+    'reports.share': 'Teilen…',
+    'reports.shareHint': 'Teilen Sie diese Klinikübersicht als Text, oder kopieren Sie sie zum Einfügen.',
+    'reports.throughputHint': 'Fälle eröffnet vs. abgeschlossen je Woche',
     'reports.periodLine': 'Zeitraum: {period}',
     'reports.activeShort': 'Aktiv',
     'reports.avgTimeShort': 'Ø Zeit',
@@ -3813,6 +3874,8 @@ class AppLocalizations {
     'notifications.typeCase': 'Fall',
     'notifications.typeScanQuality': 'Scan-Qualität',
     'notifications.typeShade': 'Farbe',
+    'notifications.typeSmile': 'Smile-Vorschau',
+    'notifications.typeNote': 'Klinische Notiz',
     'notifications.typeAppointment': 'Termin',
     'notifications.typeScanBody': 'Scanbody',
     'notifications.typeSync': 'Sync',
@@ -4236,6 +4299,12 @@ class AppLocalizations {
         'Sie haben einen Termin für {name} aktualisiert.',
     'notifications.msgUpdatedAppt':
         '{who} hat einen Termin für {name} aktualisiert.',
+    'notifications.msgYouSetApptStatus':
+        'Sie haben den Termin für {name} auf „{status}“ gesetzt.',
+    'notifications.msgSetApptStatus':
+        '{who} hat den Termin für {name} auf „{status}“ gesetzt.',
+    'notifications.msgYouAddedNote': 'Sie haben eine Notiz für {name} hinzugefügt.',
+    'notifications.msgAddedNote': '{who} hat eine Notiz für {name} hinzugefügt.',
     'notifications.msgUploadedScan':
         '{who} hat einen 3D-Scan für {name} hochgeladen.',
     'notifications.msgSavedShade':
@@ -4253,6 +4322,8 @@ class AppLocalizations {
     'notifications.fallbackScanQuality': 'Scan-Qualitätswarnung für {name}',
     'notifications.fallbackShade': 'Farb-Update für {name}',
     'notifications.fallbackAppointment': 'Termin-Update für {name}',
+    'notifications.fallbackNote': 'Neue Notiz für {name}',
+    'notifications.fallbackSmile': 'Smile-Update für {name}',
     'notifications.fallbackCase': 'Fall-Update für {name}',
     'notifications.fallbackScanBody': 'Scanbody-Update für {name}',
     'notifications.fallbackSync': 'Sync-Update für {name}',
@@ -4530,6 +4601,8 @@ class AppLocalizations {
     'ch.vidFail': 'Video konnte nicht geladen werden',
     'p.unnamed': 'Unbenannter Patient',
     'p.unknownPr': 'Unbekannter Behandler',
+    'p.noteFromLab': 'Vom Labor',
+    'p.noteFromDentist': 'Vom Zahnarzt',
     'p.owner': 'Inhaber',
     'p.busy': 'Eine andere Patientenänderung läuft bereits',
     'lab.busy': 'Eine andere Laboraktion läuft bereits',
@@ -4673,6 +4746,8 @@ class AppLocalizations {
     'ms.gpuPts': 'iPad-GPU · {n} Punkte',
     'img.read': 'Dieses Foto konnte nicht gelesen werden. Versuchen Sie ein anderes Bild.',
     'img.heic': 'Dieses Foto konnte nicht gelesen werden. Exportieren Sie es in „Fotos“ als JPEG und versuchen Sie es erneut.',
+    'offline.tooLarge': 'Diese Datei ist zu groß für den verschlüsselten Offline-Speicher dieses Geräts. Stellen Sie eine Netzwerkverbindung her und laden Sie sie erneut hoch.',
+    'offline.tooLargeWeb': 'Diese Datei ist zu groß für den Offline-Speicher des Browsers. Bleiben Sie online und laden Sie sie erneut hoch – Dateien gehen bei bestehender Verbindung direkt an den Server.',
     'err.unexpected': 'Ein unerwarteter Fehler ist aufgetreten.',
     'err.network': 'Verbindungsproblem. Bitte prüfen Sie Ihre Internetverbindung und versuchen Sie es erneut.',
     'sh.dragBottomLip': 'Ziehen Sie die waagerechte Linie an der Unterlippe nach oben oder unten, um sie anzupassen.',

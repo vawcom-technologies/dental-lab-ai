@@ -641,7 +641,10 @@ def _set_deleted(user_id: str, deleted: bool) -> ProfileOut:
 @router.delete("/users/{user_id}/soft-delete", response_model=ProfileActionOut)
 def deactivate_user(user_id: str, _: AuthUser = Depends(require_admin)):
     """Deactivate: can't sign in; lab, patients and shares are kept. Reversible."""
-    return ProfileActionOut(message="User deactivated", user=_set_deleted(user_id, True))
+    user = _set_deleted(user_id, True)
+    # Cached sessions would keep working for up to a minute otherwise.
+    clear_auth_cache()
+    return ProfileActionOut(message="User deactivated", user=user)
 
 
 @router.patch("/users/{user_id}/reactivate", response_model=ProfileActionOut)
@@ -669,4 +672,5 @@ def delete_user(user_id: str, admin: AuthUser = Depends(require_admin)):
     if user_id == admin.id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "You can't delete the admin account")
     delete_account(user_id, actor_id=admin.id)
+    clear_auth_cache()
     return ProfileActionOut(message="User permanently deleted", user=None)

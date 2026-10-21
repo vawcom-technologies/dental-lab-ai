@@ -2,6 +2,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 
 import '../api/api_client.dart';
+import '../l10n/app_localizations.dart';
 import 'sync_queue.dart';
 
 class SyncService {
@@ -25,14 +26,8 @@ class SyncService {
   bool _fitsLocalCache(Uint8List bytes) => bytes.length <= maxLocalCacheBytes;
 
   Never _tooLargeForOfflineCache(String kind) {
-    throw Exception(
-      kIsWeb
-          ? 'This $kind is too large for the browser offline cache '
-              '(localStorage quota). Stay online and upload again — '
-              'files go straight to the server when connected.'
-          : 'This $kind is too large for the encrypted offline cache on this device. '
-              'Connect to the network and upload again.',
-    );
+    final loc = AppLocalizations.current;
+    throw Exception(kIsWeb ? loc.tr('offline.tooLargeWeb') : loc.tr('offline.tooLarge'));
   }
 
   /// Save photo locally encrypted; upload now or enqueue if offline.

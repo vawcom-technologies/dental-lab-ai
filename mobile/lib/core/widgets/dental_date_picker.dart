@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import 'app_buttons.dart';
 import '../l10n/app_localizations.dart';
 import '../l10n/date_formats.dart';
+import '../l10n/locale_controller.dart';
 
 /// Form field that stores ISO `yyyy-MM-dd` while showing a friendly DOB label.
 class DobPickerField extends StatelessWidget {
@@ -23,7 +24,7 @@ class DobPickerField extends StatelessWidget {
   static String formatDisplay(DateTime dob, [BuildContext? context]) {
     final age = DentalDatePickerDialog.ageInYears(dob);
     final date = context == null
-        ? DateFormat('MMM d, yyyy').format(dob)
+        ? DateFormat(LocaleController.current == 'de' ? 'd. MMM y' : 'MMM d, yyyy', LocaleController.current == 'de' ? 'de' : 'en').format(dob)
         : formatAppDate(context, dob, 'MMM d, yyyy');
     final loc = context != null ? AppLocalizations.of(context) : null;
     final ageLabel = age == 1

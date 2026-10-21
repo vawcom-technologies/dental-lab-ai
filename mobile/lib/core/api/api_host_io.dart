@@ -6,10 +6,19 @@ import 'dart:io' show Platform;
 /// fall back to this Mac's Bonjour name.
 String resolveApiBase() {
   const fromEnv = String.fromEnvironment('API_BASE', defaultValue: '');
+  const release = bool.fromEnvironment('dart.vm.product');
   if (fromEnv.isNotEmpty) {
-    return fromEnv.trim().replaceFirst(RegExp(r'/$'), '');
+    final base = fromEnv.trim().replaceFirst(RegExp(r'/$'), '');
+    // Patient data must never travel unencrypted from a shipped build.
+    if (release && !base.startsWith('https://')) {
+      throw StateError('Release builds need an https:// API_BASE (got "$base").');
+    }
+    return base;
   }
-  if (!bool.fromEnvironment('dart.vm.product') && Platform.isIOS) {
+  if (release) {
+    throw StateError('Release builds need --dart-define=API_BASE=https://…');
+  }
+  if (Platform.isIOS) {
     if (_looksLikeIosSimulator()) {
       return 'http://127.0.0.1:8000';
     }

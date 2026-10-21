@@ -1533,14 +1533,17 @@ class _BookAppointmentModalState extends State<BookAppointmentModal> {
               : _patientMenuLabel(selectedPatient));
 
     final portrait = AppBreakpoints.isPortrait(context);
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom;
     return PopScope(
       canPop: !_saving,
       child: Dialog(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        insetPadding: EdgeInsets.symmetric(
-          horizontal: portrait ? 20 : 48,
-          vertical: portrait ? 24 : 32,
+        insetPadding: EdgeInsets.fromLTRB(
+          portrait ? 20 : 48,
+          portrait ? 24 : 32,
+          portrait ? 20 : 48,
+          (portrait ? 24 : 32) + keyboard,
         ),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 560),

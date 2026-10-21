@@ -75,7 +75,7 @@ class NotificationInboxController extends ChangeNotifier {
         for (final row in rows)
           if (!isMessageType(row)) Map<String, dynamic>.from(row),
       ];
-      _unreadCount = _items.where((n) => n['read'] != true).length;
+      _unreadCount = _items.where((n) => !isRead(n)).length;
       _error = null;
       if (fresh.isNotEmpty) {
         _pendingToasts.addAll(fresh);
@@ -113,13 +113,13 @@ class NotificationInboxController extends ChangeNotifier {
         n['read'] = true;
       }
     }
-    _unreadCount = _items.where((n) => n['read'] != true).length;
+    _unreadCount = _items.where((n) => !isRead(n)).length;
     _notify();
   }
 
   Future<void> markAllRead() async {
     if (_markingAll) return;
-    if (_unreadCount == 0 && _items.every((n) => n['read'] == true)) return;
+    if (_unreadCount == 0 && _items.every(isRead)) return;
     _markingAll = true;
     for (final n in _items) {
       n['read'] = true;
@@ -128,9 +128,20 @@ class NotificationInboxController extends ChangeNotifier {
     _notify();
     try {
       await api.markAllNotificationsRead();
+      // Confirm with the server so a later poll cannot revive the badge.
+      await refresh(announce: false);
     } finally {
       _markingAll = false;
     }
+  }
+
+  /// Server / JSON may send bool, 0/1, or "true"/"false".
+  static bool isRead(Map<String, dynamic> n) {
+    final v = n['read'];
+    if (v == true || v == 1) return true;
+    if (v == false || v == 0 || v == null) return false;
+    final s = '$v'.trim().toLowerCase();
+    return s == 'true' || s == '1' || s == 'yes';
   }
 
   bool allowedBySettings(String type) {

@@ -1146,7 +1146,23 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                       ignoring: t > 0.2,
                       child: Opacity(
                         opacity: chrome,
-                        child: _buildRail(),
+                        // Fullscreen shrinks this column to 0: keep the
+                        // rail at its own width and clip it instead of
+                        // squeezing (and overflowing) its rows / segments.
+                        child: LayoutBuilder(
+                          builder: (context, box) {
+                            final minW = portrait ? 260.0 : 300.0;
+                            final w = box.maxWidth < minW ? minW : box.maxWidth;
+                            return ClipRect(
+                              child: OverflowBox(
+                                alignment: Alignment.topLeft,
+                                minWidth: w,
+                                maxWidth: w,
+                                child: _buildRail(),
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ),
                     content: _buildStage(chrome: chrome, expand: t),
@@ -1434,18 +1450,68 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
             ),
           ),
         ),
-        Positioned(
-          right: 12,
-          bottom: 12,
-          child: _StageIconBtn(
-            icon: _fsController.value > 0.5
-                ? Icons.fullscreen_exit
-                : Icons.fullscreen,
-            tip: _fsController.value > 0.5
-                ? AppLocalizations.of(context).tr('sp.exitFs')
-                : AppLocalizations.of(context).tr('sp.fs'),
+        if (_fsController.value > 0.5)
+          Positioned(
+            left: 12,
+            top: 12,
+            child: _StageIconBtn(
+              icon: Icons.close_rounded,
+              tip: AppLocalizations.of(context).tr('sp.exitFs'),
+              onTap: _toggleFullscreen,
+            ),
+          )
+        else
+          Positioned(
+            right: 12,
+            bottom: 12,
+            child: _StageIconBtn(
+              icon: Icons.fullscreen,
+              tip: AppLocalizations.of(context).tr('sp.fs'),
+              onTap: _toggleFullscreen,
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Compare / layers / center / reset — plus close when fullscreen.
+  Widget _stageToolbar(Size canvas, {required bool fullscreen}) {
+    final loc = AppLocalizations.of(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (fullscreen) ...[
+          _StageIconBtn(
+            icon: Icons.close_rounded,
+            tip: loc.tr('sp.exitFs'),
             onTap: _toggleFullscreen,
           ),
+          const SizedBox(width: 6),
+        ],
+        _StageIconBtn(
+          icon: _comparing ? Icons.visibility_off : Icons.visibility,
+          tip: loc.tr('sp.compare'),
+          onTapDown: () => setState(() => _comparing = true),
+          onTapUp: () => setState(() => _comparing = false),
+          onTapCancel: () => setState(() => _comparing = false),
+        ),
+        const SizedBox(width: 6),
+        _StageIconBtn(
+          icon: _showOverlay ? Icons.layers_outlined : Icons.layers_clear_outlined,
+          tip: _showOverlay ? loc.tr('sp.hideOv') : loc.tr('sp.showOv'),
+          onTap: () => setState(() => _showOverlay = !_showOverlay),
+        ),
+        const SizedBox(width: 6),
+        _StageIconBtn(
+          icon: Icons.center_focus_strong,
+          tip: loc.smileCenterShape,
+          onTap: () => _centerIn(canvas),
+        ),
+        const SizedBox(width: 6),
+        _StageIconBtn(
+          icon: Icons.refresh,
+          tip: loc.smileResetPlacement,
+          onTap: () => _resetTransform(canvas),
         ),
       ],
     );
@@ -1598,6 +1664,10 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (_fsController.value > 0.5) ...[
+                    _stageToolbar(canvas, fullscreen: true),
+                    const SizedBox(height: 8),
+                  ],
                   for (final (_, item) in _chosen)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 6),
@@ -1630,44 +1700,15 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                 ],
               ),
             ),
-            Positioned(
-              right: 12,
-              top: 12,
-              child: Row(
-                children: [
-                  _StageIconBtn(
-                    icon: _comparing ? Icons.visibility_off : Icons.visibility,
-                    tip: AppLocalizations.of(context).tr('sp.compare'),
-                    onTapDown: () => setState(() => _comparing = true),
-                    onTapUp: () => setState(() => _comparing = false),
-                    onTapCancel: () => setState(() => _comparing = false),
-                  ),
-                  const SizedBox(width: 6),
-                  _StageIconBtn(
-                    icon: _showOverlay
-                        ? Icons.layers_outlined
-                        : Icons.layers_clear_outlined,
-                    tip: _showOverlay ? AppLocalizations.of(context).tr('sp.hideOv') : AppLocalizations.of(context).tr('sp.showOv'),
-                    onTap: () => setState(() => _showOverlay = !_showOverlay),
-                  ),
-                  const SizedBox(width: 6),
-                  _StageIconBtn(
-                    icon: Icons.center_focus_strong,
-                    tip: AppLocalizations.of(context).smileCenterShape,
-                    onTap: () => _centerIn(canvas),
-                  ),
-                  const SizedBox(width: 6),
-                  _StageIconBtn(
-                    icon: Icons.refresh,
-                    tip: AppLocalizations.of(context).smileResetPlacement,
-                    onTap: () => _resetTransform(canvas),
-                  ),
-                ],
+            if (_fsController.value <= 0.5)
+              Positioned(
+                right: 12,
+                top: 12,
+                child: _stageToolbar(canvas, fullscreen: false),
               ),
-            ),
             Positioned(
               left: 12,
-              right: 56,
+              right: _fsController.value > 0.5 ? 12 : 56,
               bottom: 12,
               child: _StageChip(
                 child: Text(
@@ -1679,19 +1720,16 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                 ),
               ),
             ),
-            Positioned(
-              right: 12,
-              bottom: 12,
-              child: _StageIconBtn(
-                icon: _fsController.value > 0.5
-                    ? Icons.fullscreen_exit
-                    : Icons.fullscreen,
-                tip: _fsController.value > 0.5
-                    ? AppLocalizations.of(context).tr('sp.exitFs')
-                    : AppLocalizations.of(context).tr('sp.fs'),
-                onTap: _toggleFullscreen,
+            if (_fsController.value <= 0.5)
+              Positioned(
+                right: 12,
+                bottom: 12,
+                child: _StageIconBtn(
+                  icon: Icons.fullscreen,
+                  tip: AppLocalizations.of(context).tr('sp.fs'),
+                  onTap: _toggleFullscreen,
+                ),
               ),
-            ),
           ],
         );
       },
@@ -1722,14 +1760,22 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
               thumbColor: Colors.white,
               children: {
                 0: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 9),
-                  child: Text('${loc.smileBatemModels} (${_chosen.length}/2)',
-                      style: AppFonts.style(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.navy)),
+                  padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text('${loc.smileBatemModels} (${_chosen.length}/2)',
+                        maxLines: 1,
+                        style: AppFonts.style(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.navy)),
+                  ),
                 ),
                 1: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 9),
-                  child: Text(loc.smilePlacement,
-                      style: AppFonts.style(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.navy)),
+                  padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(loc.smilePlacement,
+                        maxLines: 1,
+                        style: AppFonts.style(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.navy)),
+                  ),
                 ),
               },
               onValueChanged: (v) => setState(() => _railTab = v ?? 0),
@@ -1787,8 +1833,14 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
             child: CupertinoSlidingSegmentedControl<bool>(
               groupValue: _lowerActive,
               children: {
-                false: Padding(padding: const EdgeInsets.symmetric(vertical: 7), child: Text(loc.smileUpperJaw)),
-                true: Padding(padding: const EdgeInsets.symmetric(vertical: 7), child: Text(loc.smileLowerJaw)),
+                false: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 4),
+                  child: FittedBox(fit: BoxFit.scaleDown, child: Text(loc.smileUpperJaw, maxLines: 1)),
+                ),
+                true: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 4),
+                  child: FittedBox(fit: BoxFit.scaleDown, child: Text(loc.smileLowerJaw, maxLines: 1)),
+                ),
               },
               onValueChanged: (v) => setState(() => _lowerActive = v ?? false),
             ),
@@ -1853,20 +1905,23 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
         const SizedBox(height: 8),
         // Cross-shaped pad with big targets.
         Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _NudgeBtn(icon: Icons.keyboard_arrow_up, onTap: enabled ? () => _nudge(0, -4) : null),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _NudgeBtn(icon: Icons.keyboard_arrow_left, onTap: enabled ? () => _nudge(-4, 0) : null),
-                  const SizedBox(width: 52),
-                  _NudgeBtn(icon: Icons.keyboard_arrow_right, onTap: enabled ? () => _nudge(4, 0) : null),
-                ],
-              ),
-              _NudgeBtn(icon: Icons.keyboard_arrow_down, onTap: enabled ? () => _nudge(0, 4) : null),
-            ],
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _NudgeBtn(icon: Icons.keyboard_arrow_up, onTap: enabled ? () => _nudge(0, -4) : null),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _NudgeBtn(icon: Icons.keyboard_arrow_left, onTap: enabled ? () => _nudge(-4, 0) : null),
+                    const SizedBox(width: 52),
+                    _NudgeBtn(icon: Icons.keyboard_arrow_right, onTap: enabled ? () => _nudge(4, 0) : null),
+                  ],
+                ),
+                _NudgeBtn(icon: Icons.keyboard_arrow_down, onTap: enabled ? () => _nudge(0, 4) : null),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 14),

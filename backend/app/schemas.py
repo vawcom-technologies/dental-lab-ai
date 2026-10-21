@@ -4,7 +4,7 @@ from datetime import date, datetime
 from typing import Literal, Optional
 import re
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 
 # ── Auth (Supabase) ───────────────────────────────────────────────────────────
@@ -61,9 +61,10 @@ class SignUpRequest(BaseModel):
     clinic_name: str | None = Field(default=None, max_length=255)
     phone: str = Field(min_length=1, max_length=64)
     role: Literal["dentist", "laboratory"] = "dentist"
-    # Profile photo, required: base64 (a data: URL prefix is accepted).
-    avatar: str = Field(min_length=1, max_length=7_200_000)
-    avatar_content_type: Literal["image/jpeg", "image/png"]
+    # Profile photo as base64 (a data: URL prefix is accepted). Required for
+    # dentists, optional for labs.
+    avatar: str | None = Field(default=None, min_length=1, max_length=7_200_000)
+    avatar_content_type: Literal["image/jpeg", "image/png"] | None = None
 
     @field_validator("phone")
     @classmethod
@@ -87,6 +88,14 @@ class SignUpRequest(BaseModel):
             raise ValueError("Role must be dentist or laboratory")
         return raw
 
+    @model_validator(mode="after")
+    def _photo_rules(self) -> "SignUpRequest":
+        if self.role == "dentist" and not self.avatar:
+            raise ValueError("A profile photo is required for dentists")
+        if self.avatar and not self.avatar_content_type:
+            raise ValueError("avatar_content_type is required with a photo")
+        return self
+
 
 class SignInRequest(BaseModel):
     email: EmailStr
@@ -95,6 +104,7 @@ class SignInRequest(BaseModel):
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
+    lang: Literal["de", "en"] | None = None
 
 
 class PasswordChange(BaseModel):

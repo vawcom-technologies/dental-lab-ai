@@ -2249,7 +2249,8 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                                       const SizedBox(height: 8),
                                       Text(
                                         [
-                                          n.displayAuthorName,
+                                          n.displayAuthorName(loc),
+                                          ?n.authorRoleLabel(loc),
                                           if (when.isNotEmpty) when,
                                         ].join(' · '),
                                         style: AppFonts.style(

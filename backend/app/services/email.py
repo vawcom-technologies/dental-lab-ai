@@ -41,6 +41,14 @@ def _admin_inbox() -> str:
     return _bare_email(_from_address())
 
 
+_STATUS_LABELS = {
+    "scheduled": "Geplant / Scheduled",
+    "completed": "Abgeschlossen / Completed",
+    "cancelled": "Abgesagt / Cancelled",
+    "no_show": "Nicht erschienen / No show",
+}
+
+
 def _format_visit_window(start_time: datetime | str, end_time: datetime | str) -> str:
     def _fmt(value: datetime | str) -> str:
         if isinstance(value, datetime):
@@ -55,12 +63,22 @@ def _format_visit_window(start_time: datetime | str, end_time: datetime | str) -
     return f"{_fmt(start_time)} → {_fmt(end_time)}"
 
 
-def _branded_html(*, title: str, intro: str, details_html: str = "", footer: str = "") -> str:
-    safe_title = html.escape(title)
-    safe_intro = html.escape(intro)
-    safe_footer = html.escape(
-        footer or "If you did not expect this message, you can ignore it."
-    )
+Pair = tuple[str, str]  # (German, English); users have no stored language, so mails carry both
+
+_DEFAULT_FOOTER: Pair = (
+    "Falls Sie diese Nachricht nicht erwartet haben, können Sie sie ignorieren.",
+    "If you did not expect this message, you can ignore it.",
+)
+
+
+def _branded_html(*, title: Pair, intro: Pair, details_html: str = "", footer: Pair | None = None) -> str:
+    safe_title = html.escape(title[0])
+    safe_title_en = html.escape(title[1])
+    safe_intro = html.escape(intro[0])
+    safe_intro_en = html.escape(intro[1])
+    footer = footer or _DEFAULT_FOOTER
+    safe_footer = html.escape(footer[0])
+    safe_footer_en = html.escape(footer[1])
     details_block = ""
     if details_html:
         details_block = f"""
@@ -86,6 +104,9 @@ def _branded_html(*, title: str, intro: str, details_html: str = "", footer: str
                 <h1 style="margin:10px 0 0;font-size:26px;line-height:1.25;font-weight:normal;color:#ffffff;">
                   {safe_title}
                 </h1>
+                <p style="margin:6px 0 0;font-size:15px;color:#a8c5be;font-family:Arial,Helvetica,sans-serif;">
+                  {safe_title_en}
+                </p>
               </td>
             </tr>
             <tr>
@@ -93,9 +114,12 @@ def _branded_html(*, title: str, intro: str, details_html: str = "", footer: str
                 <p style="margin:0 0 20px;font-size:16px;line-height:1.65;font-family:Arial,Helvetica,sans-serif;color:#334155;">
                   {safe_intro}
                 </p>
+                <p style="margin:0 0 20px;font-size:14px;line-height:1.65;font-family:Arial,Helvetica,sans-serif;color:#64748b;">
+                  {safe_intro_en}
+                </p>
                 {details_block}
                 <p style="margin:0;font-size:13px;line-height:1.5;color:#64748b;font-family:Arial,Helvetica,sans-serif;">
-                  {safe_footer}
+                  {safe_footer}<br>{safe_footer_en}
                 </p>
               </td>
             </tr>
@@ -112,12 +136,15 @@ def _branded_html(*, title: str, intro: str, details_html: str = "", footer: str
 </html>"""
 
 
-def _appointment_email_shell(*, title: str, intro: str, details_html: str) -> str:
+def _appointment_email_shell(*, title: Pair, intro: Pair, details_html: str) -> str:
     return _branded_html(
         title=title,
         intro=intro,
         details_html=details_html,
-        footer="If you need to reschedule, please contact your clinic.",
+        footer=(
+            "Wenn Sie den Termin verschieben möchten, wenden Sie sich bitte an Ihre Praxis.",
+            "If you need to reschedule, please contact your clinic.",
+        ),
     )
 
 
@@ -136,16 +163,22 @@ def _signup_notify_html(
     safe_phone = html.escape((phone or "").strip() or "N/A")
     details = (
         f"<strong>Name:</strong> {safe_name}<br>"
-        f"<strong>Email:</strong> {safe_email}<br>"
-        f"<strong>Role:</strong> {safe_role}<br>"
-        f"<strong>Clinic:</strong> {safe_clinic}<br>"
-        f"<strong>Phone:</strong> {safe_phone}"
+        f"<strong>E-Mail:</strong> {safe_email}<br>"
+        f"<strong>Rolle / Role:</strong> {safe_role}<br>"
+        f"<strong>Praxis / Clinic:</strong> {safe_clinic}<br>"
+        f"<strong>Telefon / Phone:</strong> {safe_phone}"
     )
     return _branded_html(
-        title="New user signup",
-        intro="There is a new user signup to Elite Dent. Please sign in to verify the account.",
+        title=("Neue Registrierung", "New user signup"),
+        intro=(
+            "Es gibt eine neue Registrierung bei Elite Dent. Bitte melden Sie sich an, um das Konto zu verifizieren.",
+            "There is a new user signup to Elite Dent. Please sign in to verify the account.",
+        ),
         details_html=details,
-        footer="This alert was sent to the administrator inbox.",
+        footer=(
+            "Diese Benachrichtigung wurde an das Administrator-Postfach gesendet.",
+            "This alert was sent to the administrator inbox.",
+        ),
     )
 
 
@@ -182,24 +215,30 @@ def send_welcome_email(
 ) -> None:
     """Signup: notify the new user and the admin inbox. Safe for BackgroundTasks."""
     user_email = (email or "").strip()
-    display = (name or "").strip() or "there"
+    display = (name or "").strip() or "Hallo"
     if user_email:
         _send_resend(
             to_email=user_email,
-            subject="Your Elite Dent account is pending verification",
+            subject="Ihr Elite Dent Konto wird geprüft / Your Elite Dent account is pending verification",
             html_body=_branded_html(
-                title="Account received",
+                title=("Konto erhalten", "Account received"),
                 intro=(
+                    f"Guten Tag {display}, vielen Dank für Ihre Registrierung bei Elite Dent. "
+                    "Ein Administrator muss Ihr Konto prüfen, bevor Sie sich anmelden können. "
+                    "Sie erhalten eine weitere E-Mail, sobald der Zugang freigegeben ist.",
                     f"Hello {display}, thank you for registering with Elite Dent. "
                     "An administrator must verify your account before you can sign in. "
-                    "You will receive another email once access is approved."
+                    "You will receive another email once access is approved.",
                 ),
-                footer="If you did not create this account, you can ignore this email.",
+                footer=(
+                    "Falls Sie dieses Konto nicht erstellt haben, können Sie diese E-Mail ignorieren.",
+                    "If you did not create this account, you can ignore this email.",
+                ),
             ),
         )
     _send_resend(
         to_email=_admin_inbox(),
-        subject="New user signup — Elite Dent",
+        subject="Neue Registrierung / New user signup — Elite Dent",
         html_body=_signup_notify_html(
             name=name,
             email=email,
@@ -212,52 +251,67 @@ def send_welcome_email(
 
 def send_account_verified_email(name: str, email: str) -> None:
     """Tell the user they can sign in after admin verification."""
-    display = (name or "").strip() or "there"
+    display = (name or "").strip() or "Hallo"
     _send_resend(
         to_email=email,
-        subject="Your Elite Dent account is approved",
+        subject="Ihr Elite Dent Konto ist freigegeben / Your Elite Dent account is approved",
         html_body=_branded_html(
-            title="You can sign in now",
+            title=("Sie können sich jetzt anmelden", "You can sign in now"),
             intro=(
+                f"Guten Tag {display}, ein Administrator hat Ihr Elite Dent Konto verifiziert. "
+                "Sie können sich mit der bei der Registrierung verwendeten E-Mail-Adresse und dem Passwort anmelden.",
                 f"Hello {display}, an administrator has verified your Elite Dent account. "
-                "You can sign in with the email and password you registered."
+                "You can sign in with the email and password you registered.",
             ),
-            footer="If you need help, contact support@elite-d.de.",
+            footer=(
+                "Bei Fragen wenden Sie sich an support@elite-d.de.",
+                "If you need help, contact support@elite-d.de.",
+            ),
         ),
     )
 
 
 def send_signup_rejected_email(name: str, email: str, reason: str | None = None) -> None:
     """Tell a signup the admin declined it, with the reason when one was given."""
-    display = (name or "").strip() or "there"
+    display = (name or "").strip() or "Hallo"
     reason = (reason or "").strip()
-    intro = f"Hello {display}, your Elite Dent registration was not approved."
+    intro_de = f"Guten Tag {display}, Ihre Registrierung bei Elite Dent wurde nicht genehmigt."
+    intro_en = f"Hello {display}, your Elite Dent registration was not approved."
     if reason:
-        intro += f" Reason: {reason}"
+        intro_de += f" Grund: {reason}"
+        intro_en += f" Reason: {reason}"
     _send_resend(
         to_email=email,
-        subject="Your Elite Dent registration",
+        subject="Ihre Elite Dent Registrierung / Your Elite Dent registration",
         html_body=_branded_html(
-            title="Registration not approved",
-            intro=intro,
-            footer="If you think this is a mistake, contact support@elite-d.de.",
+            title=("Registrierung nicht genehmigt", "Registration not approved"),
+            intro=(intro_de, intro_en),
+            footer=(
+                "Falls Sie dies für einen Irrtum halten, wenden Sie sich an support@elite-d.de.",
+                "If you think this is a mistake, contact support@elite-d.de.",
+            ),
         ),
     )
 
 
 def send_account_deleted_email(name: str, email: str) -> None:
     """Confirm self-service account deletion."""
-    display = (name or "").strip() or "there"
+    display = (name or "").strip() or "Hallo"
     _send_resend(
         to_email=email,
-        subject="Your Elite Dent account has been deleted",
+        subject="Ihr Elite Dent Konto wurde gelöscht / Your Elite Dent account has been deleted",
         html_body=_branded_html(
-            title="Account deleted",
+            title=("Konto gelöscht", "Account deleted"),
             intro=(
+                f"Guten Tag {display}, Ihr Elite Dent Konto und die zugehörigen klinischen Daten "
+                "wurden auf Ihren Wunsch endgültig entfernt.",
                 f"Hello {display}, your Elite Dent account and associated clinical data "
-                "have been permanently removed as requested."
+                "have been permanently removed as requested.",
             ),
-            footer="If you did not request this, contact support@elite-d.de immediately.",
+            footer=(
+                "Falls Sie dies nicht veranlasst haben, kontaktieren Sie umgehend support@elite-d.de.",
+                "If you did not request this, contact support@elite-d.de immediately.",
+            ),
         ),
     )
 
@@ -271,24 +325,24 @@ def send_appointment_confirmation(
 ) -> None:
     """Email the patient a new appointment confirmation. Safe for BackgroundTasks."""
     name = (patient_name or "").strip() or "Patient"
-    desc = (description or "").strip() or "Clinical visit"
+    desc = (description or "").strip() or "Klinischer Termin / Clinical visit"
     window = _format_visit_window(start_time, end_time)
     details = (
         f"<strong>Patient:</strong> {html.escape(name)}<br>"
-        f"<strong>When:</strong> {html.escape(window)}<br>"
+        f"<strong>Wann / When:</strong> {html.escape(window)}<br>"
         f"<strong>Details:</strong> {html.escape(desc)}"
     )
     html_body = _appointment_email_shell(
-        title="Appointment confirmed",
+        title=("Termin bestätigt", "Appointment confirmed"),
         intro=(
-            f"Hello {name}, your visit with Elite Dent has been scheduled. "
-            "Please find the details below."
+            f"Guten Tag {name}, Ihr Termin bei Elite Dent wurde vereinbart. Die Details finden Sie unten.",
+            f"Hello {name}, your visit with Elite Dent has been scheduled. Please find the details below.",
         ),
         details_html=details,
     )
     _send_resend(
         to_email=patient_email,
-        subject="Your Elite Dent appointment is confirmed",
+        subject="Ihr Elite Dent Termin ist bestätigt / Your Elite Dent appointment is confirmed",
         html_body=html_body,
     )
 
@@ -303,26 +357,27 @@ def send_appointment_update(
 ) -> None:
     """Email the patient an appointment schedule/status update. Safe for BackgroundTasks."""
     name = (patient_name or "").strip() or "Patient"
-    desc = (description or "").strip() or "Clinical visit"
-    status_label = (status or "scheduled").replace("_", " ").title()
+    desc = (description or "").strip() or "Klinischer Termin / Clinical visit"
+    key = status or "scheduled"
+    status_label = _STATUS_LABELS.get(key) or key.replace("_", " ").title()
     window = _format_visit_window(start_time, end_time)
     details = (
         f"<strong>Patient:</strong> {html.escape(name)}<br>"
         f"<strong>Status:</strong> {html.escape(status_label)}<br>"
-        f"<strong>When:</strong> {html.escape(window)}<br>"
+        f"<strong>Wann / When:</strong> {html.escape(window)}<br>"
         f"<strong>Details:</strong> {html.escape(desc)}"
     )
     html_body = _appointment_email_shell(
-        title="Appointment updated",
+        title=("Termin geändert", "Appointment updated"),
         intro=(
-            f"Hello {name}, your Elite Dent appointment has been updated. "
-            "Please review the latest visit details."
+            f"Guten Tag {name}, Ihr Elite Dent Termin wurde geändert. Bitte prüfen Sie die aktuellen Details.",
+            f"Hello {name}, your Elite Dent appointment has been updated. Please review the latest visit details.",
         ),
         details_html=details,
     )
     _send_resend(
         to_email=patient_email,
-        subject=f"Elite Dent appointment update — {status_label}",
+        subject=f"Elite Dent Termin geändert / appointment update — {status_label}",
         html_body=html_body,
     )
 
@@ -336,23 +391,23 @@ def send_appointment_cancelled(
 ) -> None:
     """Email the patient when an appointment is deleted. Safe for BackgroundTasks."""
     name = (patient_name or "").strip() or "Patient"
-    desc = (description or "").strip() or "Clinical visit"
+    desc = (description or "").strip() or "Klinischer Termin / Clinical visit"
     window = _format_visit_window(start_time, end_time)
     details = (
         f"<strong>Patient:</strong> {html.escape(name)}<br>"
-        f"<strong>When:</strong> {html.escape(window)}<br>"
+        f"<strong>Wann / When:</strong> {html.escape(window)}<br>"
         f"<strong>Details:</strong> {html.escape(desc)}"
     )
     html_body = _appointment_email_shell(
-        title="Appointment cancelled",
+        title=("Termin abgesagt", "Appointment cancelled"),
         intro=(
-            f"Hello {name}, your Elite Dent appointment has been cancelled. "
-            "Please contact your clinic if you need a new time."
+            f"Guten Tag {name}, Ihr Elite Dent Termin wurde abgesagt. Bitte wenden Sie sich an Ihre Praxis, wenn Sie einen neuen Termin benötigen.",
+            f"Hello {name}, your Elite Dent appointment has been cancelled. Please contact your clinic if you need a new time.",
         ),
         details_html=details,
     )
     _send_resend(
         to_email=patient_email,
-        subject="Your Elite Dent appointment was cancelled",
+        subject="Ihr Elite Dent Termin wurde abgesagt / Your Elite Dent appointment was cancelled",
         html_body=html_body,
     )

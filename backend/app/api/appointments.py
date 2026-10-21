@@ -429,16 +429,30 @@ def update_appointment(
         updated.get("description") or "",
     )
     who = actor_label(user.id)
-    verb = "cancelled" if (updated.get("status") == "cancelled") else "updated"
     name = _patient_display_name(patient)
-    notify_pair(
-        counterpart_id=str(patient.get("created_by") or ""),
-        actor_id=user.id,
-        type="appointment",
-        counterpart_message=f"{who} {verb} an appointment for {name}.",
-        actor_message=f"You {verb} an appointment for {name}.",
-        patient_id=str(patient.get("id") or "") or None,
-    )
+    pid = str(patient.get("id") or "") or None
+    old_status = str(existing.get("status") or "scheduled")
+    new_status = str(updated.get("status") or old_status)
+    if "status" in updates and new_status != old_status:
+        # Explicit status change (scheduled → completed / cancelled / no_show).
+        notify_pair(
+            counterpart_id=str(patient.get("created_by") or ""),
+            actor_id=user.id,
+            type="appointment",
+            counterpart_message=f"{who} set the appointment for {name} to {new_status}.",
+            actor_message=f"You set the appointment for {name} to {new_status}.",
+            patient_id=pid,
+        )
+    else:
+        verb = "cancelled" if new_status == "cancelled" else "updated"
+        notify_pair(
+            counterpart_id=str(patient.get("created_by") or ""),
+            actor_id=user.id,
+            type="appointment",
+            counterpart_message=f"{who} {verb} an appointment for {name}.",
+            actor_message=f"You {verb} an appointment for {name}.",
+            patient_id=pid,
+        )
     return _serialize(updated, patient)
 
 

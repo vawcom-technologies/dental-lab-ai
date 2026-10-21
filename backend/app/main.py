@@ -47,6 +47,7 @@ from app.api import (
     interpreter,
 )
 from app.core.debug_middleware import DebugRequestMiddleware, configure_api_logging
+from app.core.config import settings
 from app.openapi_docs import attach_custom_openapi
 
 logger = logging.getLogger("app")
@@ -81,6 +82,10 @@ app = FastAPI(
     version="0.3.0",
     description="Elite Dent API — Supabase authentication + real-time chat",
     lifespan=lifespan,
+    # API docs only when ENABLE_DOCS=true (local / staging).
+    docs_url="/docs" if settings.enable_docs else None,
+    redoc_url="/redoc" if settings.enable_docs else None,
+    openapi_url="/openapi.json" if settings.enable_docs else None,
 )
 
 # Document /ws/chat in Swagger (/docs) via custom OpenAPI injection
@@ -90,8 +95,9 @@ attach_custom_openapi(app)
 app.add_middleware(DebugRequestMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    # Only our own sites; auth is a bearer token, never a cookie.
+    allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

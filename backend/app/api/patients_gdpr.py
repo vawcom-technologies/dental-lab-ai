@@ -12,6 +12,7 @@ from starlette.background import BackgroundTask
 
 from app.services.file_urls import client_file_url
 from app.core.security import AuthUser, canonicalize_role, get_current_user
+from app.core.uploads import IMAGE_MAX_BYTES, read_capped
 from app.core.supabase_client import get_supabase_admin
 from app.schemas_patients import (
     AccessRequestDecision,
@@ -184,14 +185,19 @@ def _note_public(
     plaintext: str,
     *,
     author_name: str | None = None,
+    author_role: str | None = None,
 ) -> dict[str, Any]:
     author_id = str(row["author_id"])
     resolved = (author_name or "").strip() or "Unknown Practitioner"
+    role = (author_role or "").strip().lower() or None
+    if role not in ("dentist", "laboratory", "admin"):
+        role = None
     return PatientNoteOut(
         id=str(row["id"]),
         patient_id=str(row["patient_id"]),
         author_id=author_id,
         author_name=resolved,
+        author_role=role,
         note_content=plaintext,
         created_at=row.get("created_at"),
         updated_at=row.get("updated_at"),
@@ -208,6 +214,13 @@ def _note_author_display_name(
         return name
     email = (profile.get("email") or "").strip()
     return email or "Unknown Practitioner"
+
+
+def _note_author_role(profile: dict[str, Any] | None) -> str | None:
+    if not profile:
+        return None
+    role = (profile.get("role") or "").strip().lower()
+    return role if role in ("dentist", "laboratory", "admin") else None
 
 
 def _profile_display_name(profile: dict[str, Any] | None, fallback_id: str) -> str:
@@ -1432,6 +1445,32 @@ def upload_patient_note(
 
     # Return decrypted content only to the authorized caller (never log it)
     author_profile = fetch_profile(user.id)
+    author_name = _note_author_display_name(author_profile, user.id)
+    author_role = _note_author_role(author_profile)
+    patient = pa.fetch_patient(patient_id)
+    owner_id = str((patient or {}).get("created_by") or "")
+    name = _patient_display_name(patient) if patient else patient_id
+    # Notify the counterpart (owner ↔ lab / shared user) about the new note.
+    if owner_id and owner_id != user.id:
+        notify_pair(
+            counterpart_id=owner_id,
+            actor_id=user.id,
+            type="note",
+            counterpart_message=f"{author_name} added a note for {name}.",
+            actor_message=f"You added a note for {name}.",
+            patient_id=patient_id,
+        )
+    elif owner_id == user.id:
+        # Owner wrote a note — notify the patient's lab if known.
+        lab_id = str((patient or {}).get("lab_id") or (author_profile or {}).get("lab_id") or "")
+        if lab_id and lab_id != user.id:
+            notify(
+                user_id=lab_id,
+                type="note",
+                message=f"{author_name} added a note for {name}.",
+                patient_id=patient_id,
+                actor_id=user.id,
+            )
     return _ok(
         action=action,
         user_id=user.id,
@@ -1441,7 +1480,8 @@ def upload_patient_note(
             "note": _note_public(
                 rows[0],
                 payload.note_content,
-                author_name=_note_author_display_name(author_profile, user.id),
+                author_name=author_name,
+                author_role=author_role,
             )
         },
     )
@@ -1474,6 +1514,9 @@ def list_patient_notes(patient_id: str, user: AuthUser = Depends(get_current_use
                 author_name=_note_author_display_name(
                     profiles_by_id.get(str(r.get("author_id") or "")),
                     str(r.get("author_id") or ""),
+                ),
+                author_role=_note_author_role(
+                    profiles_by_id.get(str(r.get("author_id") or "")),
                 ),
             )
             for r in rows
@@ -1599,6 +1642,7 @@ def edit_patient_note(
                 updated_row,
                 payload.new_note_content,
                 author_name=_note_author_display_name(author_profile, author_id),
+                author_role=_note_author_role(author_profile),
             )
         },
     )
@@ -1782,7 +1826,7 @@ async def upload_patient_photo(
                 patient_id=patient_id,
             )
 
-        data = await file.read()
+        data = await read_capped(file, IMAGE_MAX_BYTES)
         if not data:
             return _err(
                 action=action,

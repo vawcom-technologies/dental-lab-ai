@@ -317,7 +317,7 @@ class _NotificationsPopover extends StatelessWidget {
                   separatorBuilder: (_, _) => Divider(height: 1, indent: 52, color: AppColors.border.withValues(alpha: 0.5)),
                   itemBuilder: (context, i) {
                     final n = items[i];
-                    final unread = n['read'] != true;
+                    final unread = !NotificationInboxController.isRead(n);
                     final text = loc.localizeNotificationMessage(
                       '${n['message'] ?? ''}',
                       type: '${n['type'] ?? ''}',

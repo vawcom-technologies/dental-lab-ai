@@ -2,9 +2,11 @@ from typing import Any
 import base64
 import binascii
 import logging
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 
+from app.core import rate_limit
 from app.core.config import settings
 from app.core.security import (
     ACCOUNT_DEACTIVATED,
@@ -43,8 +45,17 @@ router = APIRouter()
 logger = logging.getLogger("app.api.auth")
 
 
+# Supabase messages users should see (weak password, taken email, rate
+# limits). Anything else is internal: logged here, generic for the caller.
+_SAFE_AUTH_HINTS = ("password", "already registered", "already been registered", "email", "rate limit", "too many")
+
+
 def _supabase_error_detail(exc: Exception) -> str:
-    return str(exc).strip() or "Authentication request failed"
+    msg = str(exc).strip()
+    if msg and len(msg) <= 200 and any(h in msg.lower() for h in _SAFE_AUTH_HINTS):
+        return msg
+    logger.warning("auth provider error: %s", msg)
+    return "The request could not be completed. Please try again."
 
 
 def _clean_optional(value: str | None) -> str | None:
@@ -199,8 +210,10 @@ def _token_out(
 
 
 @router.post("/signup", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
-def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
+def signup(payload: SignUpRequest, background_tasks: BackgroundTasks, request: Request):
     email = str(payload.email).lower().strip()
+    # Each signup emails the admin inbox: keep floods out.
+    rate_limit.guard(request, "signup", email, per_ip=5, per_email=3, window=3600)
     name = (payload.name or "").strip()
     logger.debug("signup start email=%s name=%s", email, name)
     if not name:
@@ -214,8 +227,10 @@ def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
         logger.debug("signup blocked: rejected email=%s", email)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=REGISTRATION_REJECTED)
 
-    avatar_bytes = _decode_avatar(payload.avatar)
-    avatars.sniff(avatar_bytes, payload.avatar_content_type)
+    # Labs may sign up without a photo (the schema requires it for dentists).
+    avatar_bytes = _decode_avatar(payload.avatar) if payload.avatar else None
+    if avatar_bytes is not None:
+        avatars.sniff(avatar_bytes, payload.avatar_content_type)
 
     clinic_name = _clean_optional(payload.clinic_name)
     # Validated + normalized to +49XXXXXXXXXXX (11 digits) by SignUpRequest
@@ -261,7 +276,11 @@ def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
         )
 
     try:
-        avatar_url = avatars.store(str(user.id), avatar_bytes, payload.avatar_content_type)
+        avatar_url = (
+            avatars.store(str(user.id), avatar_bytes, payload.avatar_content_type)
+            if avatar_bytes is not None
+            else None
+        )
     except HTTPException:
         # No half-made account: without this the email would be taken but unusable.
         try:
@@ -306,8 +325,10 @@ def signup(payload: SignUpRequest, background_tasks: BackgroundTasks):
 
 
 @router.post("/signin", response_model=TokenOut)
-def signin(payload: SignInRequest):
+def signin(payload: SignInRequest, request: Request):
     email = str(payload.email).lower().strip()
+    # Password guessing: per caller and per account.
+    rate_limit.guard(request, "signin", email, per_ip=20, per_email=5, window=60)
     logger.debug("signin start")
     try:
         result = get_supabase().auth.sign_in_with_password(
@@ -352,9 +373,9 @@ def signin(payload: SignInRequest):
 
 
 @router.post("/login", response_model=TokenOut, include_in_schema=False)
-def login(payload: SignInRequest):
+def login(payload: SignInRequest, request: Request):
     """Alias of /signin for clients that expect /api/auth/login."""
-    return signin(payload)
+    return signin(payload, request)
 
 
 @router.post("/refresh", response_model=TokenOut)
@@ -415,9 +436,16 @@ def logout(payload: LogoutRequest):
 
 
 @router.post("/forgot-password", response_model=AuthMessageOut)
-def forgot_password(payload: ForgotPasswordRequest):
+def forgot_password(payload: ForgotPasswordRequest, request: Request):
     email = str(payload.email).lower().strip()
+    # Each call sends an email.
+    rate_limit.guard(request, "forgot", email, per_ip=5, per_email=3, window=900)
     redirect = _clean_optional(settings.password_reset_redirect_url)
+    if redirect and payload.lang:
+        # The reset page reads ?lang= so it opens in the language chosen in the app.
+        parts = urlsplit(redirect)
+        query = urlencode([*parse_qsl(parts.query), ("lang", payload.lang)])
+        redirect = urlunsplit(parts._replace(query=query))
     logger.debug("forgot-password start email=%s redirect=%s", email, bool(redirect))
 
     try:

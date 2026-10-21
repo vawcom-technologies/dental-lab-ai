@@ -1,8 +1,9 @@
-import 'package:flutter/cupertino.dart';
+import 'dart:ui';
 
-import '../l10n/app_localizations.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import 'glass_surface.dart';
 import 'tooth_loader.dart';
 
@@ -147,7 +148,7 @@ class AppDialogs {
     return result;
   }
 
-  /// Blocking loading dialog (native chrome).
+  /// Blocking loading dialog with a blurred backdrop.
   static Future<T> runWithLoading<T>(
     BuildContext context, {
     required Future<T> Function() action,
@@ -157,20 +158,32 @@ class AppDialogs {
     showCupertinoDialog<void>(
       context: context,
       barrierDismissible: false,
+      barrierColor: Colors.transparent,
       builder: (ctx) => PopScope(
         canPop: false,
-        child: CupertinoAlertDialog(
-          content: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const CupertinoActivityIndicator(radius: 14),
-                const SizedBox(height: 14),
-                Text(message ?? AppLocalizations.of(context).tr('c.pleaseWait')),
-              ],
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+              child: ColoredBox(color: Colors.black.withValues(alpha: 0.18)),
             ),
-          ),
+            Center(
+              child: CupertinoAlertDialog(
+                content: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CupertinoActivityIndicator(radius: 14),
+                      const SizedBox(height: 14),
+                      Text(message ?? AppLocalizations.of(context).tr('c.pleaseWait')),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -191,24 +204,34 @@ class AppDialogs {
     return showCupertinoDialog<T>(
       context: context,
       barrierDismissible: barrierDismissible,
-      builder: (ctx) => Material(
-        type: MaterialType.transparency,
-        child: Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: maxWidth),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-              child: GlassSurface(
-                borderRadius: BorderRadius.circular(24),
-                blur: 28,
-                tint: Colors.white.withValues(alpha: 0.78),
-                padding: EdgeInsets.zero,
-                child: builder(ctx),
+      builder: (ctx) {
+        final inset = MediaQuery.viewInsetsOf(ctx);
+        return Material(
+          type: MaterialType.transparency,
+          child: AnimatedPadding(
+            duration: const Duration(milliseconds: 120),
+            curve: Curves.easeOut,
+            padding: EdgeInsets.only(
+              left: 24,
+              right: 24,
+              top: 24,
+              bottom: 24 + inset.bottom,
+            ),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxWidth),
+                child: GlassSurface(
+                  borderRadius: BorderRadius.circular(24),
+                  blur: 28,
+                  tint: Colors.white.withValues(alpha: 0.78),
+                  padding: EdgeInsets.zero,
+                  child: builder(ctx),
+                ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 

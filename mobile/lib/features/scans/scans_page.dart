@@ -643,11 +643,7 @@ class _ScansPageState extends State<ScansPage>
     }
   }
 
-  /// Locked case (under review / completed): replace; otherwise delete.
-  Future<void> _removeOrReplace(Map<String, dynamic> scan) {
-    if (_case?.locked == true) return _upload(replaces: '${scan['id']}');
-    return _deleteScan(scan);
-  }
+  Future<void> _removeOrReplace(Map<String, dynamic> scan) => _deleteScan(scan);
 
   Future<void> _deleteScan(Map<String, dynamic> scan) async {
     if (_busy) return;
@@ -850,13 +846,13 @@ class _ScansPageState extends State<ScansPage>
               ),
               if (!_readOnly)
                 IconButton(
-                  tooltip: _case?.locked == true ? loc.tr('case.replace') : loc.scansDelete,
+                  tooltip: loc.scansDelete,
                   visualDensity: VisualDensity.compact,
                   onPressed: _busy ? null : () => _removeOrReplace(scan),
-                  icon: Icon(
-                    _case?.locked == true ? Icons.swap_horiz_rounded : Icons.delete_outline_rounded,
+                  icon: const Icon(
+                    Icons.delete_outline_rounded,
                     size: 20,
-                    color: _case?.locked == true ? AppColors.dentalBlue : AppColors.danger,
+                    color: AppColors.danger,
                   ),
                 ),
             ],
@@ -1133,37 +1129,56 @@ class _ScansPageState extends State<ScansPage>
               style: AppFonts.style(fontSize: 12.5, color: AppColors.muted),
             ),
             const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(12)),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _qualityStatus(scan, loc),
-                  // The reasons open in a sheet instead of stacking here.
-                  if (_incoming == null && _issuesFor(scan).isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Wrap(
-                      alignment: WrapAlignment.spaceBetween,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      spacing: 8,
-                      runSpacing: 4,
-                      children: [
-                        Text(
-                          loc.trp('sq.issueCount', {'n': _issuesFor(scan).length}),
-                          style: AppFonts.style(fontSize: 12.5, color: AppColors.muted),
-                        ),
-                        AppButtons.ghost(
-                          onPressed: () => _showScanIssues(scan),
-                          icon: Icons.info_outline_rounded,
-                          label: loc.tr('sq.viewDetails'),
-                          compact: true,
+            Builder(
+              builder: (context) {
+                final issues = _incoming == null ? _issuesFor(scan) : const <Map<String, dynamic>>[];
+                final openDetails = issues.isNotEmpty ? () => _showScanIssues(scan) : null;
+                final box = Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(12),
+                    border: openDetails == null
+                        ? null
+                        : Border.all(color: AppColors.border.withValues(alpha: 0.7)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _qualityStatus(scan, loc),
+                      if (issues.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                loc.trp('sq.issueCount', {'n': issues.length}),
+                                style: AppFonts.style(fontSize: 13.5, color: AppColors.muted),
+                              ),
+                            ),
+                            Text(
+                              loc.tr('sq.viewDetails'),
+                              style: AppFonts.style(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.dentalBlue,
+                              ),
+                            ),
+                            const SizedBox(width: 2),
+                            const Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.dentalBlue),
+                          ],
                         ),
                       ],
-                    ),
-                  ],
-                ],
-              ),
+                    ],
+                  ),
+                );
+                if (openDetails == null) return box;
+                return Pressable(
+                  onTap: openDetails,
+                  scale: 0.98,
+                  builder: (_, _) => box,
+                );
+              },
             ),
             if (!_readOnly) ...[
               const SizedBox(height: 14),
@@ -1180,8 +1195,8 @@ class _ScansPageState extends State<ScansPage>
                     ),
                   AppButtons.ghost(
                     onPressed: _busy ? null : () => _removeOrReplace(scan),
-                    icon: _case?.locked == true ? Icons.swap_horiz_rounded : Icons.delete_outline_rounded,
-                    label: _case?.locked == true ? loc.tr('case.replace') : loc.scansDelete,
+                    icon: Icons.delete_outline_rounded,
+                    label: loc.scansDelete,
                     compact: true,
                   ),
                 ],
@@ -1212,7 +1227,6 @@ class _ScansPageState extends State<ScansPage>
     final loc = AppLocalizations.of(context);
     final issues = _incoming == null ? _issuesFor(scan) : const <Map<String, dynamic>>[];
     final bad = scan['prompt_rescan'] == true || scan['validation_result'] == 'bad';
-    final locked = _case?.locked == true;
     AppHaptics.selection();
     await showCupertinoModalPopup<void>(
       context: context,
@@ -1238,12 +1252,12 @@ class _ScansPageState extends State<ScansPage>
             ),
           if (!_readOnly)
             CupertinoActionSheetAction(
-              isDestructiveAction: !locked,
+              isDestructiveAction: true,
               onPressed: () {
                 Navigator.pop(ctx);
                 if (!_busy) _removeOrReplace(scan);
               },
-              child: Text(locked ? loc.tr('case.replace') : loc.scansDelete),
+              child: Text(loc.scansDelete),
             ),
         ],
         cancelButton: CupertinoActionSheetAction(
@@ -1370,7 +1384,7 @@ class _ScansPageState extends State<ScansPage>
         Expanded(
           child: Text(
             text,
-            style: TextStyle(color: color, fontWeight: FontWeight.w600),
+            style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 15),
           ),
         ),
         if (_incoming == null && q == 'error')
@@ -1412,20 +1426,20 @@ class _ScansPageState extends State<ScansPage>
               Expanded(
                 child: Text(
                   loc.tr(known ? 'sq.$code.t' : 'sq.unknown.t'),
-                  style: TextStyle(color: color, fontWeight: FontWeight.w700),
+                  style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 16),
                 ),
               ),
               const SizedBox(width: 8),
               Text(
                 loc.tr('sq.sev.$sev'),
-                style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600),
+                style: TextStyle(color: color, fontSize: 13.5, fontWeight: FontWeight.w600),
               ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Text(
             known ? loc.tr('sq.$code.d') : '${issue['message'] ?? ''}',
-            style: const TextStyle(fontSize: 13, height: 1.35),
+            style: const TextStyle(fontSize: 15, height: 1.4),
           ),
         ],
       ),

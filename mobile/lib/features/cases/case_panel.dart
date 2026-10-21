@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/l10n/date_formats.dart';
+import '../../core/l10n/server_text.dart';
 import '../../core/navigation/app_page_routes.dart';
 import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
@@ -1051,8 +1052,14 @@ class _EventRow extends StatelessWidget {
     final e = event;
     final (icon, color) = _style[e.type] ?? (Icons.circle_outlined, AppColors.muted);
     final key = 'case.event.${e.type}';
-    final label = loc.tr(key) == key ? e.type : loc.tr(key);
-    final move = e.toStatus == null ? null : [?e.fromStatus, e.toStatus!].map(loc.statusLabel).join(' → ');
+    final translated = loc.tr(key);
+    final label = translated == key
+        ? e.type.replaceAll('_', ' ')
+        : translated;
+    final move = e.toStatus == null
+        ? null
+        : [?e.fromStatus, e.toStatus!].map(loc.statusLabel).join(' → ');
+    final remarks = e.remarks == null ? null : localizeServerText(e.remarks!);
     return IntrinsicHeight(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1083,7 +1090,7 @@ class _EventRow extends StatelessWidget {
                     [?e.actor, ?move, _when(context, e.at)].where((s) => s.isNotEmpty).join(' · '),
                     style: AppFonts.style(fontSize: 12, color: AppColors.muted),
                   ),
-                  if (e.remarks != null)
+                  if (remarks != null && remarks.isNotEmpty)
                     Container(
                       margin: const EdgeInsets.only(top: 6),
                       padding: const EdgeInsets.all(10),
@@ -1092,7 +1099,7 @@ class _EventRow extends StatelessWidget {
                         borderRadius: BorderRadius.circular(12),
                         border: Border(left: BorderSide(color: color, width: 3)),
                       ),
-                      child: Text(e.remarks!, style: AppFonts.style(fontSize: 13, height: 1.35, color: AppColors.navy)),
+                      child: Text(remarks, style: AppFonts.style(fontSize: 13, height: 1.35, color: AppColors.navy)),
                     ),
                 ],
               ),

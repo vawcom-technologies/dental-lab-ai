@@ -1,4 +1,5 @@
 import '../l10n/app_localizations.dart';
+import '../l10n/server_text.dart';
 
 final _machineCodePrefix = RegExp(
   r'^\s*(?:ERROR|ERR|HTTP)[_-][A-Z0-9_]+\s*:\s*',
@@ -106,7 +107,7 @@ String _fromParts({
 }
 
 String? _rewriteDetail(String text, AppLocalizations? loc) {
-  text = stripMachineErrorCodes(text);
+  text = localizeServerText(stripMachineErrorCodes(text));
   if (text.isEmpty) return null;
   if (_looksLikeCode(text)) return null;
 

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../../core/l10n/server_text.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/haptics/app_haptics.dart';
@@ -18,6 +19,7 @@ class NotificationsPage extends StatefulWidget {
     required this.inbox,
     this.onNavigate,
     this.onOpenTab,
+    this.onOpenPatient,
     this.active = true,
   });
 
@@ -26,6 +28,9 @@ class NotificationsPage extends StatefulWidget {
 
   /// Opens [item] on a given tab (lab / admin request queues).
   final void Function(AppNavItem item, int tab)? onOpenTab;
+
+  /// Opens a specific patient (notes / case alerts with patient_id).
+  final ValueChanged<String>? onOpenPatient;
   final bool active;
 
   @override
@@ -82,18 +87,18 @@ class _NotificationsPageState extends State<NotificationsPage> {
       if (type == 'message') return false;
       if (!_allowedBySettings(type)) return false;
       if (_filter == 'all' || _filter == 'message') return true;
-      if (_filter == 'unread') return n['read'] != true;
+      if (_filter == 'unread') return !NotificationInboxController.isRead(n);
       return type == _filter;
     }).toList();
   }
 
   int get _unreadCount => _items
-      .where((n) => n['read'] != true && _allowedBySettings('${n['type']}'))
+      .where((n) => !NotificationInboxController.isRead(n) && _allowedBySettings('${n['type']}'))
       .length;
 
   Future<void> _markOne(Map<String, dynamic> n) async {
     final id = '${n['id'] ?? ''}'.trim();
-    if (id.isEmpty || n['read'] == true) return;
+    if (id.isEmpty || NotificationInboxController.isRead(n)) return;
     if (_markingAll || _markingId != null) return;
     setState(() => _markingId = id);
     try {
@@ -141,29 +146,43 @@ class _NotificationsPageState extends State<NotificationsPage> {
     final nav = widget.onNavigate;
     if (nav == null) return;
     final type = '${n['type']}';
+    final patientId = '${n['patient_id'] ?? ''}'.trim();
     final statusRaw = '${n['case_status'] ?? ''}'.trim();
     final status =
         statusRaw.isEmpty ? null : CaseStatuses.normalize(statusRaw);
+
+    void openPatientOr(AppNavItem fallback) {
+      if (patientId.isNotEmpty && widget.onOpenPatient != null) {
+        widget.onOpenPatient!(patientId);
+        return;
+      }
+      nav(fallback);
+    }
+
     switch (type) {
       case 'message':
         nav(AppNavItem.messages);
+      case 'note':
+        openPatientOr(AppNavItem.patients);
       case 'scan_quality':
-        nav(AppNavItem.scans);
+        openPatientOr(AppNavItem.scans);
       case 'shade':
-        nav(AppNavItem.shade);
+        openPatientOr(AppNavItem.shade);
+      case 'smile':
+        openPatientOr(AppNavItem.smilePreview);
       case 'appointment':
-        nav(AppNavItem.appointments);
+        openPatientOr(AppNavItem.appointments);
       // Scan body parked — restore when needed.
       // case 'scan_body':
       //   nav(AppNavItem.scanBody);
       case 'sync':
         nav(AppNavItem.settings);
       case 'export':
-        nav(AppNavItem.patients);
+        openPatientOr(AppNavItem.patients);
       // Lab requests (join, transfer, removal) carry no patient: open the
       // queue where they're decided instead of the patients page.
       case 'case_status'
-          when '${n['patient_id'] ?? ''}'.isEmpty &&
+          when patientId.isEmpty &&
               (_inbox.api.isAdmin || _inbox.api.isLaboratory):
         final open = widget.onOpenTab;
         if (open == null) break;
@@ -171,15 +190,19 @@ class _NotificationsPageState extends State<NotificationsPage> {
             ? open(AppNavItem.laboratories, 2) // Users › Removal requests
             : open(AppNavItem.lab, 1); // My lab › Requests
       case 'case_status':
-        if (status == CaseStatuses.pending || status == CaseStatuses.rejected) {
+        if (patientId.isNotEmpty && widget.onOpenPatient != null) {
+          widget.onOpenPatient!(patientId);
+        } else if (status == CaseStatuses.pending || status == CaseStatuses.rejected) {
           nav(AppNavItem.scans);
         } else if (status == CaseStatuses.inReview) {
-          nav(AppNavItem.messages);
+          nav(_inbox.api.isLaboratory ? AppNavItem.review : AppNavItem.messages);
         } else {
           nav(AppNavItem.patients);
         }
       default:
-        break;
+        if (patientId.isNotEmpty && widget.onOpenPatient != null) {
+          widget.onOpenPatient!(patientId);
+        }
     }
   }
 
@@ -357,7 +380,7 @@ class _NotificationTile extends StatelessWidget {
                 children: [
                   Text(
                     loc.localizeNotificationMessage(
-                      '${item['message'] ?? ''}',
+                      localizeServerText('${item['message'] ?? ''}'),
                       type: type,
                       patientName: patient,
                     ),
@@ -456,6 +479,8 @@ class _TypeIcon extends StatelessWidget {
       'case_status' => (Icons.assignment_outlined, AppColors.review),
       'scan_quality' => (Icons.warning_amber_rounded, AppColors.warning),
       'shade' => (Icons.palette_outlined, AppColors.aiPurple),
+      'smile' => (Icons.sentiment_satisfied_alt_outlined, AppColors.aiPurple),
+      'note' => (Icons.sticky_note_2_outlined, AppColors.review),
       'appointment' => (Icons.event_outlined, AppColors.review),
       'scan_body' => (Icons.radio_button_checked_outlined, AppColors.dentalBlue),
       'sync' => (Icons.cloud_sync_outlined, AppColors.success),

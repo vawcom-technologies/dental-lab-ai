@@ -508,6 +508,9 @@ class _AppShellState extends State<AppShell> {
           active: active,
           tab: _adminTabs[item],
           onOpenPatient: _patients.requestOpenPatientDetail,
+          onWaiting: (n) {
+            if (mounted && n != _labBadge) setState(() => _labBadge = n);
+          },
         );
       case AppNavItem.review:
         if (!widget.api.isLaboratory) {
@@ -533,6 +536,10 @@ class _AppShellState extends State<AppShell> {
           onOpenTab: (item, tab) {
             _adminTabs[item]?.value = tab;
             _go(item);
+          },
+          onOpenPatient: (id) {
+            _patients.requestOpenPatientDetail(id);
+            _go(AppNavItem.patients);
           },
           active: active,
         );

@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 
 from app.services.file_urls import client_base_file_url, client_file_url
 from app.core.security import AuthUser, get_current_user
+from app.core.uploads import IMAGE_MAX_BYTES, read_capped
 from app.schemas_patient_media import DeleteOkOut, SmilePreviewOut
 from app.services import case_flow
 from app.services import patient_media as pm
@@ -116,7 +117,7 @@ async def upload_smile_preview(
         extra["overlay"] = placements
 
     if lab:
-        data = await file.read()
+        data = await read_capped(file, IMAGE_MAX_BYTES)
         return _serialize(
             case_flow.suggest_upload(
                 patient, user, "smile", replaces, data=data, filename=file.filename, content_type=file.content_type, extra=extra
@@ -134,7 +135,7 @@ async def upload_smile_preview(
         kind=_KIND,
         patient_id=patient_id,
         user_id=user.id,
-        data=await file.read(),
+        data=await read_capped(file, IMAGE_MAX_BYTES),
         filename=file.filename,
         content_type=file.content_type,
         extra=extra or None,
@@ -164,7 +165,7 @@ async def update_smile_preview(
     if case_flow.edit_mode(user, patient) == "suggest":
         base, for_id = case_flow.suggestion_base(patient, "smile", preview_id)
         key, url, name = upload_patient_asset(
-            data=await file.read(), filename=file.filename, content_type=file.content_type, kind=_KIND, patient_id=patient_id
+            data=await read_capped(file, IMAGE_MAX_BYTES), filename=file.filename, content_type=file.content_type, kind=_KIND, patient_id=patient_id
         )
         extra = {
             "file_url": url,
@@ -176,7 +177,7 @@ async def update_smile_preview(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Smile preview not found")
     old_key = str(row.get("file_key") or "")
     key, url, name = upload_patient_asset(
-        data=await file.read(),
+        data=await read_capped(file, IMAGE_MAX_BYTES),
         filename=file.filename,
         content_type=file.content_type,
         kind=_KIND,

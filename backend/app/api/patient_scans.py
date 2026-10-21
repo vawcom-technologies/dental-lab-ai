@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from app.services.file_urls import client_file_url
 from app.ai.scan_quality import QUALITY_VERSION, validate_scan_bytes
 from app.core.security import AuthUser, get_current_user
+from app.core.uploads import SCAN_MAX_BYTES, read_capped
 from app.schemas_patient_media import DeleteOkOut, PatientScanOut
 from app.services import case_flow
 from app.services import patient_media as pm
@@ -144,7 +145,7 @@ async def upload_patient_scan(
         on_case,
     )
     # ponytail: whole scan in memory (validation needs it anyway); stream if scans outgrow RAM.
-    data = await file.read()
+    data = await read_capped(file, SCAN_MAX_BYTES)
     validation = await asyncio.to_thread(
         _validate, data, {"file_name": file.filename or "scan.ply", "patient_id": patient_id}
     )
