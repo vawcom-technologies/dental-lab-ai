@@ -1801,11 +1801,12 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
       );
       return;
     }
+    final lab = widget.controller.api.isLaboratory;
     final next = await AppDialogs.prompt(
       context,
       title: loc.patientsEditNote,
       initial: note.noteContent,
-      placeholder: loc.patientsClinicalNotePlaceholder,
+      placeholder: loc.notePlaceholderForRole(laboratory: lab),
       confirmLabel: loc.save,
       maxLines: 4,
     );
@@ -1887,10 +1888,11 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
       );
       return;
     }
+    final lab = widget.controller.api.isLaboratory;
     final ok = await AppDialogs.confirm(
       context,
       title: loc.patientsDeleteNoteTitle,
-      message: loc.patientsDeleteNoteBody,
+      message: loc.deleteNoteBodyForRole(laboratory: lab),
       confirmLabel: loc.commonDelete,
       isDestructive: true,
     );
@@ -1933,10 +1935,14 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
             final blocked = widget.controller.mutating;
             final p = _livePatient();
             final owner = widget.controller.isOwner(p);
+            final lab = api.isLaboratory;
             final tabs = [
               if (widget.cases != null) (loc.tr('case.title'), () => _buildCaseTab(p)),
               (loc.tr('p.tabInfo'), () => _buildDetailsTab(p)),
-              (loc.notes, () => _buildNotesTab(notes: notes, blocked: blocked)),
+              (
+                loc.notesLabelForRole(laboratory: lab),
+                () => _buildNotesTab(notes: notes, blocked: blocked),
+              ),
               (
                 loc.tr('p.tabAccess'),
                 () => _buildAccessTab(
@@ -2139,6 +2145,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     required bool blocked,
   }) {
     final loc = AppLocalizations.of(context);
+    final lab = widget.controller.api.isLaboratory;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
       child: Column(
@@ -2160,7 +2167,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                       fontWeight: FontWeight.w500,
                     ),
                     decoration: InputDecoration(
-                      hintText: loc.patientsNoteHint,
+                      hintText: loc.noteHintForRole(laboratory: lab),
                       hintStyle: AppFonts.style(
                         color: AppColors.muted,
                         fontSize: 15,
@@ -2198,7 +2205,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                 : notes.isEmpty
                     ? Center(
                         child: Text(
-                          loc.patientsNoClinicalNotes,
+                          loc.noNotesForRole(laboratory: lab),
                           style: AppFonts.style(
                             color: AppColors.muted,
                             fontSize: 14,

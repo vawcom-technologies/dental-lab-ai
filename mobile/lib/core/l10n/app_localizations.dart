@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import 'locale_controller.dart';
+import 'server_text.dart';
 
 /// Typed EN/DE strings for Elite Dent. Use [AppLocalizations.of].
 class AppLocalizations {
@@ -407,6 +408,9 @@ class AppLocalizations {
   String get reportsOpened => _t('reports.opened');
   String get reportsFinished => _t('reports.finished');
   String get reportsCoverageHint => _t('reports.coverageHint');
+  String get reportsIntake => _t('reports.intake');
+  String get reportsCompletedWeekly => _t('reports.completedWeekly');
+  String get reportsPerWeek => _t('reports.perWeek');
 
   // ── Case statuses ────────────────────────────────────────────────────────
   String statusLabel(String key) {
@@ -598,6 +602,25 @@ class AppLocalizations {
   String get patientsOnlyAuthorDelete => _t('patients.onlyAuthorDelete');
   String get patientsClinicalNotePlaceholder =>
       _t('patients.clinicalNotePlaceholder');
+
+  /// Notes label for the logged-in role (dentist vs laboratory).
+  String notesLabelForRole({required bool laboratory}) =>
+      _t(laboratory ? 'patients.labNotes' : 'patients.dentistNotes');
+
+  String noteHintForRole({required bool laboratory}) =>
+      _t(laboratory ? 'patients.labNoteHint' : 'patients.dentistNoteHint');
+
+  String notePlaceholderForRole({required bool laboratory}) =>
+      _t(laboratory ? 'patients.labNote' : 'patients.dentistNote');
+
+  String noNotesForRole({required bool laboratory}) =>
+      _t(laboratory ? 'patients.noLabNotes' : 'patients.noDentistNotes');
+
+  String deleteNoteBodyForRole({required bool laboratory}) => _t(
+        laboratory
+            ? 'patients.deleteLabNoteBody'
+            : 'patients.deleteDentistNoteBody',
+      );
   String get patientsPendingAccess => _t('patients.pendingAccess');
   String get patientsRevoke => _t('patients.revoke');
   String get patientsRegrant => _t('patients.regrant');
@@ -892,7 +915,50 @@ class AppLocalizations {
   String notificationsMoreCount(int n) =>
       _t('notifications.moreCount').replaceAll('{n}', '$n');
 
+  /// English case-status phrases the API embeds in notification bodies.
+  String _caseStatusPhrase(String raw) {
+    switch (raw.trim().toLowerCase()) {
+      case 'awaiting scan':
+      case 'pending':
+        return statusLabel('pending');
+      case 'in progress':
+      case 'in_progress':
+        return statusLabel('in_progress');
+      case 'under review':
+      case 'in_review':
+        return statusLabel('in_review');
+      case 'completed':
+      case 'complete':
+        return statusLabel('completed');
+      case 'rejected':
+        return statusLabel('rejected');
+      default:
+        return raw.trim();
+    }
+  }
+
+  String _transferStatusWord(String raw) {
+    switch (raw.trim().toLowerCase()) {
+      case 'approved':
+        return _t('notifications.transferApproved');
+      case 'rejected':
+      case 'declined':
+        return _t('notifications.transferDeclined');
+      case 'cancelled':
+      case 'canceled':
+        return _t('notifications.transferCancelled');
+      case 'pending':
+        return _t('notifications.transferPending');
+      default:
+        return raw.trim();
+    }
+  }
+
   /// Remap known English API notification bodies to the active locale.
+  ///
+  /// Backend always stores English. Match that English first — never run
+  /// [localizeServerText] beforehand or the EN regexes miss and DE users see
+  /// English (or a vague type fallback).
   String localizeNotificationMessage(
     String message, {
     String? type,
@@ -971,6 +1037,21 @@ class AppLocalizations {
       return fill('notifications.msgYouRevokedAccess', {
         'who': m[1]!,
         'name': m[2]!,
+      });
+    }
+    m = RegExp(r"^(.+) asked to share (.+) with (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgAskedToShare', {
+        'who': m[1]!,
+        'name': m[2]!,
+        'target': m[3]!,
+      });
+    }
+    m = RegExp(r"^Your lab will review sharing (.+) with (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgLabReviewShare', {
+        'name': m[1]!,
+        'target': m[2]!,
       });
     }
 
@@ -1070,7 +1151,117 @@ class AppLocalizations {
       return fill('notifications.msgNewPatient', {'name': m[1]!});
     }
 
-    // Non-EN: type + patient fallback when body is still English/unknown.
+    // Lab membership / transfers (often no patient_name — must match explicitly).
+    m = RegExp(r"^(.+) asked to join your lab\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgAskedJoinLab', {'who': m[1]!});
+    }
+    m = RegExp(r"^(.+) asked to transfer to (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgAskedTransfer', {
+        'who': m[1]!,
+        'lab': m[2]!,
+      });
+    }
+    m = RegExp(r"^(.+) joined your lab \(transferred\)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgJoinedLabTransferred', {'who': m[1]!});
+    }
+    m = RegExp(r"^Your transfer to (.+) was approved\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgYourTransferApproved', {'lab': m[1]!});
+    }
+    m = RegExp(r"^(.+) accepted you\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgLabAcceptedYou', {'lab': m[1]!});
+    }
+    m = RegExp(
+      r"^(.+) declined your request\. You can ask again\.$",
+    ).firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgLabDeclinedYou', {'lab': m[1]!});
+    }
+    m = RegExp(r"^Your lab transfer request was declined\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgLabTransferDeclined', {});
+    }
+    m = RegExp(r"^A lab asked to remove (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgLabAskedRemove', {'who': m[1]!});
+    }
+
+    // Patient / case ownership
+    m = RegExp(r"^(.+) was created and assigned to you\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgCreatedAssigned', {'name': m[1]!});
+    }
+    m = RegExp(r"^(.+) was assigned to you\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgAssignedToYou', {'name': m[1]!});
+    }
+    m = RegExp(r"^(.+) was moved to another dentist\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgMovedDentist', {'name': m[1]!});
+    }
+    m = RegExp(r"^Transfer request for (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgTransferRequest', {'name': m[1]!});
+    }
+    m = RegExp(r"^(.+) was shared with you\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgSharedWithYou', {'name': m[1]!});
+    }
+    m = RegExp(r"^Transfer of (.+) was (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgTransferOfStatus', {
+        'name': m[1]!,
+        'status': _transferStatusWord(m[2]!),
+      });
+    }
+
+    // Case review flow
+    m = RegExp(r"^(.+) was submitted for review\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgSubmittedReview', {'name': m[1]!});
+    }
+    m = RegExp(r"^(.+) was updated by the dentist\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgUpdatedByDentist', {'name': m[1]!});
+    }
+    m = RegExp(r"^(.+) was reopened by the dentist\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgReopenedByDentist', {'name': m[1]!});
+    }
+    m = RegExp(r"^The lab approved (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgLabApproved', {'name': m[1]!});
+    }
+    m = RegExp(r"^The lab rejected (.+?): (.*)$", dotAll: true).firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgLabRejected', {
+        'name': m[1]!,
+        'detail': localizeEmbeddedServerTokens(m[2]!.trim()),
+      });
+    }
+    m = RegExp(
+      r"^An administrator set (.+?) to (awaiting scan|in progress|under review|completed|rejected): (.*)$",
+      dotAll: true,
+    ).firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgAdminSetStatus', {
+        'name': m[1]!,
+        'status': _caseStatusPhrase(m[2]!),
+        'note': localizeEmbeddedServerTokens(m[3]!.trim()),
+      });
+    }
+
+    // Safety net: other EN API sentences (errors reuse the same map).
+    if (code == 'de') {
+      final viaServer = localizeServerText(msg);
+      if (viaServer != msg) return viaServer;
+    }
+
+    // Last resort when body is still English/unknown.
     final name = (patientName ?? '').trim();
     if (code != 'en' && name.isNotEmpty && type != null && type.isNotEmpty) {
       switch (type) {
@@ -2077,6 +2268,9 @@ class AppLocalizations {
     'reports.opened': 'Opened',
     'reports.finished': 'Finished',
     'reports.coverageHint': 'Patients with scans, photos, shade, or smile',
+    'reports.intake': 'New patients',
+    'reports.completedWeekly': 'Completed cases',
+    'reports.perWeek': 'Per week',
     'notifications.subtitle':
         'Action items from your patients — scans needed, lab review, shade confirms',
     'notifications.empty': "You're all caught up — no notifications here",
@@ -2234,6 +2428,18 @@ class AppLocalizations {
     'patients.deleteNoteBody':
         'This clinical note will be permanently removed.',
     'patients.noteHint': 'Add a clinical note…',
+    'patients.dentistNote': 'Dentist note',
+    'patients.dentistNotes': 'Dentist notes',
+    'patients.dentistNoteHint': 'Add a dentist note…',
+    'patients.noDentistNotes': 'No dentist notes yet.',
+    'patients.deleteDentistNoteBody':
+        'This dentist note will be permanently removed.',
+    'patients.labNote': 'Laboratory note',
+    'patients.labNotes': 'Laboratory notes',
+    'patients.labNoteHint': 'Add a laboratory note…',
+    'patients.noLabNotes': 'No laboratory notes yet.',
+    'patients.deleteLabNoteBody':
+        'This laboratory note will be permanently removed.',
     'patients.noteAdded': 'Note added',
     'patients.noteUpdated': 'Note updated',
     'patients.noteDeleted': 'Note deleted',
@@ -2525,6 +2731,39 @@ class AppLocalizations {
     'notifications.fallbackScanBody': 'Scan body update for {name}',
     'notifications.fallbackSync': 'Sync update for {name}',
     'notifications.fallbackExport': 'Export update for {name}',
+    'notifications.msgAskedToShare': '{who} asked to share {name} with {target}.',
+    'notifications.msgLabReviewShare':
+        'Your lab will review sharing {name} with {target}.',
+    'notifications.msgAskedJoinLab': '{who} asked to join your lab.',
+    'notifications.msgAskedTransfer': '{who} asked to transfer to {lab}.',
+    'notifications.msgJoinedLabTransferred':
+        '{who} joined your lab (transferred).',
+    'notifications.msgYourTransferApproved':
+        'Your transfer to {lab} was approved.',
+    'notifications.msgLabAcceptedYou': '{lab} accepted you.',
+    'notifications.msgLabDeclinedYou':
+        '{lab} declined your request. You can ask again.',
+    'notifications.msgLabTransferDeclined':
+        'Your lab transfer request was declined.',
+    'notifications.msgLabAskedRemove': 'A lab asked to remove {who}.',
+    'notifications.msgCreatedAssigned':
+        '{name} was created and assigned to you.',
+    'notifications.msgAssignedToYou': '{name} was assigned to you.',
+    'notifications.msgMovedDentist': '{name} was moved to another dentist.',
+    'notifications.msgTransferRequest': 'Transfer request for {name}.',
+    'notifications.msgSharedWithYou': '{name} was shared with you.',
+    'notifications.msgTransferOfStatus': 'Transfer of {name} was {status}.',
+    'notifications.msgSubmittedReview': '{name} was submitted for review.',
+    'notifications.msgUpdatedByDentist': '{name} was updated by the dentist.',
+    'notifications.msgReopenedByDentist': '{name} was reopened by the dentist.',
+    'notifications.msgLabApproved': 'The lab approved {name}.',
+    'notifications.msgLabRejected': 'The lab rejected {name}: {detail}',
+    'notifications.msgAdminSetStatus':
+        'An administrator set {name} to {status}: {note}',
+    'notifications.transferApproved': 'approved',
+    'notifications.transferDeclined': 'declined',
+    'notifications.transferCancelled': 'cancelled',
+    'notifications.transferPending': 'pending',
     'patient.readyForDetect': 'Ready for detect',
     'patient.noneYet': 'None yet',
     'patient.availableCount': '{n} available',
@@ -3877,6 +4116,9 @@ class AppLocalizations {
     'reports.opened': 'Eröffnet',
     'reports.finished': 'Fertig',
     'reports.coverageHint': 'Patienten mit Scans, Fotos, Farbe oder Lächeln',
+    'reports.intake': 'Neue Patienten',
+    'reports.completedWeekly': 'Abgeschlossene Fälle',
+    'reports.perWeek': 'Pro Woche',
     'notifications.subtitle':
         'Aufgaben zu Ihren Patienten — Scans nötig, Laborprüfung, Farbbestätigung',
     'notifications.empty': 'Alles erledigt — keine Benachrichtigungen',
@@ -4034,6 +4276,18 @@ class AppLocalizations {
     'patients.deleteNoteTitle': 'Notiz löschen?',
     'patients.deleteNoteBody': 'Diese klinische Notiz wird dauerhaft entfernt.',
     'patients.noteHint': 'Klinische Notiz hinzufügen…',
+    'patients.dentistNote': 'Zahnarztnotiz',
+    'patients.dentistNotes': 'Zahnarztnotizen',
+    'patients.dentistNoteHint': 'Zahnarztnotiz hinzufügen…',
+    'patients.noDentistNotes': 'Noch keine Zahnarztnotizen.',
+    'patients.deleteDentistNoteBody':
+        'Diese Zahnarztnotiz wird dauerhaft entfernt.',
+    'patients.labNote': 'Labornotiz',
+    'patients.labNotes': 'Labornotizen',
+    'patients.labNoteHint': 'Labornotiz hinzufügen…',
+    'patients.noLabNotes': 'Noch keine Labornotizen.',
+    'patients.deleteLabNoteBody':
+        'Diese Labornotiz wird dauerhaft entfernt.',
     'patients.noteAdded': 'Notiz hinzugefügt',
     'patients.noteUpdated': 'Notiz aktualisiert',
     'patients.noteDeleted': 'Notiz gelöscht',
@@ -4346,6 +4600,45 @@ class AppLocalizations {
     'notifications.fallbackScanBody': 'Scanbody-Update für {name}',
     'notifications.fallbackSync': 'Sync-Update für {name}',
     'notifications.fallbackExport': 'Export-Update für {name}',
+    'notifications.msgAskedToShare':
+        '{who} möchte {name} mit {target} teilen.',
+    'notifications.msgLabReviewShare':
+        'Ihr Labor prüft das Teilen von {name} mit {target}.',
+    'notifications.msgAskedJoinLab': '{who} möchte Ihrem Labor beitreten.',
+    'notifications.msgAskedTransfer': '{who} möchte zu {lab} wechseln.',
+    'notifications.msgJoinedLabTransferred':
+        '{who} ist Ihrem Labor beigetreten (Wechsel).',
+    'notifications.msgYourTransferApproved':
+        'Ihr Wechsel zu {lab} wurde genehmigt.',
+    'notifications.msgLabAcceptedYou': '{lab} hat Sie aufgenommen.',
+    'notifications.msgLabDeclinedYou':
+        '{lab} hat Ihre Anfrage abgelehnt. Sie können erneut anfragen.',
+    'notifications.msgLabTransferDeclined':
+        'Ihre Anfrage zum Laborwechsel wurde abgelehnt.',
+    'notifications.msgLabAskedRemove': 'Ein Labor möchte {who} entfernen.',
+    'notifications.msgCreatedAssigned':
+        '{name} wurde angelegt und Ihnen zugewiesen.',
+    'notifications.msgAssignedToYou': '{name} wurde Ihnen zugewiesen.',
+    'notifications.msgMovedDentist':
+        '{name} wurde einem anderen Zahnarzt zugewiesen.',
+    'notifications.msgTransferRequest': 'Übertragungsanfrage für {name}.',
+    'notifications.msgSharedWithYou': '{name} wurde mit Ihnen geteilt.',
+    'notifications.msgTransferOfStatus':
+        'Übertragung von {name} wurde {status}.',
+    'notifications.msgSubmittedReview':
+        '{name} wurde zur Prüfung eingereicht.',
+    'notifications.msgUpdatedByDentist':
+        '{name} wurde vom Zahnarzt aktualisiert.',
+    'notifications.msgReopenedByDentist':
+        '{name} wurde vom Zahnarzt wieder geöffnet.',
+    'notifications.msgLabApproved': 'Das Labor hat {name} freigegeben.',
+    'notifications.msgLabRejected': 'Das Labor hat {name} abgelehnt: {detail}',
+    'notifications.msgAdminSetStatus':
+        'Ein Administrator hat {name} auf „{status}“ gesetzt: {note}',
+    'notifications.transferApproved': 'genehmigt',
+    'notifications.transferDeclined': 'abgelehnt',
+    'notifications.transferCancelled': 'abgebrochen',
+    'notifications.transferPending': 'noch offen',
     'patient.readyForDetect': 'Bereit zur Erkennung',
     'patient.noneYet': 'Noch keine',
     'patient.availableCount': '{n} verfügbar',

@@ -26,6 +26,7 @@ class AdminSummary {
 class Signup {
   Signup(Map<String, dynamic> j)
       : userId = _s(j['user_id']),
+        publicId = _opt(j['public_id']),
         name = _s(j['name']),
         email = _s(j['email']),
         phone = _opt(j['phone']),
@@ -35,8 +36,11 @@ class Signup {
         createdAt = _date(j['created_at']);
 
   final String userId, name, email, role;
-  final String? phone, clinicName, avatarUrl;
+  final String? publicId, phone, clinicName, avatarUrl;
   final DateTime? createdAt;
+
+  String get displayId =>
+      (publicId != null && publicId!.isNotEmpty) ? publicId! : userId;
 }
 
 class RejectedSignup {
@@ -57,6 +61,7 @@ class RejectedSignup {
 class AdminLab {
   AdminLab(Map<String, dynamic> j)
       : id = _s(j['id']),
+        publicId = _opt(j['public_id']),
         name = _s(j['name']),
         email = _s(j['email']),
         phone = _opt(j['phone']),
@@ -67,17 +72,21 @@ class AdminLab {
         avatarUrl = _opt(j['avatar_url']);
 
   final String id, name, email;
-  final String? phone, avatarUrl;
+  final String? publicId, phone, avatarUrl;
   final int dentistCount;
   final bool hiddenFromLabs, hideDentists;
 
   /// Deactivated (can be reactivated).
   final bool deleted;
+
+  String get displayId =>
+      (publicId != null && publicId!.isNotEmpty) ? publicId! : id;
 }
 
 class AdminDentist {
   AdminDentist(Map<String, dynamic> j)
       : id = _s(j['id']),
+        publicId = _opt(j['public_id']),
         name = _s(j['name']),
         email = _s(j['email']),
         phone = _opt(j['phone']),
@@ -90,7 +99,7 @@ class AdminDentist {
         avatarUrl = _opt(j['avatar_url']);
 
   final String id, name, email;
-  final String? phone, clinicName, labId, labName, avatarUrl;
+  final String? publicId, phone, clinicName, labId, labName, avatarUrl;
 
   /// Deactivated (can be reactivated).
   final bool deleted;
@@ -98,6 +107,9 @@ class AdminDentist {
   /// `lab_deleted`, `removed` or `no_lab`; null while in a lab.
   final String? unassignedReason;
   final DateTime? unassignedAt;
+
+  String get displayId =>
+      (publicId != null && publicId!.isNotEmpty) ? publicId! : id;
 }
 
 class RemovalRequest {

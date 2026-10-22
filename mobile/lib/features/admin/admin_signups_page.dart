@@ -118,11 +118,12 @@ class AdminSignupsPage extends StatelessWidget {
           title: who,
           badges: [roleBadge(context, s.role)],
           lines: [
-            [s.email, ?s.phone].join(' · '),
+            [s.displayId, s.email, ?s.phone].join(' · '),
             if (s.clinicName != null) '${loc.tr('admin.clinic')}: ${s.clinicName}',
             ?when,
           ],
           details: [
+            (Icons.badge_outlined, s.displayId),
             (Icons.mail_outline_rounded, s.email),
             if (s.phone case final phone?) (Icons.phone_outlined, phone),
             if (s.clinicName case final clinic?) (Icons.storefront_outlined, clinic),

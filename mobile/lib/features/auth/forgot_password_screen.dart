@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/l10n/server_text.dart';
 import '../../core/layout/adaptive.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/brand_logo.dart';
@@ -51,8 +52,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     try {
       final data = await widget.api.forgotPassword(email);
       if (!mounted) return;
-      final msg = data['message'] as String? ??
-          AppLocalizations.current.tr('au.reset');
+      final raw = '${data['message'] ?? ''}'.trim();
+      final msg = raw.isEmpty
+          ? AppLocalizations.current.tr('au.reset')
+          : localizeServerText(raw);
       setState(() => _success = msg);
       AppSnackBars.success(context, msg);
     } catch (e) {

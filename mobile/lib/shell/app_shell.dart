@@ -95,6 +95,14 @@ class _AppShellState extends State<AppShell> {
     _chat.addListener(_onChatChanged);
     _patients = PatientSession(widget.api);
     _patients.addListener(_onPatientSessionChanged);
+    // Labs review inside a pushed page (no Scans/Shade/Smile in their sidebar).
+    if (!widget.api.isLaboratory) {
+      _patients.openToolHandler = (tool) => _go(switch (tool) {
+            'shade' => AppNavItem.shade,
+            'smile' => AppNavItem.smilePreview,
+            _ => AppNavItem.scans,
+          });
+    }
     _inbox = NotificationInboxController(widget.api);
     _inbox.onError = (msg) {
       if (!mounted) return;

@@ -53,6 +53,7 @@ class ApiClient {
   String? _token;
   String? _refreshToken;
   String? _userId;
+  String? _publicId;
   String? _role;
   String? _name;
   String? _email;
@@ -69,6 +70,17 @@ class ApiClient {
   String? get token => _token;
   String? get refreshToken => _refreshToken;
   String? get userId => _userId;
+
+  /// Human-facing staff ID (D-01 / L-02). Empty for admin or until assigned.
+  String? get publicId => _publicId;
+
+  /// Prefer [publicId] for UI; fall back to the Supabase UUID.
+  String get displayUserId {
+    final pub = (_publicId ?? '').trim();
+    if (pub.isNotEmpty) return pub;
+    return (_userId ?? '').trim();
+  }
+
   String? get role => _role;
   bool get isAdmin => AppRoles.isAdmin(_role);
   bool get isDentist => AppRoles.isDentist(_role);
@@ -160,6 +172,7 @@ class ApiClient {
     }
     _refreshToken = data['refresh_token'] as String? ?? _refreshToken;
     _userId = _asString(data['user_id']) ?? _userId;
+    _publicId = _asString(data['public_id']) ?? _publicId;
     _role = data['role'] as String?;
     _name = data['name'] as String?;
     _email = data['email'] as String?;
@@ -173,6 +186,7 @@ class ApiClient {
 
   void _applyProfile(Map<String, dynamic> data) {
     _userId = _asString(data['id']) ?? _userId;
+    _publicId = _asString(data['public_id']) ?? _publicId;
     _role = data['role'] as String? ?? _role;
     _name = data['name'] as String? ?? _name;
     _email = data['email'] as String? ?? _email;
@@ -187,6 +201,7 @@ class ApiClient {
     _token = null;
     _refreshToken = null;
     _userId = null;
+    _publicId = null;
     _role = null;
     _name = null;
     _email = null;
@@ -450,7 +465,7 @@ class ApiClient {
         return localizeServerText(body['message'] as String);
       }
     } catch (_) {}
-    return 'Password updated';
+    return localizeServerText('Password updated');
   }
 
   /// Permanently deletes this account and all associated clinical / chat data.
@@ -467,7 +482,7 @@ class ApiClient {
         return localizeServerText(body['message'] as String);
       }
     } catch (_) {}
-    return 'Account deleted';
+    return localizeServerText('Your account has been permanently deleted.');
   }
 
   /// [status]: only patients in that case status (e.g. `in_review`).
@@ -486,10 +501,7 @@ class ApiClient {
     if (decoded is Map) {
       final status = '${decoded['status'] ?? ''}';
       if (status == 'ERROR') {
-        final err = decoded['error'];
-        final msg = err is Map
-            ? '${err['message'] ?? AppLocalizations.current.errGeneric}' : AppLocalizations.current.errGeneric;
-        throw Exception(msg);
+        throw Exception(_agentErrorText(decoded['error']));
       }
       final payload = decoded['payload'];
       final patients = payload is Map ? payload['patients'] : null;
@@ -542,10 +554,7 @@ class ApiClient {
     if (decoded is Map) {
       final status = '${decoded['status'] ?? ''}';
       if (status == 'ERROR') {
-        final err = decoded['error'];
-        final msg = err is Map
-            ? '${err['message'] ?? AppLocalizations.current.errGeneric}' : AppLocalizations.current.errGeneric;
-        throw Exception(msg);
+        throw Exception(_agentErrorText(decoded['error']));
       }
       final payload = decoded['payload'];
       final patient = payload is Map ? payload['patient'] : null;
@@ -588,11 +597,7 @@ class ApiClient {
       try {
         final decoded = jsonDecode(res.body);
         if (decoded is Map && '${decoded['status']}' == 'ERROR') {
-          final err = decoded['error'];
-          throw Exception(
-            err is Map
-                ? '${err['message'] ?? AppLocalizations.current.errGeneric}' : AppLocalizations.current.errGeneric,
-          );
+          throw Exception(_agentErrorText(decoded['error']));
         }
       } catch (e) {
         if (e is Exception && e.toString().contains('Delete')) rethrow;
@@ -606,14 +611,20 @@ class ApiClient {
     final decoded = jsonDecode(res.body);
     if (decoded is! Map) throw Exception(fallback);
     if ('${decoded['status'] ?? ''}' == 'ERROR') {
-      final err = decoded['error'];
-      throw Exception(
-        err is Map ? '${err['message'] ?? fallback}' : fallback,
-      );
+      throw Exception(_agentErrorText(decoded['error'], fallback: fallback));
     }
     final payload = decoded['payload'];
     if (payload is Map) return Map<String, dynamic>.from(payload);
     return Map<String, dynamic>.from(decoded);
+  }
+
+  /// GDPR / agent envelope errors — localize known English `message` bodies.
+  String _agentErrorText(dynamic err, {String? fallback}) {
+    fallback ??= AppLocalizations.current.errGeneric;
+    if (err is! Map) return fallback;
+    final raw = '${err['message'] ?? ''}'.trim();
+    if (raw.isEmpty) return fallback;
+    return localizeServerText(raw);
   }
 
   Future<List<Map<String, dynamic>>> listPatientPhotos(

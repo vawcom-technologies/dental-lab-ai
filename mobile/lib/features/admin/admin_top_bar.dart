@@ -404,7 +404,7 @@ class _ProfileChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
-    final roleLabel = chrome.api.isAdmin ? loc.roleAdmin : loc.roleLab;
+    final roleLabel = AppRoles.label(chrome.api.role, loc);
     final name = (chrome.api.userName ?? '').trim().isEmpty ? roleLabel : chrome.api.userName!.trim();
     final compact = AppBreakpoints.isPhone(context);
     return Builder(
@@ -894,7 +894,9 @@ class _AdminSearchPageState extends State<AdminSearchPage> {
                                     badges: [
                                       if (l.deleted) AdminBadge(loc.tr('admin.deactivatedBadge'), color: AppColors.danger),
                                     ],
-                                    lines: ['${dentistCount(loc, l.dentistCount)} · ${l.email}'],
+                                    lines: [
+                                      '${l.displayId} · ${dentistCount(loc, l.dentistCount)} · ${l.email}',
+                                    ],
                                   ),
                                 ),
                               ),
@@ -914,7 +916,10 @@ class _AdminSearchPageState extends State<AdminSearchPage> {
                                     badges: [
                                       if (d.deleted) AdminBadge(loc.tr('admin.deactivatedBadge'), color: AppColors.danger),
                                     ],
-                                    lines: [dentistPlace(loc, d.labName, d.clinicName)],
+                                    lines: [
+                                      d.displayId,
+                                      dentistPlace(loc, d.labName, d.clinicName),
+                                    ],
                                   ),
                                 ),
                               ),

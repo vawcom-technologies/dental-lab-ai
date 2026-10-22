@@ -11,12 +11,35 @@ Widget _section(String title) => Padding(
       child: SectionLabel(title),
     );
 
-/// Scans, shade analyses and smile previews for [PatientRecords].
-Future<List<List<Map<String, dynamic>>>> loadPatientRecords(ApiClient api, String patientId) => Future.wait([
-      api.listPatientScans(patientId),
-      api.listShadeDetections(patientId),
-      api.listSmilePreviews(patientId),
-    ]);
+/// True when a scan was saved onto the case (not library-only).
+bool _scanOnCase(Map<String, dynamic> r) => r['on_case'] == true;
+
+/// True when a shade detection has a saved analysis (dentist finished it).
+bool _shadeSaved(Map<String, dynamic> r) {
+  final a = r['analysis'];
+  return a is Map && a.isNotEmpty;
+}
+
+/// Scans / shades / smiles the dentist saved onto the case.
+///
+/// Matches backend [case_flow.items]: library scans (`on_case=false`) and
+/// shade photos without analysis are excluded so admin/review records match
+/// what was submitted.
+Future<List<List<Map<String, dynamic>>>> loadPatientRecords(
+  ApiClient api,
+  String patientId,
+) async {
+  final rows = await Future.wait([
+    api.listPatientScans(patientId),
+    api.listShadeDetections(patientId),
+    api.listSmilePreviews(patientId),
+  ]);
+  return [
+    rows[0].where(_scanOnCase).toList(growable: false),
+    rows[1].where(_shadeSaved).toList(growable: false),
+    rows[2],
+  ];
+}
 
 /// Scans, shade analyses and smile previews, read-only. With [onOpen]
 /// (`scan` | `shade` | `smile`) every group and item opens its page.

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/auth/app_roles.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/l10n/server_text.dart';
 import '../../core/layout/adaptive.dart';
 import '../../core/navigation/app_page_routes.dart';
 import '../../core/theme/app_theme.dart';
@@ -120,8 +121,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final needsConfirmation = data['email_confirmation_required'] == true;
       final accessToken = data['access_token'] as String?;
       if (needsConfirmation || accessToken == null || accessToken.isEmpty) {
-        final message = data['message'] as String? ??
-            loc.emailConfirmationRequired;
+        final raw = '${data['message'] ?? ''}'.trim();
+        final message = raw.isEmpty
+            ? loc.emailConfirmationRequired
+            : localizeServerText(raw);
         if (mounted) AppSnackBars.success(context, message);
         // Pending admin verification / email confirm — return to login
         Navigator.of(context).pop(<String, String>{

@@ -9,7 +9,7 @@ import '../scans/scans_page.dart';
 import '../shade/shade_page.dart';
 import '../shapes/shape_overlay_page.dart';
 
-/// Open Scans / Shade / Smile for [patientId] (lab Review deep-link; no sidebar).
+/// Open Scans / Shade / Smile for [patientId] (sidebar page when the shell provides one, else a pushed route for lab Review).
 Future<void> openCaseTool(
   BuildContext context, {
   required ApiClient api,
@@ -25,6 +25,14 @@ Future<void> openCaseTool(
     patients.select({'id': patientId});
   }
   if (!context.mounted) return;
+  final goToSidebar = patients.openToolHandler;
+  if (goToSidebar != null) {
+    // Close the patient sheet if it's a popup; the embedded view stays.
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isFirst) Navigator.of(context).pop();
+    goToSidebar(tool);
+    return;
+  }
   final loc = AppLocalizations.of(context);
   final (title, page) = switch (tool) {
     'shade' => (

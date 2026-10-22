@@ -146,6 +146,7 @@ class TokenOut(BaseModel):
     email_confirmation_required: bool = False
     message: str | None = None
     user_id: str
+    public_id: str | None = None  # D-01 / L-02 for dentists and labs
     role: str
     name: str
     email: str
@@ -158,6 +159,7 @@ class TokenOut(BaseModel):
 
 class UserOut(BaseModel):
     id: str
+    public_id: str | None = None  # D-01 / L-02 for dentists and labs
     email: EmailStr
     name: str
     role: str

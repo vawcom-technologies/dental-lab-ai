@@ -18,6 +18,10 @@ class PatientSession extends ChangeNotifier {
   /// refreshes don't rebuild everything listening to the session).
   final CaseStore cases;
 
+  /// Set by the shell: opens scan | shade | smile as a sidebar page. When
+  /// null, callers push a standalone route instead.
+  void Function(String tool)? openToolHandler;
+
   List<Map<String, dynamic>> _patients = const [];
   Map<String, dynamic>? _selected;
   bool _loading = false;

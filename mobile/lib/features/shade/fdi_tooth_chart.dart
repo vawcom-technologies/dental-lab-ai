@@ -145,6 +145,7 @@ class FdiToothChart extends StatelessWidget {
       }
       return null;
     }();
+    final portrait = MediaQuery.orientationOf(context) == Orientation.portrait;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -163,46 +164,23 @@ class FdiToothChart extends StatelessWidget {
         Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
-              // Hit targets are normalized to the square PNG. Size the stack to
-              // the fitted square — not maxWidth alone (height often clamps first).
-              final side = constraints.maxWidth < constraints.maxHeight
-                  ? constraints.maxWidth
-                  : constraints.maxHeight;
-              if (side <= 0) return const SizedBox.shrink();
-              return InteractiveViewer(
-                minScale: 1,
-                maxScale: 4,
-                boundaryMargin: const EdgeInsets.all(64),
-                clipBehavior: Clip.hardEdge,
-                child: Center(
-                  child: SizedBox(
-                    width: side,
-                    height: side,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        Image.asset(
-                          kFdiChartAsset,
-                          fit: BoxFit.fill,
-                          filterQuality: FilterQuality.medium,
-                          gaplessPlayback: true,
-                        ),
-                        for (final e in kFdiCircleCenters.entries)
-                          _FdiCircleButton(
-                            fdi: e.key,
-                            center: e.value,
-                            side: side,
-                            enabled: fdiMap.containsKey(e.key),
-                            selected: e.key == selectedFdi,
-                            onTap: () {
-                              final idx = fdiMap[e.key];
-                              if (idx != null) onSelectTooth(idx);
-                            },
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
+              if (constraints.maxWidth <= 0 || constraints.maxHeight <= 0) {
+                return const SizedBox.shrink();
+              }
+              // Portrait: split the chart on the horizontal dotted line so the
+              // upper jaw sits left and the lower jaw right. Landscape keeps
+              // the full square chart.
+              if (portrait) {
+                return _portraitSplit(
+                  constraints: constraints,
+                  fdiMap: fdiMap,
+                  selectedFdi: selectedFdi,
+                );
+              }
+              return _landscapeSquare(
+                constraints: constraints,
+                fdiMap: fdiMap,
+                selectedFdi: selectedFdi,
               );
             },
           ),
@@ -218,31 +196,194 @@ class FdiToothChart extends StatelessWidget {
       ],
     );
   }
+
+  Widget _landscapeSquare({
+    required BoxConstraints constraints,
+    required Map<int, int> fdiMap,
+    required int? selectedFdi,
+  }) {
+    // Hit targets are normalized to the square PNG. Size the stack to
+    // the fitted square — not maxWidth alone (height often clamps first).
+    final side = constraints.maxWidth < constraints.maxHeight
+        ? constraints.maxWidth
+        : constraints.maxHeight;
+    return InteractiveViewer(
+      minScale: 1,
+      maxScale: 4,
+      boundaryMargin: const EdgeInsets.all(64),
+      clipBehavior: Clip.hardEdge,
+      child: Center(
+        child: SizedBox(
+          width: side,
+          height: side,
+          child: _chartStack(
+            width: side,
+            height: side,
+            // Full square — no vertical crop.
+            imageTop: 0,
+            imageHeight: side,
+            centers: kFdiCircleCenters,
+            mapCenter: (c) => c,
+            radiusSide: side,
+            fdiMap: fdiMap,
+            selectedFdi: selectedFdi,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Upper half (y 0–0.5) on the left, lower half (y 0.5–1) on the right.
+  Widget _portraitSplit({
+    required BoxConstraints constraints,
+    required Map<int, int> fdiMap,
+    required int? selectedFdi,
+  }) {
+    const gap = 8.0;
+    // Each half is 2:1 (full chart width × half height).
+    final paneH = constraints.maxHeight;
+    final paneW = paneH * 2;
+    final fullH = paneH * 2; // square chart height at this width
+    final row = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: paneW,
+          height: paneH,
+          child: _chartStack(
+            width: paneW,
+            height: paneH,
+            // Top half of the square PNG.
+            imageTop: 0,
+            imageHeight: fullH,
+            centers: {
+              for (final e in kFdiCircleCenters.entries)
+                if (e.value.dy < 0.5) e.key: e.value,
+            },
+            mapCenter: (c) => Offset(c.dx, c.dy * 2),
+            radiusSide: paneW,
+            fdiMap: fdiMap,
+            selectedFdi: selectedFdi,
+          ),
+        ),
+        const SizedBox(width: gap),
+        SizedBox(
+          width: paneW,
+          height: paneH,
+          child: _chartStack(
+            width: paneW,
+            height: paneH,
+            // Bottom half: shift the full image up by one pane.
+            imageTop: -paneH,
+            imageHeight: fullH,
+            centers: {
+              for (final e in kFdiCircleCenters.entries)
+                if (e.value.dy >= 0.5) e.key: e.value,
+            },
+            mapCenter: (c) => Offset(c.dx, (c.dy - 0.5) * 2),
+            radiusSide: paneW,
+            fdiMap: fdiMap,
+            selectedFdi: selectedFdi,
+          ),
+        ),
+      ],
+    );
+    return InteractiveViewer(
+      minScale: 1,
+      maxScale: 4,
+      boundaryMargin: const EdgeInsets.all(48),
+      clipBehavior: Clip.hardEdge,
+      child: FittedBox(
+        fit: BoxFit.contain,
+        child: SizedBox(
+          width: paneW * 2 + gap,
+          height: paneH,
+          child: row,
+        ),
+      ),
+    );
+  }
+
+  /// Chart image + FDI hit targets. [imageTop]/[imageHeight] place the PNG
+  /// inside a clipped pane so portrait can show only the upper or lower half.
+  Widget _chartStack({
+    required double width,
+    required double height,
+    required double imageTop,
+    required double imageHeight,
+    required Map<int, Offset> centers,
+    required Offset Function(Offset) mapCenter,
+    required double radiusSide,
+    required Map<int, int> fdiMap,
+    required int? selectedFdi,
+  }) {
+    return ClipRect(
+      child: Stack(
+        clipBehavior: Clip.hardEdge,
+        children: [
+          Positioned(
+            left: 0,
+            width: width,
+            top: imageTop,
+            height: imageHeight,
+            child: Image.asset(
+              kFdiChartAsset,
+              fit: BoxFit.fill,
+              width: width,
+              height: imageHeight,
+              filterQuality: FilterQuality.medium,
+              gaplessPlayback: true,
+            ),
+          ),
+          for (final e in centers.entries)
+            _FdiCircleButton(
+              fdi: e.key,
+              center: mapCenter(e.value),
+              paneWidth: width,
+              paneHeight: height,
+              radiusSide: radiusSide,
+              enabled: fdiMap.containsKey(e.key),
+              selected: e.key == selectedFdi,
+              onTap: () {
+                final idx = fdiMap[e.key];
+                if (idx != null) onSelectTooth(idx);
+              },
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class _FdiCircleButton extends StatelessWidget {
   const _FdiCircleButton({
     required this.fdi,
     required this.center,
-    required this.side,
+    required this.paneWidth,
+    required this.paneHeight,
+    required this.radiusSide,
     required this.enabled,
     required this.selected,
     required this.onTap,
   });
 
   final int fdi;
+  /// Normalized center in the pane (0–1 on each axis).
   final Offset center;
-  final double side;
+  final double paneWidth;
+  final double paneHeight;
+  /// Full-chart side used for badge/hit radius (width of the PNG).
+  final double radiusSide;
   final bool enabled;
   final bool selected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final hit = kFdiHitRadius * side;
-    final badge = kFdiBadgeRadius * side;
-    final left = center.dx * side - hit;
-    final top = center.dy * side - hit;
+    final hit = kFdiHitRadius * radiusSide;
+    final badge = kFdiBadgeRadius * radiusSide;
+    final left = center.dx * paneWidth - hit;
+    final top = center.dy * paneHeight - hit;
 
     final fill = selected
         ? AppColors.dentalBlue.withValues(alpha: 0.28)

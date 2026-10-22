@@ -14,11 +14,7 @@ import '../../core/widgets/ui_kit.dart';
 import '../../shell/app_sidebar.dart';
 
 class ReportsPage extends StatefulWidget {
-  const ReportsPage({
-    super.key,
-    required this.api,
-    required this.onNavigate,
-  });
+  const ReportsPage({super.key, required this.api, required this.onNavigate});
 
   final ApiClient api;
   final ValueChanged<AppNavItem> onNavigate;
@@ -69,15 +65,13 @@ class _ReportsPageState extends State<ReportsPage> {
       (_summary?['patients'] as Map<String, dynamic>?) ?? const {};
   Map<String, dynamic> get _byStatus =>
       (_cases['by_status'] as Map<String, dynamic>?) ?? const {};
-  Map<String, dynamic> get _clinical =>
-      (_summary?['clinical'] as Map<String, dynamic>?) ?? const {};
   Map<String, dynamic> get _messages =>
       (_summary?['messages'] as Map<String, dynamic>?) ?? const {};
-  List<Map<String, dynamic>> get _attention =>
-      ((_summary?['attention'] as List?) ?? const [])
-          .cast<Map<String, dynamic>>();
   List<Map<String, dynamic>> get _throughput =>
       ((_summary?['throughput'] as List?) ?? const [])
+          .cast<Map<String, dynamic>>();
+  List<Map<String, dynamic>> get _attention =>
+      ((_summary?['attention'] as List?) ?? const [])
           .cast<Map<String, dynamic>>();
 
   int _n(dynamic v) {
@@ -123,9 +117,6 @@ class _ReportsPageState extends State<ReportsPage> {
       ..writeln(
         '${loc.reportsCompleted}: ${_n(_byStatus['completed'])} '
         '(${_n(_cases['completed_in_period'])} ${loc.reportsCompletedInPeriod})',
-      )
-      ..writeln(
-        '${loc.reportsCoverageShort}: ${_d(_clinical['coverage_pct']).round()}%',
       )
       ..writeln()
       ..writeln('${loc.reportsPipeline}:');
@@ -174,37 +165,31 @@ class _ReportsPageState extends State<ReportsPage> {
     final subject = loc.reportsSummaryTitle;
     await showCupertinoModalPopup<void>(
       context: context,
-      builder: (ctx) => CupertinoActionSheet(
-        title: Text(subject),
-        message: Text(loc.tr('reports.shareHint')),
-        actions: [
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.pop(ctx);
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!mounted) return;
-                _shareToSystem(text, subject);
-              });
-            },
-            child: Text(loc.tr('reports.share')),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () async {
-              await Clipboard.setData(ClipboardData(text: text));
-              if (!ctx.mounted) return;
-              Navigator.pop(ctx);
+      barrierColor: Colors.black.withValues(alpha: 0.28),
+      builder: (ctx) {
+        return _SharePreviewSheet(
+          title: subject,
+          body: text,
+          hint: loc.tr('reports.shareHint'),
+          shareLabel: loc.tr('reports.share'),
+          copyLabel: loc.reportsCopy,
+          cancelLabel: loc.cancel,
+          onShare: () {
+            Navigator.pop(ctx);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!mounted) return;
-              AppSnackBars.success(context, loc.tr('reports.copied'));
-            },
-            child: Text(loc.reportsCopy),
-          ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          isDefaultAction: true,
-          onPressed: () => Navigator.pop(ctx),
-          child: Text(loc.reportsClose),
-        ),
-      ),
+              _shareToSystem(text, subject);
+            });
+          },
+          onCopy: () async {
+            await Clipboard.setData(ClipboardData(text: text));
+            if (!ctx.mounted) return;
+            Navigator.pop(ctx);
+            if (!mounted) return;
+            AppSnackBars.success(context, loc.tr('reports.copied'));
+          },
+        );
+      },
     );
   }
 
@@ -215,8 +200,6 @@ class _ReportsPageState extends State<ReportsPage> {
     final newPatients = _n(_patientsBlock['new_in_period']);
     final active = _n(_cases['active']);
     final completedPeriod = _n(_cases['completed_in_period']);
-    final createdPeriod = _n(_cases['created_in_period']);
-    final coveragePct = _d(_clinical['coverage_pct']);
     final statusCounts = {
       for (final s in CaseStatuses.all) s: _n(_byStatus[s]),
     };
@@ -236,11 +219,13 @@ class _ReportsPageState extends State<ReportsPage> {
             title: loc.reportsTitle,
             subtitle: _headerSubtitle(loc),
             actions: [
+              _PeriodPills(days: _days, loc: loc, onChanged: _setPeriod),
               KeyedSubtree(
                 key: _shareBtnKey,
                 child: AppButtons.secondary(
-                  onPressed:
-                      _loading || _summary == null ? null : _shareSummary,
+                  onPressed: _loading || _summary == null
+                      ? null
+                      : _shareSummary,
                   icon: Icons.ios_share_rounded,
                   label: loc.reportsSummaryExport,
                   compact: true,
@@ -258,18 +243,14 @@ class _ReportsPageState extends State<ReportsPage> {
                     : _ReportsDashboard(
                         loc: loc,
                         loading: _loading,
-                        days: _days,
-                        onPeriod: _setPeriod,
                         patients: patients,
                         newPatients: newPatients,
                         active: active,
                         completedPeriod: completedPeriod,
-                        createdPeriod: createdPeriod,
-                        coveragePct: coveragePct,
+                        avgHours: _d(_cases['avg_processing_hours']),
                         totalCases: totalCases,
                         statusCounts: statusCounts,
-                        clinical: _clinical,
-                        messages: _messages,
+                        unread: _n(_messages['unread']),
                         weeks: _throughput,
                         attention: _attention,
                         onOpenPatients: () =>
@@ -290,47 +271,41 @@ class _ReportsDashboard extends StatelessWidget {
   const _ReportsDashboard({
     required this.loc,
     required this.loading,
-    required this.days,
-    required this.onPeriod,
     required this.patients,
     required this.newPatients,
     required this.active,
     required this.completedPeriod,
-    required this.createdPeriod,
-    required this.coveragePct,
+    required this.avgHours,
     required this.totalCases,
     required this.statusCounts,
-    required this.clinical,
-    required this.messages,
+    required this.unread,
     required this.weeks,
     required this.attention,
     required this.onOpenPatients,
     required this.onOpenMessages,
   });
 
+  final List<Map<String, dynamic>> weeks;
   final AppLocalizations loc;
   final bool loading;
-  final int days;
-  final ValueChanged<int> onPeriod;
   final int patients;
   final int newPatients;
   final int active;
   final int completedPeriod;
-  final int createdPeriod;
-  final double coveragePct;
+  final double avgHours;
   final int totalCases;
   final Map<String, int> statusCounts;
-  final Map<String, dynamic> clinical;
-  final Map<String, dynamic> messages;
-  final List<Map<String, dynamic>> weeks;
+  final int unread;
   final List<Map<String, dynamic>> attention;
   final VoidCallback onOpenPatients;
   final VoidCallback onOpenMessages;
 
-  int _n(dynamic v) {
-    if (v is num) return v.toInt();
-    if (v is String) return int.tryParse(v) ?? 0;
-    return 0;
+  int _n(dynamic v) => v is num ? v.toInt() : int.tryParse('$v') ?? 0;
+
+  String _avgLabel() {
+    if (avgHours <= 0) return '—';
+    if (avgHours < 48) return '${avgHours.round()}h';
+    return '${(avgHours / 24).toStringAsFixed(1)}d';
   }
 
   @override
@@ -342,7 +317,6 @@ class _ReportsDashboard extends StatelessWidget {
         value: '$patients',
         hint: loc.reportsNewCount(newPatients),
         pill: newPatients > 0 ? '+$newPatients' : null,
-        pillPositive: true,
       ),
       _KpiSpec(
         icon: Icons.pending_actions_outlined,
@@ -357,84 +331,70 @@ class _ReportsDashboard extends StatelessWidget {
         hint: loc.reportsCompletedInPeriod,
       ),
       _KpiSpec(
-        icon: Icons.auto_awesome_outlined,
-        label: loc.reportsCoverageShort,
-        value: '${coveragePct.round()}%',
-        hint: loc.reportsCoverageHint,
-        pillPositive: coveragePct >= 50,
-      ),
-    ];
-
-    final coverageItems = [
-      _CoverageItem(
-        loc.reportsWithScans,
-        _n(clinical['cases_with_scans']),
-        patients,
-        AppColors.dentalBlue,
-      ),
-      _CoverageItem(
-        loc.reportsWithPhotos,
-        _n(clinical['cases_with_photos']),
-        patients,
-        AppColors.aiPurple,
-      ),
-      _CoverageItem(
-        loc.reportsWithShade,
-        _n(clinical['cases_with_shade']),
-        patients,
-        AppColors.warning,
-      ),
-      _CoverageItem(
-        loc.reportsWithShape,
-        _n(clinical['cases_with_shape']),
-        patients,
-        AppColors.success,
+        icon: Icons.timer_outlined,
+        label: loc.reportsAvgTimeShort,
+        value: _avgLabel(),
+        hint: loc.reportsToComplete,
       ),
     ];
 
     return LayoutBuilder(
       builder: (context, c) {
         final w = c.maxWidth;
-        final h = c.maxHeight;
-        final wide = w >= 920 && h >= 520;
-        final medium = w >= 640;
+        final wide = w >= 820 && c.maxHeight >= 440;
         final gap = w < 700 ? 8.0 : 12.0;
-        final compactKpi = w < 1100 || h < 640;
 
         final kpiStrip = _KpiStrip(
           items: kpis,
           loading: loading,
-          compact: compactKpi,
-          twoByTwo: !medium,
+          compact: w < 1100 || c.maxHeight < 640,
+          twoByTwo: w < 640,
         );
 
-        final activity = _ActivityCard(
+        _AttentionCard attentionCard(bool expand) => _AttentionCard(
           loc: loc,
-          days: days,
-          onPeriod: onPeriod,
-          createdPeriod: createdPeriod,
-          completedPeriod: completedPeriod,
-          weeks: weeks,
+          rows: attention,
+          unread: unread,
+          expand: expand,
+          onOpenPatients: onOpenPatients,
+          onOpenMessages: onOpenMessages,
         );
 
-        final donut = _PipelineDonutCard(
+        _PipelineCard pipeline(bool expand) => _PipelineCard(
           loc: loc,
           statusCounts: statusCounts,
           total: totalCases,
+          expand: expand,
         );
 
-        final coverage = _CoverageCard(
-          loc: loc,
-          pct: coveragePct,
-          items: coverageItems,
-        );
+        final pts = [
+          for (final w in weeks)
+            _WeekPt(
+              DateTime.tryParse('${w['week_start']}') ?? DateTime.now(),
+              _n(w['created']),
+              _n(w['completed']),
+            ),
+        ];
 
-        final attentionCard = _AttentionCard(
-          loc: loc,
-          rows: attention,
-          unread: _n(messages['unread']),
-          onOpenPatients: onOpenPatients,
-          onOpenMessages: onOpenMessages,
+        final intake = _ChartCard(
+          title: loc.reportsIntake,
+          subtitle: loc.reportsPerWeek,
+          total: pts.fold<int>(0, (a, p) => a + p.created),
+          emptyText: loc.reportsNoData,
+          pts: pts,
+          pick: (p) => p.created,
+          color: AppColors.dentalBlue,
+          bars: false,
+        );
+        final done = _ChartCard(
+          title: loc.reportsCompletedWeekly,
+          subtitle: loc.reportsPerWeek,
+          total: pts.fold<int>(0, (a, p) => a + p.completed),
+          emptyText: loc.reportsNoData,
+          pts: pts,
+          pick: (p) => p.completed,
+          color: AppColors.aiPurple,
+          bars: true,
         );
 
         if (wide) {
@@ -443,25 +403,23 @@ class _ReportsDashboard extends StatelessWidget {
               kpiStrip,
               SizedBox(height: gap),
               Expanded(
-                flex: 7,
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(flex: 11, child: activity),
+                    Expanded(flex: 3, child: intake),
                     SizedBox(width: gap),
-                    Expanded(flex: 7, child: donut),
+                    Expanded(flex: 2, child: pipeline(true)),
                   ],
                 ),
               ),
               SizedBox(height: gap),
               Expanded(
-                flex: 5,
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(child: coverage),
+                    Expanded(flex: 2, child: done),
                     SizedBox(width: gap),
-                    Expanded(child: attentionCard),
+                    Expanded(flex: 3, child: attentionCard(true)),
                   ],
                 ),
               ),
@@ -469,49 +427,18 @@ class _ReportsDashboard extends StatelessWidget {
           );
         }
 
-        if (medium) {
-          return Column(
-            children: [
-              kpiStrip,
-              SizedBox(height: gap),
-              Expanded(flex: 6, child: activity),
-              SizedBox(height: gap),
-              Expanded(
-                flex: 5,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(child: donut),
-                    SizedBox(width: gap),
-                    Expanded(child: coverage),
-                  ],
-                ),
-              ),
-              SizedBox(height: gap),
-              Expanded(flex: 4, child: attentionCard),
-            ],
-          );
-        }
-
-        return Column(
+        return ListView(
+          padding: EdgeInsets.zero,
           children: [
             kpiStrip,
             SizedBox(height: gap),
-            Expanded(flex: 5, child: activity),
+            SizedBox(height: 220, child: intake),
             SizedBox(height: gap),
-            Expanded(
-              flex: 5,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(child: donut),
-                  SizedBox(width: gap),
-                  Expanded(child: coverage),
-                ],
-              ),
-            ),
+            pipeline(false),
             SizedBox(height: gap),
-            Expanded(flex: 4, child: attentionCard),
+            SizedBox(height: 220, child: done),
+            SizedBox(height: gap),
+            attentionCard(false),
           ],
         );
       },
@@ -526,7 +453,6 @@ class _KpiSpec {
     required this.value,
     required this.hint,
     this.pill,
-    this.pillPositive = true,
   });
 
   final IconData icon;
@@ -534,7 +460,6 @@ class _KpiSpec {
   final String value;
   final String hint;
   final String? pill;
-  final bool pillPositive;
 }
 
 class _KpiStrip extends StatelessWidget {
@@ -553,10 +478,10 @@ class _KpiStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget card(int i) => _KpiCard(
-          spec: items[i],
-          loading: loading,
-          compact: compact || twoByTwo,
-        );
+      spec: items[i],
+      loading: loading,
+      compact: compact || twoByTwo,
+    );
 
     if (twoByTwo) {
       return Column(
@@ -633,7 +558,7 @@ class _KpiCard extends StatelessWidget {
                 ),
               ),
               if (spec.pill != null && !loading)
-                _DeltaPill(text: spec.pill!, positive: spec.pillPositive),
+                _DeltaPill(text: spec.pill!, positive: true),
             ],
           ),
           SizedBox(height: compact ? 6 : 8),
@@ -695,176 +620,6 @@ class _DeltaPill extends StatelessWidget {
   }
 }
 
-class _ActivityCard extends StatefulWidget {
-  const _ActivityCard({
-    required this.loc,
-    required this.days,
-    required this.onPeriod,
-    required this.createdPeriod,
-    required this.completedPeriod,
-    required this.weeks,
-  });
-
-  final AppLocalizations loc;
-  final int days;
-  final ValueChanged<int> onPeriod;
-  final int createdPeriod;
-  final int completedPeriod;
-  final List<Map<String, dynamic>> weeks;
-
-  @override
-  State<_ActivityCard> createState() => _ActivityCardState();
-}
-
-class _ActivityCardState extends State<_ActivityCard> {
-  int? _hover;
-
-  List<_WeekPt> get _points {
-    return [
-      for (final w in widget.weeks)
-        _WeekPt(
-          start: DateTime.tryParse('${w['week_start']}') ?? DateTime.now(),
-          created: _toInt(w['created']),
-          completed: _toInt(w['completed']),
-        ),
-    ];
-  }
-
-  int _toInt(dynamic v) {
-    if (v is num) return v.toInt();
-    if (v is String) return int.tryParse(v) ?? 0;
-    return 0;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final loc = widget.loc;
-    final pts = _points;
-    final selected = (_hover != null && _hover! < pts.length)
-        ? pts[_hover!]
-        : (pts.isEmpty ? null : pts.last);
-
-    return SectionCard(
-      padding: const EdgeInsets.fromLTRB(18, 14, 16, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      loc.reportsActivity,
-                      style: AppFonts.style(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15.5,
-                        color: AppColors.navy,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      loc.reportsActivityHint,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppFonts.style(
-                        color: AppColors.muted,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              _PeriodPills(days: widget.days, loc: loc, onChanged: widget.onPeriod),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Text(
-                '${widget.createdPeriod + widget.completedPeriod}',
-                style: AppFonts.style(
-                  fontSize: 26,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.navy,
-                  letterSpacing: -0.6,
-                  height: 1,
-                ),
-              ),
-              const SizedBox(width: 8),
-              _LegendDot(color: AppColors.dentalBlue, label: loc.reportsOpened),
-              const SizedBox(width: 12),
-              _LegendDot(color: AppColors.aiPurple, label: loc.reportsFinished),
-              const Spacer(),
-              if (selected != null)
-                Text(
-                  formatAppDate(context, selected.start, 'MMM d'),
-                  style: AppFonts.style(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.muted,
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: pts.every((p) => p.created == 0 && p.completed == 0)
-                ? Center(
-                    child: Text(
-                      loc.reportsNoData,
-                      style: AppFonts.style(color: AppColors.muted),
-                    ),
-                  )
-                : LayoutBuilder(
-                    builder: (context, c) {
-                      return GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTapDown: (d) => _pick(d.localPosition.dx, c.maxWidth, pts.length),
-                        onHorizontalDragUpdate: (d) =>
-                            _pick(d.localPosition.dx, c.maxWidth, pts.length),
-                        child: CustomPaint(
-                          painter: _AreaChartPainter(
-                            points: pts,
-                            labels: [
-                              for (final p in pts)
-                                formatAppDate(context, p.start, 'MMM d'),
-                            ],
-                            selected: _hover ?? (pts.length - 1),
-                            opened: loc.reportsOpened,
-                            finished: loc.reportsFinished,
-                          ),
-                          child: const SizedBox.expand(),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _pick(double x, double width, int n) {
-    if (n <= 0 || width <= 0) return;
-    final i = ((x / width) * n).floor().clamp(0, n - 1);
-    if (i != _hover) setState(() => _hover = i);
-  }
-}
-
-class _WeekPt {
-  const _WeekPt({
-    required this.start,
-    required this.created,
-    required this.completed,
-  });
-
-  final DateTime start;
-  final int created;
-  final int completed;
-}
-
 class _PeriodPills extends StatelessWidget {
   const _PeriodPills({
     required this.days,
@@ -897,8 +652,10 @@ class _PeriodPills extends StatelessWidget {
                 behavior: HitTestBehavior.opaque,
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 180),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: days == item.$1
                         ? AppColors.navy.withValues(alpha: 0.08)
@@ -909,8 +666,9 @@ class _PeriodPills extends StatelessWidget {
                     item.$2,
                     style: AppFonts.style(
                       fontSize: 12,
-                      fontWeight:
-                          days == item.$1 ? FontWeight.w700 : FontWeight.w500,
+                      fontWeight: days == item.$1
+                          ? FontWeight.w700
+                          : FontWeight.w500,
                       color: days == item.$1 ? AppColors.navy : AppColors.muted,
                     ),
                   ),
@@ -923,547 +681,192 @@ class _PeriodPills extends StatelessWidget {
   }
 }
 
-class _LegendDot extends StatelessWidget {
-  const _LegendDot({required this.color, required this.label});
+TextStyle _cardTitle() => AppFonts.style(
+  fontWeight: FontWeight.w700,
+  fontSize: 15.5,
+  color: AppColors.navy,
+);
 
-  final Color color;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 5),
-        Text(
-          label,
-          style: AppFonts.style(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: AppColors.muted,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _AreaChartPainter extends CustomPainter {
-  _AreaChartPainter({
-    required this.points,
-    required this.labels,
-    required this.selected,
-    required this.opened,
-    required this.finished,
-  });
-
-  final List<_WeekPt> points;
-  final List<String> labels;
-  final int selected;
-  final String opened;
-  final String finished;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (points.isEmpty || size.width < 8 || size.height < 24) return;
-    const bottom = 22.0;
-    final chart = Rect.fromLTWH(0, 8, size.width, size.height - bottom - 8);
-    if (chart.height <= 0) return;
-
-    final maxVal = points
-        .map((p) => math.max(p.created, p.completed))
-        .fold<int>(0, math.max)
-        .clamp(1, 999999);
-
-    Offset pt(int i, int v) {
-      final t = points.length == 1 ? 0.5 : i / (points.length - 1);
-      final x = chart.left + t * chart.width;
-      final y = chart.bottom - (v / maxVal) * chart.height;
-      return Offset(x, y);
-    }
-
-    // Grid
-    final grid = Paint()
-      ..color = AppColors.border.withValues(alpha: 0.65)
-      ..strokeWidth = 1;
-    for (var g = 0; g < 3; g++) {
-      final y = chart.top + chart.height * (g / 2);
-      _dashLine(canvas, Offset(chart.left, y), Offset(chart.right, y), grid);
-    }
-
-    final openedPts = [for (var i = 0; i < points.length; i++) pt(i, points[i].created)];
-    final finishedPts = [
-      for (var i = 0; i < points.length; i++) pt(i, points[i].completed)
-    ];
-
-    _fillSeries(canvas, chart, openedPts, AppColors.dentalBlue);
-    _fillSeries(canvas, chart, finishedPts, AppColors.aiPurple);
-    _strokeSeries(canvas, openedPts, AppColors.dentalBlue);
-    _strokeSeries(canvas, finishedPts, AppColors.aiPurple);
-
-    final sel = selected.clamp(0, points.length - 1);
-    final sx = pt(sel, 0).dx;
-    canvas.drawLine(
-      Offset(sx, chart.top),
-      Offset(sx, chart.bottom),
-      Paint()
-        ..color = AppColors.navy.withValues(alpha: 0.18)
-        ..strokeWidth = 1.2,
-    );
-
-    _dot(canvas, pt(sel, points[sel].created), AppColors.dentalBlue);
-    _dot(canvas, pt(sel, points[sel].completed), AppColors.aiPurple);
-
-    _tooltip(
-      canvas,
-      size,
-      Offset(sx, chart.top + 4),
-      '${points[sel].created}  ·  ${points[sel].completed}',
-    );
-
-    final step = points.length > 8 ? 2 : 1;
-    for (var i = 0; i < points.length; i += step) {
-      final tp = TextPainter(
-        text: TextSpan(
-          text: labels[i],
-          style: AppFonts.style(
-            fontSize: 10.5,
-            fontWeight: FontWeight.w500,
-            color: AppColors.muted,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      final x = pt(i, 0).dx - tp.width / 2;
-      tp.paint(canvas, Offset(x.clamp(0, size.width - tp.width), chart.bottom + 6));
-    }
-  }
-
-  void _fillSeries(Canvas canvas, Rect chart, List<Offset> pts, Color color) {
-    if (pts.isEmpty) return;
-    final line = _smooth(pts);
-    final fill = Path.from(line)
-      ..lineTo(pts.last.dx, chart.bottom)
-      ..lineTo(pts.first.dx, chart.bottom)
-      ..close();
-    canvas.drawPath(
-      fill,
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            color.withValues(alpha: 0.28),
-            color.withValues(alpha: 0.02),
-          ],
-        ).createShader(chart),
-    );
-  }
-
-  void _strokeSeries(Canvas canvas, List<Offset> pts, Color color) {
-    if (pts.isEmpty) return;
-    canvas.drawPath(
-      _smooth(pts),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.2
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..color = color,
-    );
-  }
-
-  Path _smooth(List<Offset> pts) {
-    final path = Path()..moveTo(pts.first.dx, pts.first.dy);
-    if (pts.length == 1) return path;
-    for (var i = 0; i < pts.length - 1; i++) {
-      final a = pts[i];
-      final b = pts[i + 1];
-      final cx = (a.dx + b.dx) / 2;
-      path.cubicTo(cx, a.dy, cx, b.dy, b.dx, b.dy);
-    }
-    return path;
-  }
-
-  void _dot(Canvas canvas, Offset o, Color color) {
-    canvas.drawCircle(o, 5, Paint()..color = Colors.white);
-    canvas.drawCircle(o, 3.6, Paint()..color = color);
-  }
-
-  void _tooltip(Canvas canvas, Size size, Offset at, String text) {
-    final tp = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: AppFonts.style(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          color: Colors.white,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    const pad = EdgeInsets.symmetric(horizontal: 8, vertical: 5);
-    final w = tp.width + pad.horizontal;
-    final h = tp.height + pad.vertical;
-    var left = at.dx - w / 2;
-    left = left.clamp(0.0, size.width - w);
-    final rect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(left, at.dy, w, h),
-      const Radius.circular(8),
-    );
-    canvas.drawRRect(rect, Paint()..color = AppColors.navy);
-    tp.paint(canvas, Offset(left + pad.left, at.dy + pad.top));
-  }
-
-  void _dashLine(Canvas canvas, Offset a, Offset b, Paint paint) {
-    const dash = 5.0;
-    const gap = 4.0;
-    var x = a.dx;
-    while (x < b.dx) {
-      final x2 = math.min(x + dash, b.dx);
-      canvas.drawLine(Offset(x, a.dy), Offset(x2, a.dy), paint);
-      x += dash + gap;
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _AreaChartPainter old) =>
-      old.points != points || old.selected != selected || old.labels != labels;
-}
-
-class _PipelineDonutCard extends StatelessWidget {
-  const _PipelineDonutCard({
+class _PipelineCard extends StatelessWidget {
+  const _PipelineCard({
     required this.loc,
     required this.statusCounts,
     required this.total,
+    required this.expand,
   });
 
   final AppLocalizations loc;
   final Map<String, int> statusCounts;
   final int total;
+  final bool expand;
 
   @override
   Widget build(BuildContext context) {
-    final segs = [
+    final rows = [
       for (final s in CaseStatuses.all)
-        if ((statusCounts[s] ?? 0) > 0)
-          _DonutSeg(StatusStyle.of(s).fg, statusCounts[s]!, loc.statusLabel(s)),
+        _PipelineRow(
+          color: StatusStyle.of(s).fg,
+          label: loc.statusLabel(s),
+          count: statusCounts[s] ?? 0,
+          total: total,
+        ),
     ];
 
+    final segs = [
+      for (final r in rows)
+        if (r.count > 0) r,
+    ];
+
+    final body = total == 0
+        ? Center(
+            child: Text(
+              loc.reportsNoData,
+              style: AppFonts.style(color: AppColors.muted),
+            ),
+          )
+        : LayoutBuilder(
+            builder: (context, c) {
+              final ring = Padding(
+                padding: const EdgeInsets.all(4),
+                child: SizedBox(
+                  width: 140,
+                  height: 140,
+                  child: CustomPaint(
+                    painter: _RingPainter(segs: segs, total: total),
+                    child: Center(
+                      child: Text(
+                        '$total',
+                        style: AppFonts.style(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.navy,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+              final list = Column(
+                mainAxisSize: MainAxisSize.min,
+                children: rows,
+              );
+              return c.maxWidth >= 380
+                  ? Row(
+                      children: [
+                        ring,
+                        const SizedBox(width: 16),
+                        Expanded(child: Center(child: list)),
+                      ],
+                    )
+                  : Column(children: [ring, const SizedBox(height: 8), list]);
+            },
+          );
+
     return SectionCard(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
       child: Column(
+        mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            loc.reportsPipeline,
-            style: AppFonts.style(
-              fontWeight: FontWeight.w700,
-              fontSize: 15.5,
-              color: AppColors.navy,
-            ),
-          ),
-          Expanded(
-            child: total == 0
-                ? Center(
-                    child: Text(
-                      loc.reportsNoData,
-                      style: AppFonts.style(color: AppColors.muted),
-                    ),
-                  )
-                : CustomPaint(
-                    painter: _SemiDonutPainter(segments: segs, total: total),
-                    child: const SizedBox.expand(),
-                  ),
-          ),
-          if (segs.isNotEmpty)
-            Wrap(
-              spacing: 14,
-              runSpacing: 8,
-              children: [
-                for (final s in segs)
-                  _LegendChip(
-                    color: s.color,
-                    label: s.label,
-                    value: '${((s.value / total) * 100).round()}%',
-                  ),
-              ],
-            ),
+          Text(loc.reportsPipeline, style: _cardTitle()),
+          const SizedBox(height: 8),
+          if (expand) Expanded(child: body) else body,
         ],
       ),
     );
   }
 }
 
-class _DonutSeg {
-  const _DonutSeg(this.color, this.value, this.label);
-  final Color color;
-  final int value;
-  final String label;
-}
-
-class _SemiDonutPainter extends CustomPainter {
-  _SemiDonutPainter({required this.segments, required this.total});
-
-  final List<_DonutSeg> segments;
+class _RingPainter extends CustomPainter {
+  _RingPainter({required this.segs, required this.total});
+  final List<_PipelineRow> segs;
   final int total;
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (total <= 0 || segments.isEmpty) return;
-    final side = math.min(size.width, size.height * 1.35);
-    final stroke = side * 0.16;
-    final center = Offset(size.width / 2, size.height * 0.58);
-    final radius = side / 2 - stroke / 2 - 4;
-    if (radius < 18) return;
-    final rect = Rect.fromCircle(center: center, radius: radius);
-
-    const start = math.pi * 0.78;
-    const sweep = math.pi * 1.44;
-
-    canvas.drawArc(
-      rect,
-      start,
-      sweep,
-      false,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = stroke
-        ..strokeCap = StrokeCap.round
-        ..color = AppColors.inset,
-    );
-
-    var cursor = start;
-    for (final seg in segments) {
-      final s = (seg.value / total) * sweep;
+    const stroke = 16.0;
+    final rect = Offset.zero & size;
+    final arc = rect.deflate(stroke / 2);
+    final p = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke
+      ..strokeCap = StrokeCap.butt;
+    canvas.drawArc(arc, 0, math.pi * 2, false, p..color = AppColors.inset);
+    var cur = -math.pi / 2;
+    for (final s in segs) {
+      final sweep = s.count / total * math.pi * 2;
       canvas.drawArc(
-        rect,
-        cursor,
-        math.max(s - 0.02, 0.01),
+        arc,
+        cur,
+        math.max(sweep - 0.05, 0.01),
         false,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = stroke
-          ..strokeCap = StrokeCap.round
-          ..color = seg.color,
+        p..color = s.color,
       );
-      cursor += s;
+      cur += sweep;
     }
-
-    final value = TextPainter(
-      text: TextSpan(
-        text: '$total',
-        style: AppFonts.style(
-          fontSize: radius * 0.42,
-          fontWeight: FontWeight.w700,
-          color: AppColors.navy,
-          height: 1,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    value.paint(
-      canvas,
-      center - Offset(value.width / 2, value.height * 0.55),
-    );
   }
 
   @override
-  bool shouldRepaint(covariant _SemiDonutPainter old) =>
-      old.segments != segments || old.total != total;
+  bool shouldRepaint(covariant _RingPainter old) =>
+      old.segs != segs || old.total != total;
 }
 
-class _LegendChip extends StatelessWidget {
-  const _LegendChip({
+class _PipelineRow extends StatelessWidget {
+  const _PipelineRow({
     required this.color,
     required this.label,
-    required this.value,
+    required this.count,
+    required this.total,
   });
 
   final Color color;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 3,
-          height: 20,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        const SizedBox(width: 6),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: AppFonts.style(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: AppColors.muted,
-              ),
-            ),
-            Text(
-              value,
-              style: AppFonts.style(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w700,
-                color: AppColors.navy,
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _CoverageItem {
-  const _CoverageItem(this.label, this.count, this.total, this.color);
   final String label;
   final int count;
   final int total;
-  final Color color;
-}
-
-class _CoverageCard extends StatelessWidget {
-  const _CoverageCard({
-    required this.loc,
-    required this.pct,
-    required this.items,
-  });
-
-  final AppLocalizations loc;
-  final double pct;
-  final List<_CoverageItem> items;
 
   @override
   Widget build(BuildContext context) {
-    return SectionCard(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+    final pct = total == 0 ? 0 : (count / total * 100).round();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  loc.reportsClinical,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppFonts.style(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15.5,
-                    color: AppColors.navy,
-                  ),
-                ),
-              ),
-              Text(
-                '${pct.round()}%',
-                style: AppFonts.style(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 18,
-                  color: AppColors.navy,
-                ),
-              ),
-            ],
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
-          const SizedBox(height: 4),
-          Text(
-            loc.reportsCoverageHint,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppFonts.style(color: AppColors.muted, fontSize: 12),
-          ),
-          const SizedBox(height: 10),
+          const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              children: [
-                for (var i = 0; i < items.length; i++) ...[
-                  if (i > 0) const SizedBox(height: 8),
-                  Expanded(child: _CoverageBar(item: items[i])),
-                ],
-              ],
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppFonts.style(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.navy,
+              ),
+            ),
+          ),
+          Text(
+            '$count',
+            style: AppFonts.style(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: AppColors.navy,
+            ),
+          ),
+          SizedBox(
+            width: 48,
+            child: Text(
+              '$pct%',
+              textAlign: TextAlign.right,
+              style: AppFonts.style(fontSize: 12.5, color: AppColors.muted),
             ),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _CoverageBar extends StatelessWidget {
-  const _CoverageBar({required this.item});
-
-  final _CoverageItem item;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = item.total <= 0 ? 0.0 : (item.count / item.total).clamp(0.0, 1.0);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                item.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppFonts.style(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.navy,
-                ),
-              ),
-            ),
-            Text(
-              '${item.count}',
-              style: AppFonts.style(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w700,
-                color: item.color,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 5),
-        Expanded(
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(999),
-              child: SizedBox(
-                height: 10,
-                width: double.infinity,
-                child: Stack(
-                  children: [
-                    const ColoredBox(
-                      color: AppColors.inset,
-                      child: SizedBox.expand(),
-                    ),
-                    FractionallySizedBox(
-                      widthFactor: t,
-                      child: ColoredBox(color: item.color.withValues(alpha: 0.85)),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
     );
   }
 }
@@ -1473,6 +876,7 @@ class _AttentionCard extends StatelessWidget {
     required this.loc,
     required this.rows,
     required this.unread,
+    required this.expand,
     required this.onOpenPatients,
     required this.onOpenMessages,
   });
@@ -1480,40 +884,54 @@ class _AttentionCard extends StatelessWidget {
   final AppLocalizations loc;
   final List<Map<String, dynamic>> rows;
   final int unread;
+  final bool expand;
   final VoidCallback onOpenPatients;
   final VoidCallback onOpenMessages;
 
-  String _caseLabel(dynamic caseId) {
-    if (caseId is num) {
-      return 'CASE-${caseId.toInt().toString().padLeft(4, '0')}';
-    }
-    final raw = '$caseId'.trim();
-    if (raw.isEmpty || raw == 'null') return 'CASE-—';
-    final asInt = int.tryParse(raw);
-    if (asInt != null) return 'CASE-${asInt.toString().padLeft(4, '0')}';
-    final short = raw.length > 8 ? raw.substring(0, 8) : raw;
-    return 'CASE-$short';
-  }
-
   @override
   Widget build(BuildContext context) {
+    final list = rows.isEmpty
+        ? Padding(
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            child: Center(
+              child: Text(
+                loc.reportsAllClear,
+                style: AppFonts.style(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                  color: AppColors.navy,
+                ),
+              ),
+            ),
+          )
+        : ListView.separated(
+            shrinkWrap: !expand,
+            physics: expand ? null : const NeverScrollableScrollPhysics(),
+            padding: EdgeInsets.zero,
+            itemCount: rows.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 8),
+            itemBuilder: (context, i) {
+              final r = rows[i];
+              final updated = DateTime.tryParse('${r['updated_at']}');
+              return _AttentionRow(
+                name: '${r['patient_name'] ?? loc.reportsPatientFallback}',
+                date: updated == null
+                    ? null
+                    : formatAppDate(context, updated.toLocal(), 'MMM d'),
+                status: CaseStatuses.normalize('${r['status']}'),
+              );
+            },
+          );
+
     return SectionCard(
-      padding: const EdgeInsets.fromLTRB(16, 12, 12, 10),
+      padding: const EdgeInsets.fromLTRB(18, 12, 14, 14),
       child: Column(
+        mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
-              Expanded(
-                child: Text(
-                  loc.reportsAttention,
-                  style: AppFonts.style(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15.5,
-                    color: AppColors.navy,
-                  ),
-                ),
-              ),
+              Expanded(child: Text(loc.reportsAttention, style: _cardTitle())),
               AppButtons.ghost(
                 onPressed: onOpenPatients,
                 label: loc.reportsOpenPatients,
@@ -1522,62 +940,44 @@ class _AttentionCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Expanded(
-            child: rows.isEmpty
-                ? Center(
-                    child: Text(
-                      loc.reportsAllClear,
-                      style: AppFonts.style(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                        color: AppColors.navy,
-                      ),
-                    ),
-                  )
-                : LayoutBuilder(
-                    builder: (context, c) {
-                      final cols = c.maxWidth >= 560 ? 2 : 1;
-                      const rowH = 52.0;
-                      const gap = 8.0;
-                      final maxRows = math.max(
-                        1,
-                        ((c.maxHeight + gap) / (rowH + gap)).floor(),
-                      );
-                      final visible =
-                          rows.take(cols * maxRows).toList(growable: false);
-                      return GridView.builder(
-                        physics: const NeverScrollableScrollPhysics(),
-                        padding: EdgeInsets.zero,
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: cols,
-                          mainAxisExtent: rowH,
-                          crossAxisSpacing: gap,
-                          mainAxisSpacing: gap,
-                        ),
-                        itemCount: visible.length,
-                        itemBuilder: (context, i) {
-                          final r = visible[i];
-                          return _AttentionRow(
-                            name:
-                                '${r['patient_name'] ?? loc.reportsPatientFallback}',
-                            caseLabel: _caseLabel(r['case_id']),
-                            status: CaseStatuses.normalize('${r['status']}'),
-                          );
-                        },
-                      );
-                    },
-                  ),
-          ),
+          if (expand) Expanded(child: list) else list,
           if (unread > 0) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             GestureDetector(
               onTap: onOpenMessages,
-              child: Text(
-                '${loc.reportsUnreadMessages}: $unread',
-                style: AppFonts.style(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.dentalBlue,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.dentalBlue.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.mail_outline_rounded,
+                      size: 16,
+                      color: AppColors.dentalBlue,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '${loc.reportsUnreadMessages}: $unread',
+                        style: AppFonts.style(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.dentalBlue,
+                        ),
+                      ),
+                    ),
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      size: 18,
+                      color: AppColors.dentalBlue,
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -1591,31 +991,30 @@ class _AttentionCard extends StatelessWidget {
 class _AttentionRow extends StatelessWidget {
   const _AttentionRow({
     required this.name,
-    required this.caseLabel,
+    required this.date,
     required this.status,
   });
 
   final String name;
-  final String caseLabel;
+  final String? date;
   final String status;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: AppColors.neo,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [
-          InitialsAvatar(name: name, size: 30),
-          const SizedBox(width: 10),
+          InitialsAvatar(name: name, size: 34),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
                   name,
@@ -1623,21 +1022,477 @@ class _AttentionRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: AppFonts.style(
                     fontWeight: FontWeight.w600,
-                    fontSize: 13,
+                    fontSize: 14,
                     color: AppColors.navy,
                   ),
                 ),
-                Text(
-                  caseLabel,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppFonts.style(fontSize: 11, color: AppColors.muted),
-                ),
+                if (date != null)
+                  Text(
+                    date!,
+                    style: AppFonts.style(fontSize: 12, color: AppColors.muted),
+                  ),
               ],
             ),
           ),
           StatusChip(statusKey: status),
         ],
+      ),
+    );
+  }
+}
+
+class _WeekPt {
+  const _WeekPt(this.start, this.created, this.completed);
+  final DateTime start;
+  final int created;
+  final int completed;
+}
+
+class _ChartCard extends StatefulWidget {
+  const _ChartCard({
+    required this.title,
+    required this.subtitle,
+    required this.total,
+    required this.emptyText,
+    required this.pts,
+    required this.pick,
+    required this.color,
+    required this.bars,
+  });
+
+  final String title;
+  final String subtitle;
+  final int total;
+  final String emptyText;
+  final List<_WeekPt> pts;
+  final int Function(_WeekPt) pick;
+  final Color color;
+  final bool bars;
+
+  @override
+  State<_ChartCard> createState() => _ChartCardState();
+}
+
+class _ChartCardState extends State<_ChartCard> {
+  int? _sel;
+
+  @override
+  Widget build(BuildContext context) {
+    final vals = [for (final p in widget.pts) widget.pick(p)];
+    final empty = vals.every((v) => v == 0);
+    final sel = (_sel ?? vals.length - 1).clamp(
+      0,
+      math.max(vals.length - 1, 0),
+    );
+    return SectionCard(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(widget.title, style: _cardTitle()),
+          const SizedBox(height: 4),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                '${widget.total}',
+                style: AppFonts.style(
+                  fontSize: 26,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.navy,
+                  letterSpacing: -0.6,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                widget.subtitle,
+                style: AppFonts.style(fontSize: 12, color: AppColors.muted),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: empty
+                ? Center(
+                    child: Text(
+                      widget.emptyText,
+                      style: AppFonts.style(color: AppColors.muted),
+                    ),
+                  )
+                : LayoutBuilder(
+                    builder: (context, c) {
+                      void pick(double x) {
+                        final n = vals.length;
+                        final i = (x / c.maxWidth * n).floor().clamp(0, n - 1);
+                        if (i != _sel) setState(() => _sel = i);
+                      }
+
+                      return GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTapDown: (d) => pick(d.localPosition.dx),
+                        onHorizontalDragUpdate: (d) => pick(d.localPosition.dx),
+                        child: CustomPaint(
+                          size: Size.infinite,
+                          painter: _SeriesPainter(
+                            values: vals,
+                            labels: [
+                              for (final p in widget.pts)
+                                formatAppDate(context, p.start, 'MMM d'),
+                            ],
+                            selected: sel.toInt(),
+                            color: widget.color,
+                            bars: widget.bars,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SeriesPainter extends CustomPainter {
+  _SeriesPainter({
+    required this.values,
+    required this.labels,
+    required this.selected,
+    required this.color,
+    required this.bars,
+  });
+
+  final List<int> values;
+  final List<String> labels;
+  final int selected;
+  final Color color;
+  final bool bars;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (values.isEmpty || size.width < 20 || size.height < 40) return;
+    const bottom = 22.0;
+    final chart = Rect.fromLTWH(0, 22, size.width, size.height - bottom - 22);
+    final maxV = math.max(values.reduce(math.max), 1);
+    final n = values.length;
+    final slot = chart.width / n;
+
+    double cx(int i) => bars
+        ? chart.left + slot * (i + 0.5)
+        : (n == 1 ? chart.center.dx : chart.left + chart.width * i / (n - 1));
+    double cy(int v) => chart.bottom - v / maxV * chart.height;
+
+    final grid = Paint()
+      ..color = AppColors.border.withValues(alpha: 0.6)
+      ..strokeWidth = 1;
+    for (var g = 0; g < 3; g++) {
+      final y = chart.top + chart.height * g / 2;
+      for (var x = 0.0; x < chart.width; x += 9) {
+        canvas.drawLine(
+          Offset(x, y),
+          Offset(math.min(x + 5, chart.width), y),
+          grid,
+        );
+      }
+    }
+
+    if (bars) {
+      final bw = math.min(slot * 0.58, 34.0);
+      for (var i = 0; i < n; i++) {
+        final h = math.max(
+          values[i] / maxV * chart.height,
+          values[i] > 0 ? 3 : 0,
+        );
+        final r = RRect.fromRectAndRadius(
+          Rect.fromLTWH(cx(i) - bw / 2, chart.bottom - h, bw, h.toDouble()),
+          const Radius.circular(6),
+        );
+        canvas.drawRRect(
+          r,
+          Paint()..color = color.withValues(alpha: i == selected ? 1 : 0.3),
+        );
+      }
+    } else {
+      final pts = [for (var i = 0; i < n; i++) Offset(cx(i), cy(values[i]))];
+      final line = Path()..moveTo(pts.first.dx, pts.first.dy);
+      for (var i = 0; i < n - 1; i++) {
+        final m = (pts[i].dx + pts[i + 1].dx) / 2;
+        line.cubicTo(
+          m,
+          pts[i].dy,
+          m,
+          pts[i + 1].dy,
+          pts[i + 1].dx,
+          pts[i + 1].dy,
+        );
+      }
+      final fill = Path.from(line)
+        ..lineTo(pts.last.dx, chart.bottom)
+        ..lineTo(pts.first.dx, chart.bottom)
+        ..close();
+      canvas.drawPath(
+        fill,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              color.withValues(alpha: 0.3),
+              color.withValues(alpha: 0.02),
+            ],
+          ).createShader(chart),
+      );
+      canvas.drawPath(
+        line,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.4
+          ..strokeCap = StrokeCap.round
+          ..color = color,
+      );
+      final s = pts[selected];
+      canvas.drawLine(
+        Offset(s.dx, chart.top),
+        Offset(s.dx, chart.bottom),
+        Paint()
+          ..color = AppColors.navy.withValues(alpha: 0.15)
+          ..strokeWidth = 1.2,
+      );
+      canvas.drawCircle(s, 5.5, Paint()..color = Colors.white);
+      canvas.drawCircle(s, 3.8, Paint()..color = color);
+    }
+
+    // value bubble over the selected point
+    final top = bars
+        ? Offset(cx(selected), cy(values[selected]))
+        : Offset(cx(selected), cy(values[selected]));
+    final tp = TextPainter(
+      text: TextSpan(
+        text: '${values[selected]}',
+        style: AppFonts.style(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: Colors.white,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final w = tp.width + 16;
+    final left = (top.dx - w / 2).clamp(0.0, size.width - w);
+    final y = math.max(top.dy - 32, 0.0);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(left, y, w, tp.height + 8),
+        const Radius.circular(8),
+      ),
+      Paint()..color = AppColors.navy,
+    );
+    tp.paint(canvas, Offset(left + 8, y + 4));
+
+    final step = n > 8 ? 2 : 1;
+    for (var i = 0; i < n; i += step) {
+      final l = TextPainter(
+        text: TextSpan(
+          text: labels[i],
+          style: AppFonts.style(
+            fontSize: 10.5,
+            color: i == selected ? AppColors.navy : AppColors.muted,
+            fontWeight: i == selected ? FontWeight.w700 : FontWeight.w500,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      l.paint(
+        canvas,
+        Offset(
+          (cx(i) - l.width / 2).clamp(0.0, size.width - l.width),
+          chart.bottom + 6,
+        ),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SeriesPainter old) => true;
+}
+
+/// Native iOS share-sheet preview: read the clinic summary, then share or copy.
+class _SharePreviewSheet extends StatelessWidget {
+  const _SharePreviewSheet({
+    required this.title,
+    required this.body,
+    required this.hint,
+    required this.shareLabel,
+    required this.copyLabel,
+    required this.cancelLabel,
+    required this.onShare,
+    required this.onCopy,
+  });
+
+  final String title;
+  final String body;
+  final String hint;
+  final String shareLabel;
+  final String copyLabel;
+  final String cancelLabel;
+  final VoidCallback onShare;
+  final VoidCallback onCopy;
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = CupertinoColors.systemGroupedBackground.resolveFrom(context);
+    final card = CupertinoColors.secondarySystemGroupedBackground
+        .resolveFrom(context);
+    final label = CupertinoColors.label.resolveFrom(context);
+    final secondary = CupertinoColors.secondaryLabel.resolveFrom(context);
+    final size = MediaQuery.sizeOf(context);
+    final maxH = size.height * 0.78;
+    final sheetW = math.min(520.0, size.width - 20);
+
+    return SafeArea(
+      minimum: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: sheetW, maxHeight: maxH),
+          child: SizedBox(
+            width: sheetW,
+            child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Material(
+                  color: bg,
+                  borderRadius: BorderRadius.circular(14),
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(height: 8),
+                      Container(
+                        width: 36,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: CupertinoColors.systemGrey3
+                              .resolveFrom(context),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+                        child: Text(
+                          title,
+                          textAlign: TextAlign.center,
+                          style: AppFonts.style(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w600,
+                            color: label,
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                        child: Text(
+                          hint,
+                          textAlign: TextAlign.center,
+                          style: AppFonts.style(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w400,
+                            color: secondary,
+                          ),
+                        ),
+                      ),
+                      Flexible(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: card,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: CupertinoScrollbar(
+                              child: SingleChildScrollView(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  14,
+                                  16,
+                                  16,
+                                ),
+                                child: SelectableText(
+                                  body.trim(),
+                                  style: AppFonts.style(
+                                    fontSize: 15,
+                                    height: 1.45,
+                                    fontWeight: FontWeight.w400,
+                                    color: label,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const Divider(height: 1, thickness: 0.5),
+                      _IosAction(
+                        label: shareLabel,
+                        isDefault: true,
+                        onPressed: onShare,
+                      ),
+                      const Divider(height: 1, thickness: 0.5),
+                      _IosAction(label: copyLabel, onPressed: onCopy),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Material(
+                color: bg,
+                borderRadius: BorderRadius.circular(14),
+                clipBehavior: Clip.antiAlias,
+                child: _IosAction(
+                  label: cancelLabel,
+                  isDefault: true,
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ),
+            ],
+          ),
+            ),
+        ),
+      ),
+    );
+  }
+}
+
+class _IosAction extends StatelessWidget {
+  const _IosAction({
+    required this.label,
+    required this.onPressed,
+    this.isDefault = false,
+  });
+
+  final String label;
+  final VoidCallback onPressed;
+  final bool isDefault;
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoButton(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      onPressed: onPressed,
+      child: SizedBox(
+        width: double.infinity,
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: AppFonts.style(
+            fontSize: 20,
+            fontWeight: isDefault ? FontWeight.w600 : FontWeight.w400,
+            color: CupertinoTheme.of(context).primaryColor,
+          ),
+        ),
       ),
     );
   }

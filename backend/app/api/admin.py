@@ -18,14 +18,20 @@ from app.services import patient_access as pa
 from app.services.account_deletion import delete_account, purge_user_account
 from app.services.email import send_account_verified_email, send_signup_rejected_email
 from app.services.notify import notify
+from app.services.profiles import public_id_from_profile
 
 router = APIRouter()
 logger = logging.getLogger("app.api.admin")
 
-_PROFILE_COLS = (
+_PROFILE_COLS_CORE = (
     "id,name,email,phone,role,clinic_name,verified,deleted,created_at,updated_at,"
-    "lab_id,hidden_from_labs,hide_dentists,unassigned_reason,unassigned_at,anonymized_at,avatar_url"
+    "lab_id,hidden_from_labs,hide_dentists,unassigned_reason,unassigned_at,"
+    "anonymized_at,avatar_url"
 )
+# Optional until migration 027 is applied.
+_PROFILE_COLS = _PROFILE_COLS_CORE + ",public_number"
+# None = unknown, True = column present, False = missing (skip forever this process).
+_HAVE_PUBLIC_NUMBER: bool | None = None
 _STATUS_LABELS = {
     "pending": "awaiting scan",
     "in_progress": "in progress",
@@ -56,6 +62,36 @@ def _count(query: Any) -> int:
         raise pa.db_error(exc) from exc
 
 
+def _missing_public_number(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return "public_number" in text and (
+        "does not exist" in text or "42703" in text or "column" in text
+    )
+
+
+def _profile_cols() -> str:
+    return _PROFILE_COLS if _HAVE_PUBLIC_NUMBER is not False else _PROFILE_COLS_CORE
+
+
+def _profile_rows(build) -> list[dict[str, Any]]:
+    """Run a profiles select; retry without public_number if migration 027 is pending."""
+    global _HAVE_PUBLIC_NUMBER
+    cols = _profile_cols()
+    try:
+        rows = _rows(build(cols))
+        if _HAVE_PUBLIC_NUMBER is None and cols.endswith("public_number"):
+            _HAVE_PUBLIC_NUMBER = True
+        return rows
+    except Exception as exc:
+        if _HAVE_PUBLIC_NUMBER is not False and _missing_public_number(exc):
+            logger.warning(
+                "profiles.public_number missing — apply migrations/027_profile_public_ids.sql"
+            )
+            _HAVE_PUBLIC_NUMBER = False
+            return _rows(build(_PROFILE_COLS_CORE))
+        raise
+
+
 def _q(raw: str | None) -> str:
     """Search text safe to embed in a PostgREST or=(...) filter."""
     return re.sub(r"[,()*%\\\"]", " ", raw or "").strip()
@@ -67,7 +103,9 @@ def _opt(raw: str | None) -> str | None:
 
 
 def _profile(user_id: str) -> dict[str, Any] | None:
-    rows = _rows(_db().table("profiles").select(_PROFILE_COLS).eq("id", user_id).limit(1))
+    rows = _profile_rows(
+        lambda cols: _db().table("profiles").select(cols).eq("id", user_id).limit(1)
+    )
     return rows[0] if rows else None
 
 
@@ -157,14 +195,15 @@ def _require_pending(user_id: str) -> dict[str, Any]:
 
 @router.get("/signups")
 def list_signups(_: AuthUser = Depends(require_admin)):
-    rows = _rows(
-        _pending_signups(_db().table("profiles").select(_PROFILE_COLS)).order(
+    rows = _profile_rows(
+        lambda cols: _pending_signups(_db().table("profiles").select(cols)).order(
             "created_at", desc=True
         )
     )
     return [
         {
             "user_id": str(r["id"]),
+            "public_id": public_id_from_profile(r),
             "name": r.get("name"),
             "email": r.get("email"),
             "phone": r.get("phone"),
@@ -278,8 +317,10 @@ class SetLabIn(BaseModel):
 
 @router.get("/labs")
 def list_labs(_: AuthUser = Depends(require_admin)):
-    rows = _rows(
-        _approved(_db().table("profiles").select(_PROFILE_COLS), "laboratory").order("name")
+    rows = _profile_rows(
+        lambda cols: _approved(
+            _db().table("profiles").select(cols), "laboratory"
+        ).order("name")
     )
     counts = Counter(
         str(r["lab_id"])
@@ -292,6 +333,7 @@ def list_labs(_: AuthUser = Depends(require_admin)):
     return [
         {
             "id": str(r["id"]),
+            "public_id": public_id_from_profile(r),
             "name": r.get("name"),
             "email": r.get("email"),
             "phone": r.get("phone"),
@@ -311,16 +353,20 @@ def list_dentists(
     unassigned: str | None = None,
     _: AuthUser = Depends(require_admin),
 ):
-    query = _approved(_db().table("profiles").select(_PROFILE_COLS), "dentist")
-    if _opt(lab_id):
-        query = query.eq("lab_id", _opt(lab_id))
-    if unassigned == "true":
-        query = query.is_("lab_id", "null")
-    rows = _rows(query.order("name"))
+    def _dentists(cols: str) -> Any:
+        query = _approved(_db().table("profiles").select(cols), "dentist")
+        if _opt(lab_id):
+            query = query.eq("lab_id", _opt(lab_id))
+        if unassigned == "true":
+            query = query.is_("lab_id", "null")
+        return query.order("name")
+
+    rows = _profile_rows(_dentists)
     lab_names = _names({str(r.get("lab_id") or "") for r in rows})
     return [
         {
             "id": str(r["id"]),
+            "public_id": public_id_from_profile(r),
             "name": r.get("name"),
             "email": r.get("email"),
             "phone": r.get("phone"),

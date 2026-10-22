@@ -34,11 +34,13 @@ from app.services import patient_access as pa
 from app.services.account_deletion import delete_account
 from app.services.email import send_account_deleted_email, send_welcome_email
 from app.services.profiles import (
+    ensure_public_number,
     fetch_profile,
     is_approved_email,
     is_rejected_email,
     lab_name,
     persist_signup_profile,
+    public_id_from_profile,
 )
 
 router = APIRouter()
@@ -136,6 +138,7 @@ def _profile_fields(user: Any) -> dict[str, Any]:
         )
         return {
             "user_id": auth_user.id,
+            "public_id": None,
             "email": auth_user.email,
             "name": auth_user.name,
             "role": canonicalize_role(auth_user.role),
@@ -156,6 +159,9 @@ def _profile_fields(user: Any) -> dict[str, Any]:
     )
     clinic_name = _clean_optional(profile.get("clinic_name")) or auth_user.clinic_name
     phone = _clean_optional(profile.get("phone")) or auth_user.phone
+    if profile.get("public_number") is None and role in ("dentist", "laboratory"):
+        ensure_public_number(auth_user.id, role)
+        profile = fetch_profile(auth_user.id) or profile
 
     logger.debug(
         "profile loaded user_id=%s role=%s verified=%s",
@@ -165,6 +171,7 @@ def _profile_fields(user: Any) -> dict[str, Any]:
     )
     return {
         "user_id": auth_user.id,
+        "public_id": public_id_from_profile(profile),
         "email": email,
         "name": name,
         "role": role,
@@ -198,6 +205,7 @@ def _token_out(
         email_confirmation_required=email_confirmation_required,
         message=message,
         user_id=fields["user_id"],
+        public_id=fields.get("public_id"),
         role=fields["role"],
         name=fields["name"],
         email=fields["email"],
@@ -475,8 +483,12 @@ def me(user: AuthUser = Depends(get_current_user)):
     is_dentist = user.role == "dentist"
     has_lab = bool(profile.get("lab_id"))
     deferred = profile.get("lab_join_deferred_at")
+    if profile.get("public_number") is None and user.role in ("dentist", "laboratory"):
+        ensure_public_number(user.id, user.role)
+        profile = fetch_profile(user.id) or profile
     return UserOut(
         id=user.id,
+        public_id=public_id_from_profile(profile),
         email=user.email,
         name=user.name,
         role=user.role,

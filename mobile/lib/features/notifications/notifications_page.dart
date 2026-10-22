@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import '../../core/l10n/server_text.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/haptics/app_haptics.dart';
@@ -379,8 +378,10 @@ class _NotificationTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
+                    // Pass English API text through — localization matches EN
+                    // templates. Pre-running localizeServerText broke DE matching.
                     loc.localizeNotificationMessage(
-                      localizeServerText('${item['message'] ?? ''}'),
+                      '${item['message'] ?? ''}',
                       type: type,
                       patientName: patient,
                     ),

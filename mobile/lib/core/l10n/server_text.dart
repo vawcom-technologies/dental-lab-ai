@@ -68,7 +68,10 @@ const _exact = <String, String>{
   'A colleague': 'Ein Kollege',
   'Signed out': 'Abgemeldet',
   'Password updated': 'Passwort aktualisiert',
+  'Account deleted': 'Konto gelöscht',
   'Your account has been permanently deleted.': 'Ihr Konto wurde endgültig gelöscht.',
+  'Account created successfully. An administrator must verify your account before you can sign in.':
+      'Konto erfolgreich erstellt. Ein Administrator muss Ihr Konto freigeben, bevor Sie sich anmelden können.',
   'If an account exists for that email, a password reset link has been sent.':
       'Falls ein Konto mit dieser E-Mail existiert, wurde ein Link zum Zurücksetzen des Passworts gesendet.',
   'Password is incorrect': 'Das Passwort ist falsch.',
@@ -129,19 +132,55 @@ const _exact = <String, String>{
       'Nur das Labor des Zahnarztes kann diese Anfrage genehmigen oder ablehnen.',
 };
 
+/// English tokens the API embeds inside otherwise-translated sentences.
+const _embeddedEn = <String, String>{
+  'awaiting scan': 'Wartet auf Scan',
+  'in progress': 'In Bearbeitung',
+  'under review': 'In Prüfung',
+  'needs work': 'Nacharbeit nötig',
+  'no_show': 'Nicht erschienen',
+  'scheduled': 'Geplant',
+  'completed': 'Abgeschlossen',
+  'cancelled': 'Abgesagt',
+  'canceled': 'Abgesagt',
+  'rejected': 'Abgelehnt',
+  'approved': 'Genehmigt',
+  'pending': 'Ausstehend',
+};
+
+/// Swap known English status tokens inside an otherwise-localized sentence.
+String localizeEmbeddedServerTokens(String text) {
+  if (LocaleController.current != 'de') return text;
+  var out = text;
+  // Longer phrases first so "awaiting scan" wins over bare words.
+  final keys = _embeddedEn.keys.toList()
+    ..sort((a, b) => b.length.compareTo(a.length));
+  for (final en in keys) {
+    out = out.replaceAllMapped(
+      RegExp('\\b${RegExp.escape(en)}\\b', caseSensitive: false),
+      (_) => _embeddedEn[en]!,
+    );
+  }
+  return out;
+}
+
 /// German text for known backend sentences; unknown text and EN pass through.
+///
+/// Used by error dialogs / HTTP `detail`. Notification inbox prefers
+/// [AppLocalizations.localizeNotificationMessage] (match English first).
 String localizeServerText(String text) {
   if (LocaleController.current != 'de') return text;
   final t = text.trim();
   final hit = _exact[t];
-  if (hit != null) return hit;
+  if (hit != null) return localizeEmbeddedServerTokens(hit);
   for (final (re, de) in _patterns) {
     final m = re.firstMatch(t);
     if (m == null) continue;
-    return de.replaceAllMapped(
+    final out = de.replaceAllMapped(
       RegExp(r'\$(\d)'),
       (g) => m.group(int.parse(g.group(1)!)) ?? '',
     );
+    return localizeEmbeddedServerTokens(out);
   }
   return text;
 }

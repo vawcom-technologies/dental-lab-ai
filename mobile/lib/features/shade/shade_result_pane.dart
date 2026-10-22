@@ -221,13 +221,24 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
           ),
           const SizedBox(height: 16),
           if (_tab == 1)
-            SizedBox(
-              height: 320,
-              child: FdiToothChart(
-                teeth: widget.teeth,
-                selectedToothIndex: widget.selectedToothIndex,
-                onSelectTooth: (index) => widget.onSelectTooth(index),
-              ),
+            LayoutBuilder(
+              builder: (context, c) {
+                // Portrait splits jaws side-by-side (~4:1). Give the chart
+                // enough height for the label + fitted halves; landscape
+                // orientation still uses the square chart inside.
+                final split = MediaQuery.orientationOf(context) == Orientation.portrait;
+                final h = split
+                    ? (c.maxWidth / 2.6).clamp(180.0, 320.0)
+                    : 320.0;
+                return SizedBox(
+                  height: h,
+                  child: FdiToothChart(
+                    teeth: widget.teeth,
+                    selectedToothIndex: widget.selectedToothIndex,
+                    onSelectTooth: (index) => widget.onSelectTooth(index),
+                  ),
+                );
+              },
             )
           else
             LayoutBuilder(

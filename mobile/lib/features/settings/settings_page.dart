@@ -221,18 +221,19 @@ class _SettingsPageState extends State<SettingsPage> {
         'sicherheit',
         'login',
       ]),
-      _Entry('delete', _Section.security, loc.settingsDeleteAccount, loc.tr('settings.d.delete'), [
-        'delete',
-        'löschen',
-        'remove account',
-        'close account',
-        'konto löschen',
-        'gdpr',
-        'dsgvo',
-        'data',
-        'daten',
-        'leave',
-      ]),
+      if (!api.isAdmin)
+        _Entry('delete', _Section.security, loc.settingsDeleteAccount, loc.tr('settings.d.delete'), [
+          'delete',
+          'löschen',
+          'remove account',
+          'close account',
+          'konto löschen',
+          'gdpr',
+          'dsgvo',
+          'data',
+          'daten',
+          'leave',
+        ]),
       if (sections.contains(_Section.lab))
         api.isLaboratory
             ? _Entry('lab', _Section.lab, loc.tr('lab.tab.settings'), loc.tr('settings.d.labVis'), [
@@ -660,7 +661,7 @@ class _SettingsPageState extends State<SettingsPage> {
             if ((api.clinicName ?? '').trim().isNotEmpty) _info('clinic', loc.aboutClinic, api.clinicName!),
             _info('role', loc.role, AppRoles.label(api.role, loc)),
             if (api.isDentist) _info('labname', loc.tr('admin.lab'), api.labName ?? ''),
-            _info('userid', loc.aboutUserId, api.userId ?? ''),
+            _info('userid', loc.aboutUserId, api.displayUserId),
           ],
         );
       case _Section.security:
@@ -678,18 +679,19 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
           ),
-          _row(
-            'delete',
-            loc.settingsDeleteAccount,
-            loc.tr('settings.d.delete'),
-            AppButtons.danger(
-              icon: Icons.person_remove_outlined,
-              label: loc.commonDelete,
-              soft: true,
-              compact: true,
-              onPressed: _deleting ? null : _deleteAccount,
+          if (!api.isAdmin)
+            _row(
+              'delete',
+              loc.settingsDeleteAccount,
+              loc.tr('settings.d.delete'),
+              AppButtons.danger(
+                icon: Icons.person_remove_outlined,
+                label: loc.commonDelete,
+                soft: true,
+                compact: true,
+                onPressed: _deleting ? null : _deleteAccount,
+              ),
             ),
-          ),
         ]);
       case _Section.lab:
         return Padding(
@@ -915,7 +917,7 @@ class AboutContent extends StatelessWidget {
         info(loc.aboutClinic, api.clinicName),
         if (api.isDentist) info(loc.tr('admin.lab'), api.labName),
         info(loc.role, AppRoles.label(api.role, loc)),
-        info(loc.aboutUserId, api.userId),
+        info(loc.aboutUserId, api.displayUserId),
       ],
     );
     final links = _GlassSettingsGroup(
