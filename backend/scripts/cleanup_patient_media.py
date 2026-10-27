@@ -16,6 +16,7 @@ Per table (shade_detections, smile_previews, patient_scans):
 The camera bucket (patient-images) is only read, never changed.
 """
 
+
 from __future__ import annotations
 
 import argparse
