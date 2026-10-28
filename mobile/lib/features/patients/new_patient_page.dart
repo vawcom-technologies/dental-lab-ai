@@ -5,6 +5,7 @@ import '../../core/l10n/app_localizations.dart';
 import '../../core/layout/adaptive.dart';
 import '../../core/session/patient_session.dart';
 import '../../core/widgets/ui_kit.dart';
+import '../lab/lab_pickers.dart';
 import 'patient_models.dart';
 import '../../core/errors/user_facing_error.dart';
 
@@ -35,9 +36,16 @@ class _NewPatientPageState extends State<NewPatientPage> {
   final _insurance = TextEditingController();
   bool _loading = false;
 
+  /// Labs must assign the patient to a dentist or send it to another lab.
+  final _labTarget = ValueNotifier<Map<String, String>?>(null);
+
   Future<void> _save() async {
     if (_loading) return;
     if (!_formKey.currentState!.validate()) return;
+    if (widget.api.isLaboratory && _labTarget.value == null) {
+      AppSnackBars.error(context, AppLocalizations.of(context).tr('lab.targetRequired'));
+      return;
+    }
     setState(() {
       _loading = true;
     });
@@ -50,6 +58,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
         'phone': PhoneNumbers.compose(_phone.text),
         'address': _address.text.trim(),
         'health_insurance': _insurance.text.trim(),
+        ...?_labTarget.value,
       });
       final session = widget.patientSession;
       if (session != null) {
@@ -74,6 +83,7 @@ class _NewPatientPageState extends State<NewPatientPage> {
     _phone.dispose();
     _address.dispose();
     _insurance.dispose();
+    _labTarget.dispose();
     super.dispose();
   }
 
@@ -120,6 +130,10 @@ class _NewPatientPageState extends State<NewPatientPage> {
               child: SectionCard(
                 child: ListView(
                   children: [
+                    if (widget.api.isLaboratory) ...[
+                      LabPatientTarget(api: widget.api, value: _labTarget, enabled: !_loading),
+                      const SizedBox(height: 22),
+                    ],
                     SectionLabel(AppLocalizations.of(context).tr('p.identity')),
                     const SizedBox(height: 14),
                     Row(

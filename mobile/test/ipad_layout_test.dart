@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Real iPad logical sizes (landscape). Portrait is the same size flipped.
@@ -31,7 +32,7 @@ const _pages = {
   AppNavItem.smilePreview: Icons.sentiment_satisfied_alt_outlined,
   AppNavItem.interpreter: Icons.translate_rounded,
   AppNavItem.messages: Icons.chat_bubble_outline,
-  AppNavItem.notifications: Icons.notifications_none_rounded,
+  // Notifications: reached from the top-bar bell, not the rail.
   AppNavItem.reports: Icons.bar_chart_rounded,
   AppNavItem.settings: Icons.settings_outlined,
 };
@@ -80,27 +81,18 @@ Future<void> _settle(WidgetTester tester) async {
   }
 }
 
-Future<void> _expandSidebar(WidgetTester tester) async {
-  await tester.tap(find.descendant(
-    of: find.byType(AppSidebar),
-    matching: find.byIcon(Icons.chevron_right_rounded),
-  ));
-  await _settle(tester);
-  expect(_sidebarWidth(tester), 248);
-}
-
 Future<void> _unmount(WidgetTester tester) async {
   await tester.pumpWidget(const SizedBox());
   await tester.pump(const Duration(seconds: 1));
 }
 
-/// Sidebar width without its 12pt left margin.
+/// Sidebar width (rail + bubble room) without its 12pt left margin.
 double _sidebarWidth(WidgetTester tester) =>
     tester.getSize(find.byType(AppSidebar)).width - 12;
 
 /// True when the header's action buttons sit on the title row.
 bool _headerOneRow(WidgetTester tester) {
-  // Only the dashboard is mounted when this runs, so there is one header.
+  // Patients is the only mounted page with a header when this runs.
   final header = find.byType(PageHeader).first;
   final badge = find.descendant(of: header, matching: find.byType(NeoIconBadge));
   final button = find.descendant(
@@ -111,22 +103,30 @@ bool _headerOneRow(WidgetTester tester) {
 }
 
 void main() {
+  setUpAll(() async {
+    await initializeDateFormatting('en');
+    await initializeDateFormatting('de');
+  });
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   for (final MapEntry(key: name, value: landscape) in _ipads.entries) {
-    final is11 = landscape.width < 1300;
 
     testWidgets('$name landscape: sidebar, header, shade pane', (tester) async {
       await _pumpShell(tester, landscape);
 
-      // 11" gets the icon rail; 12.9"/13" keep the labelled sidebar.
-      expect(_sidebarWidth(tester), is11 ? 72 : 248);
+      // Every iPad gets the icon rail, sized to the device.
+      expect(
+        _sidebarWidth(tester),
+        closeTo(AppSidebar.railExtent(landscape), 0.01),
+      );
+      await _open(tester, AppNavItem.patients);
       expect(_headerOneRow(tester), isTrue,
-          reason: 'dashboard header should fit on one row');
+          reason: 'landscape header should fit on one row');
 
+      // Shade: no side Session column any more (history is a strip).
       await _open(tester, AppNavItem.shade);
-      final pane = tester.getSize(find.byType(ShadeSessionPane)).width;
-      expect(pane, 300);
+      expect(find.byType(ShadeSessionPane), findsNothing);
+      expect(tester.takeException(), isNull);
       await _unmount(tester);
     });
 
@@ -144,27 +144,4 @@ void main() {
       });
     }
   }
-
-  testWidgets('11" landscape with sidebar expanded still fits', (tester) async {
-    await _pumpShell(tester, const Size(1194, 834));
-    await _expandSidebar(tester);
-
-    // Too narrow for one row: header stacks with compact (22pt) title.
-    expect(_headerOneRow(tester), isFalse);
-    final title = tester.widget<Text>(
-      find.descendant(
-        of: find.byType(PageHeader).first,
-        matching: find.byType(Text),
-      ).first,
-    );
-    expect(title.style?.fontSize, 22);
-
-    // Shade session list narrows so photo + result keep their room.
-    // (Picking a page folds the sidebar back, so expand again.)
-    await _open(tester, AppNavItem.shade);
-    expect(tester.getSize(find.byType(ShadeSessionPane)).width, 300);
-    await _expandSidebar(tester);
-    expect(tester.getSize(find.byType(ShadeSessionPane)).width, 252);
-    await _unmount(tester);
-  });
 }

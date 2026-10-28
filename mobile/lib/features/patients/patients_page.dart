@@ -3,6 +3,10 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../cases/case_panel.dart';
+import '../cases/case_store.dart';
+import '../lab/lab_pickers.dart';
+
 import '../../core/api/api_client.dart';
 import '../../core/auth/app_roles.dart';
 import '../../core/l10n/app_localizations.dart';
@@ -10,6 +14,7 @@ import '../../core/l10n/date_formats.dart';
 import '../../core/layout/adaptive.dart';
 import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/page_kit.dart';
 import '../../core/widgets/ui_kit.dart';
 import 'patient_models.dart';
 import 'patients_controller.dart';
@@ -156,7 +161,9 @@ class _PatientsPageState extends State<PatientsPage> {
           title: AppLocalizations.of(context).newPatientTitle,
           submitLabel: AppLocalizations.of(context).createPatient,
           saving: false,
+          api: widget.api,
           onSubmit: (fields) => _controller.createPatient(
+            target: fields.target,
             firstName: fields.firstName,
             lastName: fields.lastName,
             dateOfBirth: fields.dateOfBirth,
@@ -164,7 +171,6 @@ class _PatientsPageState extends State<PatientsPage> {
             address: fields.address,
             phone: fields.phone,
             healthInsurance: fields.healthInsurance,
-            status: fields.status,
           ),
         ),
       ),
@@ -203,7 +209,6 @@ class _PatientsPageState extends State<PatientsPage> {
               'address': fields.address,
               'phone': fields.phone,
               'health_insurance': fields.healthInsurance,
-              'status': fields.status,
             }),
           ),
         ),
@@ -237,6 +242,7 @@ class _PatientsPageState extends State<PatientsPage> {
     if (hard == null || !mounted) return;
     try {
       await _controller.deletePatient(patient.id, hard: hard);
+      if (_inline?.id == patient.id && mounted) setState(() => _inline = null);
       await _syncSharedPatientSession();
       if (!mounted) return;
       _toast(hard ? AppLocalizations.of(context).tr('p.deleted') : AppLocalizations.of(context).tr('p.archived'));
@@ -258,54 +264,31 @@ class _PatientsPageState extends State<PatientsPage> {
     );
   }
 
-  Future<void> _openPendingRequests() async {
-    await _controller.loadPendingRequests();
-    if (!mounted) return;
-    await AppDialogs.modalSheet<void>(
-      context: context,
-      builder: (ctx) => Material(
-        color: AppColors.card,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-        clipBehavior: Clip.antiAlias,
-        child: _PendingAccessDrawer(
-          controller: _controller,
-          onToast: _toast,
-          friendlyError: _friendlyError,
-        ),
-      ),
-    );
-  }
+  /// Wide screen: list on the left, the open patient on the right.
+  bool _split = false;
+  GdprPatient? _inline;
+  int _inlineTab = 0;
 
-  Future<void> _changePatientStatus(GdprPatient patient, String status) async {
-    if (_controller.mutating) return;
-    if (!_controller.isOwner(patient)) {
-      _toast(
-        AppLocalizations.of(context).tr('p.permDenied'),
-        error: true,
-      );
-      return;
+  _PatientDetailSheet _detailFor(GdprPatient p, {required int tab, required bool embedded, VoidCallback? close}) {
+    void then(VoidCallback next) {
+      close?.call();
+      next();
     }
-    GdprPatient current = patient;
-    for (final row in _controller.patients) {
-      if (row.id == patient.id) {
-        current = row;
-        break;
-      }
-    }
-    final next = CaseStatuses.normalize(status);
-    if (CaseStatuses.normalize(current.status) == next) return;
-    try {
-      await _controller.updatePatient(patient.id, {'status': next});
-      if (!mounted) return;
-      _toast(
-        AppLocalizations.of(context).statusUpdatedTo(
-          AppLocalizations.of(context).statusLabel(next),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      _toast(_friendlyError(e), error: true);
-    }
+
+    return _PatientDetailSheet(
+      key: embedded ? ValueKey('inline-${p.id}-$tab') : null,
+      controller: _controller,
+      cases: widget.patientSession?.cases,
+      patientSession: widget.patientSession,
+      patient: p,
+      initialTab: tab,
+      embedded: embedded,
+      onEdit: () => then(() => _openEdit(p)),
+      onShare: () => then(() => _openShare(p)),
+      onDelete: () => then(() => _confirmDelete(p)),
+      onToast: _toast,
+      friendlyError: _friendlyError,
+    );
   }
 
   Future<void> _presentPatientDetail(String patientId, {int tab = 0}) async {
@@ -313,30 +296,16 @@ class _PatientsPageState extends State<PatientsPage> {
     if (detailed == null || !mounted) return;
     // Drop the shell overlay before the sheet so the profile is tappable.
     widget.patientSession?.clearOpeningPatientDetail();
+    if (_split) {
+      setState(() {
+        _inline = detailed;
+        _inlineTab = tab;
+      });
+      return;
+    }
     await AppDialogs.modalSheet<void>(
       context: context,
-      builder: (ctx) => _PatientDetailSheet(
-        controller: _controller,
-        patient: detailed,
-        initialTab: tab,
-        onEdit: () {
-          Navigator.pop(ctx);
-          _openEdit(detailed);
-        },
-        onShare: () {
-          Navigator.pop(ctx);
-          _openShare(detailed);
-        },
-        onDelete: () {
-          Navigator.pop(ctx);
-          _confirmDelete(detailed);
-        },
-        onStatusChanged: _controller.isOwner(detailed)
-            ? (status) => _changePatientStatus(detailed, status)
-            : null,
-        onToast: _toast,
-        friendlyError: _friendlyError,
-      ),
+      builder: (ctx) => _detailFor(detailed, tab: tab, embedded: false, close: () => Navigator.pop(ctx)),
     );
     _controller.clearSelected();
   }
@@ -386,47 +355,6 @@ class _PatientsPageState extends State<PatientsPage> {
                         ),
                       ),
                     ),
-                    AppButtons.icon(
-                      tooltip: loc.refresh,
-                      onPressed: _controller.loading || blocked
-                          ? null
-                          : () => _controller.load(forceRefresh: true),
-                      icon: Icons.refresh_rounded,
-                      busy: _controller.loading,
-                    ),
-                    Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        AppButtons.icon(
-                          tooltip: loc.patientsPendingAccess,
-                          onPressed: blocked ? null : _openPendingRequests,
-                          icon: Icons.mark_email_unread_outlined,
-                        ),
-                        if (_controller.pendingCount > 0)
-                          Positioned(
-                            right: 6,
-                            top: 6,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 5,
-                                vertical: 1,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.danger,
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                              child: Text(
-                                '${_controller.pendingCount}',
-                                style: AppFonts.style(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
                   ],
                   actions: [
                     AppButtons.primary(
@@ -441,10 +369,7 @@ class _PatientsPageState extends State<PatientsPage> {
                   builder: (context, constraints) {
                     final stackedSearch = AppBreakpoints.isPhone(context) ||
                         constraints.maxWidth < 560;
-                    final search = GlassSurface(
-                        borderRadius: BorderRadius.circular(16),
-                        blur: 14,
-                        tint: Colors.white.withValues(alpha: 0.55),
+                    final search = AdminCard(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 6,
                           vertical: 2,
@@ -475,10 +400,7 @@ class _PatientsPageState extends State<PatientsPage> {
                           ),
                         ),
                       );
-                    final filter = GlassSurface(
-                        borderRadius: BorderRadius.circular(16),
-                        blur: 14,
-                        tint: Colors.white.withValues(alpha: 0.55),
+                    final filter = AdminCard(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 12,
                           vertical: 4,
@@ -538,7 +460,9 @@ class _PatientsPageState extends State<PatientsPage> {
                 ),
                 const SizedBox(height: 16),
                 Expanded(
-                  child: AppSwitcher(
+                  child: LayoutBuilder(builder: (context, box) {
+                  _split = box.maxWidth >= 860;
+                  final list = AppSwitcher(
                     child: KeyedSubtree(
                       key: ValueKey(
                         '${_controller.statusFilter}|${_controller.query}|${rows.length}|${_controller.loading}',
@@ -572,6 +496,8 @@ class _PatientsPageState extends State<PatientsPage> {
                                         final owner = _controller.isOwner(p);
                                         return _PatientCard(
                                           patient: p,
+                                          compact: _split,
+                                          selected: _split && _inline?.id == p.id,
                                           isOwner: owner,
                                           roleLabel: AppRoles.label(
                                             widget.api.role,
@@ -579,15 +505,13 @@ class _PatientsPageState extends State<PatientsPage> {
                                           ),
                                           enabled: !blocked,
                                           onOpen: () => _openDetails(p),
+                                          onOpenAccess: () =>
+                                              _openDetails(p, tab: 2),
                                           onEdit:
                                               owner ? () => _openEdit(p) : null,
                                           onShare: () => _openShare(p),
                                           onDelete: owner
                                               ? () => _confirmDelete(p)
-                                              : null,
-                                          onStatusChanged: owner
-                                              ? (status) =>
-                                                  _changePatientStatus(p, status)
                                               : null,
                                         );
                                       },
@@ -595,7 +519,32 @@ class _PatientsPageState extends State<PatientsPage> {
                                   ],
                                 ),
                     ),
-                  ),
+                  );
+                  if (!_split) return list;
+                  final open = _inline;
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(flex: 5, child: list),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        flex: 6,
+                        child: AppSwitcher(
+                          child: open == null
+                              ? AdminCard(
+                                  key: const ValueKey('pick'),
+                                  child: AdminEmpty(
+                                    icon: Icons.touch_app_outlined,
+                                    title: loc.tr('p.pickTitle'),
+                                    subtitle: loc.tr('p.pickSub'),
+                                  ),
+                                )
+                              : _detailFor(open, tab: _inlineTab, embedded: true),
+                        ),
+                      ),
+                    ],
+                  );
+                }),
                 ),
               ],
             ),
@@ -615,10 +564,7 @@ class _EmptyPatients extends StatelessWidget {
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
     return Center(
-      child: GlassSurface(
-        borderRadius: BorderRadius.circular(22),
-        blur: 16,
-        tint: Colors.white.withValues(alpha: 0.5),
+      child: AdminCard(
         padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 40),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -663,34 +609,39 @@ class _EmptyPatients extends StatelessWidget {
 class _PatientCard extends StatelessWidget {
   const _PatientCard({
     required this.patient,
+    this.compact = false,
+    this.selected = false,
     required this.isOwner,
     required this.onOpen,
+    this.onOpenAccess,
     this.roleLabel,
     this.enabled = true,
     this.onEdit,
     this.onShare,
     this.onDelete,
-    this.onStatusChanged,
   });
 
   final GdprPatient patient;
+
+  /// Split view: name, access and status only; actions live in the detail.
+  final bool compact;
+  final bool selected;
   final bool isOwner;
   final String? roleLabel;
   final bool enabled;
   final VoidCallback onOpen;
+  /// Opens the Access tab (who the patient is shared with).
+  final VoidCallback? onOpenAccess;
   final VoidCallback? onEdit;
   final VoidCallback? onShare;
   final VoidCallback? onDelete;
-  final ValueChanged<String>? onStatusChanged;
 
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
-    return GlassSurface(
-      borderRadius: BorderRadius.circular(20),
-      blur: 16,
-      tint: Colors.white.withValues(alpha: 0.52),
+    return AdminCard(
       padding: EdgeInsets.zero,
+      selected: selected,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -703,6 +654,31 @@ class _PatientCard extends StatelessWidget {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final wide = constraints.maxWidth >= 720;
+                if (compact) {
+                  return Row(
+                    children: [
+                      _PatientAvatar(name: patient.fullName, isOwner: isOwner, size: 44),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              patient.fullName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppFonts.style(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.navy),
+                            ),
+                            const SizedBox(height: 4),
+                            _AccessBadge(isOwner: isOwner, roleLabel: roleLabel),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      StatusChip(statusKey: patient.status),
+                    ],
+                  );
+                }
                 final identity = Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
@@ -712,25 +688,28 @@ class _PatientCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 14),
                     Expanded(
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Flexible(
-                            child: Text(
-                              patient.fullName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppFonts.style(
-                                fontSize: 19,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.navy,
-                                letterSpacing: -0.3,
-                              ),
+                          Text(
+                            patient.fullName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppFonts.style(
+                              fontSize: 19,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.navy,
+                              letterSpacing: -0.3,
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          _AccessBadge(
-                            isOwner: isOwner,
-                            roleLabel: roleLabel,
+                          const SizedBox(height: 6),
+                          GestureDetector(
+                            onTap: enabled && onOpenAccess != null ? onOpenAccess : null,
+                            behavior: HitTestBehavior.opaque,
+                            child: _AccessBadge(
+                              isOwner: isOwner,
+                              roleLabel: roleLabel,
+                            ),
                           ),
                         ],
                       ),
@@ -743,21 +722,20 @@ class _PatientCard extends StatelessWidget {
                   runSpacing: 6,
                   alignment: WrapAlignment.end,
                   children: [
-                    PatientStatusMenu(
-                      status: patient.status,
-                      enabled: enabled && onStatusChanged != null,
-                      onSelected: onStatusChanged,
-                    ),
+                    // Read-only: the server moves the status (case flow).
+                    StatusChip(statusKey: patient.status),
                     AppButtons.ghost(
                       onPressed: enabled ? onEdit : null,
                       icon: Icons.edit_outlined,
                       label: loc.commonEdit,
                       compact: true,
                     ),
+                    // Only the owner shares (labs decide colleague tickets).
+                    if (isOwner)
                     AppButtons.ghost(
                       onPressed: enabled ? onShare : null,
                       icon: Icons.share_outlined,
-                      label: isOwner ? loc.commonShare : loc.commonRequest,
+                      label: loc.commonShare,
                       compact: true,
                     ),
                     AppButtons.danger(
@@ -801,10 +779,11 @@ class _PatientCard extends StatelessWidget {
 }
 
 class _PatientAvatar extends StatelessWidget {
-  const _PatientAvatar({required this.name, required this.isOwner});
+  const _PatientAvatar({required this.name, required this.isOwner, this.size = 56});
 
   final String name;
   final bool isOwner;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
@@ -815,12 +794,12 @@ class _PatientAvatar extends StatelessWidget {
     final initials = _initials(name);
 
     return Container(
-      width: 56,
-      height: 56,
+      width: size,
+      height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(size * 0.32),
         boxShadow: NeoShadows.soft(depth: 0.4),
         border: Border.all(color: Colors.white.withValues(alpha: 0.75)),
       ),
@@ -829,7 +808,7 @@ class _PatientAvatar extends StatelessWidget {
         style: AppFonts.style(
           color: fg,
           fontWeight: FontWeight.w800,
-          fontSize: 18,
+          fontSize: size * 0.32,
           letterSpacing: -0.2,
         ),
       ),
@@ -865,8 +844,11 @@ class _AccessBadge extends StatelessWidget {
         ? (role.isNotEmpty ? role : loc.patientsCreator)
         : loc.patientsShared;
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    // Wraps rather than overflowing narrow cards.
+    return Wrap(
+      spacing: 6,
+      runSpacing: 4,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         Text(
           prefix,
@@ -876,7 +858,6 @@ class _AccessBadge extends StatelessWidget {
             color: AppColors.muted,
           ),
         ),
-        const SizedBox(width: 6),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
@@ -918,8 +899,11 @@ class _PatientFormFields {
     required this.address,
     required this.phone,
     required this.healthInsurance,
-    required this.status,
+    this.target,
   });
+
+  /// Lab creating a patient: dentist or other lab (see [LabPatientTarget]).
+  final Map<String, String>? target;
 
   final String firstName;
   final String lastName;
@@ -928,7 +912,6 @@ class _PatientFormFields {
   final String address;
   final String phone;
   final String healthInsurance;
-  final String status;
 }
 
 class _PatientFormDialog extends StatefulWidget {
@@ -938,10 +921,14 @@ class _PatientFormDialog extends StatefulWidget {
     required this.onSubmit,
     this.initial,
     this.saving = false,
+    this.api,
   });
 
   final String title;
   final String submitLabel;
+
+  /// Set when creating: labs then choose who the patient is for.
+  final ApiClient? api;
   final GdprPatient? initial;
   final bool saving;
   final Future<GdprPatient> Function(_PatientFormFields fields) onSubmit;
@@ -959,7 +946,9 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
   late final TextEditingController _address;
   late final TextEditingController _phone;
   late final TextEditingController _insurance;
-  late String _status;
+  final _labTarget = ValueNotifier<Map<String, String>?>(null);
+
+  bool get _labCreate => widget.initial == null && (widget.api?.isLaboratory ?? false);
   bool _saving = false;
 
   @override
@@ -973,7 +962,6 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
     _address = TextEditingController(text: p?.address ?? '');
     _phone = TextEditingController(text: PhoneNumbers.localDigits(p?.phone));
     _insurance = TextEditingController(text: p?.healthInsurance ?? '');
-    _status = CaseStatuses.normalize(p?.status);
   }
 
   @override
@@ -985,11 +973,16 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
     _address.dispose();
     _phone.dispose();
     _insurance.dispose();
+    _labTarget.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (_labCreate && _labTarget.value == null) {
+      AppSnackBars.error(context, AppLocalizations.of(context).tr('lab.targetRequired'));
+      return;
+    }
 
     final phoneLocal = _phone.text.trim();
     final phoneError = PhoneNumbers.validateRequired(phoneLocal);
@@ -1005,7 +998,7 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
       address: _address.text.trim(),
       phone: PhoneNumbers.compose(phoneLocal),
       healthInsurance: _insurance.text.trim(),
-      status: CaseStatuses.normalize(_status),
+      target: _labCreate ? _labTarget.value : null,
     );
     if (fields.firstName.isEmpty ||
         fields.lastName.isEmpty ||
@@ -1041,10 +1034,7 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
       insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
-        child: GlassSurface(
-          borderRadius: BorderRadius.circular(24),
-          blur: 28,
-          tint: Colors.white.withValues(alpha: 0.78),
+        child: AdminCard(
           padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
           child: Form(
             key: _formKey,
@@ -1063,6 +1053,10 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  if (_labCreate) ...[
+                    LabPatientTarget(api: widget.api!, value: _labTarget, enabled: !_saving),
+                    const SizedBox(height: 16),
+                  ],
                   _DialogField(
                     controller: _first,
                     label: AppLocalizations.of(context).firstName,
@@ -1110,29 +1104,6 @@ class _PatientFormDialogState extends State<_PatientFormDialog> {
                         : null,
                   ),
                   const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    initialValue: _status,
-                    isExpanded: true,
-                    borderRadius: BorderRadius.circular(14),
-                    decoration: InputDecoration(
-                      labelText: AppLocalizations.of(context).patientsStatus,
-                    ),
-                    items: [
-                      for (final key in CaseStatuses.all)
-                        DropdownMenuItem<String>(
-                          value: key,
-                          child: Text(
-                            AppLocalizations.of(context).statusLabel(key),
-                          ),
-                        ),
-                    ],
-                    onChanged: _saving
-                        ? null
-                        : (value) {
-                            if (value == null) return;
-                            setState(() => _status = value);
-                          },
-                  ),
                   const SizedBox(height: 12),
                   _DialogField(
                     controller: _address,
@@ -1239,10 +1210,7 @@ class _DeletePatientDialogState extends State<_DeletePatientDialog> {
       insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 460),
-        child: GlassSurface(
-          borderRadius: BorderRadius.circular(24),
-          blur: 28,
-          tint: Colors.white.withValues(alpha: 0.78),
+        child: AdminCard(
           padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1433,26 +1401,30 @@ class _ShareAccessSheet extends StatefulWidget {
   State<_ShareAccessSheet> createState() => _ShareAccessSheetState();
 }
 
+/// Owner-only share sheet: your lab (immediate), colleagues in your lab
+/// (the lab approves), another lab (transfer), and who already has access.
 class _ShareAccessSheetState extends State<_ShareAccessSheet> {
   List<EligibleAccessUser> _users = [];
   bool _loading = true;
   String? _busyId;
 
-  bool get _isOwner => widget.controller.isOwner(widget.patient);
+  PatientsController get _c => widget.controller;
 
   @override
   void initState() {
     super.initState();
-    _loadUsers();
+    _reload();
   }
 
-  Future<void> _loadUsers() async {
+  Future<void> _reload() async {
     try {
-      final users =
-          await widget.controller.listEligibleUsers(widget.patient.id);
+      final r = await Future.wait([
+        _c.listEligibleUsers(widget.patient.id),
+        _c.loadAccess(widget.patient.id, silent: true),
+      ]);
       if (!mounted) return;
       setState(() {
-        _users = users;
+        _users = r[0] as List<EligibleAccessUser>;
         _loading = false;
       });
     } catch (e) {
@@ -1462,24 +1434,18 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
     }
   }
 
-  Future<void> _share(String userId) async {
-    if (_busyId != null || _users.isEmpty) return;
+  Future<void> _share(EligibleAccessUser u) async {
+    if (_busyId != null) return;
     final loc = AppLocalizations.of(context);
-    setState(() => _busyId = userId);
+    setState(() => _busyId = u.userId);
     try {
-      final result = await widget.controller.shareAccess(
-        patientId: widget.patient.id,
-        targetUserId: userId,
-      );
-      if (result.immediate) {
-        widget.onToast(loc.patientsAccessGranted);
-      } else {
-        widget.onToast(loc.patientsAccessRequestSubmitted);
-      }
-      // Refresh eligible list so granted/requested users disappear.
-      final users =
-          await widget.controller.listEligibleUsers(widget.patient.id);
-      if (mounted) setState(() => _users = users);
+      final result = await _c.shareAccess(patientId: widget.patient.id, targetUserId: u.userId);
+      // Your lab: immediate. A colleague: the lab approves it.
+      widget.onToast(result.immediate ? loc.patientsAccessGranted : loc.tr('share.sentToLab'));
+      await _reload();
+    } on AgentApiException catch (e) {
+      // Someone in another lab: that goes through a lab transfer instead.
+      widget.onToast(e.code == 'USE_TRANSFER' ? loc.tr('share.useTransfer') : widget.friendlyError(e), error: true);
     } catch (e) {
       widget.onToast(widget.friendlyError(e), error: true);
     } finally {
@@ -1487,27 +1453,79 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
     }
   }
 
+  Future<void> _shareWithLab() async {
+    final loc = AppLocalizations.of(context);
+    final api = _c.api;
+    final lab = await pickOtherLab(context, api, title: loc.tr('share.otherLab'), message: loc.tr('share.otherLabMsg'));
+    if (lab == null || !mounted) return;
+    // 400 not linked to a lab, 409 one already open: the server says which.
+    await adminRun(
+      context,
+      () => api.requestTransfer(widget.patient.id, toLabId: lab.id),
+      done: loc.trp('share.transferSent', {'lab': lab.name}),
+    );
+  }
+
+  Widget _section(String title, String hint) => Padding(
+        padding: const EdgeInsets.fromLTRB(4, 18, 4, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SectionLabel(title),
+            const SizedBox(height: 2),
+            Text(hint, style: AppFonts.style(fontSize: 12.5, color: AppColors.muted)),
+          ],
+        ),
+      );
+
+  Widget _row(EligibleAccessUser u, {required bool lab}) {
+    final loc = AppLocalizations.of(context);
+    final busy = _busyId == u.userId;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: AdminCard(
+        padding: const EdgeInsets.all(12),
+        child: AdminRow(
+          leading: UserAvatar(name: u.fullName, url: u.avatarUrl, size: 38),
+          title: u.fullName,
+          badges: [if (lab) AdminBadge(loc.roleLaboratory, color: AppColors.review)],
+          lines: [
+            if (!lab) dentistPlace(loc, _c.api.labName, u.clinicName),
+            if (lab && u.email != null) u.email!,
+          ],
+          actions: [
+            lab
+                ? AppButtons.primary(
+                    onPressed: _busyId == null ? () => _share(u) : null,
+                    icon: Icons.share_outlined,
+                    label: busy ? loc.saving : loc.commonShare,
+                    compact: true,
+                  )
+                : AppButtons.secondary(
+                    onPressed: _busyId == null ? () => _share(u) : null,
+                    icon: Icons.send_outlined,
+                    label: busy ? loc.saving : loc.commonRequest,
+                    compact: true,
+                  ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final height = MediaQuery.sizeOf(context).height * 0.72;
-    final bottomInset = MediaQuery.paddingOf(context).bottom;
     final loc = AppLocalizations.of(context);
-    final actionLabel =
-        _isOwner ? loc.patientsGrantAccess : loc.patientsRequestAccess;
-    final subtext = _users.isEmpty && !_loading
-        ? loc.patientsAllStaffHaveAccess
-        : (_isOwner
-            ? loc.patientsAsOwnerHint
-            : loc.patientsRequestAccessHint);
-
+    final height = MediaQuery.sizeOf(context).height * 0.78;
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    final labUsers = _users.where((u) => AppRoles.isLaboratory(u.role)).toList();
+    final colleagues = _users.where((u) => !AppRoles.isLaboratory(u.role)).toList();
+    final shared = _c.accessEntries;
     return Padding(
       padding: EdgeInsets.fromLTRB(16, 0, 16, 12 + bottomInset),
       child: SizedBox(
         height: height,
-        child: GlassSurface(
-          borderRadius: BorderRadius.circular(28),
-          blur: 28,
-          tint: Colors.white.withValues(alpha: 0.72),
+        child: AdminCard(
           padding: EdgeInsets.zero,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1524,143 +1542,75 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                padding: const EdgeInsets.fromLTRB(20, 14, 12, 0),
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _PatientAvatar(
-                      name: widget.patient.fullName,
-                      isOwner: _isOwner,
-                    ),
-                    const SizedBox(width: 14),
+                    UserAvatar(name: widget.patient.fullName, size: 44),
+                    const SizedBox(width: 12),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            loc.patientsShareTitle(widget.patient.fullName),
-                            style: AppFonts.style(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 20,
-                              color: AppColors.navy,
-                              letterSpacing: -0.3,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            subtext,
-                            style: AppFonts.style(
-                              color: AppColors.muted,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                              height: 1.35,
-                            ),
-                          ),
-                        ],
+                      child: Text(
+                        loc.patientsShareTitle(widget.patient.fullName),
+                        style: AppFonts.style(fontWeight: FontWeight.w700, fontSize: 19, color: AppColors.navy, letterSpacing: -0.3),
                       ),
                     ),
+                    AppButtons.icon(onPressed: () => Navigator.pop(context), icon: Icons.close_rounded, tooltip: loc.commonClose),
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
               Expanded(
                 child: _loading
-                    ? ToothPageLoader(
-                        message: AppLocalizations.of(context).patientsLoadingStaff,
-                      )
-                    : _users.isEmpty
-                        ? Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(28),
-                              child: Text(
-                                AppLocalizations.of(context)
-                                    .patientsNoEligibleStaff,
-                                textAlign: TextAlign.center,
-                                style: AppFonts.style(
-                                  color: AppColors.muted,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
+                    ? ToothPageLoader(inPlace: true, message: loc.patientsLoadingStaff)
+                    : ListView(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        children: [
+                          _section(loc.tr('share.yourLab'), loc.tr('share.yourLabHint')),
+                          if (labUsers.isEmpty)
+                            _none(loc.tr('share.labHasAccess'))
+                          else
+                            for (final u in labUsers) _row(u, lab: true),
+                          _section(loc.tr('share.colleagues'), loc.tr('share.colleaguesHint')),
+                          if (colleagues.isEmpty)
+                            _none(loc.tr('share.noColleagues'))
+                          else
+                            for (final u in colleagues) _row(u, lab: false),
+                          _section(loc.tr('share.otherLab'), loc.tr('share.otherLabMsg')),
+                          AdminCard(
+                            onTap: _busyId == null ? _shareWithLab : null,
+                            padding: const EdgeInsets.all(12),
+                            child: AdminRow(
+                              leading: const AdminIcon(icon: Icons.apartment_rounded, color: AppColors.review, size: 38),
+                              title: loc.tr('lab.chooseLab'),
+                              actions: const [Icon(Icons.chevron_right_rounded, color: AppColors.muted)],
+                            ),
+                          ),
+                          if (shared.isNotEmpty) ...[
+                            _section(loc.tr('share.alreadyShared'), loc.tr('share.alreadySharedHint')),
+                            for (final e in shared)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: AdminCard(
+                                  padding: const EdgeInsets.all(12),
+                                  child: AdminRow(
+                                    leading: UserAvatar(name: e.userName, size: 38),
+                                    title: e.userName,
+                                    badges: [
+                                      AdminBadge(
+                                        e.status == PatientAccessStatus.pending
+                                            ? loc.tr('share.pendingLab')
+                                            : e.status.labelOf(loc),
+                                        color: switch (e.status) {
+                                          PatientAccessStatus.pending => AppColors.warning,
+                                          PatientAccessStatus.approved => AppColors.success,
+                                          PatientAccessStatus.rejected => AppColors.danger,
+                                        },
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
-                          )
-                        : ListView.separated(
-                            padding: const EdgeInsets.fromLTRB(
-                              20,
-                              0,
-                              20,
-                              20,
-                            ),
-                            itemCount: _users.length,
-                            separatorBuilder: (_, _) =>
-                                const SizedBox(height: 10),
-                            itemBuilder: (context, i) {
-                              final u = _users[i];
-                              final busy = _busyId == u.userId;
-                              final title = u.fullName.trim().isEmpty
-                                  ? (u.email ?? AppLocalizations.of(context).tr('p.staffMember'))
-                                  : u.fullName.trim();
-                              final showEmail = u.email != null &&
-                                  u.email!.trim().isNotEmpty &&
-                                  u.email!.trim() != title;
-                              return _InsetGroup(
-                                padding: const EdgeInsets.fromLTRB(
-                                  14,
-                                  12,
-                                  12,
-                                  12,
-                                ),
-                                child: Row(
-                                  children: [
-                                    _StaffAvatar(name: title),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            title,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: AppFonts.style(
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 16,
-                                              color: AppColors.navy,
-                                              letterSpacing: -0.2,
-                                            ),
-                                          ),
-                                          if (showEmail) ...[
-                                            const SizedBox(height: 3),
-                                            Text(
-                                              u.email!,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: AppFonts.style(
-                                                fontSize: 13,
-                                                color: AppColors.muted,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    AppButtons.primary(
-                                      onPressed: _busyId != null ||
-                                              _users.isEmpty
-                                          ? null
-                                          : () => _share(u.userId),
-                                      label: actionLabel,
-                                      compact: true,
-                                      busy: busy,
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
+                          ],
+                        ],
+                      ),
               ),
             ],
           ),
@@ -1668,240 +1618,13 @@ class _ShareAccessSheetState extends State<_ShareAccessSheet> {
       ),
     );
   }
-}
 
-class _StaffAvatar extends StatelessWidget {
-  const _StaffAvatar({required this.name});
-
-  final String name;
-
-  @override
-  Widget build(BuildContext context) {
-    final initials = _initials(name);
-    return Container(
-      width: 44,
-      height: 44,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: AppColors.dentalBlue.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.75)),
-      ),
-      child: Text(
-        initials,
-        style: AppFonts.style(
-          color: AppColors.dentalBlue,
-          fontWeight: FontWeight.w800,
-          fontSize: 14,
-        ),
-      ),
-    );
-  }
-
-  static String _initials(String raw) {
-    final t = raw.trim();
-    if (t.isEmpty) return '?';
-    if (t.contains('@')) {
-      final local = t.split('@').first;
-      return local.isEmpty ? '?' : local[0].toUpperCase();
-    }
-    final parts = t.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-    if (parts.isEmpty) return '?';
-    if (parts.length == 1) return parts[0][0].toUpperCase();
-    return (parts[0][0] + parts[1][0]).toUpperCase();
-  }
-}
-
-class _PendingAccessDrawer extends StatelessWidget {
-  const _PendingAccessDrawer({
-    required this.controller,
-    required this.onToast,
-    required this.friendlyError,
-  });
-
-  final PatientsController controller;
-  final void Function(String message, {bool error}) onToast;
-  final String Function(Object e) friendlyError;
-
-  Future<void> _approve(BuildContext context, PendingAccessRequest req) async {
-    try {
-      await controller.approveAccessRequest(req.id);
-      onToast(
-        AppLocalizations.of(context).tr('p.accessApprovedLong'),
+  Widget _none(String text) => Padding(
+        padding: const EdgeInsets.fromLTRB(4, 2, 4, 6),
+        child: Text(text, style: AppFonts.style(fontSize: 13, color: AppColors.muted)),
       );
-    } catch (e) {
-      onToast(friendlyError(e), error: true);
-    }
-  }
-
-  Future<void> _reject(BuildContext context, PendingAccessRequest req) async {
-    try {
-      await controller.rejectAccessRequest(req.id);
-      onToast(AppLocalizations.of(context).tr('p.accessRejectedDot'));
-    } catch (e) {
-      onToast(friendlyError(e), error: true);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final height = MediaQuery.sizeOf(context).height * 0.75;
-    return SizedBox(
-      height: height,
-      child: ListenableBuilder(
-        listenable: controller,
-        builder: (context, _) {
-          final rows = controller.pendingRequests;
-          final blocked = controller.mutating;
-          return BusyBarrier(
-            busy: blocked,
-            blockInteraction: blocked,
-            showSpinner: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: AppColors.border,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Text(
-                    AppLocalizations.of(context).patientsPendingAccess,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 18,
-                      color: AppColors.navy,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    rows.isEmpty
-                        ? AppLocalizations.of(context).tr('p.noPending')
-                        : AppLocalizations.of(context).trp(rows.length == 1 ? 'p.reqOne' : 'p.reqN', {'n': rows.length}),
-                    style: const TextStyle(color: AppColors.muted, fontSize: 13),
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: controller.loadingPending && rows.isEmpty
-                        ? ToothPageLoader(
-                            message: AppLocalizations.of(context).patientsLoadingAccessRequests,
-                          )
-                        : rows.isEmpty
-                            ? Center(
-                                child: Text(
-                                  AppLocalizations.of(context).tr('p.allCaughtUp'),
-                                  style: TextStyle(color: AppColors.muted),
-                                ),
-                              )
-                            : ListView.separated(
-                                itemCount: rows.length,
-                                separatorBuilder: (_, _) =>
-                                    const SizedBox(height: 10),
-                                itemBuilder: (context, i) {
-                                  final r = rows[i];
-                                  final when = r.createdAt == null
-                                      ? ''
-                                      : formatAppDateTime(
-                                          context,
-                                          r.createdAt!.toLocal(),
-                                        );
-                                  return SectionCard(
-                                    padding: const EdgeInsets.all(14),
-                                    depth: 0.45,
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          r.patientName,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            color: AppColors.navy,
-                                            fontSize: 15,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          AppLocalizations.of(context).trp('p.target', {'n': r.targetUserName}),
-                                          style: const TextStyle(
-                                            fontSize: 13,
-                                            color: AppColors.text,
-                                          ),
-                                        ),
-                                        Text(
-                                          AppLocalizations.of(context).trp('p.requestedByColon', {'n': r.requestingUserName}),
-                                          style: const TextStyle(
-                                            fontSize: 13,
-                                            color: AppColors.text,
-                                          ),
-                                        ),
-                                        if (when.isNotEmpty) ...[
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            when,
-                                            style: const TextStyle(
-                                              fontSize: 11.5,
-                                              color: AppColors.muted,
-                                            ),
-                                          ),
-                                        ],
-                                        const SizedBox(height: 12),
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: FilledButton(
-                                                style: FilledButton.styleFrom(
-                                                  backgroundColor:
-                                                      AppColors.success,
-                                                ),
-                                                onPressed: blocked
-                                                    ? null
-                                                    : () =>
-                                                        _approve(context, r),
-                                                child: Text(AppLocalizations.of(context).commonApprove),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Expanded(
-                                              child: OutlinedButton(
-                                                style: OutlinedButton.styleFrom(
-                                                  foregroundColor:
-                                                      AppColors.danger,
-                                                  side: const BorderSide(
-                                                    color: AppColors.danger,
-                                                  ),
-                                                ),
-                                                onPressed: blocked
-                                                    ? null
-                                                    : () => _reject(context, r),
-                                                child: Text(AppLocalizations.of(context).commonReject),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
 }
+
 
 class _AccessStatusBadge extends StatelessWidget {
   const _AccessStatusBadge.status(this.status) : label = null, owner = false;
@@ -1960,24 +1683,35 @@ class _AccessStatusBadge extends StatelessWidget {
 
 class _PatientDetailSheet extends StatefulWidget {
   const _PatientDetailSheet({
+    super.key,
     required this.controller,
+    this.cases,
     required this.patient,
     required this.onEdit,
     required this.onShare,
     required this.onDelete,
     required this.onToast,
     required this.friendlyError,
-    this.onStatusChanged,
     this.initialTab = 0,
+    this.embedded = false,
+    this.patientSession,
   });
 
   final PatientsController controller;
+
+  /// Inline in the Patients split view instead of a bottom sheet.
+  final bool embedded;
+
+  /// Lets case items and records open Scans / Shade / Smile.
+  final PatientSession? patientSession;
+
+  /// Case flow for this patient (status, items, submit / review, history).
+  final CaseStore? cases;
   final GdprPatient patient;
   final int initialTab;
   final VoidCallback onEdit;
   final VoidCallback onShare;
   final VoidCallback onDelete;
-  final ValueChanged<String>? onStatusChanged;
   final void Function(String message, {bool error}) onToast;
   final String Function(Object e) friendlyError;
 
@@ -1996,9 +1730,11 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
   void initState() {
     super.initState();
     _tabs = TabController(
-      length: 3,
+      length: widget.cases == null ? 3 : 4,
       vsync: this,
-      initialIndex: widget.initialTab.clamp(0, 2),
+      // Callers count tabs without Case. Case comes first and is the default.
+      initialIndex: (widget.initialTab + (widget.cases != null && widget.initialTab > 0 ? 1 : 0))
+          .clamp(0, widget.cases == null ? 2 : 3),
     );
     // Defer controller loads — notifyListeners during initState/build marks the
     // parent ListenableBuilder dirty mid-frame.
@@ -2014,6 +1750,25 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     _tabs.dispose();
     _note.dispose();
     super.dispose();
+  }
+
+  /// Lab: move the patient to (or pick) one of the lab's dentists.
+  Future<void> _assignDentist(GdprPatient p) async {
+    final loc = AppLocalizations.of(context);
+    final api = widget.controller.api;
+    final d = await pickLabDentist(context, api,
+        title: loc.tr('lab.assignDentist'), message: loc.trp('lab.assignMsg', {'p': p.fullName}));
+    if (d == null || !mounted) return;
+    try {
+      await AppDialogs.runWithLoading(context, action: () => api.assignPatient(p.id, dentistId: d.id));
+      widget.onToast(loc.trp('lab.assigned', {'p': p.fullName, 'd': d.name}));
+      widget.cases?.refresh(p.id);
+      await widget.controller.load(silent: true);
+    } catch (e) {
+      final msg = friendlyError(e);
+      // 403: the lab wasn't given this patient.
+      widget.onToast(msg == loc.errNoPermission ? loc.tr('lab.assignForbidden') : msg, error: true);
+    }
   }
 
   Future<void> _addNote() async {
@@ -2046,11 +1801,12 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
       );
       return;
     }
+    final lab = widget.controller.api.isLaboratory;
     final next = await AppDialogs.prompt(
       context,
       title: loc.patientsEditNote,
       initial: note.noteContent,
-      placeholder: loc.patientsClinicalNotePlaceholder,
+      placeholder: loc.notePlaceholderForRole(laboratory: lab),
       confirmLabel: loc.save,
       maxLines: 4,
     );
@@ -2103,26 +1859,6 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     }
   }
 
-  Future<void> _approveAccess(PatientAccessEntry entry) async {
-    if (widget.controller.mutating) return;
-    try {
-      await widget.controller.approveAccessEntry(entry);
-      widget.onToast(AppLocalizations.of(context).tr('p.accessApproved'));
-    } catch (e) {
-      widget.onToast(widget.friendlyError(e), error: true);
-    }
-  }
-
-  Future<void> _rejectAccess(PatientAccessEntry entry) async {
-    if (widget.controller.mutating) return;
-    try {
-      await widget.controller.rejectAccessEntry(entry);
-      widget.onToast(AppLocalizations.of(context).tr('p.accessRejected'));
-    } catch (e) {
-      widget.onToast(widget.friendlyError(e), error: true);
-    }
-  }
-
   Future<void> _regrantAccess(PatientAccessEntry entry) async {
     if (widget.controller.mutating) return;
     final loc = AppLocalizations.of(context);
@@ -2152,10 +1888,11 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
       );
       return;
     }
+    final lab = widget.controller.api.isLaboratory;
     final ok = await AppDialogs.confirm(
       context,
       title: loc.patientsDeleteNoteTitle,
-      message: loc.patientsDeleteNoteBody,
+      message: loc.deleteNoteBodyForRole(laboratory: lab),
       confirmLabel: loc.commonDelete,
       isDestructive: true,
     );
@@ -2180,41 +1917,78 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
 
   @override
   Widget build(BuildContext context) {
-    final height = MediaQuery.sizeOf(context).height * 0.62;
-    final bottomInset = MediaQuery.paddingOf(context).bottom;
     final loc = AppLocalizations.of(context);
+    final embedded = widget.embedded;
+    final api = widget.controller.api;
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16, 0, 16, 12 + bottomInset),
-      child: Align(
-        alignment: Alignment.bottomCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 720),
-          child: SizedBox(
-            height: height,
-            child: GlassSurface(
-          borderRadius: BorderRadius.circular(28),
-          blur: 28,
-          tint: Colors.white.withValues(alpha: 0.72),
-          padding: EdgeInsets.zero,
-          child: Material(
-            color: Colors.transparent,
-            child: ListenableBuilder(
-            listenable: widget.controller,
-            builder: (context, _) {
-              final notes = widget.controller.notes;
-              final access = widget.controller.accessEntries;
-              final accessOwner = widget.controller.accessOwner;
-              final accessViewerIsOwner =
-                  widget.controller.accessViewerIsOwner;
-              final blocked = widget.controller.mutating;
-              final p = _livePatient();
-              final owner = widget.controller.isOwner(p);
-              return BusyBarrier(
-                busy: blocked,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
+    final card = AdminCard(
+      padding: EdgeInsets.zero,
+      child: Material(
+        color: Colors.transparent,
+        child: ListenableBuilder(
+          listenable: widget.controller,
+          builder: (context, _) {
+            final notes = widget.controller.notes;
+            final access = widget.controller.accessEntries;
+            final accessOwner = widget.controller.accessOwner;
+            final accessViewerIsOwner = widget.controller.accessViewerIsOwner;
+            final blocked = widget.controller.mutating;
+            final p = _livePatient();
+            final owner = widget.controller.isOwner(p);
+            final lab = api.isLaboratory;
+            final tabs = [
+              if (widget.cases != null) (loc.tr('case.title'), () => _buildCaseTab(p)),
+              (loc.tr('p.tabInfo'), () => _buildDetailsTab(p)),
+              (
+                loc.notesLabelForRole(laboratory: lab),
+                () => _buildNotesTab(notes: notes, blocked: blocked),
+              ),
+              (
+                loc.tr('p.tabAccess'),
+                () => _buildAccessTab(
+                      access: access,
+                      accessOwner: accessOwner,
+                      accessViewerIsOwner: accessViewerIsOwner,
+                      blocked: blocked,
+                    ),
+              ),
+            ];
+            // Icon actions keep the header to one calm row; labels live in tooltips.
+            final actions = [
+              if (api.isLaboratory)
+                AppButtons.secondary(
+                  onPressed: blocked ? null : () => _assignDentist(p),
+                  icon: Icons.person_pin_outlined,
+                  label: loc.tr('lab.assignDentist'),
+                  compact: true,
+                ),
+              if (owner) ...[
+                AppButtons.icon(onPressed: blocked ? null : widget.onEdit, icon: Icons.edit_outlined, tooltip: loc.commonEdit),
+                AppButtons.icon(
+                  onPressed: blocked || _exporting ? null : _export,
+                  icon: Icons.download_outlined,
+                  tooltip: loc.tr('p.export'),
+                ),
+                AppButtons.icon(onPressed: blocked ? null : widget.onShare, icon: Icons.share_outlined, tooltip: loc.commonShare),
+                AppButtons.icon(
+                  onPressed: blocked ? null : widget.onDelete,
+                  icon: Icons.delete_outline_rounded,
+                  tooltip: loc.commonDelete,
+                ),
+              ],
+              if (!embedded)
+                AppButtons.icon(
+                  onPressed: () => Navigator.maybePop(context),
+                  icon: Icons.close_rounded,
+                  tooltip: loc.commonClose,
+                ),
+            ];
+            return BusyBarrier(
+              busy: blocked,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (!embedded) ...[
                     const SizedBox(height: 10),
                     Center(
                       child: Container(
@@ -2226,197 +2000,130 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                         ),
                       ),
                     ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _PatientAvatar(
-                            name: p.fullName,
-                            isOwner: owner,
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  p.fullName,
-                                  style: AppFonts.style(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.navy,
-                                    letterSpacing: -0.4,
-                                  ),
-                                ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  p.email,
-                                  style: AppFonts.style(
-                                    fontSize: 14,
-                                    color: AppColors.muted,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          _AccessBadge(
-                            isOwner: owner,
-                            roleLabel: AppRoles.label(
-                              widget.controller.api.role,
-                              AppLocalizations.of(context),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          PatientStatusMenu(
-                            status: p.status,
-                            enabled: !blocked && widget.onStatusChanged != null,
-                            onSelected: widget.onStatusChanged,
-                          ),
-                          if (owner)
-                            AppButtons.ghost(
-                              onPressed: blocked ? null : widget.onEdit,
-                              icon: Icons.edit_outlined,
-                              label: loc.commonEdit,
-                              compact: true,
-                            ),
-                          if (owner)
-                            AppButtons.ghost(
-                              onPressed:
-                                  blocked || _exporting ? null : _export,
-                              icon: Icons.download_outlined,
-                              label: loc.tr('p.export'),
-                              compact: true,
-                            ),
-                          AppButtons.ghost(
-                            onPressed: blocked ? null : widget.onShare,
-                            icon: Icons.share_outlined,
-                            label: owner ? loc.commonShare : loc.commonRequest,
-                            compact: true,
-                          ),
-                          if (owner)
-                            AppButtons.danger(
-                              onPressed: blocked ? null : widget.onDelete,
-                              icon: Icons.delete_outline_rounded,
-                              label: loc.commonDelete,
-                              soft: true,
-                              compact: true,
-                            ),
-                        ],
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
-                      child: AnimatedBuilder(
-                        animation: _tabs,
-                        builder: (context, _) {
-                          return SizedBox(
-                            width: double.infinity,
-                            child: CupertinoSlidingSegmentedControl<int>(
-                              groupValue: _tabs.index,
-                              backgroundColor:
-                                  AppColors.inset.withValues(alpha: 0.7),
-                              thumbColor: Colors.white.withValues(alpha: 0.95),
-                              children: {
-                                0: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 6,
-                                  ),
-                                  child: Text(
-                                    AppLocalizations.of(context).tr('p.tabInfo'),
-                                    style: AppFonts.style(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.navy,
-                                    ),
-                                  ),
-                                ),
-                                1: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 6,
-                                  ),
-                                  child: Text(
-                                    loc.notes,
-                                    style: AppFonts.style(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.navy,
-                                    ),
-                                  ),
-                                ),
-                                2: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 6,
-                                  ),
-                                  child: Text(
-                                    AppLocalizations.of(context).tr('p.tabAccess'),
-                                    style: AppFonts.style(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.navy,
-                                    ),
-                                  ),
-                                ),
-                              },
-                              onValueChanged: (value) {
-                                if (value == null) return;
-                                _tabs.animateTo(value);
-                              },
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    Expanded(
-                      child: TabBarView(
-                        controller: _tabs,
-                        children: [
-                          _buildDemographicsTab(p),
-                          _buildNotesTab(
-                            notes: notes,
-                            blocked: blocked,
-                          ),
-                          _buildAccessTab(
-                            access: access,
-                            accessOwner: accessOwner,
-                            accessViewerIsOwner: accessViewerIsOwner,
-                            blocked: blocked,
-                          ),
-                        ],
-                      ),
-                    ),
                   ],
-                ),
-              );
-            },
-          ),
-          ),
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(20, embedded ? 18 : 12, 12, 0),
+                    child: Row(
+                      children: [
+                        _PatientAvatar(name: p.fullName, isOwner: owner),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                p.fullName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppFonts.style(
+                                  fontSize: 21,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.navy,
+                                  letterSpacing: -0.4,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 6,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  StatusChip(statusKey: p.status),
+                                  _AccessBadge(
+                                    isOwner: owner,
+                                    roleLabel: AppRoles.label(api.role, loc),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (actions.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 12, 0),
+                      child: Wrap(
+                        spacing: 4,
+                        runSpacing: 4,
+                        alignment: WrapAlignment.end,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: actions,
+                      ),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+                    child: AnimatedBuilder(
+                      animation: _tabs,
+                      builder: (context, _) => SizedBox(
+                        width: double.infinity,
+                        child: CupertinoSlidingSegmentedControl<int>(
+                          groupValue: _tabs.index,
+                          backgroundColor: AppColors.inset.withValues(alpha: 0.7),
+                          thumbColor: Colors.white.withValues(alpha: 0.95),
+                          children: {
+                            for (final (i, t) in tabs.indexed)
+                              i: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                child: Text(
+                                  t.$1,
+                                  style: AppFonts.style(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.navy),
+                                ),
+                              ),
+                          },
+                          onValueChanged: (value) {
+                            if (value != null) _tabs.animateTo(value);
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tabs,
+                      children: [for (final t in tabs) t.$2()],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
         ),
-        ),
+      ),
+    );
+    if (embedded) return card;
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 0, 16, 12 + bottomInset),
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: SizedBox(height: MediaQuery.sizeOf(context).height * 0.78, child: card),
         ),
       ),
     );
   }
 
-  Widget _buildDemographicsTab(GdprPatient p) {
+  /// Case flow + records behind one loader; the lab's decision pinned under.
+  Widget _buildCaseTab(GdprPatient p) => CaseReviewView(
+        key: ValueKey('case-${p.id}'),
+        store: widget.cases!,
+        patientId: p.id,
+        api: widget.controller.api,
+        patients: widget.patientSession,
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+      );
+
+  Widget _buildDetailsTab(GdprPatient p) {
+    final loc = AppLocalizations.of(context);
     final rows = [
-      (AppLocalizations.of(context).dateOfBirth, p.dateOfBirth),
-      (AppLocalizations.of(context).tr('p.email'), p.email),
-      (AppLocalizations.of(context).tr('p.phone'), p.phone),
-      (AppLocalizations.of(context).tr('patients.insurance'), p.healthInsurance),
-      (AppLocalizations.of(context).tr('patients.address'), p.address),
+      (Icons.cake_outlined, loc.dateOfBirth, p.dateOfBirth),
+      (Icons.mail_outline_rounded, loc.tr('p.email'), p.email),
+      (Icons.phone_outlined, loc.tr('p.phone'), p.phone),
+      (Icons.health_and_safety_outlined, loc.tr('patients.insurance'), p.healthInsurance),
+      (Icons.home_outlined, loc.tr('patients.address'), p.address),
     ];
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
@@ -2425,7 +2132,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
           children: [
             for (var i = 0; i < rows.length; i++) ...[
               if (i > 0) const _InsetDivider(),
-              _DemoRow(label: rows[i].$1, value: rows[i].$2),
+              _DemoRow(icon: rows[i].$1, label: rows[i].$2, value: rows[i].$3),
             ],
           ],
         ),
@@ -2438,6 +2145,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     required bool blocked,
   }) {
     final loc = AppLocalizations.of(context);
+    final lab = widget.controller.api.isLaboratory;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
       child: Column(
@@ -2459,7 +2167,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                       fontWeight: FontWeight.w500,
                     ),
                     decoration: InputDecoration(
-                      hintText: loc.patientsNoteHint,
+                      hintText: loc.noteHintForRole(laboratory: lab),
                       hintStyle: AppFonts.style(
                         color: AppColors.muted,
                         fontSize: 15,
@@ -2490,13 +2198,14 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
           Expanded(
             child: widget.controller.loadingNotes && notes.isEmpty
                 ? ToothPageLoader(
+                    inPlace: true,
                     message: loc.patientsLoadingNotes,
                     size: 40,
                   )
                 : notes.isEmpty
                     ? Center(
                         child: Text(
-                          loc.patientsNoClinicalNotes,
+                          loc.noNotesForRole(laboratory: lab),
                           style: AppFonts.style(
                             color: AppColors.muted,
                             fontSize: 14,
@@ -2547,7 +2256,8 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                                       const SizedBox(height: 8),
                                       Text(
                                         [
-                                          n.displayAuthorName,
+                                          n.displayAuthorName(loc),
+                                          ?n.authorRoleLabel(loc),
                                           if (when.isNotEmpty) when,
                                         ].join(' · '),
                                         style: AppFonts.style(
@@ -2593,7 +2303,7 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
     required bool blocked,
   }) {
     if (widget.controller.loadingAccess && accessOwner == null) {
-      return ToothPageLoader(message: AppLocalizations.of(context).patientsLoadingAccess);
+      return ToothPageLoader(inPlace: true, message: AppLocalizations.of(context).patientsLoadingAccess);
     }
     if (accessOwner == null) {
       return Center(
@@ -2603,26 +2313,101 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
         ),
       );
     }
+    final loc = AppLocalizations.of(context);
+    final approved = access
+        .where((e) => e.status == PatientAccessStatus.approved)
+        .toList();
+    final pending = access
+        .where((e) => e.status == PatientAccessStatus.pending)
+        .toList();
+    final other = access
+        .where((e) =>
+            e.status != PatientAccessStatus.approved &&
+            e.status != PatientAccessStatus.pending)
+        .toList();
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
       children: [
-        _buildOwnerAccessCard(accessOwner),
-        if (!accessViewerIsOwner) ...[
-          const SizedBox(height: 12),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Text(
-              AppLocalizations.of(context).patientsOnlyOwnerManage,
-              style: AppFonts.style(
-                color: AppColors.muted,
-                fontSize: 13,
-                height: 1.35,
-                fontWeight: FontWeight.w500,
-              ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
+          child: Text(
+            loc.tr('share.whoHasAccess'),
+            style: AppFonts.style(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: AppColors.navy,
             ),
           ),
+        ),
+        _accessSectionLabel(loc.tr('share.ownerSection')),
+        _buildOwnerAccessCard(accessOwner),
+        if (!accessViewerIsOwner) ...[
+          const SizedBox(height: 14),
+          _accessSectionLabel(loc.tr('share.yourAccess')),
+          if (access.isEmpty)
+            _InsetGroup(
+              padding: const EdgeInsets.all(14),
+              child: Text(
+                loc.tr('share.youHaveAccess'),
+                style: AppFonts.style(
+                  color: AppColors.navy,
+                  fontSize: 14,
+                  height: 1.35,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            )
+          else
+            for (final entry in access) ...[
+              if (entry != access.first) const SizedBox(height: 10),
+              _buildAccessListCard(
+                entry: entry,
+                isOwner: false,
+                blocked: blocked,
+              ),
+            ],
         ] else ...[
-          for (final entry in access) ...[
+          if (access.isEmpty) ...[
+            const SizedBox(height: 14),
+            _InsetGroup(
+              padding: const EdgeInsets.all(14),
+              child: Text(
+                loc.tr('share.onlyOwner'),
+                style: AppFonts.style(
+                  color: AppColors.muted,
+                  fontSize: 13.5,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ],
+          if (approved.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _accessSectionLabel(
+              '${loc.tr('share.sharedWithSection')} (${approved.length})',
+            ),
+            for (final entry in approved) ...[
+              const SizedBox(height: 10),
+              _buildAccessListCard(
+                entry: entry,
+                isOwner: true,
+                blocked: blocked,
+              ),
+            ],
+          ],
+          if (pending.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _accessSectionLabel(loc.tr('share.pendingLab')),
+            for (final entry in pending) ...[
+              const SizedBox(height: 10),
+              _buildAccessListCard(
+                entry: entry,
+                isOwner: true,
+                blocked: blocked,
+              ),
+            ],
+          ],
+          for (final entry in other) ...[
             const SizedBox(height: 10),
             _buildAccessListCard(
               entry: entry,
@@ -2631,11 +2416,44 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
             ),
           ],
         ],
+        if (!accessViewerIsOwner) ...[
+          const SizedBox(height: 14),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+              loc.patientsOnlyOwnerManage,
+              style: AppFonts.style(
+                color: AppColors.muted,
+                fontSize: 13,
+                height: 1.35,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
 
+  Widget _accessSectionLabel(String text) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+      child: Text(
+        text,
+        style: AppFonts.style(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w600,
+          color: AppColors.muted,
+        ),
+      ),
+    );
+  }
+
   Widget _buildOwnerAccessCard(PatientAccessOwner owner) {
+    final meta = [
+      if ((owner.clinicName ?? '').trim().isNotEmpty) owner.clinicName!.trim(),
+      if ((owner.email ?? '').trim().isNotEmpty) owner.email!.trim(),
+    ].join(' · ');
     return _InsetGroup(
       padding: const EdgeInsets.all(14),
       child: Row(
@@ -2652,6 +2470,17 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                     fontSize: 16,
                   ),
                 ),
+                if (meta.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    meta,
+                    style: AppFonts.style(
+                      fontSize: 13,
+                      color: AppColors.muted,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 const _AccessStatusBadge.owner(),
               ],
@@ -2689,30 +2518,14 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
         final requestedBy = (requester != null && requester.isNotEmpty)
             ? AppLocalizations.of(context).trp('p.requestedBy', {'n': requester})
             : null;
+        // Sharing with a colleague waits for the lab; the owner can withdraw it.
+        subtext = [?requestedBy, AppLocalizations.of(context).tr('p.waitingLab')].join('\n');
         if (isOwner) {
-          subtext = requestedBy;
-          actions = Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              AppButtons.primary(
-                onPressed: blocked ? null : () => _approveAccess(entry),
-                label: AppLocalizations.of(context).commonApprove,
-                compact: true,
-              ),
-              const SizedBox(width: 8),
-              AppButtons.danger(
-                onPressed: blocked ? null : () => _rejectAccess(entry),
-                label: AppLocalizations.of(context).commonReject,
-                soft: true,
-                compact: true,
-              ),
-            ],
+          actions = AppButtons.ghost(
+            onPressed: blocked ? null : () => _revokeAccess(entry),
+            label: AppLocalizations.of(context).tr('p.withdraw'),
+            compact: true,
           );
-        } else {
-          subtext = [
-            ?requestedBy,
-            AppLocalizations.of(context).patientsWaitingOwnerReview,
-          ].join('\n');
         }
       case PatientAccessStatus.rejected:
         if (isOwner) {
@@ -2723,6 +2536,14 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
           );
         }
     }
+
+    final roleLabel = AppRoles.label(entry.role, AppLocalizations.of(context));
+    final meta = [
+      if (roleLabel.trim().isNotEmpty) roleLabel.trim(),
+      if ((entry.clinicName ?? '').trim().isNotEmpty) entry.clinicName!.trim(),
+      if ((entry.email ?? '').trim().isNotEmpty) entry.email!.trim(),
+      if (when.isNotEmpty) when,
+    ].join(' · ');
 
     return _InsetGroup(
       padding: const EdgeInsets.all(14),
@@ -2741,14 +2562,15 @@ class _PatientDetailSheetState extends State<_PatientDetailSheet>
                     fontSize: 16,
                   ),
                 ),
-                if (when.isNotEmpty) ...[
+                if (meta.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Text(
-                    when,
+                    meta,
                     style: AppFonts.style(
-                      fontSize: 12,
+                      fontSize: 12.5,
                       color: AppColors.muted,
                       fontWeight: FontWeight.w500,
+                      height: 1.35,
                     ),
                   ),
                 ],
@@ -2835,8 +2657,9 @@ class _InsetDivider extends StatelessWidget {
 }
 
 class _DemoRow extends StatelessWidget {
-  const _DemoRow({required this.label, required this.value});
+  const _DemoRow({required this.icon, required this.label, required this.value});
 
+  final IconData icon;
   final String label;
   final String value;
 
@@ -2847,8 +2670,10 @@ class _DemoRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Icon(icon, size: 18, color: AppColors.muted),
+          const SizedBox(width: 10),
           SizedBox(
-            width: 140,
+            width: 130,
             child: Text(
               label,
               style: AppFonts.style(

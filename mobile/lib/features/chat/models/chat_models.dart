@@ -12,6 +12,8 @@ class UserProfile {
     this.role,
     this.clinicName,
     this.phone,
+    this.avatarUrl,
+    this.labName,
   });
 
   final String id;
@@ -20,6 +22,10 @@ class UserProfile {
   final String? role;
   final String? clinicName;
   final String? phone;
+  final String? avatarUrl;
+
+  /// Dentists: the lab they belong to.
+  final String? labName;
 
   String get displayName {
     final n = name?.trim();
@@ -29,10 +35,14 @@ class UserProfile {
     return AppLocalizations.current.tr('c.user');
   }
 
+  /// Dentists: "Lab · Clinic" (how dentists are always shown); others:
+  /// clinic · role.
   String get subtitle {
+    final dentist = AppRoles.isDentist(role);
     final parts = <String>[
+      if (dentist && labName != null && labName!.trim().isNotEmpty) labName!.trim(),
       if (clinicName != null && clinicName!.trim().isNotEmpty) clinicName!.trim(),
-      if (role != null && role!.trim().isNotEmpty) AppRoles.label(role),
+      if (!dentist && role != null && role!.trim().isNotEmpty) AppRoles.label(role),
     ];
     return parts.join(' · ');
   }
@@ -48,6 +58,8 @@ class UserProfile {
       role: _optString(json['role']),
       clinicName: _optString(json['clinic_name']),
       phone: _optString(json['phone']),
+      avatarUrl: _optString(json['avatar_url']),
+      labName: _optString(json['lab_name']),
     );
   }
 
@@ -58,6 +70,8 @@ class UserProfile {
         'role': role,
         'clinic_name': clinicName,
         'phone': phone,
+        'avatar_url': avatarUrl,
+        'lab_name': labName,
       };
 }
 

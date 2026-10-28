@@ -110,6 +110,11 @@ void main() {
     // German is the app default.
     expect(find.text('Dieser Scan hat Probleme – bitte neu scannen, bevor der Patient geht.'),
         findsOneWidget);
+    // The reasons sit behind "Details ansehen", in a sheet.
+    expect(find.text('Raue oder unebene Stellen'), findsNothing);
+    await tester.tap(find.text('Details ansehen'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
     expect(find.text('Raue oder unebene Stellen'), findsOneWidget);
     expect(find.textContaining('Speichel oder Blut'), findsOneWidget);
     expect(find.text('Neu scannen'), findsWidgets); // severity label (+ list label)

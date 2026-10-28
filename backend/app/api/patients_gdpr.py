@@ -11,7 +11,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.background import BackgroundTask
 
 from app.services.file_urls import client_file_url
-from app.core.security import AuthUser, get_current_user
+from app.core.security import AuthUser, canonicalize_role, get_current_user
+from app.core.uploads import IMAGE_MAX_BYTES, read_capped
 from app.core.supabase_client import get_supabase_admin
 from app.schemas_patients import (
     AccessRequestDecision,
@@ -28,8 +29,9 @@ from app.schemas_patients import (
     RenamePatientPhotoRequest,
     UploadNoteRequest,
 )
+from app.services import case_flow, case_status, labs
 from app.services import patient_access as pa
-from app.services.notify import actor_label, notify_pair
+from app.services.notify import actor_label, notify, notify_pair
 from app.services.patient_crypto import decrypt_note, encrypt_note
 from app.services.patient_export import build_patient_export
 from app.services.profiles import (
@@ -54,7 +56,6 @@ _EDITABLE_FIELDS = frozenset(
         "address",
         "phone",
         "health_insurance",
-        "status",
     }
 )
 
@@ -137,12 +138,13 @@ def _from_http(
     exc: HTTPException,
     patient_id: str | None = None,
 ) -> JSONResponse:
+    detail = exc.detail if isinstance(exc.detail, dict) else {}
     return _err(
         action=action,
         user_id=user_id,
         http_code=exc.status_code,
-        code=f"HTTP_{exc.status_code}",
-        message=str(exc.detail),
+        code=str(detail.get("code") or f"HTTP_{exc.status_code}"),
+        message=str(detail.get("detail") or exc.detail),
         patient_id=patient_id,
     )
 
@@ -174,6 +176,7 @@ def _patient_public(row: dict[str, Any]) -> dict[str, Any]:
         deleted_at=row.get("deleted_at"),
         created_at=row.get("created_at"),
         updated_at=row.get("updated_at"),
+        dentist_updated=bool((row.get("lab_review") or {}).get("dentist_updated")),
     ).model_dump(mode="json")
 
 
@@ -182,14 +185,19 @@ def _note_public(
     plaintext: str,
     *,
     author_name: str | None = None,
+    author_role: str | None = None,
 ) -> dict[str, Any]:
     author_id = str(row["author_id"])
     resolved = (author_name or "").strip() or "Unknown Practitioner"
+    role = (author_role or "").strip().lower() or None
+    if role not in ("dentist", "laboratory", "admin"):
+        role = None
     return PatientNoteOut(
         id=str(row["id"]),
         patient_id=str(row["patient_id"]),
         author_id=author_id,
         author_name=resolved,
+        author_role=role,
         note_content=plaintext,
         created_at=row.get("created_at"),
         updated_at=row.get("updated_at"),
@@ -206,6 +214,13 @@ def _note_author_display_name(
         return name
     email = (profile.get("email") or "").strip()
     return email or "Unknown Practitioner"
+
+
+def _note_author_role(profile: dict[str, Any] | None) -> str | None:
+    if not profile:
+        return None
+    role = (profile.get("role") or "").strip().lower()
+    return role if role in ("dentist", "laboratory", "admin") else None
 
 
 def _profile_display_name(profile: dict[str, Any] | None, fallback_id: str) -> str:
@@ -367,44 +382,33 @@ def list_patients(
 
 @router.get(
     "/access/pending",
-    summary="List pending access requests for owned patients",
+    summary="List pending sharing tickets this lab decides",
 )
 def list_pending_access_requests(user: AuthUser = Depends(get_current_user)):
+    """Sharing tickets (a dentist sharing with a colleague in the same lab)
+    waiting for this lab. Dentists never decide access requests."""
     action = "list_pending_access_requests"
-    try:
-        owned = (
-            get_supabase_admin()
-            .table("patients")
-            .select("id,first_name,last_name")
-            .eq("created_by", user.id)
-            .eq("deleted", False)
-            .execute()
-        )
-    except Exception as exc:
-        return _err(
-            action=action,
-            user_id=user.id,
-            http_code=502,
-            code="DB_ERROR",
-            message=str(exc),
-        )
-
-    owned_rows = getattr(owned, "data", None) or []
-    if not owned_rows:
-        return _ok(action=action, user_id=user.id, payload={"pending_requests": []})
-
-    patients_by_id = {str(r["id"]): r for r in owned_rows}
-    owned_ids = list(patients_by_id.keys())
-
     try:
         pending_res = (
             get_supabase_admin()
             .table("patient_access")
             .select("*")
             .eq("status", "pending")
-            .in_("patient_id", owned_ids)
+            .eq("ticket_lab_id", user.id)
             .order("created_at", desc=True)
             .execute()
+        )
+        pending_rows = getattr(pending_res, "data", None) or []
+        ids = list({str(r["patient_id"]) for r in pending_rows})
+        patients_res = (
+            get_supabase_admin()
+            .table("patients")
+            .select("id,first_name,last_name")
+            .in_("id", ids)
+            .eq("deleted", False)
+            .execute()
+            if ids
+            else None
         )
     except Exception as exc:
         return _err(
@@ -414,8 +418,8 @@ def list_pending_access_requests(user: AuthUser = Depends(get_current_user)):
             code="DB_ERROR",
             message=str(exc),
         )
-
-    pending_rows = getattr(pending_res, "data", None) or []
+    patients_by_id = {str(r["id"]): r for r in (getattr(patients_res, "data", None) or [])}
+    pending_rows = [r for r in pending_rows if str(r["patient_id"]) in patients_by_id]
     profile_ids: set[str] = set()
     for row in pending_rows:
         profile_ids.add(str(row.get("user_id") or ""))
@@ -461,7 +465,7 @@ def list_pending_access_requests(user: AuthUser = Depends(get_current_user)):
 
 @router.patch(
     "/access/requests/{request_id}",
-    summary="Approve or reject a pending access request (owner only)",
+    summary="Lab approves or rejects a pending sharing ticket",
 )
 def decide_access_request(
     request_id: str,
@@ -513,16 +517,15 @@ def decide_access_request(
             message="Patient not found",
             patient_id=patient_id,
         )
-    if not pa.is_owner(patient, user.id):
+    # Sharing tickets are the lab's call (dentists never decide access requests).
+    decider = str(access_row.get("ticket_lab_id") or "")
+    if user.id != decider and not pa.is_admin(user.id):
         return _err(
             action=action,
             user_id=user.id,
             http_code=403,
             code="ERROR_403_FORBIDDEN",
-            message=(
-                "Permission Denied: Only the patient owner can approve or "
-                "reject access requests."
-            ),
+            message="Permission Denied: only the dentist's lab can approve or reject this request.",
             patient_id=patient_id,
         )
     if (access_row.get("status") or "") != "pending":
@@ -633,31 +636,24 @@ def list_patient_access(
     owner_payload = {
         "user_id": owner_id,
         "full_name": _profile_display_name(owner_profile, owner_id),
-        "role": "Owner",
+        "role": (owner_profile or {}).get("role") or "dentist",
+        "email": ((owner_profile or {}).get("email") or "").strip() or None,
+        "clinic_name": ((owner_profile or {}).get("clinic_name") or "").strip()
+        or None,
     }
 
-    # Shared users must not see other staff on this patient's access list.
-    if not is_owner:
-        return _ok(
-            action=action,
-            user_id=user.id,
-            patient_id=patient_id,
-            payload={
-                "is_owner": False,
-                "owner": owner_payload,
-                "access_list": [],
-            },
-        )
-
     try:
-        result = (
+        query = (
             get_supabase_admin()
             .table("patient_access")
             .select("*")
             .eq("patient_id", patient_id)
             .order("created_at", desc=True)
-            .execute()
         )
+        # Shared users may see the owner + their own row only (not other staff).
+        if not is_owner:
+            query = query.eq("user_id", user.id)
+        result = query.execute()
     except Exception as exc:
         return _err(
             action=action,
@@ -680,12 +676,17 @@ def list_patient_access(
     access_list: list[dict[str, Any]] = []
     for row in rows:
         uid = str(row.get("user_id") or "")
+        profile = profiles_by_id.get(uid)
         requester_id = str(row.get("requested_by") or row.get("granted_by") or "")
         access_list.append(
             {
                 "access_id": str(row["id"]),
                 "user_id": uid,
-                "full_name": _profile_display_name(profiles_by_id.get(uid), uid),
+                "full_name": _profile_display_name(profile, uid),
+                "role": (profile or {}).get("role"),
+                "email": ((profile or {}).get("email") or "").strip() or None,
+                "clinic_name": ((profile or {}).get("clinic_name") or "").strip()
+                or None,
                 "status": row.get("status") or "approved",
                 "requested_by_name": _profile_display_name(
                     profiles_by_id.get(requester_id), requester_id
@@ -701,7 +702,7 @@ def list_patient_access(
         user_id=user.id,
         patient_id=patient_id,
         payload={
-            "is_owner": True,
+            "is_owner": is_owner,
             "owner": owner_payload,
             "access_list": access_list,
         },
@@ -752,16 +753,29 @@ def list_eligible_users(
         if uid:
             excluded.add(uid)
 
+    # Owner only: their own lab and its dentists (other labs go through a transfer).
+    if pa.is_admin(user.id):
+        allowed = lambda r: True  # noqa: E731
+    elif pa.is_owner(patient, user.id):
+        my_lab = str((fetch_profile(user.id) or {}).get("lab_id") or "")
+        allowed = lambda r: bool(my_lab) and (  # noqa: E731
+            str(r.get("id")) == my_lab or (r.get("role") == "dentist" and str(r.get("lab_id") or "") == my_lab)
+        )
+    else:
+        allowed = lambda r: False  # noqa: E731
     eligible_users: list[dict[str, Any]] = []
     for row in staff_rows:
         uid = str(row.get("id") or "")
-        if not uid or uid in excluded:
+        if not uid or uid in excluded or not allowed(row):
             continue
         eligible_users.append(
             {
                 "user_id": uid,
                 "full_name": _profile_display_name(row, uid),
                 "email": row.get("email"),
+                "role": row.get("role"),
+                "clinic_name": row.get("clinic_name"),
+                "avatar_url": row.get("avatar_url"),
             }
         )
 
@@ -830,8 +844,25 @@ def create_patient(
 ):
     action = "create_patient"
     logger.debug("create_patient user_id=%s", user.id)
+    role = canonicalize_role(user.role, default="")
+    owner_id, send_to = user.id, None
+    # Dentists may create patients with or without a lab.
+    if role in ("laboratory", "admin"):
+        try:
+            if payload.dentist_id:
+                own_lab = user.id if role == "laboratory" else None
+                owner_id = str(labs.require_active_dentist(payload.dentist_id, own_lab)["id"])
+            elif payload.send_to_lab_id and payload.send_to_lab_id != user.id:
+                send_to = str(labs.require_lab(payload.send_to_lab_id)["id"])
+            else:
+                raise HTTPException(
+                    400,
+                    "Choose one of your dentists, or a lab to send the patient to",
+                )
+        except HTTPException as exc:
+            return _from_http(action=action, user_id=user.id, exc=exc)
     row = {
-        "created_by": user.id,
+        "created_by": owner_id,
         "first_name": payload.first_name.strip(),
         "last_name": payload.last_name.strip(),
         "date_of_birth": payload.date_of_birth.isoformat(),
@@ -839,7 +870,10 @@ def create_patient(
         "address": payload.address.strip(),
         "phone": payload.phone.strip(),
         "health_insurance": payload.health_insurance.strip(),
-        "status": _normalize_patient_status(payload.status),
+        "status": "pending",  # set automatically from here on (services/case_flow.py)
+        # Sent to another lab: unassigned until that lab picks a dentist.
+        "unassigned_at": pa.utc_now_iso() if send_to else None,
+        "waiting_lab_id": send_to,
         "deleted": False,
         "created_at": pa.utc_now_iso(),
         "updated_at": pa.utc_now_iso(),
@@ -863,6 +897,24 @@ def create_patient(
                 message="Insert returned no row",
             )
         patient_id = str(created["id"])
+        try:
+            case_status.log_event(patient_id, actor_id=user.id, type="created", to_status="pending")
+            if send_to:
+                labs.open_transfer(
+                    created, kind="handover", from_lab=user.id if role == "laboratory" else None,
+                    to_lab=send_to, actor_id=user.id, status_="awaiting_recipient",
+                )
+            elif owner_id != user.id and role == "laboratory":
+                labs.grant(patient_id, user.id, user.id)  # the creating lab keeps access
+        except Exception:
+            # Don't leave a half-linked patient (e.g. "waiting for lab" with no transfer).
+            get_supabase_admin().table("patients").delete().eq("id", patient_id).execute()
+            raise
+        if not send_to and owner_id != user.id:
+            notify(
+                user_id=owner_id, type="case_status", patient_id=patient_id, actor_id=user.id,
+                message=f"{_patient_display_name(created)} was created and assigned to you.",
+            )
         pa.write_audit_log(
             actor_id=user.id,
             action=action,
@@ -945,20 +997,6 @@ def edit_patient(
                     patient_id=patient_id,
                 )
             value = str(value).strip().lower()
-        if key == "status":
-            value = _normalize_patient_status(value)
-            if value not in _PATIENT_STATUSES:
-                return _err(
-                    action=action,
-                    user_id=user.id,
-                    http_code=400,
-                    code="INVALID_STATUS",
-                    message=(
-                        "status must be one of: pending, in_progress, "
-                        "in_review, completed, rejected"
-                    ),
-                    patient_id=patient_id,
-                )
         if isinstance(value, str):
             value = value.strip()
         if hasattr(value, "isoformat"):
@@ -977,40 +1015,14 @@ def edit_patient(
 
     updates["updated_at"] = pa.utc_now_iso()
     try:
-        try:
-            result = (
-                get_supabase_admin()
-                .table("patients")
-                .update(updates)
-                .eq("id", patient_id)
-                .eq("created_by", user.id)
-                .execute()
-            )
-        except Exception as update_exc:
-            if "status" in updates and "status" in str(update_exc):
-                updates.pop("status", None)
-                if len(updates) <= 1:  # only updated_at left
-                    return _err(
-                        action=action,
-                        user_id=user.id,
-                        http_code=503,
-                        code="MIGRATION_REQUIRED",
-                        message=(
-                            "Patient status is not available yet. "
-                            "Run migration 008_patients_status.sql in Supabase."
-                        ),
-                        patient_id=patient_id,
-                    )
-                result = (
-                    get_supabase_admin()
-                    .table("patients")
-                    .update(updates)
-                    .eq("id", patient_id)
-                    .eq("created_by", user.id)
-                    .execute()
-                )
-            else:
-                raise
+        result = (
+            get_supabase_admin()
+            .table("patients")
+            .update(updates)
+            .eq("id", patient_id)
+            .eq("created_by", user.id)
+            .execute()
+        )
         rows = getattr(result, "data", None) or []
         if not rows:
             return _err(
@@ -1169,21 +1181,7 @@ def grant_patient_access(
             patient_id=patient_id,
         )
 
-    try:
-        caller_role = pa.require_owner_or_approved_share(patient, patient_id, user.id)
-    except HTTPException as exc:
-        return _err(
-            action="grant_patient_access",
-            user_id=user.id,
-            http_code=exc.status_code,
-            code="ERROR_403_FORBIDDEN" if exc.status_code == 403 else f"HTTP_{exc.status_code}",
-            message=str(exc.detail),
-            patient_id=patient_id,
-        )
-
-    is_owner_grant = caller_role == "owner"
-    action = "grant_patient_access" if is_owner_grant else "request_patient_access"
-
+    action = "share_patient"
     if target == user.id:
         return _err(
             action=action,
@@ -1202,7 +1200,8 @@ def grant_patient_access(
             message="Target user is already the patient owner",
             patient_id=patient_id,
         )
-    if fetch_profile(target) is None:
+    target_profile = fetch_profile(target)
+    if target_profile is None:
         return _err(
             action=action,
             user_id=user.id,
@@ -1211,43 +1210,35 @@ def grant_patient_access(
             message="Target user not found",
             patient_id=patient_id,
         )
+    try:
+        # Owner only: own lab → immediate, same-lab dentist → ticket for the lab.
+        share_status, ticket_lab = labs.share_rule(user, patient, target_profile)
+    except HTTPException as exc:
+        return _from_http(action=action, user_id=user.id, exc=exc, patient_id=patient_id)
+    approved = share_status == "approved"
+    action = "grant_patient_access" if approved else "request_patient_access"
 
     existing = pa.fetch_access_row(patient_id, target)
-    if (
-        not is_owner_grant
-        and existing
-        and (existing.get("status") or "") == "approved"
-    ):
+    if existing and (existing.get("status") or "") in ("approved", "pending"):
         return _err(
             action=action,
             user_id=user.id,
             http_code=400,
             code="ALREADY_HAS_ACCESS",
-            message="Target user already has approved access",
+            message="Target user already has access or a pending request",
             patient_id=patient_id,
         )
 
-    now = pa.utc_now_iso()
-    if is_owner_grant:
-        access_row = {
-            "patient_id": patient_id,
-            "user_id": target,
-            "granted_by": user.id,
-            "requested_by": user.id,
-            "approved_by": user.id,
-            "status": "approved",
-            "created_at": now,
-        }
-    else:
-        access_row = {
-            "patient_id": patient_id,
-            "user_id": target,
-            "granted_by": user.id,
-            "requested_by": user.id,
-            "approved_by": None,
-            "status": "pending",
-            "created_at": now,
-        }
+    access_row = {
+        "patient_id": patient_id,
+        "user_id": target,
+        "granted_by": user.id,
+        "requested_by": user.id,
+        "approved_by": user.id if approved else None,
+        "status": share_status,
+        "ticket_lab_id": ticket_lab,
+        "created_at": pa.utc_now_iso(),
+    }
 
     try:
         result = (
@@ -1264,7 +1255,7 @@ def grant_patient_access(
             details={
                 "target_user_id": target,
                 "status": access_row["status"],
-                "caller_role": caller_role,
+                "ticket_lab_id": ticket_lab,
             },
         )
     except HTTPException as exc:
@@ -1284,7 +1275,7 @@ def grant_patient_access(
     name = _patient_display_name(patient)
     who = actor_label(user.id)
     target_name = actor_label(target, fallback="a colleague")
-    if is_owner_grant:
+    if approved:
         notify_pair(
             counterpart_id=target,
             actor_id=user.id,
@@ -1295,11 +1286,11 @@ def grant_patient_access(
         )
     else:
         notify_pair(
-            counterpart_id=str(patient.get("created_by") or ""),
+            counterpart_id=ticket_lab,
             actor_id=user.id,
             type="case_status",
-            counterpart_message=f"{who} requested access to {name}.",
-            actor_message=f"You requested access to {name}.",
+            counterpart_message=f"{who} asked to share {name} with {target_name}.",
+            actor_message=f"Your lab will review sharing {name} with {target_name}.",
             patient_id=patient_id,
         )
 
@@ -1454,6 +1445,32 @@ def upload_patient_note(
 
     # Return decrypted content only to the authorized caller (never log it)
     author_profile = fetch_profile(user.id)
+    author_name = _note_author_display_name(author_profile, user.id)
+    author_role = _note_author_role(author_profile)
+    patient = pa.fetch_patient(patient_id)
+    owner_id = str((patient or {}).get("created_by") or "")
+    name = _patient_display_name(patient) if patient else patient_id
+    # Notify the counterpart (owner ↔ lab / shared user) about the new note.
+    if owner_id and owner_id != user.id:
+        notify_pair(
+            counterpart_id=owner_id,
+            actor_id=user.id,
+            type="note",
+            counterpart_message=f"{author_name} added a note for {name}.",
+            actor_message=f"You added a note for {name}.",
+            patient_id=patient_id,
+        )
+    elif owner_id == user.id:
+        # Owner wrote a note — notify the patient's lab if known.
+        lab_id = str((patient or {}).get("lab_id") or (author_profile or {}).get("lab_id") or "")
+        if lab_id and lab_id != user.id:
+            notify(
+                user_id=lab_id,
+                type="note",
+                message=f"{author_name} added a note for {name}.",
+                patient_id=patient_id,
+                actor_id=user.id,
+            )
     return _ok(
         action=action,
         user_id=user.id,
@@ -1463,7 +1480,8 @@ def upload_patient_note(
             "note": _note_public(
                 rows[0],
                 payload.note_content,
-                author_name=_note_author_display_name(author_profile, user.id),
+                author_name=author_name,
+                author_role=author_role,
             )
         },
     )
@@ -1496,6 +1514,9 @@ def list_patient_notes(patient_id: str, user: AuthUser = Depends(get_current_use
                 author_name=_note_author_display_name(
                     profiles_by_id.get(str(r.get("author_id") or "")),
                     str(r.get("author_id") or ""),
+                ),
+                author_role=_note_author_role(
+                    profiles_by_id.get(str(r.get("author_id") or "")),
                 ),
             )
             for r in rows
@@ -1621,6 +1642,7 @@ def edit_patient_note(
                 updated_row,
                 payload.new_note_content,
                 author_name=_note_author_display_name(author_profile, author_id),
+                author_role=_note_author_role(author_profile),
             )
         },
     )
@@ -1771,6 +1793,7 @@ async def upload_patient_photo(
     user: AuthUser = Depends(get_current_user),
 ):
     action = "upload_patient_photo"
+    case_flow.require_can_change(user)  # labs review; they don't add photos
     angle_norm = (angle or "").strip().lower()
     if angle_norm not in _PHOTO_ANGLES:
         return _err(
@@ -1803,7 +1826,7 @@ async def upload_patient_photo(
                 patient_id=patient_id,
             )
 
-        data = await file.read()
+        data = await read_capped(file, IMAGE_MAX_BYTES)
         if not data:
             return _err(
                 action=action,
@@ -1885,6 +1908,7 @@ def rename_patient_photo(
     payload: RenamePatientPhotoRequest,
     user: AuthUser = Depends(get_current_user),
 ):
+    case_flow.require_can_change(user)
     action = "rename_patient_photo"
     name = (payload.filename or "").strip()
     if not name:
@@ -1966,6 +1990,7 @@ def delete_patient_photo(
     user: AuthUser = Depends(get_current_user),
 ):
     action = "delete_patient_photo"
+    case_flow.require_can_change(user)
     try:
         pa.require_patient_access(patient_id, user.id)
         existing = (

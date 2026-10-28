@@ -67,6 +67,7 @@ class ShadePhotoPane extends StatelessWidget {
     this.onToggleFocus,
     this.fullscreen = false,
     this.onToggleFullscreen,
+    this.viewOnly = false,
   });
 
   final Uint8List? previewBytes;
@@ -89,6 +90,9 @@ class ShadePhotoPane extends StatelessWidget {
   /// Shown full screen (expand ↔ exit icon); null toggle = no photo yet.
   final bool fullscreen;
   final VoidCallback? onToggleFullscreen;
+
+  /// Look-only copy (shade picker): no toolbar or gesture hints.
+  final bool viewOnly;
   final List<List<double>>? editOutline;
   final List<double>? editBulges;
   final int? activeHandleIndex;
@@ -97,7 +101,8 @@ class ShadePhotoPane extends StatelessWidget {
   final ValueNotifier<int> dragTick;
   final bool canUndo;
   final bool canRedo;
-  final VoidCallback onUpload;
+  /// Null for read-only viewers (labs): no upload buttons.
+  final VoidCallback? onUpload;
   final VoidCallback onClearPhoto;
   final ValueChanged<int> onSelectTooth;
   final void Function(Offset local, Size box) onHandleDragStart;
@@ -115,13 +120,14 @@ class ShadePhotoPane extends StatelessWidget {
         title: Text(AppLocalizations.of(context).shadePhotoTitle),
         message: Text(AppLocalizations.of(context).shadePhotoMessage),
         actions: [
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.pop(ctx);
-              onUpload();
-            },
-            child: Text(AppLocalizations.of(context).shadeUploadAnother),
-          ),
+          if (onUpload != null)
+            CupertinoActionSheetAction(
+              onPressed: () {
+                Navigator.pop(ctx);
+                onUpload!();
+              },
+              child: Text(AppLocalizations.of(context).shadeUploadAnother),
+            ),
           CupertinoActionSheetAction(
             isDestructiveAction: true,
             onPressed: () {
@@ -450,7 +456,7 @@ class ShadePhotoPane extends StatelessWidget {
                     ),
                   ),
                 ),
-              if (teeth.isNotEmpty && !busy)
+              if (teeth.isNotEmpty && !busy && !viewOnly)
                 Positioned(
                   left: 12,
                   right: 12,
@@ -470,7 +476,7 @@ class ShadePhotoPane extends StatelessWidget {
                     ),
                   ),
                 ),
-              if (!busy && (teeth.isEmpty || selectedToothIndex == null))
+              if (!busy && onUpload != null && (teeth.isEmpty || selectedToothIndex == null))
                 Positioned(
                   left: 12,
                   right: 12,
@@ -488,7 +494,7 @@ class ShadePhotoPane extends StatelessWidget {
                     ),
                   ),
                 ),
-              if (teeth.isNotEmpty && !busy && !editOutlineMode)
+              if (teeth.isNotEmpty && !busy && !editOutlineMode && !viewOnly)
                 Positioned(
                   top: 10,
                   left: 10,

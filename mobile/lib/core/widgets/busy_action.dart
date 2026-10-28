@@ -69,11 +69,11 @@ class BusyBarrier extends StatelessWidget {
                       tint: Colors.white.withValues(alpha: 0.28),
                       border: Border.all(color: Colors.transparent),
                       child: showSpinner
-                          ? ToothPageLoader(message: message, size: 44)
+                          ? ToothPageLoader(inPlace: true, message: message, size: 44)
                           : const SizedBox.shrink(),
                     )
                   : (showSpinner
-                      ? ToothPageLoader(message: message, size: 44)
+                      ? ToothPageLoader(inPlace: true, message: message, size: 44)
                       : const SizedBox.shrink()),
             ),
           ),

@@ -39,6 +39,8 @@ _BUCKETS = {
     "shades": "r2_shades_bucket",
     "smiles": "r2_smiles_bucket",
     "inbox": "r2_scan_inbox_bucket",
+    # ponytail: profile photos share the documents bucket (avatars/ prefix); own bucket if it ever needs its own rules.
+    "avatars": "r2_documents_bucket",
 }
 
 

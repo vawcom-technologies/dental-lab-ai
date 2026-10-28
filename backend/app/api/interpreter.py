@@ -16,6 +16,7 @@ from app.ai.interpreter import (
     speak,
 )
 from app.core.security import AuthUser, require_dentist
+from app.core.uploads import AUDIO_MAX_BYTES, read_capped
 
 router = APIRouter()
 logger = logging.getLogger("app.api.interpreter")
@@ -79,7 +80,7 @@ async def interpreter_turn_audio(
     file: UploadFile = File(...),
     _: AuthUser = Depends(require_dentist),
 ):
-    data = await file.read()
+    data = await read_capped(file, AUDIO_MAX_BYTES)
     try:
         result = await asyncio.to_thread(
             run_turn,

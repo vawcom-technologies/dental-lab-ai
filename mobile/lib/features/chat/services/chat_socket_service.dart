@@ -31,6 +31,10 @@ class ChatSocketService {
   Stream<Message> get onMessage => _messages.stream;
   Stream<MessagesReadEvent> get onRead => _reads.stream;
   Stream<String> get onError => _errors.stream;
+
+  /// Conversation ids the server refused to send in (`CANNOT_MESSAGE`).
+  final _blocked = StreamController<String>.broadcast();
+  Stream<String> get onBlocked => _blocked.stream;
   Stream<bool> get onConnectionChanged => _connection.stream;
 
   bool get isConnected => _channel != null && !_connecting;
@@ -136,6 +140,10 @@ class ChatSocketService {
     }
   }
 
+  /// Feeds one raw socket frame through the handler (tests).
+  @visibleForTesting
+  void handleFrame(dynamic data) => _onData(data);
+
   void _onData(dynamic data) {
     try {
       final raw = data is String ? data : data.toString();
@@ -157,6 +165,11 @@ class ChatSocketService {
           _reads.add(MessagesReadEvent.fromJson(map));
           break;
         case 'error':
+          if (map['code'] == 'CANNOT_MESSAGE') {
+            _blocked.add('${map['conversation_id'] ?? ''}');
+            _errors.add(AppLocalizations.current.tr('chat.cantMessage'));
+            break;
+          }
           final detail = '${map['detail'] ?? AppLocalizations.current.tr('err.network')}';
           _errors.add(detail);
           break;
@@ -223,6 +236,7 @@ class ChatSocketService {
     await _messages.close();
     await _reads.close();
     await _errors.close();
+    await _blocked.close();
     await _connection.close();
   }
 }

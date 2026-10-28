@@ -34,6 +34,8 @@ from app.api import (
     users,
     media,
     patients_gdpr,
+    patient_cases,
+    labs,
     patient_scans,
     scan_inbox,
     shade_detections,
@@ -45,6 +47,7 @@ from app.api import (
     interpreter,
 )
 from app.core.debug_middleware import DebugRequestMiddleware, configure_api_logging
+from app.core.config import settings
 from app.openapi_docs import attach_custom_openapi
 
 logger = logging.getLogger("app")
@@ -79,6 +82,10 @@ app = FastAPI(
     version="0.3.0",
     description="Elite Dent API — Supabase authentication + real-time chat",
     lifespan=lifespan,
+    # API docs only when ENABLE_DOCS=true (local / staging).
+    docs_url="/docs" if settings.enable_docs else None,
+    redoc_url="/redoc" if settings.enable_docs else None,
+    openapi_url="/openapi.json" if settings.enable_docs else None,
 )
 
 # Document /ws/chat in Swagger (/docs) via custom OpenAPI injection
@@ -88,8 +95,9 @@ attach_custom_openapi(app)
 app.add_middleware(DebugRequestMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    # Only our own sites; auth is a bearer token, never a cookie.
+    allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -115,6 +123,14 @@ app.include_router(
     tags=["Patients (GDPR)"],
 )
 # Patient clinical media (list/upload nested under /api/patients)
+app.include_router(labs.router, prefix="/api/labs", tags=["Labs"])
+app.include_router(labs.patients_router, prefix="/api/patients", tags=["Labs"])
+app.include_router(labs.transfers_router, prefix="/api/transfers", tags=["Labs"])
+app.include_router(
+    patient_cases.router,
+    prefix="/api/patients",
+    tags=["Case status"],
+)
 app.include_router(
     patient_scans.patients_router,
     prefix="/api/patients",
@@ -183,18 +199,16 @@ app.include_router(chat.ws_router, tags=["chat"])
 @app.exception_handler(HTTPException)
 async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
     detail = exc.detail
-    if not isinstance(detail, str):
-        message = str(detail)
-    else:
-        message = detail
     code = f"HTTP_{exc.status_code}"
     if exc.status_code == 401:
         code = "ERR_UNAUTHORIZED"
     elif exc.status_code == 403:
         code = "ERR_FORBIDDEN"
+    # A dict detail carries its own message + code + extra fields (e.g. `missing`).
+    content = {"code": code, **detail} if isinstance(detail, dict) else {"detail": str(detail), "code": code}
     return JSONResponse(
         status_code=exc.status_code,
-        content={"detail": message, "code": code},
+        content=content,
         headers=dict(exc.headers or {}),
     )
 

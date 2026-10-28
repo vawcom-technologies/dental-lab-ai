@@ -18,6 +18,8 @@ def env(monkeypatch):
     app.dependency_overrides[get_current_user] = lambda: AuthUser("u1", "a@b.c", "A", "dentist")
     monkeypatch.setattr(si.pm, "fetch_row", lambda t, i: s["rows"].get(i))
     monkeypatch.setattr(si.pm, "require_patient_access", lambda p, u: {})
+    s["status_hooks"] = []
+    monkeypatch.setattr(si.case_flow, "after_change", lambda pid, uid, **k: s["status_hooks"].append((pid, k)))
     monkeypatch.setattr(si, "copy_inbox_to", lambda kind, src_key, dst_key: s["copied"].append(dst_key))
     monkeypatch.setattr(si.pm, "find_row_by_key", lambda t, p, k: None)
     monkeypatch.setattr(si.pm, "insert_row", lambda t, row: s["scans"].append(row) or {"id": "s1", **row})
@@ -33,6 +35,7 @@ def test_assign_copies_to_patient_folder_then_removes_inbox_item(env):
     assert env["copied"] == ["patients/p1/scans/i1.ply"]
     assert env["scans"][0]["file_key"] == "patients/p1/scans/i1.ply"
     assert env["deleted"] == ["u1/abc.ply"] and env["inbox_rows_deleted"] == ["i1"]
+    assert env["status_hooks"] == []  # lands in the library; Save to case starts the case
 
 
 def test_failed_assign_keeps_inbox_item(env, monkeypatch):

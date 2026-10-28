@@ -10,6 +10,8 @@ from pydantic import BaseModel, EmailStr
 
 from app.core.security import AuthUser, get_current_user
 from app.core.supabase_client import get_supabase_admin
+from app.services import labs as lab_rules
+from app.services.profiles import fetch_profiles_by_ids, lab_name
 
 router = APIRouter()
 logger = logging.getLogger("app.api.users")
@@ -24,6 +26,8 @@ class UserProfileResponse(BaseModel):
     role: str | None = None
     clinic_name: str | None = None
     phone: str | None = None
+    avatar_url: str | None = None
+    lab_name: str | None = None  # dentists only
 
 
 def _escape_ilike(value: str) -> str:
@@ -75,7 +79,7 @@ def list_available_contacts(
         query = (
             get_supabase_admin()
             .table("profiles")
-            .select("id,name,email,role,clinic_name,phone")
+            .select("id,name,email,role,clinic_name,phone,avatar_url,lab_id,deleted")
             .neq("id", user.id)
             .or_("deleted.eq.false,deleted.is.null")
             .order("name", desc=False)
@@ -107,7 +111,10 @@ def list_available_contacts(
         logger.warning("list_users failed viewer=%s detail=%s", user.id, exc)
         raise _db_error(exc) from exc
 
-    rows = getattr(result, "data", None) or []
+    # ponytail: filtered after paging, so a page can come back short; page in the query if lists get long.
+    allowed = lab_rules.messaging_rule(user.id)
+    rows = [r for r in (getattr(result, "data", None) or []) if allowed(r)]
+    labs = fetch_profiles_by_ids({str(r["lab_id"]) for r in rows if r.get("lab_id")})
     return [
         UserProfileResponse(
             id=str(row.get("id")),
@@ -116,6 +123,8 @@ def list_available_contacts(
             role=row.get("role"),
             clinic_name=row.get("clinic_name"),
             phone=row.get("phone"),
+            avatar_url=row.get("avatar_url"),
+            lab_name=lab_name(row, labs),
         )
         for row in rows
     ]

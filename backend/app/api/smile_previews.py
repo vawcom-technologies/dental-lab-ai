@@ -14,7 +14,9 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 
 from app.services.file_urls import client_base_file_url, client_file_url
 from app.core.security import AuthUser, get_current_user
+from app.core.uploads import IMAGE_MAX_BYTES, read_capped
 from app.schemas_patient_media import DeleteOkOut, SmilePreviewOut
+from app.services import case_flow
 from app.services import patient_media as pm
 from app.services.r2 import upload_patient_asset
 from app.services.shade_media import load_media_bytes
@@ -71,8 +73,8 @@ def list_smile_previews(
     patient_id: str,
     user: AuthUser = Depends(get_current_user),
 ):
-    pm.require_patient_access(patient_id, user.id)
-    rows = pm.list_rows(_TABLE, patient_id)
+    patient = pm.require_patient_access(patient_id, user.id)
+    rows = case_flow.with_suggestion(patient, user, "smile", pm.list_rows(_TABLE, patient_id))
     return [_serialize(r) for r in rows]
 
 
@@ -88,13 +90,16 @@ async def upload_smile_preview(
     base: UploadFile | None = File(None),
     base_photo_id: str | None = Form(None),
     overlay: str | None = Form(None),
+    replaces: str | None = Form(None),
     user: AuthUser = Depends(get_current_user),
 ):
     """`file` is the photo with overlays. The photo without overlays comes as
     `base` (gallery) or `base_photo_id` (camera photo of this patient, copied
     server-side); `overlay` is the shape placements JSON. Older app builds send
-    `file` alone."""
-    pm.require_patient_access(patient_id, user.id)
+    `file` alone. `replaces`: id of a smile preview this one stands in for."""
+    patient = pm.require_patient_access(patient_id, user.id)
+    lab = case_flow.edit_mode(user, patient) == "suggest"
+    old = None if lab else pm.replaced_row(_TABLE, replaces, patient_id)
     extra: dict = {}
     if base is not None or base_photo_id:
         if base is not None:
@@ -111,6 +116,14 @@ async def upload_smile_preview(
     if placements is not None:
         extra["overlay"] = placements
 
+    if lab:
+        data = await read_capped(file, IMAGE_MAX_BYTES)
+        return _serialize(
+            case_flow.suggest_upload(
+                patient, user, "smile", replaces, data=data, filename=file.filename, content_type=file.content_type, extra=extra
+            )
+        )
+
     logger.debug(
         "save smile patient_id=%s user_id=%s base_photo_id=%s",
         patient_id,
@@ -122,11 +135,13 @@ async def upload_smile_preview(
         kind=_KIND,
         patient_id=patient_id,
         user_id=user.id,
-        data=await file.read(),
+        data=await read_capped(file, IMAGE_MAX_BYTES),
         filename=file.filename,
         content_type=file.content_type,
         extra=extra or None,
     )
+    pm.remove_replaced(_TABLE, _KIND, old, keep_id=str(row["id"]))
+    case_flow.after_change(patient_id, user.id)
     return _serialize(row)
 
 
@@ -141,14 +156,28 @@ async def update_smile_preview(
     overlay: str = Form(...),
     user: AuthUser = Depends(get_current_user),
 ):
-    row = pm.fetch_row(_TABLE, preview_id)
+    sugg = case_flow.parse_suggestion_id(preview_id)
+    row = None if sugg else pm.fetch_row(_TABLE, preview_id)
+    if row is None and sugg is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Smile preview not found")
+    patient_id = sugg[0] if sugg else str(row.get("patient_id") or "")
+    patient = pm.require_patient_access(patient_id, user.id)
+    if case_flow.edit_mode(user, patient) == "suggest":
+        base, for_id = case_flow.suggestion_base(patient, "smile", preview_id)
+        key, url, name = upload_patient_asset(
+            data=await read_capped(file, IMAGE_MAX_BYTES), filename=file.filename, content_type=file.content_type, kind=_KIND, patient_id=patient_id
+        )
+        extra = {
+            "file_url": url,
+            "overlay": _overlay_json(overlay),
+            "base_file_key": base.get("base_file_key") or base.get("file_key"),
+        }
+        return _serialize(case_flow.suggest(patient, user, "smile", for_id=for_id, file_key=key, file_name=name, extra=extra))
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Smile preview not found")
-    patient_id = str(row.get("patient_id") or "")
-    pm.require_patient_access(patient_id, user.id)
     old_key = str(row.get("file_key") or "")
     key, url, name = upload_patient_asset(
-        data=await file.read(),
+        data=await read_capped(file, IMAGE_MAX_BYTES),
         filename=file.filename,
         content_type=file.content_type,
         kind=_KIND,
@@ -162,6 +191,7 @@ async def update_smile_preview(
     updated = pm.update_row(_TABLE, preview_id, patch)
     if not first_save and old_key != key:
         _cleanup(old_key, patient_id)
+    case_flow.after_change(patient_id, user.id)
     return _serialize(updated)
 
 
@@ -174,6 +204,7 @@ def delete_smile_preview(
     preview_id: str,
     user: AuthUser = Depends(get_current_user),
 ):
+    case_flow.require_can_delete(user, _TABLE, preview_id)
     row = pm.delete_record_and_file(
         table=_TABLE,
         kind=_KIND,

@@ -36,7 +36,9 @@ class PatientCreateRequest(BaseModel):
     address: str = Field(min_length=1)
     phone: str = Field(min_length=1, max_length=64)
     health_insurance: str = Field(min_length=1, max_length=255)
-    status: PatientStatus = "pending"
+    # Labs (and the admin) create patients for a dentist, or send them to another lab.
+    dentist_id: str | None = None
+    send_to_lab_id: str | None = None
 
     @field_validator("email")
     @classmethod
@@ -46,18 +48,13 @@ class PatientCreateRequest(BaseModel):
             raise ValueError("email is required")
         return email.lower()
 
-    @field_validator("status", mode="before")
-    @classmethod
-    def _normalize_status(cls, v: Any) -> PatientStatus:
-        return normalize_patient_status(v)
-
 
 class PatientUpdateRequest(BaseModel):
     fields_to_update: dict[str, Any] = Field(
         ...,
         description=(
             "Subset of: first_name, last_name, date_of_birth, email, "
-            "address, phone, health_insurance, status"
+            "address, phone, health_insurance (status changes automatically)"
         ),
     )
 
@@ -76,8 +73,6 @@ class PatientUpdateRequest(BaseModel):
 
             validated = TypeAdapter(EmailStr).validate_python(email)
             out["email"] = str(validated).strip().lower()
-        if "status" in out:
-            out["status"] = normalize_patient_status(out.get("status"))
         return out
 
 
@@ -114,6 +109,9 @@ class PatientAccessEntryOut(BaseModel):
     user_id: str
     full_name: str
     status: Literal["pending", "approved", "rejected"]
+    role: str | None = None
+    email: str | None = None
+    clinic_name: str | None = None
     requested_by_name: str | None = None
     created_at: datetime | str | None = None
 
@@ -151,6 +149,8 @@ class PatientOut(BaseModel):
     deleted_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    # Rejected case the dentist changed since — the lab's queue marks it.
+    dentist_updated: bool = False
 
 
 class PatientNoteOut(BaseModel):
@@ -158,6 +158,7 @@ class PatientNoteOut(BaseModel):
     patient_id: str
     author_id: str
     author_name: str = "Unknown Practitioner"
+    author_role: str | None = None
     note_content: str
     created_at: datetime | None = None
     updated_at: datetime | None = None

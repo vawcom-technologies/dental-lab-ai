@@ -12,6 +12,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Response,
     UploadFile,
     status,
 )
@@ -19,6 +20,7 @@ from fastapi.responses import FileResponse
 
 from app.core.security import AuthUser, get_current_user
 from app.schemas_chat import MessageResponse
+from app.services import avatars
 from app.services import chat_messages as cm
 from app.services import patient_access as pa
 from app.services.r2 import (
@@ -159,3 +161,14 @@ def serve_local_patient_photo(
         )
     media_type = mimetypes.guess_type(filename)[0] or "image/jpeg"
     return FileResponse(path, media_type=media_type, filename=filename)
+
+
+@router.get("/avatars/{name}", summary="Profile photo (any signed-in user)")
+def avatar(name: str, _: AuthUser = Depends(get_current_user)):
+    data, content_type = avatars.load(name)
+    # The name changes with every new photo, so a cached copy is never stale.
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={"Cache-Control": "private, max-age=31536000, immutable"},
+    )

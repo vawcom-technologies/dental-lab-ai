@@ -8,6 +8,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/ui_kit.dart';
 import '../models/chat_models.dart';
 import '../state/chat_controller.dart';
+import '../../../core/widgets/page_kit.dart';
 
 /// Soft glass selection (iPadOS Messages / liquid glass).
 const _kSelectedGlass = Color(0x66FFFFFF);
@@ -46,13 +47,6 @@ class InboxScreen extends StatelessWidget {
                 ? AppLocalizations.current.trp('ch.live', {'n': controller.totalUnread})
                 : loc.messagesReconnecting,
             chromeActions: [
-              AppButtons.icon(
-                tooltip: loc.refresh,
-                onPressed: controller.loadingInbox
-                    ? null
-                    : () => controller.loadInbox(forceRefresh: true),
-                icon: Icons.refresh_rounded,
-              ),
               if (onNewChat != null)
                 AppButtons.icon(
                   tooltip: loc.messagesNewChat,
@@ -63,14 +57,7 @@ class InboxScreen extends StatelessWidget {
           ),
         if (!embedded) const SizedBox(height: 12),
         Expanded(
-          child: GlassSurface(
-            borderRadius: BorderRadius.circular(28),
-            blur: 28,
-            tint: Colors.white.withValues(alpha: 0.42),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.72),
-              width: 1.1,
-            ),
+          child: AdminCard(
             padding: EdgeInsets.zero,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -93,6 +80,32 @@ class InboxScreen extends StatelessWidget {
                         ),
                       ],
                     ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: CupertinoSlidingSegmentedControl<String>(
+                      groupValue: controller.inboxRole,
+                      backgroundColor: AppColors.inset.withValues(alpha: 0.7),
+                      thumbColor: Colors.white.withValues(alpha: 0.95),
+                      children: {
+                        for (final (role, key) in const [
+                          ('', 'ch.filterAll'),
+                          ('laboratory', 'ch.filterLabs'),
+                          ('dentist', 'ch.filterDentists'),
+                        ])
+                          role: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                            child: Text(
+                              loc.tr(key),
+                              style: AppFonts.style(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.navy),
+                            ),
+                          ),
+                      },
+                      onValueChanged: (v) => controller.setInboxRole(v ?? ''),
+                    ),
                   ),
                 ),
                 Expanded(
@@ -132,7 +145,7 @@ class InboxScreen extends StatelessWidget {
                                     ),
                                     const SizedBox(height: 14),
                                     Text(
-                                      controller.inboxQuery.isEmpty
+                                      controller.inboxQuery.isEmpty && controller.inboxRole.isEmpty
                                           ? loc.messagesNoConversations
                                           : loc.messagesNoMatch,
                                       textAlign: TextAlign.center,
@@ -353,7 +366,7 @@ class _ConversationTile extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              _GlassAvatar(name: partner.displayName),
+              UserAvatar(name: partner.displayName, url: partner.avatarUrl, size: 52),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -469,54 +482,6 @@ class _ConversationTile extends StatelessWidget {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _GlassAvatar extends StatelessWidget {
-  const _GlassAvatar({required this.name});
-
-  final String name;
-
-  @override
-  Widget build(BuildContext context) {
-    final initial = name.trim().isNotEmpty
-        ? name.trim().characters.first.toUpperCase()
-        : '?';
-    return Container(
-      width: 52,
-      height: 52,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppColors.dentalBlue.withValues(alpha: 0.28),
-            AppColors.navy.withValues(alpha: 0.18),
-          ],
-        ),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.75),
-          width: 1.2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.dentalBlue.withValues(alpha: 0.12),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Text(
-        initial,
-        style: AppFonts.style(
-          color: AppColors.navy,
-          fontWeight: FontWeight.w700,
-          fontSize: 18,
         ),
       ),
     );

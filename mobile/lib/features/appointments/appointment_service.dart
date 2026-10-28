@@ -26,12 +26,14 @@ class AppointmentService {
     required DateTime startTime,
     required DateTime endTime,
     String? description,
+    String? assignTo,
   }) {
     return api.createAppointment(
       patientId: patientId,
       startTime: startTime,
       endTime: endTime,
       description: description,
+      assignTo: assignTo,
     );
   }
 

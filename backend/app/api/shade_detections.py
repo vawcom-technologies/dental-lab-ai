@@ -9,7 +9,9 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.services.file_urls import client_file_url
 from app.core.security import AuthUser, get_current_user
+from app.core.uploads import IMAGE_MAX_BYTES, read_capped
 from app.schemas_patient_media import DeleteOkOut, ShadeDetectionOut
+from app.services import case_flow
 from app.services import patient_media as pm
 from app.services.shade_media import load_media_bytes
 
@@ -59,8 +61,8 @@ def list_shade_detections(
     patient_id: str,
     user: AuthUser = Depends(get_current_user),
 ):
-    pm.require_patient_access(patient_id, user.id)
-    rows = pm.list_rows(_TABLE, patient_id)
+    patient = pm.require_patient_access(patient_id, user.id)
+    rows = case_flow.with_suggestion(patient, user, "shade", pm.list_rows(_TABLE, patient_id))
     return [_serialize(r) for r in rows]
 
 
@@ -81,14 +83,18 @@ async def upload_shade_detection(
     file: UploadFile | None = File(None),
     photo_id: str | None = Form(None),
     analysis: str | None = Form(None),
+    replaces: str | None = Form(None),
     user: AuthUser = Depends(get_current_user),
 ):
     """Send either the image (`file`) or a camera photo of this patient
     (`photo_id`, copied into the shades bucket server-side), optionally with
-    the `analysis` JSON. Saving the same image again updates its record."""
-    pm.require_patient_access(patient_id, user.id)
+    the `analysis` JSON. Saving the same image again updates its record.
+    `replaces`: id of a shade detection this one stands in for."""
+    patient = pm.require_patient_access(patient_id, user.id)
+    lab = case_flow.edit_mode(user, patient) == "suggest"
+    old = None if lab else pm.replaced_row(_TABLE, replaces, patient_id)
     if file is not None:
-        data, filename, ctype = await file.read(), file.filename, file.content_type
+        data, filename, ctype = await read_capped(file, IMAGE_MAX_BYTES), file.filename, file.content_type
     elif photo_id:
         photo = pm.fetch_row("patient_photos", photo_id)
         if photo is None or str(photo.get("patient_id")) != patient_id:
@@ -103,6 +109,11 @@ async def upload_shade_detection(
             extra = {"analysis": _analysis_json(ShadeAnalysisIn.model_validate_json(analysis))}
         except ValidationError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid analysis") from exc
+
+    if lab:
+        return _serialize(
+            case_flow.suggest_upload(patient, user, "shade", replaces, data=data, filename=filename, content_type=ctype, extra=extra)
+        )
 
     logger.debug(
         "save shade patient_id=%s user_id=%s photo_id=%s filename=%s",
@@ -121,6 +132,8 @@ async def upload_shade_detection(
         content_type=ctype,
         extra=extra,
     )
+    pm.remove_replaced(_TABLE, _KIND, old, keep_id=str(row["id"]))
+    case_flow.after_change(patient_id, user.id)
     return _serialize(row)
 
 
@@ -133,6 +146,7 @@ def delete_shade_detection(
     shade_id: str,
     user: AuthUser = Depends(get_current_user),
 ):
+    case_flow.require_can_delete(user, _TABLE, shade_id)
     row = pm.delete_record_and_file(
         table=_TABLE,
         kind=_KIND,
@@ -152,12 +166,29 @@ def save_shade_detection_analysis(
     payload: ShadeAnalysisIn,
     user: AuthUser = Depends(get_current_user),
 ):
-    row = pm.fetch_row(_TABLE, shade_id)
-    if row is None:
+    sugg = case_flow.parse_suggestion_id(shade_id)
+    row = None if sugg else pm.fetch_row(_TABLE, shade_id)
+    if row is None and sugg is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Shade detection not found",
         )
-    pm.require_patient_access(str(row.get("patient_id") or ""), user.id)
+    patient = pm.require_patient_access(sugg[0] if sugg else str(row.get("patient_id") or ""), user.id)
+    if case_flow.edit_mode(user, patient) == "suggest":
+        base, for_id = case_flow.suggestion_base(patient, "shade", shade_id)
+        return _serialize(
+            case_flow.suggest(
+                patient,
+                user,
+                "shade",
+                for_id=for_id,
+                file_key=str(base.get("file_key") or ""),
+                file_name=base.get("file_name"),
+                extra={"file_url": base.get("file_url") or "", "analysis": _analysis_json(payload)},
+            )
+        )
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Shade detection not found")
     updated = pm.update_row(_TABLE, shade_id, {"analysis": _analysis_json(payload)})
+    case_flow.after_change(str(row.get("patient_id") or ""), user.id)
     return _serialize(updated)

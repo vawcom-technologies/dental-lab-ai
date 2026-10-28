@@ -23,6 +23,7 @@ from app.services.email import (
     send_appointment_update,
 )
 from app.services.notify import actor_label, notify_pair
+from app.services.profiles import fetch_profile
 
 router = APIRouter()
 logger = logging.getLogger("app.api.appointments")
@@ -243,7 +244,35 @@ def create_appointment(
 
     start_iso = _to_iso(payload.start_time)
     end_iso = _to_iso(payload.end_time)
-    if _has_overlap(dentist_id=user.id, start_time=start_iso, end_time=end_iso):
+
+    # Labs must assign a dentist; that dentist owns the calendar slot and is notified.
+    booker = fetch_profile(user.id) or {}
+    assignee_id: str | None = None
+    if payload.assign_to is not None:
+        assignee_id = str(payload.assign_to)
+        assignee = fetch_profile(assignee_id)
+        if not assignee or assignee.get("role") != "dentist" or assignee.get("deleted"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="assign_to must be an active dentist",
+            )
+        if booker.get("role") == "laboratory":
+            if str(assignee.get("lab_id") or "") != user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Can only assign a dentist in your lab",
+                )
+        pa.require_patient_access(patient_id, assignee_id)
+        calendar_id = assignee_id
+    elif booker.get("role") == "laboratory":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Labs must assign a dentist (assign_to) when booking",
+        )
+    else:
+        calendar_id = user.id
+
+    if _has_overlap(dentist_id=calendar_id, start_time=start_iso, end_time=end_iso):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Overlapping active appointment exists for this time window",
@@ -253,7 +282,8 @@ def create_appointment(
     now = pa.utc_now_iso()
     row = {
         "patient_id": patient_id,
-        "created_by": user.id,
+        # Calendar owner: assigned dentist when set, otherwise the booker.
+        "created_by": calendar_id,
         "description": description,
         "start_time": start_iso,
         "end_time": end_iso,
@@ -291,14 +321,16 @@ def create_appointment(
     )
     who = actor_label(user.id)
     name = _patient_display_name(patient)
-    notify_pair(
-        counterpart_id=str(patient.get("created_by") or ""),
-        actor_id=user.id,
-        type="appointment",
-        counterpart_message=f"{who} booked an appointment for {name}.",
-        actor_message=f"You booked an appointment for {name}.",
-        patient_id=patient_id,
-    )
+    notify_to = assignee_id or str(patient.get("created_by") or "")
+    if notify_to and notify_to != user.id:
+        notify_pair(
+            counterpart_id=notify_to,
+            actor_id=user.id,
+            type="appointment",
+            counterpart_message=f"{who} booked an appointment for {name}.",
+            actor_message=f"You booked an appointment for {name}.",
+            patient_id=patient_id,
+        )
     return _serialize(created, patient)
 
 
@@ -397,16 +429,30 @@ def update_appointment(
         updated.get("description") or "",
     )
     who = actor_label(user.id)
-    verb = "cancelled" if (updated.get("status") == "cancelled") else "updated"
     name = _patient_display_name(patient)
-    notify_pair(
-        counterpart_id=str(patient.get("created_by") or ""),
-        actor_id=user.id,
-        type="appointment",
-        counterpart_message=f"{who} {verb} an appointment for {name}.",
-        actor_message=f"You {verb} an appointment for {name}.",
-        patient_id=str(patient.get("id") or "") or None,
-    )
+    pid = str(patient.get("id") or "") or None
+    old_status = str(existing.get("status") or "scheduled")
+    new_status = str(updated.get("status") or old_status)
+    if "status" in updates and new_status != old_status:
+        # Explicit status change (scheduled → completed / cancelled / no_show).
+        notify_pair(
+            counterpart_id=str(patient.get("created_by") or ""),
+            actor_id=user.id,
+            type="appointment",
+            counterpart_message=f"{who} set the appointment for {name} to {new_status}.",
+            actor_message=f"You set the appointment for {name} to {new_status}.",
+            patient_id=pid,
+        )
+    else:
+        verb = "cancelled" if new_status == "cancelled" else "updated"
+        notify_pair(
+            counterpart_id=str(patient.get("created_by") or ""),
+            actor_id=user.id,
+            type="appointment",
+            counterpart_message=f"{who} {verb} an appointment for {name}.",
+            actor_message=f"You {verb} an appointment for {name}.",
+            patient_id=pid,
+        )
     return _serialize(updated, patient)
 
 

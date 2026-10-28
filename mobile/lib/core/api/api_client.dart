@@ -5,16 +5,19 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import '../../features/appointments/models/appointment.dart';
-import '../../features/laboratories/admin_user.dart';
 import '../auth/app_roles.dart';
+import '../l10n/app_localizations.dart';
 import '../auth/auth_aware_http_client.dart';
 import '../auth/session_coordinator.dart';
 import '../auth/token_store.dart';
 import '../errors/user_facing_error.dart';
+import '../l10n/locale_controller.dart';
+import '../l10n/server_text.dart';
 import '../haptics/app_haptics.dart';
 import '../offline/sync_queue.dart';
 import 'api_host.dart';
 import 'cached_http_client.dart';
+import '../widgets/user_avatar.dart';
 
 class ApiClient {
   ApiClient({
@@ -36,6 +39,7 @@ class ApiClient {
           );
       _http = CachedHttpClient(inner: inner);
     }
+    AvatarSource.api = this;
   }
 
   final String baseUrl;
@@ -49,15 +53,34 @@ class ApiClient {
   String? _token;
   String? _refreshToken;
   String? _userId;
+  String? _publicId;
   String? _role;
   String? _name;
   String? _email;
   String? _clinicName;
   String? _phone;
+  String? _avatarUrl;
+  String? _labId;
+  String? _labName;
+  Map<String, dynamic>? _pendingJoin;
+  Map<String, dynamic>? _pendingTransfer;
+  String? _labJoinDeferredAt;
+  bool _labKnown = false;
 
   String? get token => _token;
   String? get refreshToken => _refreshToken;
   String? get userId => _userId;
+
+  /// Human-facing staff ID (D-01 / L-02). Empty for admin or until assigned.
+  String? get publicId => _publicId;
+
+  /// Prefer [publicId] for UI; fall back to the Supabase UUID.
+  String get displayUserId {
+    final pub = (_publicId ?? '').trim();
+    if (pub.isNotEmpty) return pub;
+    return (_userId ?? '').trim();
+  }
+
   String? get role => _role;
   bool get isAdmin => AppRoles.isAdmin(_role);
   bool get isDentist => AppRoles.isDentist(_role);
@@ -66,6 +89,52 @@ class ApiClient {
   String? get email => _email;
   String? get clinicName => _clinicName;
   String? get phone => _phone;
+
+  /// Profile photo path/URL; show with [UserAvatar].
+  String? get avatarUrl => _avatarUrl;
+
+  /// Dentists: their lab (null until a lab accepts them).
+  String? get labId => _labId;
+  String? get labName => _labName;
+
+  /// Dentists without a lab: their open join request `{id, lab_id,
+  /// lab_name, created_at}`, or null. From /me only.
+  Map<String, dynamic>? get pendingJoin => _pendingJoin;
+
+  /// Dentist in a lab: open transfer request to another lab.
+  Map<String, dynamic>? get pendingTransfer => _pendingTransfer;
+
+  /// Dentist chose "Request later" — app unlocks without a lab.
+  bool get labJoinDeferred =>
+      _labJoinDeferredAt != null && _labJoinDeferredAt!.isNotEmpty;
+
+  /// No lab yet and not deferred — show the join picker once.
+  /// False until lab info has been loaded so a restored session doesn't flash it.
+  bool get needsLab =>
+      isDentist &&
+      _labKnown &&
+      (_labId == null || _labId!.isEmpty) &&
+      !labJoinDeferred;
+
+  /// Only fields present in [data] change (a token refresh may omit them).
+  void _applyLab(Map<String, dynamic> data, {required bool withPending}) {
+    if (data.containsKey('lab_id')) {
+      _labId = _asString(data['lab_id']);
+      _labKnown = true;
+    }
+    if (data.containsKey('lab_name')) _labName = data['lab_name'] as String?;
+    if (data.containsKey('lab_join_deferred_at')) {
+      _labJoinDeferredAt = _asString(data['lab_join_deferred_at']);
+    }
+    if (withPending && data.containsKey('pending_join')) {
+      final p = data['pending_join'];
+      _pendingJoin = p is Map ? Map<String, dynamic>.from(p) : null;
+    }
+    if (withPending && data.containsKey('pending_transfer')) {
+      final p = data['pending_transfer'];
+      _pendingTransfer = p is Map ? Map<String, dynamic>.from(p) : null;
+    }
+  }
 
   void setToken(String? token) => _token = token;
 
@@ -103,22 +172,28 @@ class ApiClient {
     }
     _refreshToken = data['refresh_token'] as String? ?? _refreshToken;
     _userId = _asString(data['user_id']) ?? _userId;
+    _publicId = _asString(data['public_id']) ?? _publicId;
     _role = data['role'] as String?;
     _name = data['name'] as String?;
     _email = data['email'] as String?;
     _clinicName = data['clinic_name'] as String?;
     _phone = data['phone'] as String?;
+    _avatarUrl = data['avatar_url'] as String?;
+    _applyLab(data, withPending: false);
     unawaited(_persistTokens());
     _notifyAuthListeners();
   }
 
   void _applyProfile(Map<String, dynamic> data) {
     _userId = _asString(data['id']) ?? _userId;
+    _publicId = _asString(data['public_id']) ?? _publicId;
     _role = data['role'] as String? ?? _role;
     _name = data['name'] as String? ?? _name;
     _email = data['email'] as String? ?? _email;
     _clinicName = data['clinic_name'] as String?;
     _phone = data['phone'] as String?;
+    _avatarUrl = data['avatar_url'] as String? ?? _avatarUrl;
+    _applyLab(data, withPending: true);
   }
 
   void logout() {
@@ -126,11 +201,19 @@ class ApiClient {
     _token = null;
     _refreshToken = null;
     _userId = null;
+    _publicId = null;
     _role = null;
     _name = null;
     _email = null;
     _clinicName = null;
     _phone = null;
+    _avatarUrl = null;
+    _labId = null;
+    _labName = null;
+    _pendingJoin = null;
+    _pendingTransfer = null;
+    _labJoinDeferredAt = null;
+    _labKnown = false;
     unawaited(_tokens.clear());
     unawaited(LocalEncryptedStore.clearAll());
     _notifyAuthListeners();
@@ -272,6 +355,7 @@ class ApiClient {
     String? clinicName,
     String? phone,
     String? role,
+    ({Uint8List bytes, String contentType})? avatar,
   }) async {
     final res = await _http.post(
       Uri.parse('$baseUrl/api/auth/signup'),
@@ -283,6 +367,9 @@ class ApiClient {
         'clinic_name': clinicName,
         'phone': phone,
         if (role != null && role.trim().isNotEmpty) 'role': role.trim(),
+        // Small (≤ ~600px) photo, base64 so signup stays one JSON call.
+        if (avatar != null) 'avatar': base64Encode(avatar.bytes),
+        if (avatar != null) 'avatar_content_type': avatar.contentType,
       }),
     );
     if (res.statusCode != 200 && res.statusCode != 201) {
@@ -318,7 +405,7 @@ class ApiClient {
     final res = await _http.post(
       Uri.parse('$baseUrl/api/auth/forgot-password'),
       headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({'email': email}),
+      body: jsonEncode({'email': email, 'lang': LocaleController.current}),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return jsonDecode(res.body) as Map<String, dynamic>;
@@ -375,10 +462,10 @@ class ApiClient {
     try {
       final body = jsonDecode(res.body);
       if (body is Map && body['message'] is String) {
-        return body['message'] as String;
+        return localizeServerText(body['message'] as String);
       }
     } catch (_) {}
-    return 'Password updated';
+    return localizeServerText('Password updated');
   }
 
   /// Permanently deletes this account and all associated clinical / chat data.
@@ -392,17 +479,20 @@ class ApiClient {
     try {
       final body = jsonDecode(res.body);
       if (body is Map && body['message'] is String) {
-        return body['message'] as String;
+        return localizeServerText(body['message'] as String);
       }
     } catch (_) {}
-    return 'Account deleted';
+    return localizeServerText('Your account has been permanently deleted.');
   }
 
+  /// [status]: only patients in that case status (e.g. `in_review`).
   Future<List<Map<String, dynamic>>> listPatients({
     bool forceRefresh = false,
+    String? status,
   }) async {
     final res = await _http.get(
-      Uri.parse('$baseUrl/api/patients'),
+      Uri.parse('$baseUrl/api/patients')
+          .replace(queryParameters: status == null ? null : {'status': status}),
       headers: _getHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
@@ -411,11 +501,7 @@ class ApiClient {
     if (decoded is Map) {
       final status = '${decoded['status'] ?? ''}';
       if (status == 'ERROR') {
-        final err = decoded['error'];
-        final msg = err is Map
-            ? '${err['message'] ?? 'Failed to list patients'}'
-            : 'Failed to list patients';
-        throw Exception(msg);
+        throw Exception(_agentErrorText(decoded['error']));
       }
       final payload = decoded['payload'];
       final patients = payload is Map ? payload['patients'] : null;
@@ -468,18 +554,14 @@ class ApiClient {
     if (decoded is Map) {
       final status = '${decoded['status'] ?? ''}';
       if (status == 'ERROR') {
-        final err = decoded['error'];
-        final msg = err is Map
-            ? '${err['message'] ?? 'Failed to create patient'}'
-            : 'Failed to create patient';
-        throw Exception(msg);
+        throw Exception(_agentErrorText(decoded['error']));
       }
       final payload = decoded['payload'];
       final patient = payload is Map ? payload['patient'] : null;
       if (patient is Map) return Map<String, dynamic>.from(patient);
       return Map<String, dynamic>.from(decoded);
     }
-      throw Exception('Could not create the patient. Please try again.');
+      throw Exception(AppLocalizations.current.errGeneric);
   }
 
   Future<Map<String, dynamic>> updatePatient(
@@ -492,13 +574,13 @@ class ApiClient {
       body: jsonEncode({'fields_to_update': fieldsToUpdate}),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    final payload = _agentPayload(res, fallback: 'Failed to update patient');
+    final payload = _agentPayload(res, fallback: AppLocalizations.current.errGeneric);
     final patient = payload['patient'];
     if (patient is Map) {
       AppHaptics.selection();
       return Map<String, dynamic>.from(patient);
     }
-    throw Exception('Could not update the patient. Please try again.');
+    throw Exception(AppLocalizations.current.errGeneric);
   }
 
   Future<void> deletePatient(Object id, {bool hard = false}) async {
@@ -515,12 +597,7 @@ class ApiClient {
       try {
         final decoded = jsonDecode(res.body);
         if (decoded is Map && '${decoded['status']}' == 'ERROR') {
-          final err = decoded['error'];
-          throw Exception(
-            err is Map
-                ? '${err['message'] ?? 'Delete failed'}'
-                : 'Delete failed',
-          );
+          throw Exception(_agentErrorText(decoded['error']));
         }
       } catch (e) {
         if (e is Exception && e.toString().contains('Delete')) rethrow;
@@ -529,18 +606,25 @@ class ApiClient {
     AppHaptics.warn();
   }
 
-  Map<String, dynamic> _agentPayload(http.Response res, {String fallback = 'Request failed'}) {
+  Map<String, dynamic> _agentPayload(http.Response res, {String? fallback}) {
+    fallback ??= AppLocalizations.current.errGeneric;
     final decoded = jsonDecode(res.body);
     if (decoded is! Map) throw Exception(fallback);
     if ('${decoded['status'] ?? ''}' == 'ERROR') {
-      final err = decoded['error'];
-      throw Exception(
-        err is Map ? '${err['message'] ?? fallback}' : fallback,
-      );
+      throw Exception(_agentErrorText(decoded['error'], fallback: fallback));
     }
     final payload = decoded['payload'];
     if (payload is Map) return Map<String, dynamic>.from(payload);
     return Map<String, dynamic>.from(decoded);
+  }
+
+  /// GDPR / agent envelope errors — localize known English `message` bodies.
+  String _agentErrorText(dynamic err, {String? fallback}) {
+    fallback ??= AppLocalizations.current.errGeneric;
+    if (err is! Map) return fallback;
+    final raw = '${err['message'] ?? ''}'.trim();
+    if (raw.isEmpty) return fallback;
+    return localizeServerText(raw);
   }
 
   Future<List<Map<String, dynamic>>> listPatientPhotos(
@@ -552,7 +636,7 @@ class ApiClient {
       headers: _getHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    final payload = _agentPayload(res, fallback: 'Failed to list photos');
+    final payload = _agentPayload(res, fallback: AppLocalizations.current.errGeneric);
     final photos = payload['photos'];
     if (photos is! List) return const [];
     return photos
@@ -590,7 +674,7 @@ class ApiClient {
       }
       throw Exception(_errorMessage(res));
     }
-    final payload = _agentPayload(res, fallback: 'Failed to upload photo');
+    final payload = _agentPayload(res, fallback: AppLocalizations.current.errGeneric);
     final photo = payload['photo'];
     if (photo is Map) return Map<String, dynamic>.from(photo);
     return payload;
@@ -608,7 +692,7 @@ class ApiClient {
       throw Exception(_errorMessage(res));
     }
     if (res.body.isNotEmpty) {
-      _agentPayload(res, fallback: 'Failed to delete photo');
+      _agentPayload(res, fallback: AppLocalizations.current.errGeneric);
     }
     AppHaptics.warn();
   }
@@ -624,162 +708,10 @@ class ApiClient {
       body: jsonEncode({'filename': filename}),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    final payload = _agentPayload(res, fallback: 'Failed to rename photo');
+    final payload = _agentPayload(res, fallback: AppLocalizations.current.errGeneric);
     final photo = payload['photo'];
     if (photo is Map) return Map<String, dynamic>.from(photo);
     return payload;
-  }
-
-  Future<List<Map<String, dynamic>>> listCases({bool forceRefresh = false}) async {
-    final res = await _http.get(
-      Uri.parse('$baseUrl/api/cases'),
-      headers: _getHeaders(forceRefresh: forceRefresh),
-    );
-    // Cases router is not always mounted (GDPR cutover) — treat as empty.
-    if (res.statusCode == 404) return const [];
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    final body = jsonDecode(res.body);
-    if (body is! List) return const [];
-    return body.cast<Map<String, dynamic>>();
-  }
-
-  Future<Map<String, dynamic>> createCase(int patientId) async {
-    final res = await _http.post(
-      Uri.parse('$baseUrl/api/cases'),
-      headers: _jsonHeaders,
-      body: jsonEncode({'patient_id': patientId}),
-    );
-    if (res.statusCode != 201) throw Exception(_errorMessage(res));
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  Future<Map<String, dynamic>> updateCaseStatus(int caseId, String status) async {
-    final res = await _http.patch(
-      Uri.parse('$baseUrl/api/cases/$caseId'),
-      headers: _jsonHeaders,
-      body: jsonEncode({'status': status}),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    AppHaptics.selection();
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  /// Bump a new case into active work after clinical capture.
-  Future<void> markCaseInProgressIfPending(int caseId, String? currentStatus) async {
-    final status = (currentStatus ?? 'pending').toLowerCase();
-    if (status != 'pending' && status != 'awaiting_scan') return;
-    await updateCaseStatus(caseId, 'in_progress');
-  }
-
-  Future<List<Map<String, dynamic>>> listPhotos(
-    int caseId, {
-    bool forceRefresh = false,
-  }) async {
-    final res = await _http.get(
-      Uri.parse('$baseUrl/api/cases/$caseId/photos'),
-      headers: _getHeaders(forceRefresh: forceRefresh),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
-  }
-
-  Future<Map<String, dynamic>> uploadPhoto({
-    required int caseId,
-    required String angle,
-    required List<int> bytes,
-    required String filename,
-  }) async {
-    final req = http.MultipartRequest(
-      'POST',
-      Uri.parse('$baseUrl/api/cases/$caseId/photos'),
-    );
-    req.headers.addAll(_authHeaders);
-    req.fields['angle'] = angle;
-    req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
-    final streamed = await _http.send(req);
-    final res = await http.Response.fromStream(streamed);
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(_errorMessage(res));
-    }
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  Future<List<Map<String, dynamic>>> listScans(
-    int caseId, {
-    bool forceRefresh = false,
-  }) async {
-    final res = await _http.get(
-      Uri.parse('$baseUrl/api/cases/$caseId/scans'),
-      headers: _getHeaders(forceRefresh: forceRefresh),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
-  }
-
-  /// Downsampled XYZ preview for the chairside 3D viewer.
-  Future<Map<String, dynamic>> fetchScanPreview({
-    required int caseId,
-    required int scanId,
-    bool forceRefresh = false,
-  }) async {
-    final res = await _http.get(
-      Uri.parse('$baseUrl/api/cases/$caseId/scans/$scanId/preview'),
-      headers: _getHeaders(forceRefresh: forceRefresh),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  /// Full original mesh bytes (PLY/STL/OBJ) for solid 3D rendering.
-  Future<({Uint8List bytes, String filename})> fetchScanFile({
-    required int caseId,
-    required int scanId,
-    bool forceRefresh = false,
-  }) async {
-    final res = await _http.get(
-      Uri.parse('$baseUrl/api/cases/$caseId/scans/$scanId/file'),
-      headers: _getAuthHeaders(forceRefresh: forceRefresh),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    var name = 'scan.ply';
-    final cd = res.headers['content-disposition'];
-    if (cd != null) {
-      final match = RegExp(r'filename="?([^";]+)"?').firstMatch(cd);
-      if (match != null && match.group(1)!.isNotEmpty) {
-        name = match.group(1)!;
-      }
-    }
-    return (bytes: res.bodyBytes, filename: name);
-  }
-
-  Future<Map<String, dynamic>> uploadScan({
-    required int caseId,
-    required List<int> bytes,
-    required String filename,
-  }) async {
-    final req = http.MultipartRequest(
-      'POST',
-      Uri.parse('$baseUrl/api/cases/$caseId/scans'),
-    );
-    req.headers.addAll(_authHeaders);
-    req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
-    final streamed = await _http.send(req);
-    final res = await http.Response.fromStream(streamed);
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(_errorMessage(res));
-    }
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  Future<void> deleteScan({required int caseId, required int scanId}) async {
-    final res = await _http.delete(
-      Uri.parse('$baseUrl/api/cases/$caseId/scans/$scanId'),
-      headers: _jsonHeaders,
-    );
-    if (res.statusCode != 204 && res.statusCode != 200) {
-      throw Exception(_errorMessage(res));
-    }
-    AppHaptics.success();
   }
 
   // ── Patient clinical media (scans / shade-detections / smile-previews) ──
@@ -798,7 +730,7 @@ class ApiClient {
   Map<String, dynamic> _decodeMap(String body) {
     final decoded = jsonDecode(body);
     if (decoded is Map) return Map<String, dynamic>.from(decoded);
-    throw Exception('Something went wrong. Please try again.');
+    throw Exception(AppLocalizations.current.errGeneric);
   }
 
   Future<List<Map<String, dynamic>>> listPatientScans(
@@ -817,12 +749,15 @@ class ApiClient {
     required String patientId,
     required List<int> bytes,
     required String filename,
+    String? replaces,
   }) async {
     final req = http.MultipartRequest(
       'POST',
       Uri.parse('$baseUrl/api/patients/$patientId/scans'),
     );
     req.headers.addAll(_authHeaders);
+    // Locked case: the server swaps this in for the old scan.
+    if (replaces != null) req.fields['replaces'] = replaces;
     req.files.add(
       http.MultipartFile.fromBytes('file', bytes, filename: filename),
     );
@@ -894,6 +829,26 @@ class ApiClient {
     AppHaptics.success();
   }
 
+  /// Attach library scans to the patient case (like shade Accept / smile Save).
+  /// Omit [scanIds] to save every scan not yet on the case.
+  Future<List<Map<String, dynamic>>> saveScansToCase(
+    String patientId, {
+    List<String>? scanIds,
+  }) async {
+    final res = await _http.post(
+      Uri.parse('$baseUrl/api/patients/$patientId/scans/save-to-case'),
+      headers: _jsonHeaders,
+      body: jsonEncode({
+        if (scanIds != null) 'scan_ids': scanIds,
+      }),
+    );
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(_errorMessage(res));
+    }
+    AppHaptics.success();
+    return _decodeMapList(res.body);
+  }
+
   Future<List<Map<String, dynamic>>> listShadeDetections(
     String patientId, {
     bool forceRefresh = false,
@@ -916,6 +871,7 @@ class ApiClient {
     String? filename,
     String? photoId,
     required Map<String, dynamic> analysis,
+    String? replaces,
   }) async {
     final http.Response res;
     if (shadeId != null && shadeId.isNotEmpty) {
@@ -931,6 +887,7 @@ class ApiClient {
       );
       req.headers.addAll(_authHeaders);
       req.fields['analysis'] = jsonEncode(analysis);
+      if (replaces != null) req.fields['replaces'] = replaces;
       if (photoId != null && photoId.isNotEmpty) {
         req.fields['photo_id'] = photoId;
       } else if (bytes != null) {
@@ -984,6 +941,7 @@ class ApiClient {
     String? baseFilename,
     String? basePhotoId,
     required Map<String, dynamic> overlay,
+    String? replaces,
   }) async {
     final isUpdate = smileId != null && smileId.isNotEmpty;
     final req = http.MultipartRequest(
@@ -994,6 +952,7 @@ class ApiClient {
     );
     req.headers.addAll(_authHeaders);
     req.fields['overlay'] = jsonEncode(overlay);
+    if (!isUpdate && replaces != null) req.fields['replaces'] = replaces;
     req.files.add(http.MultipartFile.fromBytes(
       'file',
       composite,
@@ -1041,7 +1000,7 @@ class ApiClient {
       headers: _getAuthHeaders(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) {
-      throw Exception('Could not download the file. Please try again.');
+      throw Exception(AppLocalizations.current.errGeneric);
     }
     return res.bodyBytes;
   }
@@ -1136,93 +1095,6 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> saveShadeAnalysis({
-    required int caseId,
-    required List<Map<String, dynamic>> teeth,
-    int selectedToothIndex = 0,
-  }) async {
-    final res = await _http.post(
-      Uri.parse('$baseUrl/api/cases/$caseId/shade/analysis'),
-      headers: _jsonHeaders,
-      body: jsonEncode({
-        'teeth': teeth,
-        'selected_tooth_index': selectedToothIndex,
-      }),
-    );
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(_errorMessage(res));
-    }
-    AppHaptics.success();
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  Future<Map<String, dynamic>> patchShadeZoneOverride({
-    required int caseId,
-    required int analysisId,
-    required int zoneId,
-    String? overrideShade,
-  }) async {
-    final res = await _http.patch(
-      Uri.parse(
-        '$baseUrl/api/cases/$caseId/shade/analysis/$analysisId/zones/$zoneId',
-      ),
-      headers: _jsonHeaders,
-      body: jsonEncode({'override_shade': overrideShade}),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    AppHaptics.success();
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  Future<void> deleteShadeAnalysis({
-    required int caseId,
-    required int analysisId,
-  }) async {
-    final res = await _http.delete(
-      Uri.parse('$baseUrl/api/cases/$caseId/shade/analysis/$analysisId'),
-      headers: _jsonHeaders,
-    );
-    if (res.statusCode != 204 && res.statusCode != 200) {
-      throw Exception(_errorMessage(res));
-    }
-    AppHaptics.warn();
-  }
-
-  Future<Map<String, dynamic>> saveShade({
-    required int caseId,
-    String? aiSuggested,
-    double? confidence,
-    required String finalShade,
-    required bool overridden,
-  }) async {
-    final res = await _http.post(
-      Uri.parse('$baseUrl/api/cases/$caseId/shade'),
-      headers: _jsonHeaders,
-      body: jsonEncode({
-        'ai_suggested_shade': aiSuggested,
-        'confidence_score': confidence,
-        'final_shade': finalShade,
-        'overridden_by_dentist': overridden,
-      }),
-    );
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(_errorMessage(res));
-    }
-    AppHaptics.success();
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  Future<void> deleteShade({required int caseId, required int shadeId}) async {
-    final res = await _http.delete(
-      Uri.parse('$baseUrl/api/cases/$caseId/shade/$shadeId'),
-      headers: _jsonHeaders,
-    );
-    if (res.statusCode != 204 && res.statusCode != 200) {
-      throw Exception(_errorMessage(res));
-    }
-    AppHaptics.warn();
-  }
-
   /// Clinic analytics. Pass [days] = 0 for all-time.
   Future<Map<String, dynamic>> fetchReportsSummary({
     int days = 30,
@@ -1246,70 +1118,6 @@ class ApiClient {
         .timeout(const Duration(seconds: 120));
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
     return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  Future<Map<String, dynamic>> saveShape({
-    required int caseId,
-    required String shapeId,
-    required double x,
-    required double y,
-    required double rotation,
-    required double scale,
-  }) async {
-    final res = await _http.post(
-      Uri.parse('$baseUrl/api/cases/$caseId/shape'),
-      headers: _jsonHeaders,
-      body: jsonEncode({
-        'shape_id': shapeId,
-        'position_x': x,
-        'position_y': y,
-        'rotation': rotation,
-        'scale': scale,
-      }),
-    );
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(_errorMessage(res));
-    }
-    AppHaptics.success();
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  /// Saves upper + lower placements as one batch.
-  Future<void> saveShapes({
-    required int caseId,
-    required List<Map<String, dynamic>> shapes,
-  }) async {
-    final res = await _http.post(
-      Uri.parse('$baseUrl/api/cases/$caseId/shapes'),
-      headers: _jsonHeaders,
-      body: jsonEncode(shapes),
-    );
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(_errorMessage(res));
-    }
-    AppHaptics.success();
-  }
-
-  Future<List<Map<String, dynamic>>> latestShapes(int caseId) async {
-    final res = await _http.get(
-      Uri.parse('$baseUrl/api/cases/$caseId/shapes'),
-      headers: _getHeaders(forceRefresh: true),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
-  }
-
-  Future<Map<String, dynamic>?> latestShape(
-    int caseId, {
-    bool forceRefresh = false,
-  }) async {
-    final res = await _http.get(
-      Uri.parse('$baseUrl/api/cases/$caseId/shape'),
-      headers: _getHeaders(forceRefresh: forceRefresh),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    if (res.body.isEmpty || res.body == 'null') return null;
-    return jsonDecode(res.body) as Map<String, dynamic>?;
   }
 
   // Scan body parked — restore when needed.
@@ -1407,54 +1215,6 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>?;
   }
 
-  Future<List<Map<String, dynamic>>> listMessageThreads({
-    bool forceRefresh = false,
-  }) async {
-    final res = await _http.get(
-      Uri.parse('$baseUrl/api/messages/threads'),
-      headers: _getHeaders(forceRefresh: forceRefresh),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
-  }
-
-  Future<List<Map<String, dynamic>>> listMessages(
-    int caseId, {
-    bool forceRefresh = false,
-  }) async {
-    final res = await _http.get(
-      Uri.parse('$baseUrl/api/cases/$caseId/messages'),
-      headers: _getHeaders(forceRefresh: forceRefresh),
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
-  }
-
-  Future<Map<String, dynamic>> sendMessage({
-    required int caseId,
-    required String body,
-    String type = 'text',
-  }) async {
-    final res = await _http.post(
-      Uri.parse('$baseUrl/api/cases/$caseId/messages'),
-      headers: _jsonHeaders,
-      body: jsonEncode({'type': type, 'body': body}),
-    );
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(_errorMessage(res));
-    }
-    AppHaptics.light();
-    return jsonDecode(res.body) as Map<String, dynamic>;
-  }
-
-  Future<void> markThreadRead(int caseId) async {
-    final res = await _http.post(
-      Uri.parse('$baseUrl/api/cases/$caseId/messages/read'),
-      headers: _jsonHeaders,
-    );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-  }
-
   Future<List<Map<String, dynamic>>> listNotifications({
     bool unreadOnly = false,
     String? type,
@@ -1538,6 +1298,7 @@ class ApiClient {
     required DateTime startTime,
     required DateTime endTime,
     String? description,
+    String? assignTo,
   }) async {
     final res = await _http.post(
       Uri.parse('$baseUrl/api/appointments'),
@@ -1547,6 +1308,7 @@ class ApiClient {
         'start_time': startTime.toUtc().toIso8601String(),
         'end_time': endTime.toUtc().toIso8601String(),
         'description': ?description,
+        'assign_to': ?assignTo,
       }),
     );
     if (res.statusCode != 200 && res.statusCode != 201) {
@@ -1598,87 +1360,328 @@ class ApiClient {
     AppHaptics.warn();
   }
 
-  // ── Admin users ──────────────────────────────────────────────────────────
+  // ── Case flow (docs/roadmap.md, Phase 2) ──────────────────────────────────
 
-  Future<AdminUsersListResult> listAdminUsers({
-    int skip = 0,
-    int limit = 50,
-    bool forceRefresh = false,
-  }) async {
-    final uri = Uri.parse('$baseUrl/api/admin/users').replace(
-      queryParameters: {
-        'skip': '$skip',
-        'limit': '$limit',
-      },
-    );
+  /// Status, items, allowed actions and history of a patient's case.
+  Future<Map<String, dynamic>> patientCase(String patientId) async {
     final res = await _http.get(
-      uri,
-      headers: _getHeaders(forceRefresh: forceRefresh),
+      Uri.parse('$baseUrl/api/patients/$patientId/case'),
+      headers: _getHeaders(forceRefresh: true),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    final data = jsonDecode(res.body) as Map<String, dynamic>;
-    final rawItems = data['items'];
-    final items = <AdminUser>[];
-    if (rawItems is List) {
-      for (final item in rawItems) {
-        if (item is Map<String, dynamic>) {
-          items.add(AdminUser.fromJson(item));
-        } else if (item is Map) {
-          items.add(AdminUser.fromJson(Map<String, dynamic>.from(item)));
-        }
+    return _decodeMap(res.body);
+  }
+
+  /// Send to the lab. Throws [CaseIncomplete] (409) when items are missing
+  /// and [confirmIncomplete] is false. Returns the new case summary.
+  Future<Map<String, dynamic>> submitCase(
+    String patientId, {
+    bool confirmIncomplete = false,
+  }) async {
+    final res = await _http.post(
+      Uri.parse('$baseUrl/api/patients/$patientId/submit'),
+      headers: _jsonHeaders,
+      body: jsonEncode({'confirm_incomplete': confirmIncomplete}),
+    );
+    if (res.statusCode == 409) {
+      final body = jsonDecode(res.body);
+      if (body is Map && body['code'] == 'INCOMPLETE') {
+        throw CaseIncomplete([for (final m in (body['missing'] as List? ?? const [])) '$m']);
       }
     }
-    return AdminUsersListResult(
-      items: items,
-      skip: (data['skip'] as num?)?.toInt() ?? skip,
-      limit: (data['limit'] as num?)?.toInt() ?? limit,
-      count: (data['count'] as num?)?.toInt() ?? items.length,
-    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    AppHaptics.success();
+    return _decodeMap(res.body);
   }
 
-  Future<AdminUserActionResult> verifyAdminUser(String userId) async {
-    final res = await _http.patch(
-      Uri.parse('$baseUrl/api/admin/users/$userId/verify'),
+  /// Lab, while reviewing: draft verdict for one item ([status] null clears it).
+  Future<Map<String, dynamic>> saveReviewDraft(
+    String patientId, {
+    required String item,
+    String? status,
+    String? note,
+  }) async {
+    final res = await _http.put(
+      Uri.parse('$baseUrl/api/patients/$patientId/review-draft'),
+      headers: _jsonHeaders,
+      body: jsonEncode({'item': item, 'status': status, 'note': note}),
+    );
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    return _decodeMap(res.body);
+  }
+
+  /// Owning dentist: accept or dismiss the lab's suggestion for [item].
+  Future<Map<String, dynamic>> resolveSuggestion(
+    String patientId, {
+    required String item,
+    required bool accept,
+  }) async {
+    final res = await _http.post(
+      Uri.parse('$baseUrl/api/patients/$patientId/suggestions/$item/${accept ? 'accept' : 'dismiss'}'),
       headers: _jsonHeaders,
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return _parseAdminUserAction(res.body);
+    AppHaptics.success();
+    return _decodeMap(res.body);
   }
 
-  Future<AdminUserActionResult> softDeleteAdminUser(String userId) async {
-    final res = await _http.delete(
-      Uri.parse('$baseUrl/api/admin/users/$userId/soft-delete'),
+  /// Lab review: approve, or reject with [remarks] (required to reject).
+  Future<Map<String, dynamic>> reviewCase(
+    String patientId, {
+    required bool approve,
+    String? remarks,
+    List<Map<String, dynamic>>? items,
+  }) async {
+    final res = await _http.post(
+      Uri.parse('$baseUrl/api/patients/$patientId/review'),
       headers: _jsonHeaders,
+      body: jsonEncode({
+        'decision': approve ? 'approve' : 'reject',
+        'remarks': ?remarks,
+        if (items != null) 'items': items,
+      }),
     );
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    AppHaptics.warn();
-    return _parseAdminUserAction(res.body);
+    AppHaptics.success();
+    return _decodeMap(res.body);
   }
 
-  Future<AdminUserActionResult> hardDeleteAdminUser(String userId) async {
-    final res = await _http.delete(
-      Uri.parse('$baseUrl/api/admin/users/$userId/hard-delete'),
-      headers: _jsonHeaders,
+  // ── Lab (docs/roadmap.md, Phase 3) ───────────────────────────────────────
+  // [labId] is the signed-in lab's own id (the admin may pass any lab).
+
+  List<Map<String, dynamic>> _list(dynamic data) => data is List
+      ? data.whereType<Map>().map(Map<String, dynamic>.from).toList()
+      : const [];
+
+  Future<List<Map<String, dynamic>>> labDentists(String labId) async =>
+      _list(await _json('GET', 'labs/$labId/dentists'));
+
+  /// 409 when a removal request for this dentist is already pending.
+  Future<void> labRequestRemoval(String labId, {required String dentistId, required String reason}) =>
+      _json('POST', 'labs/$labId/removal-requests', body: {'dentist_id': dentistId, 'reason': reason});
+
+  /// Join requests to this lab and the lab's own removal requests.
+  Future<List<Map<String, dynamic>>> labRequests(String labId) async =>
+      _list(await _json('GET', 'labs/$labId/requests'));
+
+  Future<void> labDecideJoin(String labId, String requestId, {required bool accept}) =>
+      _json('POST', 'labs/$labId/requests/$requestId/${accept ? 'accept' : 'reject'}');
+
+  /// `{hidden_from_labs, hide_dentists}`.
+  Future<Map<String, dynamic>> labSettings(String labId) async =>
+      Map<String, dynamic>.from(await _json('GET', 'labs/$labId/settings') as Map);
+
+  /// Changes one or both; returns both.
+  Future<Map<String, dynamic>> updateLabSettings(String labId, {bool? hiddenFromLabs, bool? hideDentists}) async =>
+      Map<String, dynamic>.from(await _json('PATCH', 'labs/$labId/settings', body: {
+        'hidden_from_labs': ?hiddenFromLabs,
+        'hide_dentists': ?hideDentists,
+      }) as Map);
+
+  /// Dentist asks to join a lab. Optional [patientIds] auto-share on accept.
+  Future<void> requestJoinLab(String labId, {List<String> patientIds = const []}) =>
+      _json('POST', 'labs/$labId/join-requests', body: {
+        'patient_ids': patientIds,
+      });
+
+  /// Withdraw the dentist's own pending join request.
+  Future<void> withdrawJoinRequest() => _json('DELETE', 'labs/join-requests/mine');
+
+  /// Dentist: skip the lab picker for now (persisted on the server).
+  Future<Map<String, dynamic>> deferLabJoin() async {
+    final data = Map<String, dynamic>.from(
+      await _json('POST', 'auth/me/lab-join-deferred') as Map,
     );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    AppHaptics.warn();
-    return _parseAdminUserAction(res.body);
+    _applyProfile(data);
+    return data;
   }
 
-  AdminUserActionResult _parseAdminUserAction(String body) {
-    final data = jsonDecode(body) as Map<String, dynamic>;
-    final userRaw = data['user'];
-    AdminUser? user;
-    if (userRaw is Map<String, dynamic>) {
-      user = AdminUser.fromJson(userRaw);
-    } else if (userRaw is Map) {
-      user = AdminUser.fromJson(Map<String, dynamic>.from(userRaw));
+  /// Dentist in a lab asks current lab to move them to [toLabId].
+  Future<void> requestLabTransfer({
+    required String toLabId,
+    List<String> patientIds = const [],
+  }) =>
+      _json('POST', 'labs/transfer-requests', body: {
+        'to_lab_id': toLabId,
+        'patient_ids': patientIds,
+      });
+
+  Future<void> withdrawLabTransfer() =>
+      _json('DELETE', 'labs/transfer-requests/mine');
+
+  /// Lab directory for pickers: `[{id, name, avatar_url}]`, hidden labs left out.
+  Future<List<Map<String, dynamic>>> searchLabs({String q = ''}) async =>
+      _list(await _json('GET', 'labs', query: {'q': q}));
+
+  Future<List<Map<String, dynamic>>> labTransfers(String labId) async =>
+      _list(await _json('GET', 'labs/$labId/transfers'));
+
+  Future<void> transferForward(String id) => _json('POST', 'transfers/$id/forward');
+
+  Future<void> transferAccept(String id, {required String dentistId}) =>
+      _json('POST', 'transfers/$id/accept', body: {'dentist_id': dentistId});
+
+  Future<void> transferReject(String id, {String? reason}) =>
+      _json('POST', 'transfers/$id/reject', body: {'reason': ?reason});
+
+  /// Owner asks to share with another lab: 400 not linked to a lab, 409 open.
+  Future<void> requestTransfer(String patientId, {required String toLabId}) =>
+      _json('POST', 'patients/$patientId/transfers', body: {'to_lab_id': toLabId});
+
+  /// Lab moves a patient to (or picks) one of its dentists. 403: not given it.
+  Future<void> assignPatient(String patientId, {required String dentistId}) =>
+      _json('POST', 'patients/$patientId/assign', body: {'dentist_id': dentistId});
+
+  // ── Admin (contract in docs/roadmap.md, Phase 1) ────────────────────────
+
+  /// Admin call; returns decoded JSON. GETs skip the cache: one admin action
+  /// changes counts on several screens.
+  Future<dynamic> _admin(
+    String method,
+    String path, {
+    Map<String, String>? query,
+    Object? body,
+  }) =>
+      _json(method, 'admin/$path', query: query, body: body);
+
+  /// JSON call to `/api/[path]` with flat error bodies; returns decoded JSON.
+  /// GETs skip the cache (these screens change each other's data).
+  Future<dynamic> _json(
+    String method,
+    String path, {
+    Map<String, String>? query,
+    Object? body,
+  }) async {
+    final q = {...?query}..removeWhere((_, v) => v.isEmpty);
+    final uri = Uri.parse('$baseUrl/api/$path')
+        .replace(queryParameters: q.isEmpty ? null : q);
+    final req = http.Request(method, uri)
+      ..headers.addAll(method == 'GET' ? _getHeaders(forceRefresh: true) : _jsonHeaders);
+    if (body != null) req.body = jsonEncode(body);
+    final res = await http.Response.fromStream(await _http.send(req));
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception(_errorMessage(res));
     }
-    return AdminUserActionResult(
-      message: (data['message'] as String?) ?? 'Done',
-      user: user,
-    );
+    if (method != 'GET') AppHaptics.success();
+    return res.body.isEmpty ? null : jsonDecode(res.body);
   }
+
+  List<Map<String, dynamic>> _adminList(dynamic data) => data is List
+      ? data.whereType<Map>().map(Map<String, dynamic>.from).toList()
+      : const [];
+
+  Future<Map<String, dynamic>> adminSummary() async =>
+      Map<String, dynamic>.from(await _admin('GET', 'summary') as Map);
+
+  Future<List<Map<String, dynamic>>> adminSignups() async =>
+      _adminList(await _admin('GET', 'signups'));
+
+  Future<void> adminApproveSignup(String userId, {String? labId}) =>
+      _admin('POST', 'signups/$userId/approve',
+          body: {'lab_id': ?labId});
+
+  Future<void> adminRejectSignup(String userId, {String? reason}) =>
+      _admin('POST', 'signups/$userId/reject',
+          body: {if (reason != null && reason.isNotEmpty) 'reason': reason});
+
+  Future<List<Map<String, dynamic>>> adminRejected() async =>
+      _adminList(await _admin('GET', 'rejected'));
+
+  Future<void> adminRemoveRejected(String id) =>
+      _admin('DELETE', 'rejected/$id');
+
+  Future<List<Map<String, dynamic>>> adminLabs() async =>
+      _adminList(await _admin('GET', 'labs'));
+
+  Future<List<Map<String, dynamic>>> adminDentists({
+    String? labId,
+    bool unassigned = false,
+    String q = '',
+  }) async =>
+      _adminList(await _admin('GET', 'dentists', query: {
+        'lab_id': labId ?? '',
+        'unassigned': unassigned ? 'true' : '',
+        'q': q,
+      }));
+
+  Future<void> adminSetDentistLab(
+    String dentistId,
+    String? labId, {
+    List<String> patientIds = const [],
+  }) =>
+      _admin('PUT', 'dentists/$dentistId/lab', body: {
+        'lab_id': labId,
+        'patient_ids': patientIds,
+      });
+
+  Future<List<Map<String, dynamic>>> adminRemovalRequests() async =>
+      _adminList(await _admin('GET', 'lab-requests',
+          query: {'kind': 'remove', 'status': 'pending'}));
+
+  /// [approve] false denies the request.
+  Future<void> adminDecideLabRequest(String id, {required bool approve}) =>
+      _admin('POST', 'lab-requests/$id/${approve ? 'approve' : 'deny'}');
+
+  Future<List<Map<String, dynamic>>> adminPatients({
+    String status = '',
+    String? labId,
+    bool unassigned = false,
+    String q = '',
+  }) async =>
+      _adminList(await _admin('GET', 'patients', query: {
+        'status': status,
+        'lab_id': labId ?? '',
+        'unassigned': unassigned ? 'true' : '',
+        'q': q,
+      }));
+
+  Future<Map<String, dynamic>> adminPatient(String id) async =>
+      Map<String, dynamic>.from(await _admin('GET', 'patients/$id') as Map);
+
+  Future<void> adminOverrideStatus(String patientId, String status, String note) =>
+      _admin('PATCH', 'patients/$patientId/status',
+          body: {'status': status, 'note': note});
+
+  /// Without [dentistId] the patient waits for [labId] to choose a dentist.
+  Future<void> adminReassignPatient(
+    String patientId,
+    String labId, {
+    String? dentistId,
+  }) =>
+      _admin('POST', 'patients/$patientId/reassign',
+          body: {'lab_id': labId, 'dentist_id': ?dentistId});
+
+  /// Soft = deactivate (can't sign in, everything kept, reversible).
+  /// Hard = delete permanently; the backend unassigns patients / dentists.
+  Future<void> adminDeleteUser(String userId, {bool hard = false}) =>
+      _admin('DELETE', 'users/$userId/${hard ? 'hard' : 'soft'}-delete');
+
+  /// Admin-only: replace any user's profile photo. Returns the new URL.
+  Future<String?> adminSetAvatar(
+    String userId, {
+    required Uint8List bytes,
+    required String contentType,
+  }) async {
+    final req = http.MultipartRequest(
+      'PUT',
+      Uri.parse('$baseUrl/api/admin/users/$userId/avatar'),
+    )
+      ..headers.addAll(_authHeaders)
+      ..files.add(http.MultipartFile.fromBytes(
+        'file',
+        bytes,
+        filename: 'avatar.${contentType.endsWith('png') ? 'png' : 'jpg'}',
+      ));
+    final res = await http.Response.fromStream(await _http.send(req));
+    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    final url = (jsonDecode(res.body) as Map)['avatar_url'] as String?;
+    if (userId == _userId) _avatarUrl = url;
+    AvatarSource.changed.value++;
+    return url;
+  }
+
+  Future<void> adminReactivateUser(String userId) =>
+      _admin('PATCH', 'users/$userId/reactivate');
 
   Future<Map<String, dynamic>> interpreterCatalog() async {
     final res = await _http.get(
@@ -1689,7 +1692,7 @@ class ApiClient {
     final decoded = jsonDecode(res.body);
     if (decoded is Map<String, dynamic>) return decoded;
     if (decoded is Map) return Map<String, dynamic>.from(decoded);
-    throw Exception('Invalid interpreter catalog');
+    throw Exception(AppLocalizations.current.errGeneric);
   }
 
   Future<Map<String, dynamic>> interpreterTurn({
@@ -1711,7 +1714,7 @@ class ApiClient {
         )
         .timeout(const Duration(seconds: 45));
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return _mapBody(res, fallback: 'Translation failed');
+    return _mapBody(res, fallback: AppLocalizations.current.errGeneric);
   }
 
   Future<Map<String, dynamic>> interpreterTurnAudio({
@@ -1735,7 +1738,7 @@ class ApiClient {
     final streamed = await _http.send(req);
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200) throw Exception(_errorMessage(res));
-    return _mapBody(res, fallback: 'Voice translation failed');
+    return _mapBody(res, fallback: AppLocalizations.current.errGeneric);
   }
 
   /// MP3 for interpreter languages without an Apple voice.
@@ -1823,4 +1826,15 @@ class ApiClient {
     }
     return detail.toString();
   }
+}
+
+/// Submit refused because items are missing: `scan`, `shade` (saved shade
+/// analysis) and/or `smile` (smile preview).
+class CaseIncomplete implements Exception {
+  const CaseIncomplete(this.missing);
+
+  final List<String> missing;
+
+  @override
+  String toString() => 'Case incomplete: ${missing.join(', ')}';
 }

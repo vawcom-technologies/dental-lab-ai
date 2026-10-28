@@ -329,10 +329,8 @@ class _ContactTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final initial = user.displayName.isNotEmpty
-        ? user.displayName.characters.first.toUpperCase()
-        : '?';
     final details = [
+      if (user.labName != null && user.labName!.isNotEmpty) user.labName!,
       if (user.clinicName != null && user.clinicName!.isNotEmpty)
         user.clinicName!,
       if (user.phone != null && user.phone!.isNotEmpty) user.phone!,
@@ -353,19 +351,7 @@ class _ContactTile extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
               child: Row(
                 children: [
-                  CircleAvatar(
-                    radius: 24,
-                    backgroundColor:
-                        AppColors.dentalBlue.withValues(alpha: 0.14),
-                    child: Text(
-                      initial,
-                      style: const TextStyle(
-                        color: AppColors.dentalBlue,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 17,
-                      ),
-                    ),
-                  ),
+                  UserAvatar(name: user.displayName, url: user.avatarUrl, size: 48),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(

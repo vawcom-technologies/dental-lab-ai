@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import 'locale_controller.dart';
+import 'server_text.dart';
 
 /// Typed EN/DE strings for Elite Dent. Use [AppLocalizations.of].
 class AppLocalizations {
@@ -40,6 +41,11 @@ class AppLocalizations {
   String get navLaboratories => _t('nav.laboratories');
   String get navNotifications => _t('nav.notifications');
   String get navReports => _t('nav.reports');
+  String get navSignups => _t('nav.signups');
+  String get navReview => _t('nav.review');
+  String get navLab => _t('nav.lab');
+  String get errRegistrationRejected => _t('errors.registrationRejected');
+  String get authRejectedTitle => _t('auth.rejectedTitle');
   String get navInterpreter => _t('nav.interpreter');
   String get navSettings => _t('nav.settings');
   String get navProfile => _t('nav.profile');
@@ -147,6 +153,8 @@ class AppLocalizations {
   String get aboutLinksTitle => _t('about.linksTitle');
   String get aboutAccountTitle => _t('about.accountTitle');
   String get aboutUserId => _t('about.userId');
+  String get aboutName => _t('about.name');
+  String get aboutClinic => _t('about.clinic');
   String get aboutCredit => _t('about.credit');
   String get settingsAiTitle => _t('settings.aiTitle');
   String get settingsAiSub => _t('settings.aiSub');
@@ -265,12 +273,6 @@ class AppLocalizations {
   String get labsVerified => _t('labs.verified');
   String get labsUnverified => _t('labs.unverified');
   String get labsVerify => _t('labs.verify');
-  String get labsDelete => _t('labs.delete');
-  String get labsDeleteTitle => _t('labs.deleteTitle');
-  String labsDeleteBody(String name) =>
-      _t('labs.deleteBody').replaceAll('{name}', name);
-  String get labsSoftDelete => _t('labs.softDelete');
-  String get labsHardDelete => _t('labs.hardDelete');
   String labsCount(int shown, int total) => _t(
     'labs.count',
   ).replaceAll('{shown}', '$shown').replaceAll('{total}', '$total');
@@ -320,6 +322,10 @@ class AppLocalizations {
         return _t('notifications.typeScanQuality');
       case 'shade':
         return _t('notifications.typeShade');
+      case 'smile':
+        return _t('notifications.typeSmile');
+      case 'note':
+        return _t('notifications.typeNote');
       case 'appointment':
         return _t('notifications.typeAppointment');
       case 'scan_body':
@@ -396,6 +402,15 @@ class AppLocalizations {
   String get reportsFollowUpHint => _t('reports.followUpHint');
   String get reportsAllClear => _t('reports.allClear');
   String get reportsPatientFallback => _t('reports.patientFallback');
+  String get reportsActivity => _t('reports.activity');
+  String get reportsActivityHint => _t('reports.activityHint');
+  String get reportsCoverageShort => _t('reports.coverageShort');
+  String get reportsOpened => _t('reports.opened');
+  String get reportsFinished => _t('reports.finished');
+  String get reportsCoverageHint => _t('reports.coverageHint');
+  String get reportsIntake => _t('reports.intake');
+  String get reportsCompletedWeekly => _t('reports.completedWeekly');
+  String get reportsPerWeek => _t('reports.perWeek');
 
   // ── Case statuses ────────────────────────────────────────────────────────
   String statusLabel(String key) {
@@ -587,6 +602,25 @@ class AppLocalizations {
   String get patientsOnlyAuthorDelete => _t('patients.onlyAuthorDelete');
   String get patientsClinicalNotePlaceholder =>
       _t('patients.clinicalNotePlaceholder');
+
+  /// Notes label for the logged-in role (dentist vs laboratory).
+  String notesLabelForRole({required bool laboratory}) =>
+      _t(laboratory ? 'patients.labNotes' : 'patients.dentistNotes');
+
+  String noteHintForRole({required bool laboratory}) =>
+      _t(laboratory ? 'patients.labNoteHint' : 'patients.dentistNoteHint');
+
+  String notePlaceholderForRole({required bool laboratory}) =>
+      _t(laboratory ? 'patients.labNote' : 'patients.dentistNote');
+
+  String noNotesForRole({required bool laboratory}) =>
+      _t(laboratory ? 'patients.noLabNotes' : 'patients.noDentistNotes');
+
+  String deleteNoteBodyForRole({required bool laboratory}) => _t(
+        laboratory
+            ? 'patients.deleteLabNoteBody'
+            : 'patients.deleteDentistNoteBody',
+      );
   String get patientsPendingAccess => _t('patients.pendingAccess');
   String get patientsRevoke => _t('patients.revoke');
   String get patientsRegrant => _t('patients.regrant');
@@ -881,7 +915,50 @@ class AppLocalizations {
   String notificationsMoreCount(int n) =>
       _t('notifications.moreCount').replaceAll('{n}', '$n');
 
+  /// English case-status phrases the API embeds in notification bodies.
+  String _caseStatusPhrase(String raw) {
+    switch (raw.trim().toLowerCase()) {
+      case 'awaiting scan':
+      case 'pending':
+        return statusLabel('pending');
+      case 'in progress':
+      case 'in_progress':
+        return statusLabel('in_progress');
+      case 'under review':
+      case 'in_review':
+        return statusLabel('in_review');
+      case 'completed':
+      case 'complete':
+        return statusLabel('completed');
+      case 'rejected':
+        return statusLabel('rejected');
+      default:
+        return raw.trim();
+    }
+  }
+
+  String _transferStatusWord(String raw) {
+    switch (raw.trim().toLowerCase()) {
+      case 'approved':
+        return _t('notifications.transferApproved');
+      case 'rejected':
+      case 'declined':
+        return _t('notifications.transferDeclined');
+      case 'cancelled':
+      case 'canceled':
+        return _t('notifications.transferCancelled');
+      case 'pending':
+        return _t('notifications.transferPending');
+      default:
+        return raw.trim();
+    }
+  }
+
   /// Remap known English API notification bodies to the active locale.
+  ///
+  /// Backend always stores English. Match that English first — never run
+  /// [localizeServerText] beforehand or the EN regexes miss and DE users see
+  /// English (or a vague type fallback).
   String localizeNotificationMessage(
     String message, {
     String? type,
@@ -962,6 +1039,21 @@ class AppLocalizations {
         'name': m[2]!,
       });
     }
+    m = RegExp(r"^(.+) asked to share (.+) with (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgAskedToShare', {
+        'who': m[1]!,
+        'name': m[2]!,
+        'target': m[3]!,
+      });
+    }
+    m = RegExp(r"^Your lab will review sharing (.+) with (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgLabReviewShare', {
+        'name': m[1]!,
+        'target': m[2]!,
+      });
+    }
 
     m = RegExp(r"^You booked an appointment for (.+)\.$").firstMatch(msg);
     if (m != null) {
@@ -992,6 +1084,29 @@ class AppLocalizations {
         'who': m[1]!,
         'name': m[2]!,
       });
+    }
+    m = RegExp(r"^You set the appointment for (.+) to (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgYouSetApptStatus', {
+        'name': m[1]!,
+        'status': appointmentStatusLabel(m[2]!),
+      });
+    }
+    m = RegExp(r"^(.+) set the appointment for (.+) to (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgSetApptStatus', {
+        'who': m[1]!,
+        'name': m[2]!,
+        'status': appointmentStatusLabel(m[3]!),
+      });
+    }
+    m = RegExp(r"^You added a note for (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgYouAddedNote', {'name': m[1]!});
+    }
+    m = RegExp(r"^(.+) added a note for (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgAddedNote', {'who': m[1]!, 'name': m[2]!});
     }
 
     m = RegExp(r"^(.+) uploaded a 3D scan for (.+)\.$").firstMatch(msg);
@@ -1036,7 +1151,117 @@ class AppLocalizations {
       return fill('notifications.msgNewPatient', {'name': m[1]!});
     }
 
-    // Non-EN: type + patient fallback when body is still English/unknown.
+    // Lab membership / transfers (often no patient_name — must match explicitly).
+    m = RegExp(r"^(.+) asked to join your lab\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgAskedJoinLab', {'who': m[1]!});
+    }
+    m = RegExp(r"^(.+) asked to transfer to (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgAskedTransfer', {
+        'who': m[1]!,
+        'lab': m[2]!,
+      });
+    }
+    m = RegExp(r"^(.+) joined your lab \(transferred\)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgJoinedLabTransferred', {'who': m[1]!});
+    }
+    m = RegExp(r"^Your transfer to (.+) was approved\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgYourTransferApproved', {'lab': m[1]!});
+    }
+    m = RegExp(r"^(.+) accepted you\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgLabAcceptedYou', {'lab': m[1]!});
+    }
+    m = RegExp(
+      r"^(.+) declined your request\. You can ask again\.$",
+    ).firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgLabDeclinedYou', {'lab': m[1]!});
+    }
+    m = RegExp(r"^Your lab transfer request was declined\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgLabTransferDeclined', {});
+    }
+    m = RegExp(r"^A lab asked to remove (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgLabAskedRemove', {'who': m[1]!});
+    }
+
+    // Patient / case ownership
+    m = RegExp(r"^(.+) was created and assigned to you\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgCreatedAssigned', {'name': m[1]!});
+    }
+    m = RegExp(r"^(.+) was assigned to you\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgAssignedToYou', {'name': m[1]!});
+    }
+    m = RegExp(r"^(.+) was moved to another dentist\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgMovedDentist', {'name': m[1]!});
+    }
+    m = RegExp(r"^Transfer request for (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgTransferRequest', {'name': m[1]!});
+    }
+    m = RegExp(r"^(.+) was shared with you\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgSharedWithYou', {'name': m[1]!});
+    }
+    m = RegExp(r"^Transfer of (.+) was (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgTransferOfStatus', {
+        'name': m[1]!,
+        'status': _transferStatusWord(m[2]!),
+      });
+    }
+
+    // Case review flow
+    m = RegExp(r"^(.+) was submitted for review\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgSubmittedReview', {'name': m[1]!});
+    }
+    m = RegExp(r"^(.+) was updated by the dentist\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgUpdatedByDentist', {'name': m[1]!});
+    }
+    m = RegExp(r"^(.+) was reopened by the dentist\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgReopenedByDentist', {'name': m[1]!});
+    }
+    m = RegExp(r"^The lab approved (.+)\.$").firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgLabApproved', {'name': m[1]!});
+    }
+    m = RegExp(r"^The lab rejected (.+?): (.*)$", dotAll: true).firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgLabRejected', {
+        'name': m[1]!,
+        'detail': localizeEmbeddedServerTokens(m[2]!.trim()),
+      });
+    }
+    m = RegExp(
+      r"^An administrator set (.+?) to (awaiting scan|in progress|under review|completed|rejected): (.*)$",
+      dotAll: true,
+    ).firstMatch(msg);
+    if (m != null) {
+      return fill('notifications.msgAdminSetStatus', {
+        'name': m[1]!,
+        'status': _caseStatusPhrase(m[2]!),
+        'note': localizeEmbeddedServerTokens(m[3]!.trim()),
+      });
+    }
+
+    // Safety net: other EN API sentences (errors reuse the same map).
+    if (code == 'de') {
+      final viaServer = localizeServerText(msg);
+      if (viaServer != msg) return viaServer;
+    }
+
+    // Last resort when body is still English/unknown.
     final name = (patientName ?? '').trim();
     if (code != 'en' && name.isNotEmpty && type != null && type.isNotEmpty) {
       switch (type) {
@@ -1046,6 +1271,10 @@ class AppLocalizations {
           return fill('notifications.fallbackShade', {'name': name});
         case 'appointment':
           return fill('notifications.fallbackAppointment', {'name': name});
+        case 'note':
+          return fill('notifications.fallbackNote', {'name': name});
+        case 'smile':
+          return fill('notifications.fallbackSmile', {'name': name});
         case 'case_status':
           return fill('notifications.fallbackCase', {'name': name});
         case 'scan_body':
@@ -1135,6 +1364,582 @@ class AppLocalizations {
     'nav.laboratories': 'System Users',
     'nav.notifications': 'Notifications',
     'nav.reports': 'Reports',
+    'lab.tx.ourDentistAsks': '{dentist} from your lab wants to share {p} with {to}. Forward it, or reject it.',
+    'lab.tx.theirDentistAsks': '{dentist} at {from} wants to share {p} with {to}.',
+    'lab.tx.waitingForThem': 'Sent to {to}. Waiting for them to accept.',
+    'lab.tx.shareWithUs': '{from} wants to share {p} with your lab. Accept it and choose one of your dentists.',
+    'lab.tx.handoverToUs': '{from} wants to hand {p} over to your lab. Accept it and choose one of your dentists.',
+    'lab.tx.theyAccepted': '{to} accepted {p}.',
+    'lab.tx.theyAcceptedFor': '{to} accepted {p} for {for}.',
+    'lab.tx.weAccepted': 'Your lab accepted {p}.',
+    'lab.tx.weAcceptedFor': 'Your lab accepted {p} for {for}.',
+    'lab.tx.declined': 'The request for {p} was declined.',
+    'lab.tx.cancelled': 'The request for {p} was cancelled.',
+    'avatar.optionalLab': 'Optional for labs. You can\'t change it after signing up.',
+    'chat.cantMessage': 'You can\'t message this person.',
+    'join.title': 'Choose your lab',
+    'join.sub': 'Ask a lab to accept you, or continue without a lab for now.',
+    'join.request': 'Request to join',
+    'join.confirmTitle': 'Ask {lab} to accept you?',
+    'join.confirmMsg': 'The lab gets your request and decides. You can withdraw it while it\'s waiting.',
+    'join.sent': 'Request sent to {lab}',
+    'join.waiting': 'Waiting for {lab} to accept',
+    'join.waitingSub': 'You can use the app as soon as the lab accepts you.',
+    'join.sentAt': 'Sent {when}',
+    'join.withdraw': 'Withdraw',
+    'join.withdrawTitle': 'Withdraw your request?',
+    'join.withdrawMsg': 'You can then ask this lab again, or another one.',
+    'join.withdrawn': 'Request withdrawn',
+    'join.checkAgain': 'Check again',
+    'join.noLabs': 'No labs to choose yet',
+    'join.noLabsSub': 'Ask your lab to sign up, or contact the admin.',
+    'join.noLabError': 'Join a lab before adding patients.',
+    'join.requestLater': 'Request later',
+    'join.requestLaterTitle': 'Continue without a lab?',
+    'join.requestLaterMsg': 'You can use the app and add patients now. Join a lab anytime from Settings.',
+    'join.requestLaterDone': 'You can join a lab later from Settings',
+    'join.bringTitle': 'Bring patients?',
+    'join.bringMsg': 'Selected patients will be shared with the lab when they accept. Others stay private.',
+    'join.bringNone': 'None',
+    'join.bringContinue': 'Continue ({n})',
+    'join.settingsSection': 'Lab',
+    'join.settingsJoin': 'Join a lab',
+    'join.settingsJoinSub': 'Pick a lab to request membership',
+    'join.settingsLab': 'Your lab: {lab}',
+    'join.pendingTitle': 'Join request pending',
+    'join.transferTitle': 'Transfer to another lab',
+    'join.transferSub': 'Your current lab must approve the move.',
+    'join.transferRequest': 'Request transfer',
+    'join.transferConfirmTitle': 'Ask to transfer to {lab}?',
+    'join.transferConfirmMsg': 'Your current lab will approve or reject. If approved, you leave your lab and join the new one.',
+    'join.transferSent': 'Transfer request sent (waiting on your lab)',
+    'join.transferWaiting': 'Waiting for approval to join {lab}',
+    'join.transferPendingTitle': 'Transfer pending',
+    'join.withdrawTransferTitle': 'Withdraw transfer request?',
+    'join.withdrawTransferMsg': 'You can request a transfer again later.',
+    'join.transferWithdrawn': 'Transfer request withdrawn',
+    'share.yourLab': 'Your lab',
+    'share.yourLabHint': 'Shared right away.',
+    'share.labHasAccess': 'Your lab already has access.',
+    'share.colleagues': 'Colleagues in your lab',
+    'share.colleaguesHint': 'Sent to your lab for approval.',
+    'share.noColleagues': 'No colleagues to share with.',
+    'share.alreadyShared': 'Already shared',
+    'share.alreadySharedHint': 'Who has access, or is waiting for the lab to approve.',
+    'share.pendingLab': 'Waiting for lab',
+    'nav.lab': 'My lab',
+    'lab.title': 'My lab',
+    'lab.sub': 'Your dentists, requests, transfers and visibility',
+    'lab.tab.dentists': 'Dentists',
+    'lab.tab.requests': 'Requests',
+    'lab.tab.transfers': 'Transfers',
+    'lab.tab.sharing': 'Sharing',
+    'lab.tab.settings': 'Settings',
+    'lab.noDentists': 'No dentists yet',
+    'lab.noDentistsSub': 'Dentists you accept, or the admin assigns, appear here.',
+    'lab.requestRemoval': 'Request removal',
+    'lab.removeTitle': 'Remove {name} from your lab?',
+    'lab.removeMsg': 'The admin decides. Say why — the admin sees your reason.',
+    'lab.reasonRequired': 'Reason (required)',
+    'lab.removalSent': 'Removal of {name} sent to the admin',
+    'lab.noRequests': 'No requests',
+    'lab.noRequestsSub': 'Dentists asking to join, and your removal requests, show up here.',
+    'lab.joinRequests': 'Join requests',
+    'lab.transferRequests': 'Transfer requests',
+    'lab.transferBadge': 'Transfer',
+    'lab.transferTo': 'Wants to move to {lab}',
+    'lab.bringCount': 'Bringing {n} patients',
+    'lab.dentistXferAccepted': 'Transfer for {name} approved',
+    'lab.dentistXferRejected': 'Transfer for {name} rejected',
+    'lab.ourRemovals': 'Your removal requests',
+    'lab.accept': 'Accept',
+    'lab.joinAccepted': '{name} joined your lab',
+    'lab.joinRejected': 'Request from {name} rejected',
+    'lab.status.pending': 'Pending',
+    'lab.status.approved': 'Approved',
+    'lab.status.rejected': 'Rejected',
+    'lab.noTransfers': 'No transfers',
+    'lab.noTransfersSub': 'Patients shared or handed over between labs show up here.',
+    'lab.kind.share': 'Share',
+    'lab.kind.handover': 'Handover',
+    'lab.transfer.awaiting_sender': 'Waiting for you to forward',
+    'lab.transfer.awaiting_recipient': 'Waiting for the receiving lab',
+    'lab.transfer.accepted': 'Accepted',
+    'lab.transfer.rejected': 'Rejected',
+    'lab.transfer.cancelled': 'Cancelled',
+    'lab.requestedBy': 'by {n}',
+    'lab.forDentist': 'for {n}',
+    'lab.openPatient': 'Open patient',
+    'lab.forward': 'Forward',
+    'lab.forwarded': 'Forwarded to {lab}',
+    'lab.rejectTransferTitle': 'Reject the transfer of {p}?',
+    'lab.transferRejected': 'Transfer rejected',
+    'lab.acceptTransfer': 'Accept and choose a dentist',
+    'lab.acceptTransferMsg': 'Which of your dentists takes {p}?',
+    'lab.transferAccepted': '{p} accepted for {d}',
+    'lab.noTickets': 'No sharing tickets',
+    'lab.noTicketsSub': 'When a dentist wants to share a patient with a colleague in your lab, you approve it here.',
+    'lab.ticketLine': '{from} wants to share this patient with {to}.',
+    'lab.ticketApproved': 'Sharing approved',
+    'lab.ticketRejected': 'Sharing rejected',
+    'lab.hideLab': 'Hide us from other labs and new dentists',
+    'lab.hideLabMsg': 'Hidden labs don\'t appear when dentists pick a lab or start a transfer. You then only get dentists the admin assigns to you.',
+    'lab.hideDentists': 'Hide our dentists from other labs',
+    'lab.hideDentistsMsg': 'Other labs won\'t see your dentists listed under your lab.',
+    'lab.hideWarnTitle': 'Stay visible?',
+    'lab.hideWarnMsg': 'We recommend you keep this off. Hiding reduces how dentists and labs find you, and you may miss new cases and transfers.',
+    'lab.hideWarnConfirm': 'Hide anyway',
+    'lab.hideWarnKeep': 'Keep visible',
+    'lab.patientFor': 'Who is this patient for?',
+    'lab.assignDentist': 'Assign to dentist',
+    'lab.sendToLab': 'Send to another lab',
+    'lab.sendToLabMsg': 'The other lab accepts the patient and picks one of its dentists.',
+    'lab.chooseDentist': 'Choose a dentist…',
+    'lab.chooseLab': 'Choose a lab…',
+    'lab.targetRequired': 'Choose a dentist or a lab for this patient.',
+    'lab.assignMsg': '{p} moves to this dentist.',
+    'lab.assigned': '{p} assigned to {d}',
+    'lab.assignForbidden': 'Your lab wasn\'t given this patient.',
+    'share.sentToLab': 'Sent to your lab for approval',
+    'share.useTransfer': 'That person is in another lab — use "Share with another lab" instead.',
+    'share.otherLab': 'Share with another lab',
+    'share.otherLabMsg': 'Your lab forwards the request; the other lab accepts it and picks a dentist.',
+    'share.transferSent': 'Request to share with {lab} sent to your lab',
+    'nav.review': 'Review',
+    'case.title': 'Case',
+    'case.noLab': 'No lab yet',
+    'case.labShared': 'Lab: {lab} · shared',
+    'case.labNotShared': 'Lab: {lab} · not shared yet',
+    'case.item.scan': 'Scan',
+    'case.item.shade': 'Shade analysis',
+    'case.item.smile': 'Smile preview',
+    'case.submit': 'Submit to lab',
+    'case.submitReadyTitle': 'Submit this case to the lab?',
+    'case.submitReadyMsg': 'Scan, shade and smile are saved on the case and shared with your lab.',
+    'case.submitted': 'Sent to the lab for review',
+    'case.submitFailed': 'Couldn\'t submit',
+    'case.incompleteTitle': 'Some items are missing',
+    'case.incompleteMsg': 'Missing: {items}. The lab may reject an incomplete case. Submit anyway?',
+    'case.submitAnyway': 'Submit anyway',
+    'case.approve': 'Approve',
+    'case.reject': 'Reject',
+    'case.approveTitle': 'Approve this case?',
+    'case.approveMsg': 'The case is marked completed and the dentist is notified.',
+    'case.rejectTitle': 'Reject this case',
+    'case.rejectMsg': 'Overall remarks plus per-item feedback. The dentist sees this on the patient and on scan, shade and smile.',
+    'case.remarksRequired': 'Overall remarks (required)',
+    'case.itemFeedback': 'Per item',
+    'case.itemOk': 'Good to go',
+    'case.itemNeedsWork': 'Needs work',
+    'case.itemNoteHint': 'What should change?',
+    'case.resubmit': 'Resubmit to lab',
+    'case.resubmitReadyTitle': 'Resubmit this case to the lab?',
+    'case.resubmitReadyMsg': 'You changed the case since the lab rejected it. The lab will review it again.',
+    'case.resubmitUnchangedTitle': 'Nothing changed yet',
+    'case.resubmitUnchangedMsg': 'You haven\'t changed anything since the lab rejected this case. Resubmit anyway?',
+    'case.resolveFirst': 'Accept or dismiss the lab\'s suggestions before resubmitting.',
+    'case.updatedChip': 'Updated by dentist',
+    'case.suggested': '{lab} suggested a change to the {item}',
+    'case.view': 'View',
+    'case.accept': 'Accept',
+    'case.dismiss': 'Dismiss',
+    'case.dismissTitle': 'Dismiss the lab\'s suggestion?',
+    'case.dismissMsg': 'Your current {item} stays on the case. The lab will see this when you resubmit.',
+    'case.acceptedToast': 'Suggestion accepted — resubmit when ready',
+    'case.dismissedToast': 'Suggestion dismissed',
+    'case.approveBlocked': 'You suggested changes, so the dentist must confirm them — reject to send it back.',
+    'case.remarksLabChanged': 'Overall remarks (optional — "Lab made changes, please confirm")',
+    'case.feedbackTitle': 'Lab review · {item}',
+    'case.feedbackSub': 'Mark this item, then reject or approve from the case.',
+    'case.feedbackSuggested': 'You suggested a change — the dentist will confirm it.',
+    'case.saveNote': 'Save note',
+    'p.waitingLab': 'Waiting for lab approval',
+    'p.withdraw': 'Withdraw',
+    'case.event.lab_suggested': 'Lab suggested a change',
+    'case.event.suggestion_accepted': 'Suggestion accepted',
+    'case.event.suggestion_dismissed': 'Suggestion dismissed',
+    'case.openTool': 'Open {item}',
+    'case.approvedToast': 'Case approved',
+    'case.rejectedToast': 'Case rejected and sent back',
+    'case.rejectedBanner': 'Rejected by the lab',
+    'case.reopenTitle': 'Reopen this case?',
+    'case.reopenMsg': 'This reopens the case and sends it back to the lab for review.',
+    'case.reopenGo': 'Reopen',
+    'case.replace': 'Replace',
+    'case.replaceShadeHint': 'Choose a new photo. Saving its analysis replaces the old one.',
+    'case.replacingShade': 'Replacing a saved shade analysis — save the new one to swap it in.',
+    'case.replacingSmile': 'Replacing a saved smile preview — save the new one to swap it in.',
+    'case.history': 'Case history',
+    'sq.issueCount': '{n} finding(s) from the quality check',
+    'sq.viewDetails': 'View details',
+    'sq.whyBad': 'Why is this scan flagged?',
+    'sq.holdMsg': 'What do you want to do with this scan?',
+    'sq.badTitle': 'Why this scan needs a rescan',
+    'sq.reviewTitle': 'What to check in this scan',
+    'auth.firstName': 'First name',
+    'auth.lastName': 'Last name',
+    'auth.labName': 'Lab name',
+    'settings.tab.account': 'Account',
+    'settings.aboutRow': 'About Elite Dent',
+    'settings.prefs': 'Preferences',
+    'settings.change': 'Change',
+    'settings.tab.profile': 'Profile',
+    'settings.search': 'Search settings',
+    'settings.noHits': 'No matching settings',
+    'settings.noHitsSub': 'Try another word, like password, language or notifications.',
+    'settings.d.name': 'The name shown to patients\' dentists and labs.',
+    'settings.d.email': 'You sign in with this address; notices are sent here.',
+    'settings.d.clinic': 'Your practice, shown next to your name.',
+    'settings.d.role': 'What you can see and do in the app.',
+    'settings.d.labName': 'The lab your cases go to.',
+    'settings.d.delete': 'Permanently removes your account and its data.',
+    'settings.d.myLab': 'Your lab, joining another or leaving it.',
+    'settings.d.labVis': 'Whether other labs and dentists can find your lab.',
+    'settings.d.about': 'The app, support, privacy and your account details.',
+    'smile.pickFirst': 'Pick a model on the Models tab first.',
+    'smile.photoFirst': 'Load a patient photo to place the model.',
+    'sh.guideTapFor': 'Tap a shade to set it on {t}',
+    'sh.pickGuide': 'VITA shade guide',
+    'sh.savedShades': 'Patient history · previous shades',
+    'sh.tapToOpen': 'Tap to open',
+    'sh.pickSuggested': 'Suggested',
+    'sh.pickAll': 'All shades',
+    'sh.pickAi': 'AI pick',
+    'sh.pickGumTitle': 'Gum shade',
+    'sh.barAi': 'AI result',
+    'sh.barCorrection': 'Your correction: {s} (not saved yet)',
+    's.formats': 'Upload a PLY, STL or OBJ file with the button above.',
+    'settings.sub': 'Account, preferences and app information',
+    'settings.sec.account': 'Account & security',
+    'settings.sec.myLab': 'My lab',
+    'settings.sec.rejectSub': 'Emails that can\'t sign up or sign in. Remove one to let them register again.',
+    'pick.search': 'Search by name or clinic',
+    'pick.none': 'No matches',
+    'admin.chooseDentistCount': 'Choose a dentist… ({n})',
+    'interpreter.loadingVoice': 'Loading voice…',
+    'lab.pickItem': 'Select an item',
+    'lab.pickItemSub': 'Its details and actions appear here.',
+    'admin.moreCount': '+{n} more',
+    'interpreter.quickPhrases': 'Quick phrases',
+    'interpreter.stopSpeaking': 'Stop',
+    'interpreter.hold': 'Hold',
+    'ch.filterAll': 'All',
+    'ch.filterLabs': 'Labs',
+    'ch.filterDentists': 'Dentists',
+    'lab.pickDentist': 'Select a dentist',
+    'lab.pickDentistSub': 'Their contact details, patients and quick actions appear here.',
+    'lab.dentistNoPatients': 'No patients from this dentist yet.',
+    'p.pickTitle': 'Select a patient',
+    'p.pickSub': 'Their case, records and details appear here.',
+    'case.items': 'On this case',
+    'case.saved': 'Saved',
+    'case.missing': 'Missing',
+    'case.tileSuggested': 'You suggested a change',
+    'case.message': 'Message',
+    'case.historyCount': 'Case history ({n})',
+    'case.hintInReview': 'Waiting for your decision',
+    'case.hintRejected': 'Sent back to the dentist. You can still approve it or update your feedback.',
+    'case.updateFeedback': 'Update feedback',
+    'case.approveRejectedMsg': 'You sent this case back earlier. Approving marks it completed and notifies the dentist.',
+    'records.bestShade': 'Best match',
+    'records.dentistPick': 'Chosen by dentist',
+    'records.aiPick': 'AI match, confirmed',
+    'records.aiWas': 'AI suggested {shade}',
+    'records.preview': 'Preview',
+    'records.openAll': 'Open',
+    'case.event.created': 'Created',
+    'case.event.scan_added': 'Scan added',
+    'case.event.submitted': 'Submitted to lab',
+    'case.event.updated': 'Updated',
+    'case.event.reopened': 'Reopened',
+    'case.event.approved': 'Approved',
+    'case.event.rejected': 'Rejected',
+    'case.event.admin_override': 'Status changed by admin',
+    'case.event.reassigned': 'Reassigned',
+    'case.event.lab_left': 'Left the lab',
+    'review.title': 'Review',
+    'review.sub': 'Cases waiting for your decision',
+    'review.empty': 'Nothing to review',
+    'review.emptySub': 'Cases your dentists submit show up here.',
+    'review.pick': 'Select a case',
+    'review.pickSub': 'Its records and history appear here.',
+    'review.tab.in_review': 'Under review',
+    'review.tab.rejected': 'Rejected',
+    'review.tab.completed': 'Accepted',
+    'review.emptyRejected': 'No rejected cases',
+    'review.emptyRejectedSub': 'Cases you reject show up here until the dentist resubmits.',
+    'review.emptyCompleted': 'No accepted cases yet',
+    'review.emptyCompletedSub': 'Cases you approve show up here.',
+    'c.copied': 'Copied',
+    'avatar.cropTitle': 'Move and scale',
+    'avatar.cropDone': 'Choose',
+    'avatar.cropHint': 'Pinch to zoom and drag to position the photo inside the circle.',
+    'avatar.cropFailed': 'This image couldn\'t be opened. Try another one.',
+    'avatar.pickTitle': 'Profile photo',
+    'avatar.takePhoto': 'Take photo',
+    'avatar.chooseLibrary': 'Choose from library',
+    'avatar.add': 'Add a profile photo',
+    'avatar.retake': 'Change photo',
+    'avatar.permanent': 'Shown to people you work with. You can\'t change it after signing up.',
+    'avatar.required': 'Please add a profile photo.',
+    'avatar.change': 'Change photo',
+    'avatar.changed': 'Photo updated for {name}',
+    'avatar.changeMine': 'Change my photo',
+    'avatar.changedMine': 'Your photo was updated',
+    'avatar.done': 'Done',
+    'admin.chatPlaceholder': 'Message…',
+    'admin.chatEmpty': 'No messages yet. Say hello.',
+    'admin.send': 'Send',
+    'admin.chatPhoto': 'Photo',
+    'admin.chatVoice': 'Voice message',
+    'admin.chatVideo': 'Video',
+    'admin.chatDocument': 'Document',
+    'admin.pill.removalsOne': '1 removal request',
+    'admin.waitingCountOne': '1 waiting for approval',
+    'admin.att.patientsOne': '1 unassigned patient',
+    'admin.att.removalsOne': '1 removal request',
+    'admin.att.dentistsOne': '1 dentist without a lab',
+    'admin.att.rejectedOne': '1 rejected case',
+    'admin.noChats': 'No conversations yet',
+    'admin.openMessages': 'Open',
+    'admin.unreadCount': '{n} unread',
+    'admin.quickChatSub': 'Your latest conversations',
+    'admin.quickChat': 'Quick chat',
+    'admin.cases': 'cases',
+    'admin.col.status': 'Status',
+    'admin.col.patient': 'Patient',
+    'admin.recentPatientsSub': 'Latest case updates across all labs',
+    'admin.recentPatients': 'Recent patient activity',
+    'admin.qa.rejectList': 'Reject list',
+    'admin.qa.patients': 'Reassign patients',
+    'admin.qa.assign': 'Assign dentists',
+    'admin.qa.signups': 'Review signups',
+    'admin.quickActions': 'Quick actions',
+    'admin.sev.low': 'Info',
+    'admin.sev.medium': 'Soon',
+    'admin.sev.high': 'Urgent',
+    'admin.att.none': 'Nothing needs you right now',
+    'admin.att.rejectedSub': 'Waiting for the dentist to rework them.',
+    'admin.att.rejected': '{n} rejected cases',
+    'admin.att.dentistsSub': 'They can\'t work until they have a lab.',
+    'admin.att.dentists': '{n} dentists without a lab',
+    'admin.att.removalsSub': 'Labs are waiting for your decision.',
+    'admin.att.removals': '{n} removal requests',
+    'admin.att.patientsSub': 'Reassign them to a lab so someone owns the case.',
+    'admin.att.patients': '{n} unassigned patients',
+    'admin.attentionSub': 'Things only you can resolve',
+    'admin.attention': 'Needs attention',
+    'admin.waitingCount': '{n} waiting for approval',
+    'admin.tile.openCases': 'Open cases',
+    'admin.pill.inReview': '{n} in review',
+    'admin.pill.removals': '{n} removal requests',
+    'admin.pill.noLab': '{n} without lab',
+    'admin.pill.clear': 'All clear',
+    'admin.pill.review': 'Needs review',
+    'admin.signOutTitle': 'Sign out of the admin account?',
+    'admin.allNotifications': 'All notifications',
+    'admin.markAllRead': 'Mark all read',
+    'admin.showInUsers': 'Show in Users',
+    'admin.searchHint': 'Search dentists, labs, clinics…',
+    'admin.hiEvening': 'Good evening, {name}',
+    'admin.hiAfternoon': 'Good afternoon, {name}',
+    'admin.hiMorning': 'Good morning, {name}',
+    'admin.since': 'since {when}',
+    'admin.unassigned.no_lab': 'Approved without a lab',
+    'admin.unassigned.removed': 'Removed from lab',
+    'admin.unassigned.lab_deleted': 'Lab deleted',
+    'admin.reassignedTo': '{name} assigned to {dentist} at {lab}',
+    'admin.noDentistLabChooses': 'No dentist: {lab} chooses',
+    'admin.pickDentistMsg': 'Optional. Without a dentist, the patient waits for {lab} to choose one.',
+    'admin.pickDentistTitle': 'Assign to a dentist at {lab}?',
+    'admin.fromOwner': 'from {name}',
+    'admin.waitingFor': 'Waiting for {lab}',
+    'admin.reactivated': '{name} reactivated',
+    'admin.reactivateMsg': 'They can sign in again. Nothing was removed while the account was deactivated.',
+    'admin.reactivateTitle': 'Reactivate {name}?',
+    'admin.reactivate': 'Reactivate',
+    'nav.signups': 'Signups',
+    'errors.registrationRejected': 'Your registration was rejected by the administrator. You can\'t sign up or sign in with this email. Contact support if you think this is a mistake.',
+    'auth.rejectedTitle': 'Registration rejected',
+    'admin.dashTitle': 'Admin overview',
+    'labDash.sub': 'Here\'s what\'s waiting on your lab today.',
+    'labDash.searchHint': 'Search your dentists and patients',
+    'labDash.tile.transfers': 'Transfers for you',
+    'labDash.tile.joins': 'Join requests',
+    'labDash.tile.tickets': 'Sharing requests',
+    'labDash.tile.review': 'Cases to review',
+    'labDash.action': 'Needs your action',
+    'labDash.actionNone': 'Nothing is waiting on your lab.',
+    'labDash.row.transfer': 'Patient transfer — accept or decline',
+    'labDash.row.join': 'Wants to join your lab',
+    'labDash.row.ticket': '{from} wants to share with {to}',
+    'labDash.review': 'Review queue',
+    'labDash.dentists': 'Your dentists',
+    'dash.sub': 'Your chairside queue for today.',
+    'dash.searchHint': 'Search your patients',
+    'dash.tile.attention': 'Needs attention',
+    'dash.tile.today': 'Appointments today',
+    'dash.tile.messages': 'Unread messages',
+    'dash.tile.rejected': 'Rejected cases',
+    'dash.pill.noneToday': 'None today',
+    'dash.quickActions': 'Quick actions',
+    'dash.quickActionsSub': 'Jump into your daily tools',
+    'dash.qa.newPatient': 'New patient',
+    'dash.qa.camera': 'Camera',
+    'dash.qa.shade': 'Shade detection',
+    'dash.qa.scans': 'Scans',
+    'dash.qa.smile': 'Smile preview',
+    'dash.qa.appointments': 'Appointments',
+    'dash.attention': 'Needs attention',
+    'dash.attentionNone': 'Nothing needs your attention right now.',
+    'dash.recentPatients': 'Recent patients',
+    'dash.recentPatientsSub': 'Latest updates on your roster',
+    'share.whoHasAccess': 'Who has access',
+    'share.onlyOwner': 'Only the owner has access so far.',
+    'share.ownerSection': 'Owner',
+    'share.sharedWithSection': 'Shared with',
+    'share.youHaveAccess': 'You have shared access to this patient.',
+    'share.yourAccess': 'Your access',
+    'appt.dentist': 'Dentist',
+    'appt.assignDentist': 'Assign a dentist',
+    'admin.dashSub': 'Here\'s what\'s happening across labs, dentists and cases today.',
+    'admin.tile.signups': 'Pending signups',
+    'admin.tile.dentists': 'Dentists',
+    'admin.tile.labs': 'Labs',
+    'admin.tile.unassignedDentists': 'Unassigned dentists',
+    'admin.tile.unassignedPatients': 'Unassigned patients',
+    'admin.tile.removals': 'Removal requests',
+    'admin.casesByStatus': 'Cases by status',
+    'admin.casesTotal': '{n} cases in total',
+    'admin.signupQueue': 'Signup requests',
+    'admin.seeAll': 'See all',
+    'admin.loadFailed': 'Couldn\'t load this',
+    'admin.retry': 'Try again',
+    'admin.signupsTitle': 'Signups',
+    'admin.signupsSub': 'Approve or reject every new account',
+    'admin.pending': 'Pending',
+    'admin.rejectList': 'Reject list',
+    'admin.noSignups': 'No signups waiting',
+    'admin.noSignupsSub': 'New dentist and lab signups show up here for approval.',
+    'admin.noRejected': 'The reject list is empty',
+    'admin.noRejectedSub': 'Emails you reject are listed here.',
+    'admin.approve': 'Approve',
+    'admin.reject': 'Reject',
+    'admin.continue': 'Continue',
+    'admin.approveTitle': 'Approve {name}?',
+    'admin.approveDentistMsg': 'Optionally choose their lab. Without one, they pick a lab when they first sign in, and that lab has to accept them.',
+    'admin.approveNoLab': 'Approve without a lab',
+    'admin.approveLabMsg': 'The lab can sign in right away.',
+    'admin.approved': '{name} approved',
+    'admin.rejectTitle': 'Reject {name}?',
+    'admin.rejectReasonMsg': 'Add a reason (optional). It is included in the email we send them.',
+    'admin.reasonOptional': 'Reason (optional)',
+    'admin.rejectConfirmTitle': 'Reject this signup?',
+    'admin.rejectConfirmMsg': 'The account is deleted and {email} goes on the reject list. They get an email saying so, and can\'t sign up or sign in with it until you remove it from the list.',
+    'admin.rejected': '{name} rejected',
+    'admin.clinic': 'Clinic',
+    'admin.signedUp': 'Signed up {when}',
+    'admin.reason': 'Reason',
+    'admin.noReason': 'none given',
+    'admin.rejectedBy': 'Rejected {when} by {by}',
+    'admin.unreject': 'Remove from list',
+    'admin.unrejectTitle': 'Remove from the reject list?',
+    'admin.unrejectMsg': '{email} will be able to sign up again. This doesn\'t approve them: a new signup still needs your approval.',
+    'admin.unrejected': '{email} removed from the reject list',
+    'admin.usersSub': 'Labs and their dentists',
+    'admin.byLab': 'By lab',
+    'admin.unassignedDentists': 'Unassigned',
+    'admin.removalRequests': 'Removal requests',
+    'admin.searchUsers': 'Search labs, dentists, clinics, emails…',
+    'admin.noLabs': 'No labs yet',
+    'admin.noLabsSub': 'Approved labs appear here with their dentists.',
+    'admin.noMatches': 'No matches',
+    'admin.noMatchesSub': 'Try another name, clinic or email.',
+    'admin.dentistCount': '{n} dentists',
+    'admin.dentistCountOne': '1 dentist',
+    'admin.hidden': 'Hidden',
+    'admin.hiddenFromLabs': 'Hidden from other labs',
+    'admin.dentistsHidden': 'Dentists hidden',
+    'admin.labNoDentists': 'No dentists in this lab yet.',
+    'admin.noLab': 'No lab',
+    'admin.noClinic': 'No clinic',
+    'admin.deactivatedBadge': 'Deactivated',
+    'admin.assignLab': 'Assign to lab',
+    'admin.move': 'Move',
+    'admin.more': 'More',
+    'admin.deactivateOrDelete': 'Deactivate or delete…',
+    'admin.moveTitle': 'Move {name}',
+    'admin.moveMsg': 'Choose the lab this dentist belongs to.',
+    'admin.removeFromLab': 'Remove from their lab',
+    'admin.moveConfirmTitle': 'Move {name} to {lab}?',
+    'admin.moveNoApproval': '{lab} doesn\'t need to approve this.',
+    'admin.leaveLabEffects': '{lab} loses access to this dentist\'s open cases, and any case under review goes back to "in progress". {lab} keeps view-only access to completed cases.',
+    'admin.removeEffects': 'The dentist keeps their patients and can keep using the app, but without a lab they can\'t submit cases or share through a lab. They\'re asked to choose a lab, or you can assign one from Unassigned.',
+    'admin.removeTitle': 'Remove {name} from their lab?',
+    'admin.remove': 'Remove',
+    'admin.moved': '{name} moved to {lab}',
+    'admin.removedFromLab': '{name} removed from their lab',
+    'admin.deleteTitle': 'Delete {name}?',
+    'admin.deleteDentistEffects': 'Deactivate: they can\'t sign in. Everything is kept, and you can reactivate the account at any time.\n\nDelete permanently: can\'t be undone. Their patients are kept and become unassigned (Patients › Unassigned).',
+    'admin.deleteLabEffects': 'Deactivate: the lab can\'t sign in. Everything is kept, and you can reactivate it at any time.\n\nDelete permanently: can\'t be undone. Its {n} become unassigned, and cases it was reviewing go back to "in progress". Patients are not affected.',
+    'admin.deactivate': 'Deactivate',
+    'admin.deletePermanently': 'Delete permanently',
+    'admin.deactivated': '{name} deactivated',
+    'admin.deleted': '{name} deleted',
+    'admin.noUnassignedDentists': 'Every dentist has a lab',
+    'admin.noUnassignedDentistsSub': 'Dentists whose lab was deleted, who were removed, or who were approved without a lab show up here.',
+    'admin.noRemovals': 'No removal requests',
+    'admin.noRemovalsSub': 'When a lab asks to remove a dentist, you decide here.',
+    'admin.requestedBy': 'Requested by {lab} · {when}',
+    'admin.deny': 'Deny',
+    'admin.approveRemovalTitle': 'Remove {name} from {lab}?',
+    'admin.denyRemovalTitle': 'Keep {name} in {lab}?',
+    'admin.denyRemovalMsg': 'The dentist stays in the lab and the request is closed.',
+    'admin.removalApproved': 'Dentist removed from the lab',
+    'admin.removalDenied': 'Request denied',
+    'admin.searchLabs': 'Search labs',
+    'admin.noLabsFound': 'No labs found',
+    'admin.patientsSub': 'Every patient, with owner, lab and case history',
+    'admin.allPatients': 'All patients',
+    'admin.unassignedPatients': 'Unassigned',
+    'admin.searchPatients': 'Search patients…',
+    'admin.filterLab': 'Filter by lab',
+    'admin.allLabs': 'All labs',
+    'admin.noPatients': 'No patients found',
+    'admin.noPatientsSub': 'Try another status, lab or search.',
+    'admin.noUnassignedPatients': 'No unassigned patients',
+    'admin.noUnassignedPatientsSub': 'Patients whose dentist was deleted, or that are waiting for a lab to choose a dentist, show up here.',
+    'admin.pickPatient': 'Select a patient',
+    'admin.pickPatientSub': 'Their owner, lab, records and case history appear here.',
+    'admin.owner': 'Owner',
+    'admin.lab': 'Lab',
+    'admin.updated': 'Updated {when}',
+    'admin.waitingForLab': 'Waiting for lab',
+    'admin.ownerDeleted': 'Dentist deleted',
+    'admin.back': 'Back',
+    'admin.overrideStatus': 'Change status',
+    'admin.overrideMsg': 'This overrides the case status and is logged in the case history with your note.',
+    'admin.noteRequired': 'Note (required)',
+    'admin.statusChanged': 'Status changed to {status}',
+    'admin.reassignLab': 'Reassign to lab',
+    'admin.reassignTitle': 'Reassign {name}',
+    'admin.reassignMsg': 'Choose the receiving lab. Next you can pick one of its dentists, or leave that to the lab.',
+    'admin.reassigned': '{name} sent to {lab}',
+    'admin.sharedWith': 'Shared with',
+    'admin.nobody': 'Nobody',
+    'admin.lastUpdate': 'Last update',
+    'admin.records': 'Records',
+    'admin.shadeAnalyses': 'Shade analyses',
+    'admin.none': 'None yet',
+    'admin.history': 'Case history',
+    'admin.noHistory': 'No events yet.',
+    'admin.event.created': 'Created',
+    'admin.event.submitted': 'Submitted to lab',
+    'admin.event.approved': 'Approved',
+    'admin.event.rejected': 'Rejected',
+    'admin.event.updated': 'Updated',
+    'admin.event.reassigned': 'Reassigned',
+    'admin.event.admin_override': 'Status changed by admin',
     'nav.settings': 'Settings',
     'nav.profile': 'Profile',
     'proEdition': 'Pro Edition',
@@ -1183,6 +1988,7 @@ class AppLocalizations {
     'auth.useDemo': 'Use demo dentist account',
     'auth.hero':
         'Chairside scan validation, shade AI, and lab collaboration — designed for iPad.',
+    'auth.registerTitle': 'Create profile',
     'auth.registerSubtitle':
         'Register a dentist or laboratory account for Elite Dent',
     'auth.fullName': 'Full name *',
@@ -1255,6 +2061,8 @@ class AppLocalizations {
     'about.linksTitle': 'Support & legal',
     'about.accountTitle': 'Your account',
     'about.userId': 'User ID',
+    'about.name': 'Name',
+    'about.clinic': 'Clinic',
     'about.credit': 'Designed and developed by',
     'about.f.shade': 'AI shade matching',
     'about.f.shadeSub': 'Photograph a tooth and get a suggested shade in seconds.',
@@ -1290,7 +2098,8 @@ class AppLocalizations {
     'settings.german': 'Deutsch',
     'settings.deleteAccount': 'Delete account',
     'settings.deleteAccountBody':
-        'This permanently removes your account and associated data. '
+        'This permanently removes your login and personal details. '
+        'Patient records are not deleted: they stay with the practice. '
         'Type DELETE to continue.',
     'settings.deleteConfirmToken': 'DELETE',
     'settings.continue': 'Continue',
@@ -1373,12 +2182,6 @@ class AppLocalizations {
     'labs.verified': 'Verified',
     'labs.unverified': 'Unverified',
     'labs.verify': 'Verify user',
-    'labs.delete': 'Delete user',
-    'labs.deleteTitle': 'Delete user?',
-    'labs.deleteBody':
-        'Choose how to remove {name}. Soft delete keeps their data; hard delete permanently removes the account.',
-    'labs.softDelete': 'Keep data (soft)',
-    'labs.hardDelete': 'Delete forever',
     'labs.count': '{shown} shown · {total} total',
     'labs.loading': 'Loading laboratories…',
     'labs.openingChat': 'Opening conversation…',
@@ -1432,7 +2235,7 @@ class AppLocalizations {
     'reports.exports': 'Exports',
     'reports.exportsHint':
         'A printable clinic summary for the selected period.',
-    'reports.summaryExport': 'Clinic summary',
+    'reports.summaryExport': 'Share summary',
     'reports.summaryTitle': 'Clinic report summary',
     'reports.close': 'Close',
     'reports.newInPeriod': 'new in period',
@@ -1446,6 +2249,10 @@ class AppLocalizations {
     'reports.casesCol': 'Cases',
     'reports.artifacts': 'Artifacts',
     'reports.copy': 'Copy',
+    'reports.copied': 'Clinic summary copied — paste it anywhere to share',
+    'reports.share': 'Share…',
+    'reports.shareHint': 'Share this clinic summary as plain text, or copy it to paste elsewhere.',
+    'reports.throughputHint': 'Cases opened vs completed each week',
     'reports.periodLine': 'Period: {period}',
     'reports.activeShort': 'Active',
     'reports.avgTimeShort': 'Avg. time',
@@ -1455,6 +2262,15 @@ class AppLocalizations {
     'reports.followUpHint': 'Cases that need a follow-up',
     'reports.allClear': 'All clear',
     'reports.patientFallback': 'Patient',
+    'reports.activity': 'New vs completed',
+    'reports.activityHint': 'Cases opened and finished in this period',
+    'reports.coverageShort': 'Coverage',
+    'reports.opened': 'Opened',
+    'reports.finished': 'Finished',
+    'reports.coverageHint': 'Patients with scans, photos, shade, or smile',
+    'reports.intake': 'New patients',
+    'reports.completedWeekly': 'Completed cases',
+    'reports.perWeek': 'Per week',
     'notifications.subtitle':
         'Action items from your patients — scans needed, lab review, shade confirms',
     'notifications.empty': "You're all caught up — no notifications here",
@@ -1470,6 +2286,8 @@ class AppLocalizations {
     'notifications.typeCase': 'Case',
     'notifications.typeScanQuality': 'Scan quality',
     'notifications.typeShade': 'Shade',
+    'notifications.typeSmile': 'Smile preview',
+    'notifications.typeNote': 'Clinical note',
     'notifications.typeAppointment': 'Appointment',
     'notifications.typeScanBody': 'Scan body',
     'notifications.typeSync': 'Sync',
@@ -1541,7 +2359,7 @@ class AppLocalizations {
     'messages.noConversations': 'No conversations yet.',
     'messages.noMatch': 'No conversations match your search.',
     'messages.newTitle': 'New Message',
-    'scans.subtitle': 'Upload PLY / STL / OBJ · preview Solid / Colored on device',
+    'scans.subtitle': 'Intraoral scans for this patient, quality-checked before they go to the lab',
     'scans.upload': 'Upload scan',
     'scans.uploading': 'Uploading…',
     'scans.delete': 'Delete scan',
@@ -1610,6 +2428,18 @@ class AppLocalizations {
     'patients.deleteNoteBody':
         'This clinical note will be permanently removed.',
     'patients.noteHint': 'Add a clinical note…',
+    'patients.dentistNote': 'Dentist note',
+    'patients.dentistNotes': 'Dentist notes',
+    'patients.dentistNoteHint': 'Add a dentist note…',
+    'patients.noDentistNotes': 'No dentist notes yet.',
+    'patients.deleteDentistNoteBody':
+        'This dentist note will be permanently removed.',
+    'patients.labNote': 'Laboratory note',
+    'patients.labNotes': 'Laboratory notes',
+    'patients.labNoteHint': 'Add a laboratory note…',
+    'patients.noLabNotes': 'No laboratory notes yet.',
+    'patients.deleteLabNoteBody':
+        'This laboratory note will be permanently removed.',
     'patients.noteAdded': 'Note added',
     'patients.noteUpdated': 'Note updated',
     'patients.noteDeleted': 'Note deleted',
@@ -1833,7 +2663,7 @@ class AppLocalizations {
     'smile.loadSmileHintPortrait':
         'Then tap a shape in the library below and place it over the teeth.',
     'smile.placement': 'Placement',
-    'smile.batemModels': 'Batem models',
+    'smile.batemModels': 'Tooth shapes',
     'smile.modelOpen': 'Open',
     'smile.modelClosed': 'Closed',
     'smile.useThisModel': 'Use this model',
@@ -1876,6 +2706,12 @@ class AppLocalizations {
         '{who} cancelled an appointment for {name}.',
     'notifications.msgYouUpdatedAppt': 'You updated an appointment for {name}.',
     'notifications.msgUpdatedAppt': '{who} updated an appointment for {name}.',
+    'notifications.msgYouSetApptStatus':
+        'You set the appointment for {name} to {status}.',
+    'notifications.msgSetApptStatus':
+        '{who} set the appointment for {name} to {status}.',
+    'notifications.msgYouAddedNote': 'You added a note for {name}.',
+    'notifications.msgAddedNote': '{who} added a note for {name}.',
     'notifications.msgUploadedScan': '{who} uploaded a 3D scan for {name}.',
     'notifications.msgSavedShade': '{who} saved a shade photo for {name}.',
     'notifications.msgSavedSmile': '{who} saved a smile preview for {name}.',
@@ -1889,10 +2725,45 @@ class AppLocalizations {
     'notifications.fallbackScanQuality': 'Scan quality alert for {name}',
     'notifications.fallbackShade': 'Shade update for {name}',
     'notifications.fallbackAppointment': 'Appointment update for {name}',
+    'notifications.fallbackNote': 'New note for {name}',
+    'notifications.fallbackSmile': 'Smile update for {name}',
     'notifications.fallbackCase': 'Case update for {name}',
     'notifications.fallbackScanBody': 'Scan body update for {name}',
     'notifications.fallbackSync': 'Sync update for {name}',
     'notifications.fallbackExport': 'Export update for {name}',
+    'notifications.msgAskedToShare': '{who} asked to share {name} with {target}.',
+    'notifications.msgLabReviewShare':
+        'Your lab will review sharing {name} with {target}.',
+    'notifications.msgAskedJoinLab': '{who} asked to join your lab.',
+    'notifications.msgAskedTransfer': '{who} asked to transfer to {lab}.',
+    'notifications.msgJoinedLabTransferred':
+        '{who} joined your lab (transferred).',
+    'notifications.msgYourTransferApproved':
+        'Your transfer to {lab} was approved.',
+    'notifications.msgLabAcceptedYou': '{lab} accepted you.',
+    'notifications.msgLabDeclinedYou':
+        '{lab} declined your request. You can ask again.',
+    'notifications.msgLabTransferDeclined':
+        'Your lab transfer request was declined.',
+    'notifications.msgLabAskedRemove': 'A lab asked to remove {who}.',
+    'notifications.msgCreatedAssigned':
+        '{name} was created and assigned to you.',
+    'notifications.msgAssignedToYou': '{name} was assigned to you.',
+    'notifications.msgMovedDentist': '{name} was moved to another dentist.',
+    'notifications.msgTransferRequest': 'Transfer request for {name}.',
+    'notifications.msgSharedWithYou': '{name} was shared with you.',
+    'notifications.msgTransferOfStatus': 'Transfer of {name} was {status}.',
+    'notifications.msgSubmittedReview': '{name} was submitted for review.',
+    'notifications.msgUpdatedByDentist': '{name} was updated by the dentist.',
+    'notifications.msgReopenedByDentist': '{name} was reopened by the dentist.',
+    'notifications.msgLabApproved': 'The lab approved {name}.',
+    'notifications.msgLabRejected': 'The lab rejected {name}: {detail}',
+    'notifications.msgAdminSetStatus':
+        'An administrator set {name} to {status}: {note}',
+    'notifications.transferApproved': 'approved',
+    'notifications.transferDeclined': 'declined',
+    'notifications.transferCancelled': 'cancelled',
+    'notifications.transferPending': 'pending',
     'patient.readyForDetect': 'Ready for detect',
     'patient.noneYet': 'None yet',
     'patient.availableCount': '{n} available',
@@ -2163,6 +3034,8 @@ class AppLocalizations {
     'ch.vidFail': 'Could not load video',
     'p.unnamed': 'Unnamed patient',
     'p.unknownPr': 'Unknown Practitioner',
+    'p.noteFromLab': 'From lab',
+    'p.noteFromDentist': 'From dentist',
     'p.owner': 'Owner',
     'p.busy': 'Another patient change is already in progress',
     'lab.busy': 'Another laboratory action is already in progress',
@@ -2292,6 +3165,11 @@ class AppLocalizations {
     'p.reqN': '{n} requests awaiting your decision.',
     'ap.min': '{m} min',
     's.uploaded': '{f} scan uploaded',
+    's.saveToCase': 'Save to case',
+    's.savedToCase': '{n} scan(s) saved to the case',
+    's.alreadyOnCase': 'All scans are already on the case',
+    's.onCase': 'On case',
+    's.libraryOnly': 'Library',
     'sb.pxEnter': 'Ø {p} px (enter mm)',
     'sb.pxEnter2': '⌀ {p} px · enter mm',
     'ms.hudTris': 'web · {n} tris · drag/pinch',
@@ -2301,6 +3179,8 @@ class AppLocalizations {
     'ms.gpuPts': 'ipad-gpu · {n} pts',
     'img.read': 'Could not read this photo. Try another image.',
     'img.heic': 'Could not read this photo. Export it as JPEG from Photos and try again.',
+    'offline.tooLarge': 'This file is too large for the encrypted offline cache on this device. Connect to the network and upload again.',
+    'offline.tooLargeWeb': 'This file is too large for the browser offline cache. Stay online and upload again — files go straight to the server when connected.',
     'err.unexpected': 'An unexpected error occurred.',
     'err.network': 'Connection problem. Please check your internet connection and try again.',
     'sh.dragBottomLip': 'Drag the horizontal line at the bottom lip up or down to adjust it.',
@@ -2321,6 +3201,582 @@ class AppLocalizations {
     'nav.laboratories': 'Systembenutzer',
     'nav.notifications': 'Benachrichtigungen',
     'nav.reports': 'Berichte',
+    'lab.tx.ourDentistAsks': '{dentist} aus Ihrem Labor möchte {p} mit {to} teilen. Leiten Sie es weiter oder lehnen Sie ab.',
+    'lab.tx.theirDentistAsks': '{dentist} von {from} möchte {p} mit {to} teilen.',
+    'lab.tx.waitingForThem': 'An {to} gesendet. Warten auf deren Annahme.',
+    'lab.tx.shareWithUs': '{from} möchte {p} mit Ihrem Labor teilen. Nehmen Sie an und wählen Sie einen Ihrer Zahnärzte.',
+    'lab.tx.handoverToUs': '{from} möchte {p} an Ihr Labor übergeben. Nehmen Sie an und wählen Sie einen Ihrer Zahnärzte.',
+    'lab.tx.theyAccepted': '{to} hat {p} angenommen.',
+    'lab.tx.theyAcceptedFor': '{to} hat {p} für {for} angenommen.',
+    'lab.tx.weAccepted': 'Ihr Labor hat {p} angenommen.',
+    'lab.tx.weAcceptedFor': 'Ihr Labor hat {p} für {for} angenommen.',
+    'lab.tx.declined': 'Die Anfrage für {p} wurde abgelehnt.',
+    'lab.tx.cancelled': 'Die Anfrage für {p} wurde abgebrochen.',
+    'avatar.optionalLab': 'Für Labore optional. Nach der Registrierung nicht mehr änderbar.',
+    'chat.cantMessage': 'Sie können dieser Person keine Nachricht senden.',
+    'join.title': 'Wählen Sie Ihr Labor',
+    'join.sub': 'Bitten Sie ein Labor um Aufnahme, oder nutzen Sie die App vorerst ohne Labor.',
+    'join.request': 'Beitritt anfragen',
+    'join.confirmTitle': '{lab} um Aufnahme bitten?',
+    'join.confirmMsg': 'Das Labor erhält Ihre Anfrage und entscheidet. Solange sie offen ist, können Sie sie zurückziehen.',
+    'join.sent': 'Anfrage an {lab} gesendet',
+    'join.waiting': 'Warten auf Annahme durch {lab}',
+    'join.waitingSub': 'Sobald das Labor Sie annimmt, können Sie die App nutzen.',
+    'join.sentAt': 'Gesendet {when}',
+    'join.withdraw': 'Zurückziehen',
+    'join.withdrawTitle': 'Anfrage zurückziehen?',
+    'join.withdrawMsg': 'Danach können Sie dieses oder ein anderes Labor anfragen.',
+    'join.withdrawn': 'Anfrage zurückgezogen',
+    'join.checkAgain': 'Erneut prüfen',
+    'join.noLabs': 'Noch keine Labore zur Auswahl',
+    'join.noLabsSub': 'Bitten Sie Ihr Labor, sich zu registrieren, oder wenden Sie sich an den Admin.',
+    'join.noLabError': 'Treten Sie einem Labor bei, bevor Sie Patienten anlegen.',
+    'join.requestLater': 'Später anfragen',
+    'join.requestLaterTitle': 'Ohne Labor fortfahren?',
+    'join.requestLaterMsg': 'Sie können die App nutzen und Patienten anlegen. Ein Labor wählen Sie später unter Einstellungen.',
+    'join.requestLaterDone': 'Sie können später unter Einstellungen einem Labor beitreten',
+    'join.bringTitle': 'Patienten mitnehmen?',
+    'join.bringMsg': 'Ausgewählte Patienten werden bei Annahme mit dem Labor geteilt. Andere bleiben privat.',
+    'join.bringNone': 'Keine',
+    'join.bringContinue': 'Weiter ({n})',
+    'join.settingsSection': 'Labor',
+    'join.settingsJoin': 'Labor beitreten',
+    'join.settingsJoinSub': 'Wählen Sie ein Labor für die Beitrittsanfrage',
+    'join.settingsLab': 'Ihr Labor: {lab}',
+    'join.pendingTitle': 'Beitrittsanfrage offen',
+    'join.transferTitle': 'Zu anderem Labor wechseln',
+    'join.transferSub': 'Ihr aktuelles Labor muss den Wechsel genehmigen.',
+    'join.transferRequest': 'Wechsel anfragen',
+    'join.transferConfirmTitle': 'Wechsel zu {lab} anfragen?',
+    'join.transferConfirmMsg': 'Ihr aktuelles Labor entscheidet. Bei Zustimmung verlassen Sie Ihr Labor und treten dem neuen bei.',
+    'join.transferSent': 'Wechselanfrage gesendet (warte auf Ihr Labor)',
+    'join.transferWaiting': 'Warten auf Freigabe für {lab}',
+    'join.transferPendingTitle': 'Wechsel offen',
+    'join.withdrawTransferTitle': 'Wechselanfrage zurückziehen?',
+    'join.withdrawTransferMsg': 'Sie können später erneut einen Wechsel anfragen.',
+    'join.transferWithdrawn': 'Wechselanfrage zurückgezogen',
+    'share.yourLab': 'Ihr Labor',
+    'share.yourLabHint': 'Sofort geteilt.',
+    'share.labHasAccess': 'Ihr Labor hat bereits Zugriff.',
+    'share.colleagues': 'Kollegen in Ihrem Labor',
+    'share.colleaguesHint': 'Zur Genehmigung an Ihr Labor gesendet.',
+    'share.noColleagues': 'Keine Kollegen zum Teilen.',
+    'share.alreadyShared': 'Bereits geteilt',
+    'share.alreadySharedHint': 'Wer Zugriff hat oder auf die Genehmigung des Labors wartet.',
+    'share.pendingLab': 'Wartet auf Labor',
+    'nav.lab': 'Mein Labor',
+    'lab.title': 'Mein Labor',
+    'lab.sub': 'Ihre Zahnärzte, Anfragen, Übergaben und Sichtbarkeit',
+    'lab.tab.dentists': 'Zahnärzte',
+    'lab.tab.requests': 'Anfragen',
+    'lab.tab.transfers': 'Übergaben',
+    'lab.tab.sharing': 'Freigaben',
+    'lab.tab.settings': 'Einstellungen',
+    'lab.noDentists': 'Noch keine Zahnärzte',
+    'lab.noDentistsSub': 'Zahnärzte, die Sie annehmen oder die der Admin zuweist, erscheinen hier.',
+    'lab.requestRemoval': 'Entfernung beantragen',
+    'lab.removeTitle': '{name} aus Ihrem Labor entfernen?',
+    'lab.removeMsg': 'Der Admin entscheidet. Nennen Sie den Grund — der Admin sieht ihn.',
+    'lab.reasonRequired': 'Grund (erforderlich)',
+    'lab.removalSent': 'Entfernung von {name} an den Admin gesendet',
+    'lab.noRequests': 'Keine Anfragen',
+    'lab.noRequestsSub': 'Beitrittsanfragen von Zahnärzten und Ihre Entfernungsanträge erscheinen hier.',
+    'lab.joinRequests': 'Beitrittsanfragen',
+    'lab.transferRequests': 'Wechselanfragen',
+    'lab.transferBadge': 'Wechsel',
+    'lab.transferTo': 'Möchte zu {lab} wechseln',
+    'lab.bringCount': 'Nimmt {n} Patienten mit',
+    'lab.dentistXferAccepted': 'Wechsel für {name} genehmigt',
+    'lab.dentistXferRejected': 'Wechsel für {name} abgelehnt',
+    'lab.ourRemovals': 'Ihre Entfernungsanträge',
+    'lab.accept': 'Annehmen',
+    'lab.joinAccepted': '{name} ist Ihrem Labor beigetreten',
+    'lab.joinRejected': 'Anfrage von {name} abgelehnt',
+    'lab.status.pending': 'Offen',
+    'lab.status.approved': 'Genehmigt',
+    'lab.status.rejected': 'Abgelehnt',
+    'lab.noTransfers': 'Keine Übergaben',
+    'lab.noTransfersSub': 'Zwischen Laboren geteilte oder übergebene Patienten erscheinen hier.',
+    'lab.kind.share': 'Teilen',
+    'lab.kind.handover': 'Übergabe',
+    'lab.transfer.awaiting_sender': 'Wartet auf Ihre Weiterleitung',
+    'lab.transfer.awaiting_recipient': 'Wartet auf das empfangende Labor',
+    'lab.transfer.accepted': 'Angenommen',
+    'lab.transfer.rejected': 'Abgelehnt',
+    'lab.transfer.cancelled': 'Abgebrochen',
+    'lab.requestedBy': 'von {n}',
+    'lab.forDentist': 'für {n}',
+    'lab.openPatient': 'Patient öffnen',
+    'lab.forward': 'Weiterleiten',
+    'lab.forwarded': 'An {lab} weitergeleitet',
+    'lab.rejectTransferTitle': 'Übergabe von {p} ablehnen?',
+    'lab.transferRejected': 'Übergabe abgelehnt',
+    'lab.acceptTransfer': 'Annehmen und Zahnarzt wählen',
+    'lab.acceptTransferMsg': 'Welcher Ihrer Zahnärzte übernimmt {p}?',
+    'lab.transferAccepted': '{p} für {d} angenommen',
+    'lab.noTickets': 'Keine Freigabeanfragen',
+    'lab.noTicketsSub': 'Wenn ein Zahnarzt einen Patienten mit einem Kollegen Ihres Labors teilen möchte, entscheiden Sie hier.',
+    'lab.ticketLine': '{from} möchte diesen Patienten mit {to} teilen.',
+    'lab.ticketApproved': 'Freigabe genehmigt',
+    'lab.ticketRejected': 'Freigabe abgelehnt',
+    'lab.hideLab': 'Vor anderen Laboren und neuen Zahnärzten verbergen',
+    'lab.hideLabMsg': 'Verborgene Labore erscheinen nicht, wenn Zahnärzte ein Labor wählen oder eine Übergabe starten. Sie erhalten dann nur Zahnärzte, die der Admin zuweist.',
+    'lab.hideDentists': 'Unsere Zahnärzte vor anderen Laboren verbergen',
+    'lab.hideDentistsMsg': 'Andere Labore sehen Ihre Zahnärzte nicht unter Ihrem Labor.',
+    'lab.hideWarnTitle': 'Sichtbar bleiben?',
+    'lab.hideWarnMsg': 'Wir empfehlen, dies ausgeschaltet zu lassen. Verbergen erschwert es Zahnärzten und Laboren, Sie zu finden, und Sie können neue Fälle und Übergaben verpassen.',
+    'lab.hideWarnConfirm': 'Trotzdem verbergen',
+    'lab.hideWarnKeep': 'Sichtbar bleiben',
+    'lab.patientFor': 'Für wen ist dieser Patient?',
+    'lab.assignDentist': 'Zahnarzt zuweisen',
+    'lab.sendToLab': 'An anderes Labor senden',
+    'lab.sendToLabMsg': 'Das andere Labor nimmt den Patienten an und wählt einen seiner Zahnärzte.',
+    'lab.chooseDentist': 'Zahnarzt wählen…',
+    'lab.chooseLab': 'Labor wählen…',
+    'lab.targetRequired': 'Wählen Sie einen Zahnarzt oder ein Labor für diesen Patienten.',
+    'lab.assignMsg': '{p} wechselt zu diesem Zahnarzt.',
+    'lab.assigned': '{p} an {d} zugewiesen',
+    'lab.assignForbidden': 'Ihr Labor hat diesen Patienten nicht erhalten.',
+    'share.sentToLab': 'Zur Genehmigung an Ihr Labor gesendet',
+    'share.useTransfer': 'Diese Person ist in einem anderen Labor — nutzen Sie „Mit anderem Labor teilen“.',
+    'share.otherLab': 'Mit anderem Labor teilen',
+    'share.otherLabMsg': 'Ihr Labor leitet die Anfrage weiter; das andere Labor nimmt sie an und wählt einen Zahnarzt.',
+    'share.transferSent': 'Anfrage zum Teilen mit {lab} an Ihr Labor gesendet',
+    'nav.review': 'Prüfung',
+    'case.title': 'Fall',
+    'case.noLab': 'Noch kein Labor',
+    'case.labShared': 'Labor: {lab} · geteilt',
+    'case.labNotShared': 'Labor: {lab} · noch nicht geteilt',
+    'case.item.scan': 'Scan',
+    'case.item.shade': 'Farbanalyse',
+    'case.item.smile': 'Lächeln-Vorschau',
+    'case.submit': 'An Labor senden',
+    'case.submitReadyTitle': 'Diesen Fall an das Labor senden?',
+    'case.submitReadyMsg': 'Scan, Farbe und Lächeln sind in der Akte und mit Ihrem Labor geteilt.',
+    'case.submitted': 'Zur Prüfung an das Labor gesendet',
+    'case.submitFailed': 'Senden fehlgeschlagen',
+    'case.incompleteTitle': 'Es fehlen Unterlagen',
+    'case.incompleteMsg': 'Fehlt: {items}. Das Labor kann einen unvollständigen Fall ablehnen. Trotzdem senden?',
+    'case.submitAnyway': 'Trotzdem senden',
+    'case.approve': 'Freigeben',
+    'case.reject': 'Ablehnen',
+    'case.approveTitle': 'Diesen Fall freigeben?',
+    'case.approveMsg': 'Der Fall wird als abgeschlossen markiert und der Zahnarzt benachrichtigt.',
+    'case.rejectTitle': 'Fall ablehnen',
+    'case.rejectMsg': 'Gesamtanmerkung plus Feedback je Unterlage. Der Zahnarzt sieht das beim Patienten und bei Scan, Farbe und Lächeln.',
+    'case.remarksRequired': 'Gesamtanmerkung (erforderlich)',
+    'case.itemFeedback': 'Je Unterlage',
+    'case.itemOk': 'In Ordnung',
+    'case.itemNeedsWork': 'Nacharbeit',
+    'case.itemNoteHint': 'Was soll geändert werden?',
+    'case.resubmit': 'Erneut an Labor senden',
+    'case.resubmitReadyTitle': 'Fall erneut an das Labor senden?',
+    'case.resubmitReadyMsg': 'Sie haben den Fall seit der Ablehnung geändert. Das Labor prüft ihn erneut.',
+    'case.resubmitUnchangedTitle': 'Noch nichts geändert',
+    'case.resubmitUnchangedMsg': 'Sie haben seit der Ablehnung nichts geändert. Trotzdem erneut senden?',
+    'case.resolveFirst': 'Übernehmen oder verwerfen Sie zuerst die Vorschläge des Labors.',
+    'case.updatedChip': 'Vom Zahnarzt geändert',
+    'case.suggested': '{lab} schlägt eine Änderung an {item} vor',
+    'case.view': 'Ansehen',
+    'case.accept': 'Übernehmen',
+    'case.dismiss': 'Verwerfen',
+    'case.dismissTitle': 'Vorschlag des Labors verwerfen?',
+    'case.dismissMsg': 'Ihr aktuelles Element ({item}) bleibt in der Akte. Das Labor sieht dies beim erneuten Senden.',
+    'case.acceptedToast': 'Vorschlag übernommen – senden Sie den Fall erneut, wenn bereit',
+    'case.dismissedToast': 'Vorschlag verworfen',
+    'case.approveBlocked': 'Sie haben Änderungen vorgeschlagen; der Zahnarzt muss sie bestätigen – lehnen Sie ab, um den Fall zurückzusenden.',
+    'case.remarksLabChanged': 'Gesamtanmerkung (optional – „Labor hat Änderungen vorgenommen, bitte bestätigen“)',
+    'case.feedbackTitle': 'Laborprüfung · {item}',
+    'case.feedbackSub': 'Bewerten Sie dieses Element und lehnen Sie dann im Fall ab oder genehmigen Sie.',
+    'case.feedbackSuggested': 'Sie haben eine Änderung vorgeschlagen – der Zahnarzt bestätigt sie.',
+    'case.saveNote': 'Notiz speichern',
+    'p.waitingLab': 'Wartet auf Freigabe durch das Labor',
+    'p.withdraw': 'Zurückziehen',
+    'case.event.lab_suggested': 'Labor hat Änderung vorgeschlagen',
+    'case.event.suggestion_accepted': 'Vorschlag übernommen',
+    'case.event.suggestion_dismissed': 'Vorschlag verworfen',
+    'case.openTool': '{item} öffnen',
+    'case.approvedToast': 'Fall freigegeben',
+    'case.rejectedToast': 'Fall abgelehnt und zurückgeschickt',
+    'case.rejectedBanner': 'Vom Labor abgelehnt',
+    'case.reopenTitle': 'Fall wieder öffnen?',
+    'case.reopenMsg': 'Dadurch wird der Fall wieder geöffnet und erneut zur Prüfung an das Labor gesendet.',
+    'case.reopenGo': 'Wieder öffnen',
+    'case.replace': 'Ersetzen',
+    'case.replaceShadeHint': 'Wählen Sie ein neues Foto. Das Speichern der Analyse ersetzt die alte.',
+    'case.replacingShade': 'Gespeicherte Farbanalyse wird ersetzt — speichern Sie die neue, um sie auszutauschen.',
+    'case.replacingSmile': 'Gespeicherte Lächeln-Vorschau wird ersetzt — speichern Sie die neue, um sie auszutauschen.',
+    'case.history': 'Fallverlauf',
+    'sq.issueCount': '{n} Befund(e) aus der Qualitätsprüfung',
+    'sq.viewDetails': 'Details ansehen',
+    'sq.whyBad': 'Warum wurde dieser Scan markiert?',
+    'sq.holdMsg': 'Was möchten Sie mit diesem Scan tun?',
+    'sq.badTitle': 'Warum dieser Scan wiederholt werden muss',
+    'sq.reviewTitle': 'Was an diesem Scan zu prüfen ist',
+    'auth.firstName': 'Vorname',
+    'auth.lastName': 'Nachname',
+    'auth.labName': 'Name des Labors',
+    'settings.tab.account': 'Konto',
+    'settings.aboutRow': 'Über Elite Dent',
+    'settings.prefs': 'Präferenzen',
+    'settings.change': 'Ändern',
+    'settings.tab.profile': 'Profil',
+    'settings.search': 'Einstellungen suchen',
+    'settings.noHits': 'Keine passenden Einstellungen',
+    'settings.noHitsSub': 'Versuchen Sie ein anderes Wort, z. B. Passwort, Sprache oder Benachrichtigungen.',
+    'settings.d.name': 'Der Name, den Zahnärzte und Labore sehen.',
+    'settings.d.email': 'Damit melden Sie sich an; Hinweise gehen an diese Adresse.',
+    'settings.d.clinic': 'Ihre Praxis, neben Ihrem Namen angezeigt.',
+    'settings.d.role': 'Was Sie in der App sehen und tun können.',
+    'settings.d.labName': 'Das Labor, an das Ihre Fälle gehen.',
+    'settings.d.delete': 'Entfernt Ihr Konto und seine Daten dauerhaft.',
+    'settings.d.myLab': 'Ihr Labor, ein anderes beitreten oder es verlassen.',
+    'settings.d.labVis': 'Ob andere Labore und Zahnärzte Ihr Labor finden können.',
+    'settings.d.about': 'Die App, Support, Datenschutz und Ihre Kontodaten.',
+    'smile.pickFirst': 'Wählen Sie zuerst ein Modell im Tab „Modelle“.',
+    'smile.photoFirst': 'Laden Sie ein Patientenfoto, um das Modell zu platzieren.',
+    'sh.guideTapFor': 'Farbe antippen, um sie für {t} zu setzen',
+    'sh.pickGuide': 'VITA-Farbring',
+    'sh.savedShades': 'Patientenverlauf · frühere Farben',
+    'sh.tapToOpen': 'Zum Öffnen tippen',
+    'sh.pickSuggested': 'Vorschläge',
+    'sh.pickAll': 'Alle Farben',
+    'sh.pickAi': 'KI-Wahl',
+    'sh.pickGumTitle': 'Zahnfleischfarbe',
+    'sh.barAi': 'KI-Ergebnis',
+    'sh.barCorrection': 'Ihre Korrektur: {s} (noch nicht gespeichert)',
+    's.formats': 'Laden Sie oben eine PLY-, STL- oder OBJ-Datei hoch.',
+    'settings.sub': 'Konto, Einstellungen und App-Informationen',
+    'settings.sec.account': 'Konto & Sicherheit',
+    'settings.sec.myLab': 'Mein Labor',
+    'settings.sec.rejectSub': 'E-Mail-Adressen, die sich nicht registrieren oder anmelden können. Entfernen Sie eine, um die Registrierung wieder zu erlauben.',
+    'pick.search': 'Nach Name oder Praxis suchen',
+    'pick.none': 'Keine Treffer',
+    'admin.chooseDentistCount': 'Zahnarzt auswählen… ({n})',
+    'interpreter.loadingVoice': 'Stimme wird geladen…',
+    'lab.pickItem': 'Eintrag auswählen',
+    'lab.pickItemSub': 'Details und Aktionen erscheinen hier.',
+    'admin.moreCount': '+{n} weitere',
+    'interpreter.quickPhrases': 'Schnellsätze',
+    'interpreter.stopSpeaking': 'Stopp',
+    'interpreter.hold': 'Halten',
+    'ch.filterAll': 'Alle',
+    'ch.filterLabs': 'Labore',
+    'ch.filterDentists': 'Zahnärzte',
+    'lab.pickDentist': 'Zahnarzt auswählen',
+    'lab.pickDentistSub': 'Kontaktdaten, Patienten und Schnellaktionen erscheinen hier.',
+    'lab.dentistNoPatients': 'Noch keine Patienten von diesem Zahnarzt.',
+    'p.pickTitle': 'Patient auswählen',
+    'p.pickSub': 'Fall, Unterlagen und Details erscheinen hier.',
+    'case.items': 'In diesem Fall',
+    'case.saved': 'Gespeichert',
+    'case.missing': 'Fehlt',
+    'case.tileSuggested': 'Änderung vorgeschlagen',
+    'case.message': 'Nachricht',
+    'case.historyCount': 'Fallverlauf ({n})',
+    'case.hintInReview': 'Wartet auf Ihre Entscheidung',
+    'case.hintRejected': 'An den Zahnarzt zurückgeschickt. Sie können ihn trotzdem freigeben oder Ihr Feedback ändern.',
+    'case.updateFeedback': 'Feedback ändern',
+    'case.approveRejectedMsg': 'Sie hatten diesen Fall zurückgeschickt. Mit der Freigabe wird er abgeschlossen und der Zahnarzt benachrichtigt.',
+    'records.bestShade': 'Beste Übereinstimmung',
+    'records.dentistPick': 'Vom Zahnarzt gewählt',
+    'records.aiPick': 'KI-Treffer, bestätigt',
+    'records.aiWas': 'KI schlug {shade} vor',
+    'records.preview': 'Vorschau',
+    'records.openAll': 'Öffnen',
+    'case.event.created': 'Erstellt',
+    'case.event.scan_added': 'Scan hinzugefügt',
+    'case.event.submitted': 'An Labor gesendet',
+    'case.event.updated': 'Aktualisiert',
+    'case.event.reopened': 'Wieder geöffnet',
+    'case.event.approved': 'Freigegeben',
+    'case.event.rejected': 'Abgelehnt',
+    'case.event.admin_override': 'Status vom Admin geändert',
+    'case.event.reassigned': 'Neu zugewiesen',
+    'case.event.lab_left': 'Labor verlassen',
+    'review.title': 'Prüfung',
+    'review.sub': 'Fälle, die auf Ihre Entscheidung warten',
+    'review.empty': 'Nichts zu prüfen',
+    'review.emptySub': 'Von Ihren Zahnärzten gesendete Fälle erscheinen hier.',
+    'review.pick': 'Fall auswählen',
+    'review.pickSub': 'Unterlagen und Verlauf erscheinen hier.',
+    'review.tab.in_review': 'In Prüfung',
+    'review.tab.rejected': 'Abgelehnt',
+    'review.tab.completed': 'Freigegeben',
+    'review.emptyRejected': 'Keine abgelehnten Fälle',
+    'review.emptyRejectedSub': 'Abgelehnte Fälle erscheinen hier, bis der Zahnarzt erneut sendet.',
+    'review.emptyCompleted': 'Noch keine freigegebenen Fälle',
+    'review.emptyCompletedSub': 'Von Ihnen freigegebene Fälle erscheinen hier.',
+    'c.copied': 'Kopiert',
+    'avatar.cropTitle': 'Bewegen und skalieren',
+    'avatar.cropDone': 'Auswählen',
+    'avatar.cropHint': 'Zum Zoomen auseinanderziehen und das Foto im Kreis positionieren.',
+    'avatar.cropFailed': 'Dieses Bild konnte nicht geöffnet werden. Bitte ein anderes wählen.',
+    'avatar.pickTitle': 'Profilfoto',
+    'avatar.takePhoto': 'Foto aufnehmen',
+    'avatar.chooseLibrary': 'Aus Mediathek wählen',
+    'avatar.add': 'Profilfoto hinzufügen',
+    'avatar.retake': 'Foto ändern',
+    'avatar.permanent': 'Sichtbar für Ihre Kontakte. Nach der Registrierung nicht mehr änderbar.',
+    'avatar.required': 'Bitte fügen Sie ein Profilfoto hinzu.',
+    'avatar.change': 'Foto ändern',
+    'avatar.changed': 'Foto von {name} aktualisiert',
+    'avatar.changeMine': 'Mein Foto ändern',
+    'avatar.changedMine': 'Ihr Foto wurde aktualisiert',
+    'avatar.done': 'Fertig',
+    'admin.chatPlaceholder': 'Nachricht…',
+    'admin.chatEmpty': 'Noch keine Nachrichten. Sagen Sie Hallo.',
+    'admin.send': 'Senden',
+    'admin.chatPhoto': 'Foto',
+    'admin.chatVoice': 'Sprachnachricht',
+    'admin.chatVideo': 'Video',
+    'admin.chatDocument': 'Dokument',
+    'admin.pill.removalsOne': '1 Entfernungsanfrage',
+    'admin.waitingCountOne': '1 wartet auf Freigabe',
+    'admin.att.patientsOne': '1 nicht zugeordneter Patient',
+    'admin.att.removalsOne': '1 Entfernungsanfrage',
+    'admin.att.dentistsOne': '1 Zahnarzt ohne Labor',
+    'admin.att.rejectedOne': '1 abgelehnter Fall',
+    'admin.noChats': 'Noch keine Unterhaltungen',
+    'admin.openMessages': 'Öffnen',
+    'admin.unreadCount': '{n} ungelesen',
+    'admin.quickChatSub': 'Ihre letzten Unterhaltungen',
+    'admin.quickChat': 'Schnell-Chat',
+    'admin.cases': 'Fälle',
+    'admin.col.status': 'Status',
+    'admin.col.patient': 'Patient',
+    'admin.recentPatientsSub': 'Neueste Fallupdates aller Labore',
+    'admin.recentPatients': 'Letzte Patientenaktivität',
+    'admin.qa.rejectList': 'Sperrliste',
+    'admin.qa.patients': 'Patienten zuweisen',
+    'admin.qa.assign': 'Zahnärzte zuweisen',
+    'admin.qa.signups': 'Registrierungen prüfen',
+    'admin.quickActions': 'Schnellaktionen',
+    'admin.sev.low': 'Info',
+    'admin.sev.medium': 'Bald',
+    'admin.sev.high': 'Dringend',
+    'admin.att.none': 'Gerade ist nichts zu tun',
+    'admin.att.rejectedSub': 'Warten auf Überarbeitung durch den Zahnarzt.',
+    'admin.att.rejected': '{n} abgelehnte Fälle',
+    'admin.att.dentistsSub': 'Ohne Labor können sie nicht arbeiten.',
+    'admin.att.dentists': '{n} Zahnärzte ohne Labor',
+    'admin.att.removalsSub': 'Labore warten auf Ihre Entscheidung.',
+    'admin.att.removals': '{n} Entfernungsanfragen',
+    'admin.att.patientsSub': 'Einem Labor zuweisen, damit der Fall betreut wird.',
+    'admin.att.patients': '{n} nicht zugeordnete Patienten',
+    'admin.attentionSub': 'Dinge, die nur Sie lösen können',
+    'admin.attention': 'Handlungsbedarf',
+    'admin.waitingCount': '{n} warten auf Freigabe',
+    'admin.tile.openCases': 'Offene Fälle',
+    'admin.pill.inReview': '{n} in Prüfung',
+    'admin.pill.removals': '{n} Entfernungsanfragen',
+    'admin.pill.noLab': '{n} ohne Labor',
+    'admin.pill.clear': 'Alles erledigt',
+    'admin.pill.review': 'Prüfen',
+    'admin.signOutTitle': 'Vom Admin-Konto abmelden?',
+    'admin.allNotifications': 'Alle Benachrichtigungen',
+    'admin.markAllRead': 'Alle gelesen',
+    'admin.showInUsers': 'In Benutzern anzeigen',
+    'admin.searchHint': 'Zahnärzte, Labore, Praxen suchen…',
+    'admin.hiEvening': 'Guten Abend, {name}',
+    'admin.hiAfternoon': 'Guten Tag, {name}',
+    'admin.hiMorning': 'Guten Morgen, {name}',
+    'admin.since': 'seit {when}',
+    'admin.unassigned.no_lab': 'Ohne Labor freigegeben',
+    'admin.unassigned.removed': 'Aus dem Labor entfernt',
+    'admin.unassigned.lab_deleted': 'Labor gelöscht',
+    'admin.reassignedTo': '{name} an {dentist} ({lab}) übergeben',
+    'admin.noDentistLabChooses': 'Kein Zahnarzt: {lab} wählt aus',
+    'admin.pickDentistMsg': 'Optional. Ohne Zahnarzt wartet der Patient, bis {lab} einen auswählt.',
+    'admin.pickDentistTitle': 'Einem Zahnarzt von {lab} zuweisen?',
+    'admin.fromOwner': 'von {name}',
+    'admin.waitingFor': 'Wartet auf {lab}',
+    'admin.reactivated': '{name} reaktiviert',
+    'admin.reactivateMsg': 'Das Konto kann sich wieder anmelden. Während der Deaktivierung wurde nichts entfernt.',
+    'admin.reactivateTitle': '{name} reaktivieren?',
+    'admin.reactivate': 'Reaktivieren',
+    'nav.signups': 'Registrierungen',
+    'errors.registrationRejected': 'Ihre Registrierung wurde vom Administrator abgelehnt. Mit dieser E-Mail-Adresse können Sie sich weder registrieren noch anmelden. Wenden Sie sich an den Support, falls das ein Irrtum ist.',
+    'auth.rejectedTitle': 'Registrierung abgelehnt',
+    'admin.dashTitle': 'Admin-Übersicht',
+    'labDash.sub': 'Das wartet heute auf Ihr Labor.',
+    'labDash.searchHint': 'Zahnärzte und Patienten durchsuchen',
+    'labDash.tile.transfers': 'Übergaben an Sie',
+    'labDash.tile.joins': 'Beitrittsanfragen',
+    'labDash.tile.tickets': 'Freigabeanfragen',
+    'labDash.tile.review': 'Fälle zur Prüfung',
+    'labDash.action': 'Wartet auf Sie',
+    'labDash.actionNone': 'Nichts wartet auf Ihr Labor.',
+    'labDash.row.transfer': 'Patientenübergabe — annehmen oder ablehnen',
+    'labDash.row.join': 'Möchte Ihrem Labor beitreten',
+    'labDash.row.ticket': '{from} möchte mit {to} teilen',
+    'labDash.review': 'Prüfwarteschlange',
+    'labDash.dentists': 'Ihre Zahnärzte',
+    'dash.sub': 'Ihre Stuhlseite für heute.',
+    'dash.searchHint': 'Patienten suchen',
+    'dash.tile.attention': 'Braucht Aufmerksamkeit',
+    'dash.tile.today': 'Termine heute',
+    'dash.tile.messages': 'Ungelesene Nachrichten',
+    'dash.tile.rejected': 'Abgelehnte Fälle',
+    'dash.pill.noneToday': 'Keine heute',
+    'dash.quickActions': 'Schnellaktionen',
+    'dash.quickActionsSub': 'Zu den täglichen Werkzeugen',
+    'dash.qa.newPatient': 'Neuer Patient',
+    'dash.qa.camera': 'Kamera',
+    'dash.qa.shade': 'Farbbestimmung',
+    'dash.qa.scans': 'Scans',
+    'dash.qa.smile': 'Smile Preview',
+    'dash.qa.appointments': 'Termine',
+    'dash.attention': 'Braucht Aufmerksamkeit',
+    'dash.attentionNone': 'Gerade braucht nichts Ihre Aufmerksamkeit.',
+    'dash.recentPatients': 'Aktuelle Patienten',
+    'dash.recentPatientsSub': 'Neueste Updates in Ihrer Liste',
+    'share.whoHasAccess': 'Wer hat Zugriff',
+    'share.onlyOwner': 'Bisher hat nur der Eigentümer Zugriff.',
+    'share.ownerSection': 'Eigentümer',
+    'share.sharedWithSection': 'Geteilt mit',
+    'share.youHaveAccess': 'Sie haben geteilten Zugriff auf diesen Patienten.',
+    'share.yourAccess': 'Ihr Zugriff',
+    'appt.dentist': 'Zahnarzt',
+    'appt.assignDentist': 'Zahnarzt zuweisen',
+    'admin.dashSub': 'Das passiert heute bei Laboren, Zahnärzten und Fällen.',
+    'admin.tile.signups': 'Offene Registrierungen',
+    'admin.tile.dentists': 'Zahnärzte',
+    'admin.tile.labs': 'Labore',
+    'admin.tile.unassignedDentists': 'Zahnärzte ohne Labor',
+    'admin.tile.unassignedPatients': 'Nicht zugeordnete Patienten',
+    'admin.tile.removals': 'Entfernungsanfragen',
+    'admin.casesByStatus': 'Fälle nach Status',
+    'admin.casesTotal': '{n} Fälle insgesamt',
+    'admin.signupQueue': 'Registrierungsanfragen',
+    'admin.seeAll': 'Alle anzeigen',
+    'admin.loadFailed': 'Laden fehlgeschlagen',
+    'admin.retry': 'Erneut versuchen',
+    'admin.signupsTitle': 'Registrierungen',
+    'admin.signupsSub': 'Jedes neue Konto freigeben oder ablehnen',
+    'admin.pending': 'Offen',
+    'admin.rejectList': 'Sperrliste',
+    'admin.noSignups': 'Keine offenen Registrierungen',
+    'admin.noSignupsSub': 'Neue Registrierungen von Zahnärzten und Laboren erscheinen hier zur Freigabe.',
+    'admin.noRejected': 'Die Sperrliste ist leer',
+    'admin.noRejectedSub': 'Abgelehnte E-Mail-Adressen werden hier aufgeführt.',
+    'admin.approve': 'Freigeben',
+    'admin.reject': 'Ablehnen',
+    'admin.continue': 'Weiter',
+    'admin.approveTitle': '{name} freigeben?',
+    'admin.approveDentistMsg': 'Optional ein Labor zuweisen. Ohne Labor wählt der Zahnarzt bei der ersten Anmeldung eines, und dieses Labor muss ihn annehmen.',
+    'admin.approveNoLab': 'Ohne Labor freigeben',
+    'admin.approveLabMsg': 'Das Labor kann sich sofort anmelden.',
+    'admin.approved': '{name} freigegeben',
+    'admin.rejectTitle': '{name} ablehnen?',
+    'admin.rejectReasonMsg': 'Optional einen Grund angeben. Er steht in der E-Mail, die wir senden.',
+    'admin.reasonOptional': 'Grund (optional)',
+    'admin.rejectConfirmTitle': 'Registrierung ablehnen?',
+    'admin.rejectConfirmMsg': 'Das Konto wird gelöscht und {email} kommt auf die Sperrliste. Die Person erhält dazu eine E-Mail. Mit dieser Adresse ist weder Registrierung noch Anmeldung möglich, bis Sie sie von der Liste entfernen.',
+    'admin.rejected': '{name} abgelehnt',
+    'admin.clinic': 'Praxis',
+    'admin.signedUp': 'Registriert {when}',
+    'admin.reason': 'Grund',
+    'admin.noReason': 'keiner angegeben',
+    'admin.rejectedBy': 'Abgelehnt {when} von {by}',
+    'admin.unreject': 'Von Liste entfernen',
+    'admin.unrejectTitle': 'Von der Sperrliste entfernen?',
+    'admin.unrejectMsg': '{email} kann sich wieder registrieren. Das ist keine Freigabe: Eine neue Registrierung braucht weiterhin Ihre Zustimmung.',
+    'admin.unrejected': '{email} von der Sperrliste entfernt',
+    'admin.usersSub': 'Labore und ihre Zahnärzte',
+    'admin.byLab': 'Nach Labor',
+    'admin.unassignedDentists': 'Ohne Labor',
+    'admin.removalRequests': 'Entfernungsanfragen',
+    'admin.searchUsers': 'Labore, Zahnärzte, Praxen, E-Mails suchen…',
+    'admin.noLabs': 'Noch keine Labore',
+    'admin.noLabsSub': 'Freigegebene Labore erscheinen hier mit ihren Zahnärzten.',
+    'admin.noMatches': 'Keine Treffer',
+    'admin.noMatchesSub': 'Anderen Namen, andere Praxis oder E-Mail versuchen.',
+    'admin.dentistCount': '{n} Zahnärzte',
+    'admin.dentistCountOne': '1 Zahnarzt',
+    'admin.hidden': 'Verborgen',
+    'admin.hiddenFromLabs': 'Für andere Labore verborgen',
+    'admin.dentistsHidden': 'Zahnärzte verborgen',
+    'admin.labNoDentists': 'Noch keine Zahnärzte in diesem Labor.',
+    'admin.noLab': 'Kein Labor',
+    'admin.noClinic': 'Keine Praxis',
+    'admin.deactivatedBadge': 'Deaktiviert',
+    'admin.assignLab': 'Labor zuweisen',
+    'admin.move': 'Verschieben',
+    'admin.more': 'Mehr',
+    'admin.deactivateOrDelete': 'Deaktivieren oder löschen…',
+    'admin.moveTitle': '{name} verschieben',
+    'admin.moveMsg': 'Labor wählen, zu dem dieser Zahnarzt gehört.',
+    'admin.removeFromLab': 'Aus dem Labor entfernen',
+    'admin.moveConfirmTitle': '{name} zu {lab} verschieben?',
+    'admin.moveNoApproval': '{lab} muss nicht zustimmen.',
+    'admin.leaveLabEffects': '{lab} verliert den Zugriff auf die offenen Fälle dieses Zahnarztes; Fälle in Prüfung gehen zurück auf „In Bearbeitung“. Abgeschlossene Fälle kann {lab} weiterhin ansehen.',
+    'admin.removeEffects': 'Der Zahnarzt behält seine Patienten und kann die App weiter nutzen, ohne Labor aber keine Fälle einreichen und nicht über ein Labor teilen. Er wird gebeten, ein Labor zu wählen – oder Sie weisen eines unter „Ohne Labor“ zu.',
+    'admin.removeTitle': '{name} aus dem Labor entfernen?',
+    'admin.remove': 'Entfernen',
+    'admin.moved': '{name} zu {lab} verschoben',
+    'admin.removedFromLab': '{name} aus dem Labor entfernt',
+    'admin.deleteTitle': '{name} löschen?',
+    'admin.deleteDentistEffects': 'Deaktivieren: keine Anmeldung mehr möglich. Alles bleibt erhalten, und Sie können das Konto jederzeit reaktivieren.\n\nEndgültig löschen: kann nicht rückgängig gemacht werden. Die Patienten bleiben erhalten und werden nicht zugeordnet (Patienten › Ohne Zuordnung).',
+    'admin.deleteLabEffects': 'Deaktivieren: Das Labor kann sich nicht mehr anmelden. Alles bleibt erhalten, und Sie können es jederzeit reaktivieren.\n\nEndgültig löschen: kann nicht rückgängig gemacht werden. Seine {n} werden nicht zugeordnet, und Fälle in Prüfung gehen zurück auf „In Bearbeitung“. Patienten sind nicht betroffen.',
+    'admin.deactivate': 'Deaktivieren',
+    'admin.deletePermanently': 'Endgültig löschen',
+    'admin.deactivated': '{name} deaktiviert',
+    'admin.deleted': '{name} gelöscht',
+    'admin.noUnassignedDentists': 'Jeder Zahnarzt hat ein Labor',
+    'admin.noUnassignedDentistsSub': 'Hier erscheinen Zahnärzte, deren Labor gelöscht wurde, die entfernt wurden oder ohne Labor freigegeben wurden.',
+    'admin.noRemovals': 'Keine Entfernungsanfragen',
+    'admin.noRemovalsSub': 'Wenn ein Labor einen Zahnarzt entfernen möchte, entscheiden Sie hier.',
+    'admin.requestedBy': 'Angefragt von {lab} · {when}',
+    'admin.deny': 'Ablehnen',
+    'admin.approveRemovalTitle': '{name} aus {lab} entfernen?',
+    'admin.denyRemovalTitle': '{name} in {lab} behalten?',
+    'admin.denyRemovalMsg': 'Der Zahnarzt bleibt im Labor und die Anfrage wird geschlossen.',
+    'admin.removalApproved': 'Zahnarzt aus dem Labor entfernt',
+    'admin.removalDenied': 'Anfrage abgelehnt',
+    'admin.searchLabs': 'Labore suchen',
+    'admin.noLabsFound': 'Keine Labore gefunden',
+    'admin.patientsSub': 'Alle Patienten mit Besitzer, Labor und Fallverlauf',
+    'admin.allPatients': 'Alle Patienten',
+    'admin.unassignedPatients': 'Ohne Zuordnung',
+    'admin.searchPatients': 'Patienten suchen…',
+    'admin.filterLab': 'Nach Labor filtern',
+    'admin.allLabs': 'Alle Labore',
+    'admin.noPatients': 'Keine Patienten gefunden',
+    'admin.noPatientsSub': 'Anderen Status, anderes Labor oder andere Suche versuchen.',
+    'admin.noUnassignedPatients': 'Keine nicht zugeordneten Patienten',
+    'admin.noUnassignedPatientsSub': 'Hier erscheinen Patienten, deren Zahnarzt gelöscht wurde oder für die ein Labor noch einen Zahnarzt wählen muss.',
+    'admin.pickPatient': 'Patienten auswählen',
+    'admin.pickPatientSub': 'Besitzer, Labor, Unterlagen und Fallverlauf erscheinen hier.',
+    'admin.owner': 'Besitzer',
+    'admin.lab': 'Labor',
+    'admin.updated': 'Aktualisiert {when}',
+    'admin.waitingForLab': 'Wartet auf Labor',
+    'admin.ownerDeleted': 'Zahnarzt gelöscht',
+    'admin.back': 'Zurück',
+    'admin.overrideStatus': 'Status ändern',
+    'admin.overrideMsg': 'Das überschreibt den Fallstatus und wird mit Ihrer Notiz im Fallverlauf protokolliert.',
+    'admin.noteRequired': 'Notiz (erforderlich)',
+    'admin.statusChanged': 'Status auf {status} geändert',
+    'admin.reassignLab': 'Labor neu zuweisen',
+    'admin.reassignTitle': '{name} neu zuweisen',
+    'admin.reassignMsg': 'Empfangendes Labor wählen. Danach können Sie einen seiner Zahnärzte auswählen oder das dem Labor überlassen.',
+    'admin.reassigned': '{name} an {lab} übergeben',
+    'admin.sharedWith': 'Geteilt mit',
+    'admin.nobody': 'Niemandem',
+    'admin.lastUpdate': 'Letzte Änderung',
+    'admin.records': 'Unterlagen',
+    'admin.shadeAnalyses': 'Farbanalysen',
+    'admin.none': 'Noch keine',
+    'admin.history': 'Fallverlauf',
+    'admin.noHistory': 'Noch keine Ereignisse.',
+    'admin.event.created': 'Erstellt',
+    'admin.event.submitted': 'An Labor übermittelt',
+    'admin.event.approved': 'Freigegeben',
+    'admin.event.rejected': 'Abgelehnt',
+    'admin.event.updated': 'Aktualisiert',
+    'admin.event.reassigned': 'Neu zugewiesen',
+    'admin.event.admin_override': 'Status vom Admin geändert',
     'nav.settings': 'Einstellungen',
     'nav.profile': 'Profil',
     'proEdition': 'Pro Edition',
@@ -2448,6 +3904,8 @@ class AppLocalizations {
     'about.linksTitle': 'Support & Rechtliches',
     'about.accountTitle': 'Ihr Konto',
     'about.userId': 'Benutzer-ID',
+    'about.name': 'Name',
+    'about.clinic': 'Praxis',
     'about.credit': 'Design und Entwicklung von',
     'about.f.shade': 'KI-Farbbestimmung',
     'about.f.shadeSub': 'Zahn fotografieren und in Sekunden eine Farbempfehlung erhalten.',
@@ -2485,7 +3943,8 @@ class AppLocalizations {
     'settings.german': 'Deutsch',
     'settings.deleteAccount': 'Konto löschen',
     'settings.deleteAccountBody':
-        'Dadurch werden Ihr Konto und zugehörige Daten dauerhaft entfernt. '
+        'Dadurch werden Ihr Login und Ihre persönlichen Daten dauerhaft entfernt. '
+        'Patientenakten werden nicht gelöscht, sie bleiben bei der Praxis. '
         'Geben Sie DELETE ein, um fortzufahren.',
     'settings.deleteConfirmToken': 'DELETE',
     'settings.continue': 'Weiter',
@@ -2570,12 +4029,6 @@ class AppLocalizations {
     'labs.verified': 'Geprüft',
     'labs.unverified': 'Ungeprüft',
     'labs.verify': 'Nutzer prüfen',
-    'labs.delete': 'Nutzer löschen',
-    'labs.deleteTitle': 'Nutzer löschen?',
-    'labs.deleteBody':
-        'Wie möchten Sie {name} entfernen? Soft-Delete behält die Daten; Hard-Delete löscht das Konto dauerhaft.',
-    'labs.softDelete': 'Daten behalten (soft)',
-    'labs.hardDelete': 'Endgültig löschen',
     'labs.count': '{shown} angezeigt · {total} gesamt',
     'labs.loading': 'Labore werden geladen…',
     'labs.openingChat': 'Unterhaltung wird geöffnet…',
@@ -2630,7 +4083,7 @@ class AppLocalizations {
     'reports.exports': 'Exporte',
     'reports.exportsHint':
         'Eine druckbare Klinikübersicht für den ausgewählten Zeitraum.',
-    'reports.summaryExport': 'Klinikübersicht',
+    'reports.summaryExport': 'Übersicht teilen',
     'reports.summaryTitle': 'Klinikbericht',
     'reports.close': 'Schließen',
     'reports.newInPeriod': 'neu im Zeitraum',
@@ -2644,6 +4097,10 @@ class AppLocalizations {
     'reports.casesCol': 'Fälle',
     'reports.artifacts': 'Artefakte',
     'reports.copy': 'Kopieren',
+    'reports.copied': 'Klinik-Zusammenfassung kopiert — zum Teilen einfach einfügen',
+    'reports.share': 'Teilen…',
+    'reports.shareHint': 'Teilen Sie diese Klinikübersicht als Text, oder kopieren Sie sie zum Einfügen.',
+    'reports.throughputHint': 'Fälle eröffnet vs. abgeschlossen je Woche',
     'reports.periodLine': 'Zeitraum: {period}',
     'reports.activeShort': 'Aktiv',
     'reports.avgTimeShort': 'Ø Zeit',
@@ -2653,6 +4110,15 @@ class AppLocalizations {
     'reports.followUpHint': 'Fälle, die eine Nachverfolgung brauchen',
     'reports.allClear': 'Alles erledigt',
     'reports.patientFallback': 'Patient',
+    'reports.activity': 'Neu vs. abgeschlossen',
+    'reports.activityHint': 'Im Zeitraum eröffnete und abgeschlossene Fälle',
+    'reports.coverageShort': 'Abdeckung',
+    'reports.opened': 'Eröffnet',
+    'reports.finished': 'Fertig',
+    'reports.coverageHint': 'Patienten mit Scans, Fotos, Farbe oder Lächeln',
+    'reports.intake': 'Neue Patienten',
+    'reports.completedWeekly': 'Abgeschlossene Fälle',
+    'reports.perWeek': 'Pro Woche',
     'notifications.subtitle':
         'Aufgaben zu Ihren Patienten — Scans nötig, Laborprüfung, Farbbestätigung',
     'notifications.empty': 'Alles erledigt — keine Benachrichtigungen',
@@ -2668,6 +4134,8 @@ class AppLocalizations {
     'notifications.typeCase': 'Fall',
     'notifications.typeScanQuality': 'Scan-Qualität',
     'notifications.typeShade': 'Farbe',
+    'notifications.typeSmile': 'Smile-Vorschau',
+    'notifications.typeNote': 'Klinische Notiz',
     'notifications.typeAppointment': 'Termin',
     'notifications.typeScanBody': 'Scanbody',
     'notifications.typeSync': 'Sync',
@@ -2739,8 +4207,7 @@ class AppLocalizations {
     'messages.noConversations': 'Noch keine Unterhaltungen.',
     'messages.noMatch': 'Keine Unterhaltungen passen zur Suche.',
     'messages.newTitle': 'Neue Nachricht',
-    'scans.subtitle':
-        'PLY / STL / OBJ hochladen · Vorschau Punkte / Solid auf dem Gerät',
+    'scans.subtitle': 'Intraorale Scans dieses Patienten, vor dem Versand ans Labor geprüft',
     'scans.upload': 'Scan hochladen',
     'scans.uploading': 'Wird hochgeladen…',
     'scans.delete': 'Scan löschen',
@@ -2809,6 +4276,18 @@ class AppLocalizations {
     'patients.deleteNoteTitle': 'Notiz löschen?',
     'patients.deleteNoteBody': 'Diese klinische Notiz wird dauerhaft entfernt.',
     'patients.noteHint': 'Klinische Notiz hinzufügen…',
+    'patients.dentistNote': 'Zahnarztnotiz',
+    'patients.dentistNotes': 'Zahnarztnotizen',
+    'patients.dentistNoteHint': 'Zahnarztnotiz hinzufügen…',
+    'patients.noDentistNotes': 'Noch keine Zahnarztnotizen.',
+    'patients.deleteDentistNoteBody':
+        'Diese Zahnarztnotiz wird dauerhaft entfernt.',
+    'patients.labNote': 'Labornotiz',
+    'patients.labNotes': 'Labornotizen',
+    'patients.labNoteHint': 'Labornotiz hinzufügen…',
+    'patients.noLabNotes': 'Noch keine Labornotizen.',
+    'patients.deleteLabNoteBody':
+        'Diese Labornotiz wird dauerhaft entfernt.',
     'patients.noteAdded': 'Notiz hinzugefügt',
     'patients.noteUpdated': 'Notiz aktualisiert',
     'patients.noteDeleted': 'Notiz gelöscht',
@@ -3041,7 +4520,7 @@ class AppLocalizations {
     'smile.loadSmileHintPortrait':
         'Tippen Sie dann unten in der Bibliothek auf eine Form und platzieren Sie sie über den Zähnen.',
     'smile.placement': 'Platzierung',
-    'smile.batemModels': 'Batem-Modelle',
+    'smile.batemModels': 'Zahnformen',
     'smile.modelOpen': 'Offen',
     'smile.modelClosed': 'Geschlossen',
     'smile.useThisModel': 'Dieses Modell verwenden',
@@ -3092,6 +4571,12 @@ class AppLocalizations {
         'Sie haben einen Termin für {name} aktualisiert.',
     'notifications.msgUpdatedAppt':
         '{who} hat einen Termin für {name} aktualisiert.',
+    'notifications.msgYouSetApptStatus':
+        'Sie haben den Termin für {name} auf „{status}“ gesetzt.',
+    'notifications.msgSetApptStatus':
+        '{who} hat den Termin für {name} auf „{status}“ gesetzt.',
+    'notifications.msgYouAddedNote': 'Sie haben eine Notiz für {name} hinzugefügt.',
+    'notifications.msgAddedNote': '{who} hat eine Notiz für {name} hinzugefügt.',
     'notifications.msgUploadedScan':
         '{who} hat einen 3D-Scan für {name} hochgeladen.',
     'notifications.msgSavedShade':
@@ -3109,10 +4594,51 @@ class AppLocalizations {
     'notifications.fallbackScanQuality': 'Scan-Qualitätswarnung für {name}',
     'notifications.fallbackShade': 'Farb-Update für {name}',
     'notifications.fallbackAppointment': 'Termin-Update für {name}',
+    'notifications.fallbackNote': 'Neue Notiz für {name}',
+    'notifications.fallbackSmile': 'Smile-Update für {name}',
     'notifications.fallbackCase': 'Fall-Update für {name}',
     'notifications.fallbackScanBody': 'Scanbody-Update für {name}',
     'notifications.fallbackSync': 'Sync-Update für {name}',
     'notifications.fallbackExport': 'Export-Update für {name}',
+    'notifications.msgAskedToShare':
+        '{who} möchte {name} mit {target} teilen.',
+    'notifications.msgLabReviewShare':
+        'Ihr Labor prüft das Teilen von {name} mit {target}.',
+    'notifications.msgAskedJoinLab': '{who} möchte Ihrem Labor beitreten.',
+    'notifications.msgAskedTransfer': '{who} möchte zu {lab} wechseln.',
+    'notifications.msgJoinedLabTransferred':
+        '{who} ist Ihrem Labor beigetreten (Wechsel).',
+    'notifications.msgYourTransferApproved':
+        'Ihr Wechsel zu {lab} wurde genehmigt.',
+    'notifications.msgLabAcceptedYou': '{lab} hat Sie aufgenommen.',
+    'notifications.msgLabDeclinedYou':
+        '{lab} hat Ihre Anfrage abgelehnt. Sie können erneut anfragen.',
+    'notifications.msgLabTransferDeclined':
+        'Ihre Anfrage zum Laborwechsel wurde abgelehnt.',
+    'notifications.msgLabAskedRemove': 'Ein Labor möchte {who} entfernen.',
+    'notifications.msgCreatedAssigned':
+        '{name} wurde angelegt und Ihnen zugewiesen.',
+    'notifications.msgAssignedToYou': '{name} wurde Ihnen zugewiesen.',
+    'notifications.msgMovedDentist':
+        '{name} wurde einem anderen Zahnarzt zugewiesen.',
+    'notifications.msgTransferRequest': 'Übertragungsanfrage für {name}.',
+    'notifications.msgSharedWithYou': '{name} wurde mit Ihnen geteilt.',
+    'notifications.msgTransferOfStatus':
+        'Übertragung von {name} wurde {status}.',
+    'notifications.msgSubmittedReview':
+        '{name} wurde zur Prüfung eingereicht.',
+    'notifications.msgUpdatedByDentist':
+        '{name} wurde vom Zahnarzt aktualisiert.',
+    'notifications.msgReopenedByDentist':
+        '{name} wurde vom Zahnarzt wieder geöffnet.',
+    'notifications.msgLabApproved': 'Das Labor hat {name} freigegeben.',
+    'notifications.msgLabRejected': 'Das Labor hat {name} abgelehnt: {detail}',
+    'notifications.msgAdminSetStatus':
+        'Ein Administrator hat {name} auf „{status}“ gesetzt: {note}',
+    'notifications.transferApproved': 'genehmigt',
+    'notifications.transferDeclined': 'abgelehnt',
+    'notifications.transferCancelled': 'abgebrochen',
+    'notifications.transferPending': 'noch offen',
     'patient.readyForDetect': 'Bereit zur Erkennung',
     'patient.noneYet': 'Noch keine',
     'patient.availableCount': '{n} verfügbar',
@@ -3386,6 +4912,8 @@ class AppLocalizations {
     'ch.vidFail': 'Video konnte nicht geladen werden',
     'p.unnamed': 'Unbenannter Patient',
     'p.unknownPr': 'Unbekannter Behandler',
+    'p.noteFromLab': 'Vom Labor',
+    'p.noteFromDentist': 'Vom Zahnarzt',
     'p.owner': 'Inhaber',
     'p.busy': 'Eine andere Patientenänderung läuft bereits',
     'lab.busy': 'Eine andere Laboraktion läuft bereits',
@@ -3515,6 +5043,11 @@ class AppLocalizations {
     'p.reqN': '{n} Anfragen warten auf Ihre Entscheidung.',
     'ap.min': '{m} Min.',
     's.uploaded': '{f}-Scan hochgeladen',
+    's.saveToCase': 'Zur Akte speichern',
+    's.savedToCase': '{n} Scan(s) zur Akte gespeichert',
+    's.alreadyOnCase': 'Alle Scans sind bereits in der Akte',
+    's.onCase': 'In Akte',
+    's.libraryOnly': 'Bibliothek',
     'sb.pxEnter': 'Ø {p} px (mm eingeben)',
     'sb.pxEnter2': '⌀ {p} px · mm eingeben',
     'ms.hudTris': 'Web · {n} Dreiecke · ziehen/zoomen',
@@ -3524,6 +5057,8 @@ class AppLocalizations {
     'ms.gpuPts': 'iPad-GPU · {n} Punkte',
     'img.read': 'Dieses Foto konnte nicht gelesen werden. Versuchen Sie ein anderes Bild.',
     'img.heic': 'Dieses Foto konnte nicht gelesen werden. Exportieren Sie es in „Fotos“ als JPEG und versuchen Sie es erneut.',
+    'offline.tooLarge': 'Diese Datei ist zu groß für den verschlüsselten Offline-Speicher dieses Geräts. Stellen Sie eine Netzwerkverbindung her und laden Sie sie erneut hoch.',
+    'offline.tooLargeWeb': 'Diese Datei ist zu groß für den Offline-Speicher des Browsers. Bleiben Sie online und laden Sie sie erneut hoch – Dateien gehen bei bestehender Verbindung direkt an den Server.',
     'err.unexpected': 'Ein unerwarteter Fehler ist aufgetreten.',
     'err.network': 'Verbindungsproblem. Bitte prüfen Sie Ihre Internetverbindung und versuchen Sie es erneut.',
     'sh.dragBottomLip': 'Ziehen Sie die waagerechte Linie an der Unterlippe nach oben oder unten, um sie anzupassen.',

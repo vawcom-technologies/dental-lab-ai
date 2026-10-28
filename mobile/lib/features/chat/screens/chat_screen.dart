@@ -11,6 +11,8 @@ import '../models/chat_models.dart';
 import '../state/chat_controller.dart';
 import '../widgets/chat_bubble.dart';
 import '../widgets/chat_composer.dart';
+import '../widgets/user_profile_sheet.dart';
+import '../../../core/widgets/page_kit.dart';
 
 /// Soft iPadOS Messages canvas.
 const _kChatCanvas = Color(0xFFF2F2F7);
@@ -101,11 +103,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     if (active == null) {
       final loc = AppLocalizations.of(context);
-      return GlassSurface(
-        borderRadius: BorderRadius.circular(28),
-        blur: 28,
-        tint: Colors.white.withValues(alpha: 0.42),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
+      return AdminCard(
         child: Center(
           child: Text(
             loc.messagesSelectConversation,
@@ -121,113 +119,135 @@ class _ChatScreenState extends State<ChatScreen> {
     final partner = active.partner;
     final messages = controller.messages;
 
-    return GlassSurface(
-      borderRadius: BorderRadius.circular(28),
-      blur: 28,
-      tint: Colors.white.withValues(alpha: 0.42),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
+    // Shell doesn't resize for the keyboard; lift the composer ourselves.
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom;
+    return AdminCard(
       padding: EdgeInsets.zero,
-      child: Column(
-        children: [
-          _ChatHeader(
-            partner: partner,
-            connected: controller.socketConnected,
-            showBack: widget.showBack,
-            onBack: widget.onBack,
-            onClose: widget.onClose,
-          ),
-          Container(
-            height: 0.6,
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            color: Colors.white.withValues(alpha: 0.45),
-          ),
-          Expanded(
-            child: ColoredBox(
-              color: _kChatCanvas,
-              child: controller.loadingMessages && messages.isEmpty
-                  ? ToothPageLoader(message: AppLocalizations.of(context).messagesLoadingChat)
-                  : messages.isEmpty
-                      ? Center(
-                          child: Text(
-                            AppLocalizations.of(context).messagesEmpty,
-                            style: const TextStyle(
-                              color: AppColors.muted,
-                              fontSize: 16,
-                            ),
-                          ),
+      // Clip the canvas/composer to the card radius so square fills don't
+      // sit on top of the rounded shell (rounded one side, flat the other).
+      child: ClipRRect(
+        borderRadius: AdminCard.radius,
+        child: Padding(
+          padding: EdgeInsets.only(bottom: keyboard),
+          child: Column(
+            children: [
+              _ChatHeader(
+                partner: partner,
+                connected: controller.socketConnected,
+                showBack: widget.showBack,
+                onBack: widget.onBack,
+                onClose: widget.onClose,
+              ),
+              Container(
+                height: 0.6,
+                margin: const EdgeInsets.symmetric(horizontal: 16),
+                color: Colors.white.withValues(alpha: 0.45),
+              ),
+              Expanded(
+                child: ColoredBox(
+                  color: _kChatCanvas,
+                  child: controller.loadingMessages && messages.isEmpty
+                      ? ToothPageLoader(
+                          inPlace: true,
+                          message: AppLocalizations.of(context)
+                              .messagesLoadingChat,
                         )
-                      : Builder(
-                          builder: (context) {
-                            final me = controller.currentUserId;
-                            String? lastSeenMineId;
-                            if (me != null) {
-                              for (var i = messages.length - 1; i >= 0; i--) {
-                                final m = messages[i];
-                                if (m.senderId == me && m.isRead) {
-                                  lastSeenMineId = m.id;
-                                  break;
-                                }
-                              }
-                            }
-                            return ListView.builder(
-                              controller: _scroll,
-                              reverse: true,
-                              padding:
-                                  const EdgeInsets.fromLTRB(16, 14, 16, 10),
-                              itemCount: messages.length +
-                                  (controller.loadingOlder ? 1 : 0),
-                              itemBuilder: (context, index) {
-                                if (controller.loadingOlder &&
-                                    index == messages.length) {
-                                  return const Padding(
-                                    padding: EdgeInsets.all(12),
-                                    child: Center(
-                                      child: ToothLoadingIndicator(size: 28),
-                                    ),
-                                  );
-                                }
-                                final message =
-                                    messages[messages.length - 1 - index];
-                                final mine =
-                                    me != null && message.senderId == me;
-                                return ChatMessageBubble(
-                                  message: message,
-                                  mine: mine,
-                                  mediaLink:
-                                      controller.apiService.chatMediaLink,
-                                  showSeenEye: mine &&
-                                      lastSeenMineId != null &&
-                                      message.id == lastSeenMineId,
-                                  onReply: () =>
-                                      controller.setReplyTo(message),
-                                  onPatientMention: (patientId) {
-                                    final session = widget.patientSession;
-                                    if (session == null ||
-                                        session.openingPatientDetail) {
-                                      return;
+                      : messages.isEmpty
+                          ? Center(
+                              child: Text(
+                                AppLocalizations.of(context).messagesEmpty,
+                                style: const TextStyle(
+                                  color: AppColors.muted,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            )
+                          : Builder(
+                              builder: (context) {
+                                final me = controller.currentUserId;
+                                String? lastSeenMineId;
+                                if (me != null) {
+                                  for (var i = messages.length - 1;
+                                      i >= 0;
+                                      i--) {
+                                    final m = messages[i];
+                                    if (m.senderId == me && m.isRead) {
+                                      lastSeenMineId = m.id;
+                                      break;
                                     }
-                                    session.requestOpenPatientDetail(patientId);
+                                  }
+                                }
+                                return ListView.builder(
+                                  controller: _scroll,
+                                  reverse: true,
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    14,
+                                    16,
+                                    10,
+                                  ),
+                                  itemCount: messages.length +
+                                      (controller.loadingOlder ? 1 : 0),
+                                  itemBuilder: (context, index) {
+                                    if (controller.loadingOlder &&
+                                        index == messages.length) {
+                                      return const Padding(
+                                        padding: EdgeInsets.all(12),
+                                        child: Center(
+                                          child:
+                                              ToothLoadingIndicator(size: 28),
+                                        ),
+                                      );
+                                    }
+                                    final message =
+                                        messages[messages.length - 1 - index];
+                                    final mine = me != null &&
+                                        message.senderId == me;
+                                    return ChatMessageBubble(
+                                      message: message,
+                                      mine: mine,
+                                      mediaLink: controller
+                                          .apiService.chatMediaLink,
+                                      showSeenEye: mine &&
+                                          lastSeenMineId != null &&
+                                          message.id == lastSeenMineId,
+                                      onReply: () =>
+                                          controller.setReplyTo(message),
+                                      onPatientMention: (patientId) {
+                                        final session = widget.patientSession;
+                                        if (session == null ||
+                                            session.openingPatientDetail) {
+                                          return;
+                                        }
+                                        session.requestOpenPatientDetail(
+                                          patientId,
+                                        );
+                                      },
+                                    );
                                   },
                                 );
                               },
-                            );
-                          },
-                        ),
-            ),
+                            ),
+                ),
+              ),
+              if (controller.replyTo != null)
+                _ReplyPreviewBar(
+                  message: controller.replyTo!,
+                  onClear: controller.clearReply,
+                ),
+              if (controller.canMessage(active))
+                ChatComposer(
+                  controller: _compose,
+                  sending: controller.sending,
+                  patientSession: widget.patientSession,
+                  onSend: _send,
+                  onSendMedia: _sendMedia,
+                )
+              else
+                const ChatBlockedNotice(),
+            ],
           ),
-          if (controller.replyTo != null)
-            _ReplyPreviewBar(
-              message: controller.replyTo!,
-              onClear: controller.clearReply,
-            ),
-          ChatComposer(
-            controller: _compose,
-            sending: controller.sending,
-            patientSession: widget.patientSession,
-            onSend: _send,
-            onSendMedia: _sendMedia,
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -266,23 +286,16 @@ class _ChatHeader extends StatelessWidget {
                 size: 22,
               ),
             ),
-          CircleAvatar(
-            radius: 20,
-            backgroundColor: AppColors.dentalBlue.withValues(alpha: 0.14),
-            child: Text(
-              partner.displayName.isNotEmpty
-                  ? partner.displayName.characters.first.toUpperCase()
-                  : '?',
-              style: const TextStyle(
-                color: AppColors.dentalBlue,
-                fontWeight: FontWeight.w700,
-                fontSize: 16,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
+          // Photo + name open the person's details.
           Expanded(
-            child: Column(
+            child: Pressable(
+              onTap: () => showUserProfileSheet(context, partner),
+              scale: 0.98,
+              builder: (_, _) => Row(
+                children: [
+                  UserAvatar(name: partner.displayName, url: partner.avatarUrl, size: 40),
+                  const SizedBox(width: 10),
+                  Expanded(child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
@@ -312,6 +325,9 @@ class _ChatHeader extends StatelessWidget {
                   ),
                 ),
               ],
+            )),
+                ],
+              ),
             ),
           ),
           if (onClose != null)
@@ -389,6 +405,32 @@ class _ReplyPreviewBar extends StatelessWidget {
               CupertinoIcons.xmark_circle_fill,
               size: 20,
               color: Color(0xFFC7C7CC),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// In place of the composer when messaging this person isn't allowed.
+class ChatBlockedNotice extends StatelessWidget {
+  const ChatBlockedNotice({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      color: Colors.white.withValues(alpha: 0.92),
+      child: Row(
+        children: [
+          const Icon(Icons.block_rounded, size: 18, color: AppColors.muted),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              AppLocalizations.of(context).tr('chat.cantMessage'),
+              style: AppFonts.style(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.muted),
             ),
           ),
         ],

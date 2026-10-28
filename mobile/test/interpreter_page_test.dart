@@ -1,9 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dental_lab_ai/core/api/api_client.dart';
 import 'package:dental_lab_ai/core/l10n/locale_controller.dart';
 import 'package:dental_lab_ai/core/session/patient_session.dart';
-import 'package:dental_lab_ai/core/widgets/touchable.dart';
 import 'package:dental_lab_ai/features/interpreter/apple_translate.dart';
 import 'package:dental_lab_ai/features/interpreter/interpreter_page.dart';
 import 'package:flutter/material.dart';
@@ -128,6 +128,28 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(find.text('من فضلك افتح فمك حضرتك'), findsWidgets);
+
+    // Speaker: "loading" until sound starts, then Stop.
+    final started = Completer<Object?>();
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('flutter_tts'),
+      (call) async => switch (call.method) {
+        'speak' => await started.future,
+        'getVoices' => <Object>[],
+        _ => 1,
+      },
+    );
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('flutter_tts'), null));
+    await tester.tap(find.byKey(const ValueKey('interpreter-patient-speak')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('Stimme wird geladen…'), findsOneWidget);
+    started.complete(1);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('Stimme wird geladen…'), findsNothing);
+    expect(find.byIcon(Icons.stop_rounded), findsOneWidget);
   });
 
   testWidgets('falls back to the API when Apple cannot translate the pair', (
@@ -315,13 +337,16 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
     }
 
+    // Once something is said, phrases sit behind the quick-phrases button.
+    final quick = find.byTooltip('Schnellsätze');
     await send();
-    final pill = find.widgetWithText(Touchable, 'Bitte weit öffnen');
-    expect(pill, findsNothing); // one-off: no pill
+    expect(quick, findsNothing); // one-off: no phrase
     await send();
-    expect(pill, findsOneWidget);
-    await tester.tap(pill);
-    await tester.pump();
+    expect(quick, findsOneWidget);
+    await tester.tap(quick);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ListTile, 'Bitte weit öffnen'));
+    await tester.pumpAndSettle();
     expect(
       tester.widget<TextField>(field).controller!.text,
       'Bitte weit öffnen',

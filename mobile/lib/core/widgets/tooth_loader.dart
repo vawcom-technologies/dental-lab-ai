@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
@@ -219,28 +220,159 @@ class _RotatingLoadingTextState extends State<RotatingLoadingText> {
 }
 
 /// Centered tooth loader for list / page empty-loading states.
-class ToothPageLoader extends StatelessWidget {
+/// Marks a shell page's area. A [ToothPageLoader] inside it floats at the
+/// centre of the whole page instead of the card or column it sits in.
+class PageArea extends StatefulWidget {
+  const PageArea({super.key, required this.child});
+
+  final Widget child;
+
+  static _PageAreaState? _of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_PageAreaScope>()?.state;
+
+  @override
+  State<PageArea> createState() => _PageAreaState();
+}
+
+class _PageAreaState extends State<PageArea> {
+  final _box = GlobalKey();
+
+  /// Loaders showing in this page; only the first draws (no stacked copies).
+  final _loaders = <State>[];
+
+  Rect? get rect {
+    final box = _box.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return null;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }
+
+  @override
+  Widget build(BuildContext context) => _PageAreaScope(
+        state: this,
+        child: KeyedSubtree(key: _box, child: widget.child),
+      );
+}
+
+class _PageAreaScope extends InheritedWidget {
+  const _PageAreaScope({required this.state, required super.child});
+
+  final _PageAreaState state;
+
+  @override
+  bool updateShouldNotify(_PageAreaScope old) => false;
+}
+
+/// Page-level loader: tooth + message, centred on the page (see [PageArea]).
+/// [inPlace] keeps it in its own box — for a panel loading beside content
+/// that's already showing.
+class ToothPageLoader extends StatefulWidget {
   const ToothPageLoader({
     super.key,
     this.message,
     this.size = 36,
     this.color,
+    this.inPlace = false,
   });
 
   final String? message;
   final double size;
   final Color? color;
+  final bool inPlace;
+
+  @override
+  State<ToothPageLoader> createState() => _ToothPageLoaderState();
+}
+
+class _ToothPageLoaderState extends State<ToothPageLoader> {
+  final _portal = OverlayPortalController();
+  _PageAreaState? _area;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final area = widget.inPlace ? null : PageArea._of(context);
+    if (area != _area) {
+      _area?._loaders.remove(this);
+      _area = area;
+      area?._loaders.add(this);
+    }
+    // Hidden shell pages keep their state but mustn't draw over the active one.
+    // This can run mid-layout (LayoutBuilder), where the overlay can't be
+    // toggled: draw from [_active] now, toggle the portal after the frame.
+    _active = area != null && TickerMode.valuesOf(context).enabled;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_active && !_portal.isShowing) {
+        _portal.show();
+      } else if (!_active && _portal.isShowing) {
+        _portal.hide();
+      }
+    });
+  }
+
+  bool _active = false;
+
+  @override
+  void dispose() {
+    final area = _area;
+    if (area != null && area._loaders.isNotEmpty && identical(area._loaders.first, this)) {
+      area._loaders.remove(this);
+      // Hand the drawing over to the next loader on the page.
+      if (area._loaders.firstOrNull case final State next?) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (next.mounted) next.setState(() {});
+        });
+      }
+    } else {
+      area?._loaders.remove(this);
+    }
+    super.dispose();
+  }
+
+  Widget _loader(BuildContext context) => Center(
+        child: ToothLoadingIndicator(
+          size: widget.size,
+          color: widget.color,
+          compact: false,
+          loadingText: widget.message ?? AppLocalizations.of(context).commonFetchingData,
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
-    final text = message ?? AppLocalizations.of(context).commonFetchingData;
-    return Center(
-      child: ToothLoadingIndicator(
-        size: size,
-        color: color,
-        compact: false,
-        loadingText: text,
-      ),
+    final area = _area;
+    if (area == null) return _loader(context);
+    return OverlayPortal(
+      controller: _portal,
+      overlayChildBuilder: (context) {
+        if (!_active) return const SizedBox.shrink();
+        final rect = area.rect;
+        if (rect == null) {
+          // Page not laid out yet (first frame): place it on the next one.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) setState(() {});
+          });
+          return const SizedBox.shrink();
+        }
+        if (area._loaders.isEmpty || !identical(area._loaders.first, this)) {
+          return const SizedBox.shrink();
+        }
+        return Positioned.fromRect(
+          rect: rect,
+          child: IgnorePointer(
+            child: ClipRect(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: ColoredBox(
+                  color: Colors.white.withValues(alpha: 0.28),
+                  child: _loader(context),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      child: const SizedBox.expand(),
     );
   }
 }

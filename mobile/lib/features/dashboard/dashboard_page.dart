@@ -1,772 +1,742 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/l10n/app_localizations.dart';
-import '../../core/l10n/date_formats.dart';
 import '../../core/layout/adaptive.dart';
+import '../../core/navigation/app_page_routes.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/page_kit.dart';
 import '../../core/widgets/ui_kit.dart';
 import '../../shell/app_sidebar.dart';
+import '../admin/admin_top_bar.dart';
+import '../appointments/models/appointment.dart';
+import '../chat/widgets/quick_chat_card.dart';
 
-class DashboardPage extends StatefulWidget {
+typedef _Data = (
+  List<Map<String, dynamic>> patients,
+  List<Appointment> today,
+);
+
+String _patientName(Map<String, dynamic> p) =>
+    '${p['first_name'] ?? ''} ${p['last_name'] ?? ''}'.trim();
+
+String _statusOf(Map<String, dynamic> p) =>
+    CaseStatuses.normalize('${p['status'] ?? ''}');
+
+bool _needsAttention(Map<String, dynamic> p) {
+  final s = _statusOf(p);
+  return s == CaseStatuses.pending ||
+      s == CaseStatuses.inProgress ||
+      s == CaseStatuses.inReview ||
+      s == CaseStatuses.rejected;
+}
+
+DateTime? _updatedAt(Map<String, dynamic> p) =>
+    DateTime.tryParse('${p['updated_at'] ?? p['created_at'] ?? ''}');
+
+bool _isToday(DateTime dt) {
+  final n = DateTime.now();
+  final local = dt.isUtc ? dt.toLocal() : dt;
+  return local.year == n.year && local.month == n.month && local.day == n.day;
+}
+
+/// Dentist home in the admin/lab dashboard look: chairside KPIs, quick
+/// tools, cases that need attention, recent patients and quick chat.
+/// Fits one iPad screen; scrolls on a phone.
+class DashboardPage extends StatelessWidget {
   const DashboardPage({
     super.key,
-    required this.dentistName,
     required this.api,
-    required this.onNavigate,
-    this.unreadMessages = 0,
+    required this.onOpen,
     this.active = true,
   });
 
-  final String dentistName;
   final ApiClient api;
-  final ValueChanged<AppNavItem> onNavigate;
-  final int unreadMessages;
+  final void Function(AppNavItem page, int tab) onOpen;
   final bool active;
 
-  @override
-  State<DashboardPage> createState() => _DashboardPageState();
-}
+  static const _gap = 16.0;
+  static const _tileH = 128.0;
 
-class _DashboardPageState extends State<DashboardPage> {
-  bool _loading = true;
-
-  List<Map<String, dynamic>> _patients = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void didUpdateWidget(covariant DashboardPage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.active && !oldWidget.active) {
-      _load();
-    }
-  }
-
-  Future<void> _load({bool silent = false}) async {
-    if (!silent) {
-      setState(() {
-        _loading = true;
-      });
-    }
-    try {
-      final patients = await widget.api.listPatients();
-      if (!mounted) return;
-      setState(() {
-        _patients = patients;
-        _loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _loading = false);
-      AppSnackBars.error(context, friendlyError(e));
-    }
-  }
-
-  /// Patient records drive the clinic pipeline (legacy /api/cases is unmounted).
-  List<Map<String, dynamic>> get _cases {
-    return _patients.map((p) {
-      final id = '${p['id'] ?? ''}';
-      final short = id.length >= 4 ? id.substring(0, 4).toUpperCase() : id.toUpperCase();
-      return <String, dynamic>{
-        'id': id,
-        'case_label': 'CASE-$short',
-        'patient_id': id,
-        'created_by': '${p['created_by'] ?? ''}',
-        'first_name': p['first_name'],
-        'last_name': p['last_name'],
-        'status': CaseStatuses.normalize('${p['status'] ?? ''}'),
-        'created_at': p['created_at'],
-        'updated_at': p['updated_at'] ?? p['created_at'],
-      };
-    }).toList();
-  }
-
-  String get _shortName {
-    final parts = widget.dentistName.trim().split(RegExp(r'\s+'));
-    if (parts.isEmpty || parts.first.isEmpty) return widget.dentistName;
-    return parts.last;
-  }
-
-  String _greetingTitle(AppLocalizations loc) {
-    final h = DateTime.now().hour;
-    if (h < 12) return loc.goodMorning(_shortName);
-    if (h < 17) return loc.goodAfternoon(_shortName);
-    return loc.goodEvening(_shortName);
-  }
-
-  String _patientName(Map<String, dynamic> c) {
-    final name =
-        '${c['first_name'] ?? ''} ${c['last_name'] ?? ''}'.trim();
-    return name.isEmpty ? AppLocalizations.current.tr('c.unknown') : name;
-  }
-
-  int get _completed =>
-      _cases.where((c) => c['status'] == CaseStatuses.completed).length;
-  int get _pending =>
-      _cases.where((c) => c['status'] == CaseStatuses.pending).length;
-  int get _inProgress =>
-      _cases.where((c) => c['status'] == CaseStatuses.inProgress).length;
-  int get _inReview =>
-      _cases.where((c) => c['status'] == CaseStatuses.inReview).length;
-  int get _rejected =>
-      _cases.where((c) => c['status'] == CaseStatuses.rejected).length;
-  int get _attention => _pending + _inProgress + _inReview + _rejected;
-
-  int get _unreadMessages => widget.unreadMessages;
-
-  String get _avgProcessingLabel {
-    final completed = _cases
-        .where((c) => c['status'] == CaseStatuses.completed)
-        .toList();
-    if (completed.isEmpty) return '—';
-    var totalHours = 0.0;
-    var counted = 0;
-    for (final c in completed) {
-      final created = DateTime.tryParse('${c['created_at'] ?? ''}');
-      final updated = DateTime.tryParse('${c['updated_at'] ?? ''}');
-      if (created == null || updated == null) continue;
-      totalHours += updated.difference(created).inMinutes / 60.0;
-      counted++;
-    }
-    if (counted == 0) return '—';
-    final days = totalHours / counted / 24.0;
-    if (days < 1) return '${(days * 24).toStringAsFixed(0)}h';
-    return '${days.toStringAsFixed(1)}d';
-  }
-
-  List<_CaseRowData> _recentRows(AppLocalizations loc) {
-    final sorted = [..._cases]..sort((a, b) {
-          final ta = DateTime.tryParse('${a['updated_at'] ?? ''}') ?? DateTime(1970);
-          final tb = DateTime.tryParse('${b['updated_at'] ?? ''}') ?? DateTime(1970);
-          return tb.compareTo(ta);
-        });
-    final me = widget.api.userId ?? '';
-    return sorted.take(8).map((c) {
-      final createdBy = '${c['created_by'] ?? ''}';
-      return _CaseRowData(
-        patientId: '${c['patient_id']}',
-        caseLabel: '${c['case_label']}',
-        patientName: _patientName(c),
-        dentist: widget.dentistName,
-        status: '${c['status']}',
-        updated: _relativeTime(
-          context,
-          DateTime.tryParse('${c['updated_at'] ?? ''}'),
-          loc,
-        ),
-        canEditStatus: me.isNotEmpty && createdBy == me,
-      );
-    }).toList();
-  }
-
-  Future<void> _changeStatus(String patientId, String status) async {
-    final next = CaseStatuses.normalize(status);
-    final idx = _patients.indexWhere((p) => '${p['id']}' == patientId);
-    if (idx < 0) return;
-    final current = CaseStatuses.normalize('${_patients[idx]['status'] ?? ''}');
-    if (current == next) return;
-    try {
-      final updated = await widget.api.updatePatient(patientId, {
-        'status': next,
-      });
-      if (!mounted) return;
-      setState(() {
-        _patients[idx] = {
-          ..._patients[idx],
-          ...updated,
-          'status': CaseStatuses.normalize('${updated['status'] ?? next}'),
-        };
-      });
-      AppSnackBars.success(
-        context,
-        AppLocalizations.of(context).statusUpdatedTo(
-          AppLocalizations.of(context).statusLabel(next),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      AppSnackBars.error(context, friendlyError(e));
-    }
-  }
-
-  List<_ActivityItem> _activity(AppLocalizations loc) {
-    final items = <_ActivityItem>[];
-
-    for (final c in _cases) {
-      final updated = DateTime.tryParse('${c['updated_at'] ?? ''}');
-      if (updated == null) continue;
-      final name = _patientName(c);
-      final status = '${c['status'] ?? ''}';
-      final label = '${c['case_label']}';
-      final text = switch (status) {
-        'completed' => loc.dashActivityCompleted(label, name),
-        'rejected' => loc.dashActivityRejected(name),
-        'in_review' => loc.dashActivityInReview(name),
-        'in_progress' => loc.dashActivityInProgress(name),
-        'pending' => loc.dashActivityPending(name),
-        _ => loc.dashActivityUpdated(name),
-      };
-      items.add(_ActivityItem(at: updated, text: text));
-    }
-
-    items.sort((a, b) => b.at.compareTo(a.at));
-    return items.take(10).toList();
-  }
-
-  String _subtitleText(AppLocalizations loc) {
-    if (_cases.isEmpty) {
-      return loc.dashNoCases;
-    }
-    final parts = <String>[];
-    if (_attention > 0) {
-      parts.add(loc.dashNeedsAttention(_attention));
-    }
-    if (_unreadMessages > 0) {
-      parts.add(loc.dashUnreadMessages(_unreadMessages));
-    }
-    if (parts.isEmpty) {
-      return loc.dashPatientsAndCasesOnFile(_patients.length, _cases.length);
-    }
-    return '${parts.join(' · ')}.';
-  }
-
-  static String _relativeTime(
-    BuildContext context,
-    DateTime? dt,
-    AppLocalizations loc,
-  ) {
-    if (dt == null) return '—';
-    final local = dt.isUtc ? dt.toLocal() : dt;
-    final diff = DateTime.now().difference(local);
-    if (diff.inMinutes < 1) return loc.commonJustNow;
-    if (diff.inMinutes < 60) return loc.commonMinAgo(diff.inMinutes);
-    if (diff.inHours < 24) return loc.commonHourAgo(diff.inHours);
-    if (diff.inDays == 1) return loc.commonYesterday;
-    if (diff.inDays < 7) return loc.commonDaysAgo(diff.inDays);
-    return formatAppDate(context, local, 'MMM d, yyyy');
-  }
-
-  static String _clock(BuildContext context, DateTime dt) {
-    return formatAppTime(context, dt);
+  Future<_Data> _load() async {
+    final r = await Future.wait<Object>([
+      api.listPatients(forceRefresh: true),
+      api.listAppointments(upcomingOnly: true, forceRefresh: true),
+    ]);
+    final patients = r[0] as List<Map<String, dynamic>>;
+    final appts = (r[1] as List<Appointment>)
+        .where(
+          (a) =>
+              a.status == AppointmentStatuses.scheduled &&
+              _isToday(a.startTime),
+        )
+        .toList()
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+    return (patients, appts);
   }
 
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
+    final phone = AppBreakpoints.isPhone(context);
     return Padding(
       padding: AppBreakpoints.pagePadding(context),
       child: Column(
-
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          PageHeader(
-            icon: Icons.grid_view_rounded,
-            title: _greetingTitle(loc),
-            subtitle: _loading ? loc.dashLoading : _subtitleText(loc),
-            chromeActions: [
-              AppButtons.icon(
-                tooltip: loc.refresh,
-                onPressed: _loading ? null : _load,
-                icon: Icons.refresh_rounded,
-              ),
-            ],
-            actions: [
-              AppButtons.primary(
-                onPressed: () => widget.onNavigate(AppNavItem.newPatient),
-                icon: Icons.add_rounded,
-                label: loc.navNewPatient,
-              ),
-              AppButtons.secondary(
-                onPressed: () => widget.onNavigate(AppNavItem.messages),
-                icon: Icons.chat_bubble_outline_rounded,
-                label: _unreadMessages > 0
-                    ? '${loc.navMessages} ($_unreadMessages)'
-                    : loc.navMessages,
-              ),
-              if (widget.api.isAdmin)
-                AppButtons.secondary(
-                  onPressed: () =>
-                      widget.onNavigate(AppNavItem.laboratories),
-                  icon: Icons.manage_accounts_outlined,
-                  label: loc.navLaboratories,
-                ),
-            ],
-          ),
-          const SizedBox(height: 20),
           LayoutBuilder(
-            builder: (context, constraints) {
-              final kpis = <Widget>[
-                _KpiCard(
-                  title: loc.dashCompletedCases,
-                  value: _loading ? '…' : '$_completed',
-                  hint: _patients.isEmpty
-                      ? loc.dashNoPatientsHint
-                      : loc.dashPatientsOnFile(_patients.length),
-                  hintColor: AppColors.success,
+            builder: (context, c) => Row(
+              children: [
+                const PhoneMenuButton(),
+                Expanded(
+                  child: AdminSearchLauncher(
+                    hint: loc.tr('dash.searchHint'),
+                    page: (chrome) => _DentistSearchPage(chrome: chrome),
+                  ),
                 ),
-                _KpiCard(
-                  title: loc.dashAvgProcessing,
-                  value: _loading ? '…' : _avgProcessingLabel,
-                  hint: _completed == 0
-                      ? loc.dashBasedOnCompleted
-                      : loc.dashAcrossCompleted(_completed),
-                  hintColor: AppColors.muted,
-                ),
-                _KpiCard(
-                  title: loc.dashPendingScans,
-                  value: _loading ? '…' : '$_pending',
-                  hint: _inProgress == 0 && _inReview == 0
-                      ? loc.dashNoneInProgress
-                      : loc.dashInProgressInReview(_inProgress, _inReview),
-                  hintColor: _pending > 0 || _inProgress > 0 || _inReview > 0
-                      ? AppColors.warning
-                      : AppColors.success,
-                ),
-                _KpiCard(
-                  title: loc.dashRejectedScans,
-                  value: _loading ? '…' : '$_rejected',
-                  hint: _rejected == 0
-                      ? loc.dashNoRejections
-                      : loc.dashNeedRescan,
-                  hintColor: _rejected > 0 ? AppColors.danger : AppColors.success,
-                ),
-              ];
-              // Portrait / narrow: two KPI cards per row instead of four.
-              if (constraints.maxWidth < AppBreakpoints.stack) {
-                return Column(
-                  children: [
-                    Row(children: [
-                      Expanded(child: kpis[0]),
-                      const SizedBox(width: 12),
-                      Expanded(child: kpis[1]),
-                    ]),
-                    const SizedBox(height: 12),
-                    Row(children: [
-                      Expanded(child: kpis[2]),
-                      const SizedBox(width: 12),
-                      Expanded(child: kpis[3]),
-                    ]),
-                  ],
-                );
-              }
-              return Row(
-                children: [
-                  for (var i = 0; i < kpis.length; i++) ...[
-                    if (i > 0) const SizedBox(width: 12),
-                    Expanded(child: kpis[i]),
-                  ],
+                if (c.maxWidth >= 720) ...[
+                  const SizedBox(width: 12),
+                  const AdminDateChip(),
                 ],
-              );
-            },
+                SizedBox(width: phone ? 8 : 12),
+                const AdminTopActions(),
+              ],
+            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 18),
           Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final stacked = constraints.maxWidth < AppBreakpoints.stack;
-                final recentRows = _recentRows(loc);
-                final activity = _activity(loc);
-                final recentCases = SectionCard(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          loc.dashRecentCases,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 16,
-                            color: AppColors.navy,
+            child: AdminFuture<_Data>(
+              active: active,
+              load: _load,
+              isEmpty: (_) => false,
+              empty: const SizedBox.shrink(),
+              bottomPadding: phone ? 24 : 0,
+              builder: (context, d, reload) => phone
+                  ? [
+                      SliverToBoxAdapter(
+                        child: _greeting(loc, compact: false),
+                      ),
+                      SliverToBoxAdapter(child: _narrow(context, loc, d)),
+                    ]
+                  : [
+                      SliverLayoutBuilder(
+                        builder: (context, sc) => SliverToBoxAdapter(
+                          child: SizedBox(
+                            height: sc.viewportMainAxisExtent,
+                            child: LayoutBuilder(
+                              builder: (context, c) => Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  _greeting(
+                                    loc,
+                                    compact: c.maxHeight < 820,
+                                  ),
+                                  Expanded(
+                                    child: _fit(
+                                      context,
+                                      loc,
+                                      d,
+                                      landscape: c.maxWidth > c.maxHeight,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
-                        const SizedBox(height: 12),
-                        if (!AppBreakpoints.isPhone(context)) ...[
-                          const _TableHeader(),
-                          const Divider(height: 1),
-                        ],
-                        Expanded(
-                          child: _loading
-                              ? ToothPageLoader(
-                                  message: loc.dashLoadingCases,
-                                )
-                              : recentRows.isEmpty
-                                  ? IpadRefresh.fill(
-                                      onRefresh: () => _load(silent: true),
-                                      child: Center(
-                                        child: Text(
-                                          loc.dashNoCasesEmpty,
-                                          style: const TextStyle(
-                                            color: AppColors.muted,
-                                          ),
-                                        ),
-                                      ),
-                                    )
-                                  : IpadRefresh(
-                                      onRefresh: () => _load(silent: true),
-                                      slivers: [
-                                        SliverList.builder(
-                                          itemCount: recentRows.length,
-                                          itemBuilder: (context, i) {
-                                            final row = recentRows[i];
-                                            return _PatientRow(
-                                              id: row.caseLabel,
-                                              name: row.patientName,
-                                              dentist: row.dentist,
-                                              status: row.status,
-                                              updated: row.updated,
-                                              canEditStatus: row.canEditStatus,
-                                              onStatusChanged: row.canEditStatus
-                                                  ? (status) => _changeStatus(
-                                                        row.patientId,
-                                                        status,
-                                                      )
-                                                  : null,
-                                            );
-                                          },
-                                        ),
-                                      ],
-                                    ),
-                        ),
-                      ],
-                    ),
-                  );
-                final activityCard = SectionCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          loc.dashRecentActivity,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 16,
-                            color: AppColors.navy,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Expanded(
-                          child: _loading
-                              ? ToothPageLoader(
-                                  message: loc.dashLoadingActivity,
-                                )
-                              : activity.isEmpty
-                                  ? IpadRefresh.fill(
-                                      onRefresh: () => _load(silent: true),
-                                      child: Center(
-                                        child: Text(
-                                          loc.dashActivityEmpty,
-                                          style: const TextStyle(
-                                            color: AppColors.muted,
-                                            fontSize: 13,
-                                          ),
-                                        ),
-                                      ),
-                                    )
-                                  : IpadRefresh(
-                                      onRefresh: () => _load(silent: true),
-                                      slivers: [
-                                        SliverList.builder(
-                                          itemCount: activity.length,
-                                          itemBuilder: (context, i) {
-                                            final a = activity[i];
-                                            return _Activity(
-                                              time: _clock(context, a.at),
-                                              text: a.text,
-                                            );
-                                          },
-                                        ),
-                                      ],
-                                    ),
-                        ),
-                      ],
-                    ),
-                  );
-                if (stacked) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(flex: 3, child: recentCases),
-                      const SizedBox(height: 12),
-                      Expanded(flex: 2, child: activityCard),
+                      ),
                     ],
-                  );
-                }
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(flex: 3, child: recentCases),
-                    const SizedBox(width: 12),
-                    Expanded(flex: 2, child: activityCard),
-                  ],
-                );
-              },
             ),
           ),
         ],
       ),
     );
   }
-}
 
-class _CaseRowData {
-  const _CaseRowData({
-    required this.patientId,
-    required this.caseLabel,
-    required this.patientName,
-    required this.dentist,
-    required this.status,
-    required this.updated,
-    required this.canEditStatus,
-  });
-
-  final String patientId;
-  final String caseLabel;
-  final String patientName;
-  final String dentist;
-  final String status;
-  final String updated;
-  final bool canEditStatus;
-}
-
-class _ActivityItem {
-  const _ActivityItem({required this.at, required this.text});
-
-  final DateTime at;
-  final String text;
-}
-
-class _KpiCard extends StatelessWidget {
-  const _KpiCard({
-    required this.title,
-    required this.value,
-    required this.hint,
-    required this.hintColor,
-  });
-
-  final String title;
-  final String value;
-  final String hint;
-  final Color hintColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return SectionCard(
+  Widget _greeting(AppLocalizations loc, {required bool compact}) {
+    final h = DateTime.now().hour;
+    final name = (api.userName ?? '').trim().split(' ').first;
+    final title = h < 12
+        ? loc.goodMorning(name.isEmpty ? loc.roleDentist : name)
+        : (h < 17
+            ? loc.goodAfternoon(name.isEmpty ? loc.roleDentist : name)
+            : loc.goodEvening(name.isEmpty ? loc.roleDentist : name));
+    return Padding(
+      padding: EdgeInsets.only(bottom: compact ? 12 : 16, left: 2),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title,
-            maxLines: 2,
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: AppColors.muted, fontSize: 12),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: AppBreakpoints.isPhone(context) ? 24 : 28,
+            style: AppFonts.style(
+              fontSize: compact ? 21 : 24,
               fontWeight: FontWeight.w700,
               color: AppColors.navy,
+              letterSpacing: -0.5,
             ),
           ),
-          const SizedBox(height: 6),
-          Text(
-            hint,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: hintColor, fontSize: 12, fontWeight: FontWeight.w600),
-          ),
+          if (!compact)
+            Text(
+              loc.tr('dash.sub'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppFonts.style(fontSize: 14, color: AppColors.muted),
+            ),
         ],
       ),
     );
   }
-}
 
-class _TableHeader extends StatelessWidget {
-  const _TableHeader();
-
-  @override
-  Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
+  Widget _row(List<Widget> cells) => Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(flex: 2, child: Text(loc.colCaseId, style: _h)),
-          Expanded(flex: 3, child: Text(loc.colPatient, style: _h)),
-          Expanded(flex: 2, child: Text(loc.colDentist, style: _h)),
-          Expanded(flex: 3, child: Text(loc.colStatus, style: _h)),
-          Expanded(flex: 2, child: Text(loc.colUpdated, style: _h)),
+          for (final (i, w) in cells.indexed) ...[
+            if (i > 0) const SizedBox(width: _gap),
+            Expanded(child: w),
+          ],
         ],
+      );
+
+  Widget _fit(
+    BuildContext context,
+    AppLocalizations loc,
+    _Data d, {
+    required bool landscape,
+  }) {
+    return LayoutBuilder(
+      builder: (context, c) {
+        final tileH = (c.maxHeight * 0.15).clamp(112.0, 128.0);
+        return Column(
+          children: [
+            SizedBox(
+              height: tileH,
+              child: _tiles(context, loc, d, cols: 4, height: tileH),
+            ),
+            const SizedBox(height: _gap),
+            Expanded(
+              flex: landscape ? 6 : 5,
+              child: _row([
+                AdminAppear(index: 4, child: _quickActions(loc)),
+                AdminAppear(index: 5, child: _attention(context, loc, d.$1)),
+              ]),
+            ),
+            const SizedBox(height: _gap),
+            Expanded(
+              flex: 5,
+              child: _row([
+                AdminAppear(index: 6, child: _recent(context, loc, d.$1)),
+                AdminAppear(index: 7, child: QuickChatCard(active: active)),
+              ]),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _narrow(BuildContext context, AppLocalizations loc, _Data d) {
+    return Column(
+      children: [
+        SizedBox(
+          height: _tileH * 2 + _gap,
+          child: _tiles(context, loc, d, cols: 2, height: _tileH),
+        ),
+        const SizedBox(height: _gap),
+        AdminAppear(index: 4, child: _quickActions(loc, fill: false)),
+        const SizedBox(height: _gap),
+        AdminAppear(
+          index: 5,
+          child: _attention(context, loc, d.$1, fill: false),
+        ),
+        const SizedBox(height: _gap),
+        AdminAppear(
+          index: 6,
+          child: _recent(context, loc, d.$1, fill: false),
+        ),
+        const SizedBox(height: _gap),
+        AdminAppear(
+          index: 7,
+          child: QuickChatCard(fill: false, active: active),
+        ),
+      ],
+    );
+  }
+
+  (String, Color) _pill(AppLocalizations loc, int n, {bool danger = false}) {
+    if (n <= 0) {
+      return (loc.tr('admin.pill.clear'), AppColors.success);
+    }
+    return (
+      loc.tr('admin.pill.review'),
+      danger ? AppColors.danger : AppColors.warning,
+    );
+  }
+
+  Widget _tiles(
+    BuildContext context,
+    AppLocalizations loc,
+    _Data d, {
+    required int cols,
+    required double height,
+  }) {
+    final (patients, today) = d;
+    final attention = patients.where(_needsAttention).length;
+    final rejected =
+        patients.where((p) => _statusOf(p) == CaseStatuses.rejected).length;
+    final chrome = AdminChrome.maybeOf(context);
+
+    Widget grid(int unread) {
+      final tiles = [
+        KpiTile(
+          icon: Icons.priority_high_rounded,
+          label: loc.tr('dash.tile.attention'),
+          value: attention,
+          tint: AppColors.warning,
+          pill: _pill(loc, attention),
+          onTap: () => onOpen(AppNavItem.patients, 0),
+        ),
+        KpiTile(
+          icon: Icons.calendar_today_outlined,
+          label: loc.tr('dash.tile.today'),
+          value: today.length,
+          tint: AppColors.dentalBlue,
+          pill: today.isEmpty
+              ? (loc.tr('dash.pill.noneToday'), AppColors.success)
+              : (loc.tr('admin.pill.review'), AppColors.dentalBlue),
+          onTap: () => onOpen(AppNavItem.appointments, 0),
+        ),
+        KpiTile(
+          icon: Icons.chat_bubble_outline_rounded,
+          label: loc.tr('dash.tile.messages'),
+          value: unread,
+          tint: AppColors.review,
+          pill: _pill(loc, unread),
+          onTap: () => onOpen(AppNavItem.messages, 0),
+        ),
+        KpiTile(
+          icon: Icons.replay_rounded,
+          label: loc.tr('dash.tile.rejected'),
+          value: rejected,
+          tint: AppColors.danger,
+          pill: _pill(loc, rejected, danger: true),
+          onTap: () => onOpen(AppNavItem.patients, 0),
+        ),
+      ];
+      return LayoutBuilder(
+        builder: (context, c) {
+          final w = (c.maxWidth - _gap * (cols - 1)) / cols;
+          return Wrap(
+            spacing: _gap,
+            runSpacing: _gap,
+            children: [
+              for (final (i, t) in tiles.indexed)
+                SizedBox(
+                  width: w,
+                  height: height,
+                  child: AdminAppear(index: i, child: t),
+                ),
+            ],
+          );
+        },
+      );
+    }
+
+    if (chrome == null) return grid(0);
+    return ListenableBuilder(
+      listenable: chrome.chat,
+      builder: (_, _) => grid(chrome.chat.totalUnread),
+    );
+  }
+
+  Widget _quickActions(AppLocalizations loc, {bool fill = true}) {
+    final actions = [
+      (
+        Icons.person_add_alt_1_rounded,
+        'dash.qa.newPatient',
+        AppColors.success,
+        AppNavItem.newPatient,
+      ),
+      (
+        Icons.photo_camera_outlined,
+        'dash.qa.camera',
+        AppColors.dentalBlue,
+        AppNavItem.camera,
+      ),
+      (
+        Icons.palette_outlined,
+        'dash.qa.shade',
+        AppColors.warning,
+        AppNavItem.shade,
+      ),
+      (
+        Icons.view_in_ar_outlined,
+        'dash.qa.scans',
+        AppColors.review,
+        AppNavItem.scans,
+      ),
+      (
+        Icons.sentiment_satisfied_alt_outlined,
+        'dash.qa.smile',
+        AppColors.dentalBlue,
+        AppNavItem.smilePreview,
+      ),
+      (
+        Icons.calendar_today_outlined,
+        'dash.qa.appointments',
+        AppColors.navy,
+        AppNavItem.appointments,
+      ),
+    ];
+    return PanelCard(
+      fill: fill,
+      title: loc.tr('dash.quickActions'),
+      subtitle: loc.tr('dash.quickActionsSub'),
+      child: LayoutBuilder(
+        builder: (context, c) {
+          const g = 10.0;
+          final w = (c.maxWidth - g) / 2;
+          final rows = 3;
+          final h = fill
+              ? ((c.maxHeight - g * (rows - 1)) / rows).clamp(0.0, 72.0)
+              : 56.0;
+          return Wrap(
+            spacing: g,
+            runSpacing: g,
+            children: [
+              for (final (icon, key, color, page) in actions)
+                SizedBox(
+                  width: w,
+                  height: h,
+                  child: Pressable(
+                    onTap: () => onOpen(page, 0),
+                    scale: 0.95,
+                    builder: (_, pressed) => AnimatedContainer(
+                      duration: AppMotion.fast,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: pressed ? 0.16 : 0.09),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(icon, size: 20, color: color),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              loc.tr(key),
+                              maxLines: h < 44 ? 1 : 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppFonts.style(
+                                fontSize: 12.5,
+                                height: 1.2,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.navy,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
       ),
     );
   }
+
+  Widget _attention(
+    BuildContext context,
+    AppLocalizations loc,
+    List<Map<String, dynamic>> patients, {
+    bool fill = true,
+  }) {
+    final rows = patients.where(_needsAttention).toList()
+      ..sort((a, b) {
+        final ta = _updatedAt(a) ?? DateTime(1970);
+        final tb = _updatedAt(b) ?? DateTime(1970);
+        return tb.compareTo(ta);
+      });
+    return PanelCard(
+      fill: fill,
+      title: loc.tr('dash.attention'),
+      subtitle: plural(loc, 'admin.waitingCount', rows.length),
+      action: (loc.tr('admin.seeAll'), () => onOpen(AppNavItem.patients, 0)),
+      child: rows.isEmpty
+          ? PanelEmpty(
+              icon: Icons.verified_rounded,
+              color: AppColors.success,
+              text: loc.tr('dash.attentionNone'),
+            )
+          : _list(fill, [
+              for (final p in rows.take(8))
+                _PanelRow(
+                  leading: UserAvatar(name: _patientName(p), size: 36),
+                  title: _patientName(p).isEmpty ? '—' : _patientName(p),
+                  sub: [
+                    loc.statusLabel(_statusOf(p)),
+                    if (_updatedAt(p) case final at?)
+                      loc.trp('admin.updated', {
+                        'when': adminWhen(context, at.toLocal()),
+                      }),
+                  ].where((s) => s.isNotEmpty).join(' · '),
+                  trailing: StatusChip(statusKey: _statusOf(p)),
+                  onTap: () => onOpen(AppNavItem.patients, 0),
+                ),
+            ]),
+    );
+  }
+
+  Widget _recent(
+    BuildContext context,
+    AppLocalizations loc,
+    List<Map<String, dynamic>> patients, {
+    bool fill = true,
+  }) {
+    final rows = [...patients]
+      ..sort((a, b) {
+        final ta = _updatedAt(a) ?? DateTime(1970);
+        final tb = _updatedAt(b) ?? DateTime(1970);
+        return tb.compareTo(ta);
+      });
+    return PanelCard(
+      fill: fill,
+      title: loc.tr('dash.recentPatients'),
+      subtitle: loc.tr('dash.recentPatientsSub'),
+      action: (loc.tr('admin.seeAll'), () => onOpen(AppNavItem.patients, 0)),
+      child: rows.isEmpty
+          ? PanelEmpty(
+              icon: Icons.people_outline,
+              color: AppColors.muted,
+              text: loc.tr('dash.noPatientsHint'),
+            )
+          : _list(fill, [
+              for (final p in rows.take(8))
+                _PanelRow(
+                  leading: UserAvatar(name: _patientName(p), size: 36),
+                  title: _patientName(p).isEmpty ? '—' : _patientName(p),
+                  sub: [
+                    if (_updatedAt(p) case final at?)
+                      loc.trp('admin.updated', {
+                        'when': adminWhen(context, at.toLocal()),
+                      }),
+                  ].join(),
+                  trailing: StatusChip(statusKey: _statusOf(p)),
+                  onTap: () => onOpen(AppNavItem.patients, 0),
+                ),
+            ]),
+    );
+  }
+
+  Widget _list(bool fill, List<Widget> rows) {
+    final items = [
+      for (final (i, r) in rows.indexed)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: AdminAppear(index: i, child: r),
+        ),
+    ];
+    return fill
+        ? ListView(padding: EdgeInsets.zero, children: items)
+        : Column(children: items);
+  }
 }
 
-const _h = TextStyle(
-  fontSize: 11,
-  fontWeight: FontWeight.w600,
-  color: AppColors.muted,
-  letterSpacing: 0.4,
-);
-
-class _PatientRow extends StatelessWidget {
-  const _PatientRow({
-    required this.id,
-    required this.name,
-    required this.dentist,
-    required this.status,
-    required this.updated,
-    this.canEditStatus = false,
-    this.onStatusChanged,
+class _PanelRow extends StatelessWidget {
+  const _PanelRow({
+    required this.leading,
+    required this.title,
+    required this.sub,
+    required this.onTap,
+    this.trailing,
   });
 
-  final String id;
-  final String name;
-  final String dentist;
-  final String status;
-  final String updated;
-  final bool canEditStatus;
-  final ValueChanged<String>? onStatusChanged;
+  final Widget leading;
+  final String title, sub;
+  final Widget? trailing;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    if (AppBreakpoints.isPhone(context)) {
-      return Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: AppColors.border)),
+    return Pressable(
+      onTap: onTap,
+      scale: 0.98,
+      builder: (_, pressed) => AnimatedContainer(
+        duration: AppMotion.fast,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.surface.withValues(alpha: pressed ? 0.9 : 0.55),
+          borderRadius: BorderRadius.circular(14),
         ),
         child: Row(
           children: [
-            InitialsAvatar(name: name, size: 36),
-            const SizedBox(width: 10),
+            leading,
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    name,
+                    title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+                    style: AppFonts.style(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.navy,
+                    ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '$id · $updated',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: AppColors.muted, fontSize: 12),
-                  ),
+                  if (sub.isNotEmpty)
+                    Text(
+                      sub,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppFonts.style(
+                        fontSize: 12.5,
+                        color: AppColors.muted,
+                      ),
+                    ),
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            PatientStatusMenu(
-              status: status,
-              enabled: canEditStatus && onStatusChanged != null,
-              onSelected: onStatusChanged,
-            ),
+            if (trailing != null) ...[
+              const SizedBox(width: 8),
+              trailing!,
+            ],
+            const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
           ],
         ),
-      );
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: AppColors.border)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 2,
-            child: Text(id, style: const TextStyle(fontWeight: FontWeight.w600)),
-          ),
-          Expanded(
-            flex: 3,
-            child: Row(
-              children: [
-                InitialsAvatar(name: name, size: 32),
-                const SizedBox(width: 8),
-                Flexible(child: Text(name, overflow: TextOverflow.ellipsis)),
-              ],
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(
-              dentist,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: AppColors.muted),
-            ),
-          ),
-          Expanded(
-            flex: 3,
-            // Gutter so long labels (ellipsized) never touch the next column.
-            child: Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: PatientStatusMenu(
-                  status: status,
-                  enabled: canEditStatus && onStatusChanged != null,
-                  onSelected: onStatusChanged,
-                ),
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(
-              updated,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: AppColors.muted, fontSize: 12),
-            ),
-          ),
-        ],
       ),
     );
   }
 }
 
-class _Activity extends StatelessWidget {
-  const _Activity({required this.time, required this.text});
+/// Search the dentist's own patients; grows out of the top bar.
+class _DentistSearchPage extends StatefulWidget {
+  const _DentistSearchPage({required this.chrome});
 
-  final String time;
-  final String text;
+  final AdminChrome chrome;
+
+  @override
+  State<_DentistSearchPage> createState() => _DentistSearchPageState();
+}
+
+class _DentistSearchPageState extends State<_DentistSearchPage> {
+  String _q = '';
+
+  late final _data = widget.chrome.api.listPatients(forceRefresh: true);
+
+  bool _hit(Object? s) => '${s ?? ''}'.toLowerCase().contains(_q);
+
+  void _go() {
+    Navigator.pop(context);
+    widget.chrome.onOpen(AppNavItem.patients, 0);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 8,
-            height: 8,
-            margin: const EdgeInsets.only(top: 5),
-            decoration: const BoxDecoration(
-              color: AppColors.dentalBlue,
-              shape: BoxShape.circle,
-            ),
+    final loc = AppLocalizations.of(context);
+    return Scaffold(
+      backgroundColor: AppColors.surface,
+      body: SafeArea(
+        child: Padding(
+          padding: AppBreakpoints.pagePadding(context),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: CupertinoSearchTextField(
+                      autofocus: true,
+                      placeholder: loc.tr('dash.searchHint'),
+                      style: AppFonts.style(fontSize: 16, color: AppColors.navy),
+                      backgroundColor: AppColors.card,
+                      borderRadius: BorderRadius.circular(23),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 13,
+                      ),
+                      onChanged: (v) =>
+                          setState(() => _q = v.trim().toLowerCase()),
+                    ),
+                  ),
+                  CupertinoButton(
+                    padding: const EdgeInsets.only(left: 14),
+                    onPressed: () => Navigator.pop(context),
+                    child: Text(
+                      loc.cancel,
+                      style: AppFonts.style(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.dentalBlue,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Expanded(
+                child: FutureBuilder<List<Map<String, dynamic>>>(
+                  future: _data,
+                  builder: (context, snap) {
+                    if (snap.hasError) {
+                      return AdminEmpty(
+                        icon: Icons.cloud_off_rounded,
+                        title: loc.tr('admin.loadFailed'),
+                        subtitle: friendlyError(snap.error!),
+                      );
+                    }
+                    if (!snap.hasData) return const ToothPageLoader(inPlace: true);
+                    final patients = snap.data!
+                        .where(
+                          (p) =>
+                              _hit(_patientName(p)) ||
+                              _hit(p['notes']) ||
+                              _hit(p['insurance']),
+                        )
+                        .toList();
+                    if (patients.isEmpty) {
+                      return AdminEmpty(
+                        icon: Icons.search_off_rounded,
+                        title: loc.tr('admin.noMatches'),
+                        subtitle: loc.tr('admin.noMatchesSub'),
+                      );
+                    }
+                    return ListView(
+                      children: [
+                        for (final p in patients)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: AdminCard(
+                              onTap: _go,
+                              padding: const EdgeInsets.all(12),
+                              child: AdminRow(
+                                leading: UserAvatar(
+                                  name: _patientName(p),
+                                  size: 38,
+                                ),
+                                title: _patientName(p).isEmpty
+                                    ? '—'
+                                    : _patientName(p),
+                                badges: [
+                                  StatusChip(statusKey: _statusOf(p)),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(text, style: const TextStyle(fontSize: 13, height: 1.35)),
-                const SizedBox(height: 2),
-                Text(time, style: const TextStyle(color: AppColors.muted, fontSize: 11)),
-              ],
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

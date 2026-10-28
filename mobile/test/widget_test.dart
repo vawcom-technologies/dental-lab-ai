@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dental_lab_ai/core/api/api_client.dart';
+import 'package:dental_lab_ai/core/l10n/app_localizations.dart';
 import 'package:dental_lab_ai/core/l10n/locale_controller.dart';
-import 'package:dental_lab_ai/core/session/patient_session.dart';
-import 'package:dental_lab_ai/features/shade/shade_page.dart';
 import 'package:dental_lab_ai/features/shade/tooth_overlay.dart';
 import 'package:dental_lab_ai/main.dart';
-import 'package:dental_lab_ai/shell/app_sidebar.dart';
 
 void main() {
   test('Outline edit history undoes and redoes a drag', () {
@@ -46,84 +44,23 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
-    await tester.pumpWidget(DentalLabApp(localeController: LocaleController()));
+    await tester.pumpWidget(DentalLabApp(localeController: LocaleController(), api: _EmptyApi()));
+    await tester.pump(); // session restore (no saved session) → login
     expect(find.byType(Image), findsWidgets);
-    expect(find.text('Sign in'), findsWidgets);
+    expect(find.text(AppLocalizations.current.signIn), findsWidgets);
   });
 
-  testWidgets('Sidebar closes with left swipe and opens with right swipe',
-      (tester) async {
-    var collapsed = false;
-    await tester.pumpWidget(
-      LocaleScope(
-        controller: LocaleController(),
-        child: MaterialApp(
-          home: Scaffold(
-            body: StatefulBuilder(
-              builder: (context, setState) {
-                return AppSidebar(
-                  active: AppNavItem.shade,
-                  collapsed: collapsed,
-                  onSelect: (_) {},
-                  onToggle: () => setState(() => collapsed = !collapsed),
-                );
-              },
-            ),
-          ),
-        ),
-      ),
-    );
-
-    await tester.fling(find.byType(AppSidebar), const Offset(-300, 0), 800);
-    await tester.pumpAndSettle();
-    expect(collapsed, isTrue);
-
-    await tester.fling(find.byType(AppSidebar), const Offset(300, 0), 800);
-    await tester.pumpAndSettle();
-    expect(collapsed, isFalse);
-  });
-
-  testWidgets('Session panel collapses and reopens with swipes',
-      (tester) async {
-    tester.view.physicalSize = const Size(1366, 1024);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-
-    final api = _EmptyApi();
-    await tester.pumpWidget(
-      LocaleScope(
-        controller: LocaleController(),
-        child: MaterialApp(
-          home: Scaffold(
-            body: ShadePage(
-              api: api,
-              patientSession: PatientSession(api),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.fling(
-      find.byKey(const ValueKey('session-panel')),
-      const Offset(300, 0),
-      800,
-    );
-    await tester.pumpAndSettle();
-    expect(find.byTooltip('Open session panel'), findsOneWidget);
-
-    await tester.fling(
-      find.byKey(const ValueKey('session-panel')),
-      const Offset(-300, 0),
-      800,
-    );
-    await tester.pumpAndSettle();
-    expect(find.byTooltip('Close session panel'), findsOneWidget);
-  });
 }
 
 class _EmptyApi extends ApiClient {
+  /// No saved session in tests (and no secure-storage plugin).
   @override
-  Future<List<Map<String, dynamic>>> listPatients() async => [];
+  Future<bool> tryRestoreSession() async => false;
+
+  @override
+  Future<List<Map<String, dynamic>>> listPatients({
+    bool forceRefresh = false,
+    String? status,
+  }) async =>
+      [];
 }

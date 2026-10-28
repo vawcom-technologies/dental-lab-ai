@@ -6,7 +6,6 @@ import '../navigation/app_page_routes.dart';
 import '../theme/app_theme.dart';
 import 'app_buttons.dart';
 import 'glass_surface.dart';
-import 'pressable.dart';
 import 'soft_pill_button.dart';
 
 export '../errors/user_facing_error.dart';
@@ -14,6 +13,7 @@ export 'app_buttons.dart';
 export 'app_dialogs.dart';
 export 'app_snackbar.dart';
 export 'app_switcher.dart';
+export 'copyable_text.dart';
 export 'busy_action.dart';
 export 'dental_date_picker.dart';
 export 'glass_surface.dart';
@@ -22,8 +22,10 @@ export 'pressable.dart';
 export 'password_checklist.dart';
 export 'patient_media_dialogs.dart';
 export 'phone_field.dart';
+export 'required_text_sheet.dart';
 export 'soft_pill_button.dart';
 export 'tooth_loader.dart';
+export 'user_avatar.dart';
 
 class StatusChip extends StatelessWidget {
   const StatusChip({super.key, required this.statusKey});
@@ -80,132 +82,6 @@ class _StatusChipFace extends StatelessWidget {
           fontSize: 12,
           fontWeight: FontWeight.w600,
         ),
-      ),
-    );
-  }
-}
-
-/// Tappable status chip with workflow status menu (owner/edit flows).
-class PatientStatusMenu extends StatelessWidget {
-  const PatientStatusMenu({
-    super.key,
-    required this.status,
-    this.enabled = true,
-    this.onSelected,
-  });
-
-  final String status;
-  final bool enabled;
-  final ValueChanged<String>? onSelected;
-
-  Future<void> _pickStatus(BuildContext context) async {
-    if (!enabled || onSelected == null) return;
-    final box = context.findRenderObject() as RenderBox?;
-    if (box == null || !box.hasSize) return;
-    final origin = box.localToGlobal(Offset.zero);
-    final size = box.size;
-    final selected = await showMenu<String>(
-      context: context,
-      position: RelativeRect.fromLTRB(
-        origin.dx,
-        origin.dy + size.height + 6,
-        origin.dx + size.width,
-        origin.dy,
-      ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      color: Colors.white.withValues(alpha: 0.96),
-      elevation: 8,
-      items: [
-        for (final key in CaseStatuses.all)
-          PopupMenuItem<String>(
-            value: key,
-            child: Row(
-              children: [
-                Icon(
-                  CaseStatuses.normalize(status) == key
-                      ? Icons.check_rounded
-                      : Icons.circle,
-                  size: CaseStatuses.normalize(status) == key ? 18 : 10,
-                  color: StatusStyle.of(key).fg,
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  AppLocalizations.of(context).statusLabel(key),
-                  style: AppFonts.style(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.navy,
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-    if (selected == null) return;
-    onSelected!(selected);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final key = CaseStatuses.normalize(status);
-    final style = StatusStyle.of(key);
-    final label = AppLocalizations.of(context).statusLabel(key);
-    final interactive = enabled && onSelected != null;
-
-    Widget face({required bool pressed}) {
-      final bg = pressed
-          ? Color.alphaBlend(style.fg.withValues(alpha: 0.10), style.bg)
-          : style.bg;
-      return AnimatedContainer(
-        duration: AppMotion.fast,
-        curve: AppMotion.spring,
-        constraints: const BoxConstraints(minHeight: 34),
-        padding: EdgeInsets.fromLTRB(14, 8, interactive ? 10 : 14, 8),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: style.fg.withValues(alpha: 0.22)),
-          boxShadow:
-              pressed ? NeoShadows.pressed() : NeoShadows.soft(depth: 0.3),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                softWrap: false,
-                overflow: TextOverflow.ellipsis,
-                style: AppFonts.style(
-                  color: style.fg,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13,
-                ),
-              ),
-            ),
-            if (interactive) ...[
-              const SizedBox(width: 2),
-              Icon(
-                Icons.keyboard_arrow_down_rounded,
-                size: 18,
-                color: style.fg,
-              ),
-            ],
-          ],
-        ),
-      );
-    }
-
-    if (!interactive) return face(pressed: false);
-
-    return Tooltip(
-      message: AppLocalizations.of(context).changeStatus,
-      child: Pressable(
-        onTap: () => _pickStatus(context),
-        scale: 0.93,
-        builder: (context, pressed) => face(pressed: pressed),
       ),
     );
   }
@@ -360,10 +236,14 @@ class PageHeader extends StatelessWidget {
     this.icon,
     this.actions = const [],
     this.chromeActions = const [],
+    this.subtitleAsInfo = false,
   });
 
   final String title;
   final String? subtitle;
+
+  /// Hide [subtitle] behind an ⓘ next to the title; tapping it shows the text.
+  final bool subtitleAsInfo;
   final IconData? icon;
 
   /// Primary / secondary CTAs — never frosted.
@@ -380,19 +260,36 @@ class PageHeader extends StatelessWidget {
     Widget titleBlock(bool compact) => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          title,
-          maxLines: phone ? 2 : 1,
-          overflow: TextOverflow.ellipsis,
-          softWrap: phone,
-          style: AppFonts.style(
-            fontSize: phone ? 20 : (compact ? 22 : 28),
-            fontWeight: FontWeight.w700,
-            color: AppColors.navy,
-            letterSpacing: -0.4,
-          ),
+        Row(
+          children: [
+            Flexible(
+              child: Text(
+                title,
+                maxLines: phone ? 2 : 1,
+                overflow: TextOverflow.ellipsis,
+                softWrap: phone,
+                style: AppFonts.style(
+                  fontSize: phone ? 20 : (compact ? 22 : 28),
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.navy,
+                  letterSpacing: -0.4,
+                ),
+              ),
+            ),
+            if (subtitleAsInfo && subtitle != null)
+              Tooltip(
+                message: subtitle!,
+                triggerMode: TooltipTriggerMode.tap,
+                showDuration: const Duration(seconds: 5),
+                preferBelow: true,
+                child: const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: Icon(Icons.info_outline_rounded, size: 20, color: AppColors.muted),
+                ),
+              ),
+          ],
         ),
-        if (subtitle != null) ...[
+        if (subtitle != null && !subtitleAsInfo) ...[
           const SizedBox(height: 2),
           Text(
             subtitle!,
@@ -410,7 +307,9 @@ class PageHeader extends StatelessWidget {
 
     final trailing = [
       if (chromeActions.isNotEmpty)
-        GlassSurface(
+        // Hug the icons; the tray otherwise fills the width it's offered.
+        IntrinsicWidth(
+          child: GlassSurface(
           borderRadius: BorderRadius.circular(16),
           blur: 16,
           tint: Colors.white.withValues(alpha: 0.48),
@@ -422,6 +321,7 @@ class PageHeader extends StatelessWidget {
             crossAxisAlignment: WrapCrossAlignment.center,
             children: chromeActions,
           ),
+        ),
         ),
       if (actions.isNotEmpty)
         Wrap(
@@ -470,14 +370,23 @@ class PageHeader extends StatelessWidget {
             ],
           );
         }
+        // Buttons at their natural width (a Wrap shrinks to its content);
+        // the title keeps at least 330pt, and past that buttons wrap in place.
         return Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(child: ident),
-            for (final w in trailing) ...[
-              const SizedBox(width: 10),
-              w,
-            ],
+            const SizedBox(width: 10),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: (maxW - 340).clamp(0.0, double.infinity)),
+              child: Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: trailing,
+              ),
+            ),
           ],
         );
       },

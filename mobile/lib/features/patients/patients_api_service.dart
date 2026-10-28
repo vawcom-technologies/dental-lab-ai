@@ -64,8 +64,9 @@ class PatientsApiService {
       throw AgentApiException(
         httpCode: envelope.httpCode != 0 ? envelope.httpCode : res.statusCode,
         code: envelope.errorCode ?? 'ERROR_${res.statusCode}',
-        message: envelope.errorMessage ??
-            'An unexpected error occurred.',
+        message: envelope.errorCode == 'NO_LAB'
+            ? AppLocalizations.current.tr('join.noLabError')
+            : envelope.errorMessage ?? 'An unexpected error occurred.',
         action: envelope.action,
       );
     }
@@ -116,7 +117,8 @@ class PatientsApiService {
     required String address,
     required String phone,
     required String healthInsurance,
-    String status = 'pending',
+    /// Labs: `{'dentist_id': …}` or `{'send_to_lab_id': …}`.
+    Map<String, String>? target,
   }) async {
     final env = await _send(
       () => _api.httpClient.post(
@@ -130,7 +132,7 @@ class PatientsApiService {
           'address': address,
           'phone': phone,
           'health_insurance': healthInsurance,
-          'status': status,
+          ...?target,
         }),
       ),
     );

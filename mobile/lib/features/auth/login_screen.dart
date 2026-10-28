@@ -46,8 +46,14 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     } catch (e) {
-      final msg = friendlyError(e, AppLocalizations.of(context));
-      if (mounted) AppSnackBars.error(context, msg, haptic: false);
+      final loc = AppLocalizations.of(context);
+      final msg = friendlyError(e, loc);
+      if (!mounted) return;
+      if (msg == loc.errRegistrationRejected) {
+        AppDialogs.alert(context, title: loc.authRejectedTitle, message: msg);
+      } else {
+        AppSnackBars.error(context, msg, haptic: false);
+      }
       AppHaptics.warn();
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -75,14 +81,6 @@ class _LoginScreenState extends State<LoginScreen> {
     if (result is String && result.isNotEmpty) {
       AppSnackBars.success(context, result);
     }
-  }
-
-  void _fillDemo() {
-    AppHaptics.selection();
-    setState(() {
-      _email.text = 'dentist@elitedent.demo';
-      _password.text = 'demo1234';
-    });
   }
 
   @override
@@ -226,15 +224,6 @@ class _LoginScreenState extends State<LoginScreen> {
         OutlinedButton(
           onPressed: _loading ? null : _openRegister,
           child: Text(loc.createProfile),
-        ),
-        const SizedBox(height: 14),
-        TextButton(
-          onPressed: _loading ? null : _fillDemo,
-          child: Text(
-            loc.useDemo,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 12, height: 1.3),
-          ),
         ),
       ],
     );

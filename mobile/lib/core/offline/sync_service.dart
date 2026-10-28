@@ -2,6 +2,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 
 import '../api/api_client.dart';
+import '../l10n/app_localizations.dart';
 import 'sync_queue.dart';
 
 class SyncService {
@@ -25,138 +26,93 @@ class SyncService {
   bool _fitsLocalCache(Uint8List bytes) => bytes.length <= maxLocalCacheBytes;
 
   Never _tooLargeForOfflineCache(String kind) {
-    throw Exception(
-      kIsWeb
-          ? 'This $kind is too large for the browser offline cache '
-              '(localStorage quota). Stay online and upload again — '
-              'files go straight to the server when connected.'
-          : 'This $kind is too large for the encrypted offline cache on this device. '
-              'Connect to the network and upload again.',
-    );
+    final loc = AppLocalizations.current;
+    throw Exception(kIsWeb ? loc.tr('offline.tooLargeWeb') : loc.tr('offline.tooLarge'));
   }
 
   /// Save photo locally encrypted; upload now or enqueue if offline.
   Future<Map<String, dynamic>> capturePhoto({
-    required int caseId,
+    required String patientId,
     required String angle,
     required Uint8List bytes,
     required String filename,
-  }) async {
-    final rel =
-        'case_$caseId/photos/${DateTime.now().millisecondsSinceEpoch}_$filename';
+  }) =>
+      _capture(
+        kind: 'photo',
+        type: SyncOpType.photoUpload,
+        patientId: patientId,
+        bytes: bytes,
+        filename: filename,
+        extra: {'angle': angle},
+      );
 
+  Future<Map<String, dynamic>> captureScan({
+    required String patientId,
+    required Uint8List bytes,
+    required String filename,
+  }) =>
+      _capture(
+        kind: 'scan',
+        type: SyncOpType.scanUpload,
+        patientId: patientId,
+        bytes: bytes,
+        filename: filename,
+      );
+
+  /// Upload now when online (never block chairside on a cache write); on
+  /// failure or offline, encrypt locally and queue it.
+  Future<Map<String, dynamic>> _capture({
+    required String kind,
+    required SyncOpType type,
+    required String patientId,
+    required Uint8List bytes,
+    required String filename,
+    Map<String, dynamic> extra = const {},
+  }) async {
+    final rel = 'patient_$patientId/${kind}s/${DateTime.now().millisecondsSinceEpoch}_$filename';
+    final payload = {'patientId': patientId, 'relativePath': rel, 'filename': filename, ...extra};
+    Object? error;
     if (await isOnline) {
       try {
-        // Upload first — never block chairside capture on a local cache write.
-        return await api.uploadPhoto(
-          caseId: caseId,
-          angle: angle,
-          bytes: bytes,
-          filename: filename,
-        );
+        return await _upload(type, payload, bytes);
       } catch (e) {
         if (!_fitsLocalCache(bytes)) rethrow;
-        await store.save(relativePath: rel, bytes: bytes);
-        await queue.enqueue(
-          SyncQueueItem(
-            id: 'photo_${DateTime.now().microsecondsSinceEpoch}',
-            type: SyncOpType.photoUpload,
-            payload: {
-              'caseId': caseId,
-              'angle': angle,
-              'relativePath': rel,
-              'filename': filename,
-            },
-            createdAt: DateTime.now(),
-            lastError: e.toString(),
-          ),
-        );
-        return {
-          'queued': true,
-          'relative_path': rel,
-          'note': 'Saved encrypted offline; will sync when online.',
-        };
+        error = e;
       }
+    } else if (!_fitsLocalCache(bytes)) {
+      _tooLargeForOfflineCache(kind);
     }
-
-    if (!_fitsLocalCache(bytes)) _tooLargeForOfflineCache('photo');
     await store.save(relativePath: rel, bytes: bytes);
     await queue.enqueue(
       SyncQueueItem(
-        id: 'photo_${DateTime.now().microsecondsSinceEpoch}',
-        type: SyncOpType.photoUpload,
-        payload: {
-          'caseId': caseId,
-          'angle': angle,
-          'relativePath': rel,
-          'filename': filename,
-        },
+        id: '${kind}_${DateTime.now().microsecondsSinceEpoch}',
+        type: type,
+        payload: payload,
         createdAt: DateTime.now(),
+        lastError: error?.toString(),
       ),
     );
     return {
       'queued': true,
       'relative_path': rel,
-      'note': 'Offline — encrypted locally and queued for sync.',
+      'note': error == null
+          ? 'Offline — encrypted locally and queued for sync.'
+          : 'Saved encrypted offline; will sync when online.',
     };
   }
 
-  Future<Map<String, dynamic>> captureScan({
-    required int caseId,
-    required Uint8List bytes,
-    required String filename,
-  }) async {
-    final rel =
-        'case_$caseId/scans/${DateTime.now().millisecondsSinceEpoch}_$filename';
-
-    if (await isOnline) {
-      try {
-        // Direct upload — large PLYs must not go through localStorage.
-        return await api.uploadScan(
-          caseId: caseId,
+  Future<Map<String, dynamic>> _upload(SyncOpType type, Map<String, dynamic> p, Uint8List bytes) {
+    final patientId = p['patientId'] as String;
+    final filename = p['filename'] as String;
+    return switch (type) {
+      SyncOpType.photoUpload => api.uploadPatientPhoto(
+          patientId: patientId,
+          angle: p['angle'] as String,
           bytes: bytes,
           filename: filename,
-        );
-      } catch (e) {
-        if (!_fitsLocalCache(bytes)) rethrow;
-        await store.save(relativePath: rel, bytes: bytes);
-        await queue.enqueue(
-          SyncQueueItem(
-            id: 'scan_${DateTime.now().microsecondsSinceEpoch}',
-            type: SyncOpType.scanUpload,
-            payload: {
-              'caseId': caseId,
-              'relativePath': rel,
-              'filename': filename,
-            },
-            createdAt: DateTime.now(),
-            lastError: e.toString(),
-          ),
-        );
-        return {
-          'queued': true,
-          'note': 'Saved encrypted offline; will sync when online.',
-        };
-      }
-    }
-
-    if (!_fitsLocalCache(bytes)) _tooLargeForOfflineCache('scan');
-    await store.save(relativePath: rel, bytes: bytes);
-    await queue.enqueue(
-      SyncQueueItem(
-        id: 'scan_${DateTime.now().microsecondsSinceEpoch}',
-        type: SyncOpType.scanUpload,
-        payload: {
-          'caseId': caseId,
-          'relativePath': rel,
-          'filename': filename,
-        },
-        createdAt: DateTime.now(),
-      ),
-    );
-    return {
-      'queued': true,
-      'note': 'Offline — encrypted locally and queued for sync.',
+        ),
+      SyncOpType.scanUpload => api.uploadPatientScan(patientId: patientId, bytes: bytes, filename: filename),
+      SyncOpType.patientCreate => throw UnsupportedError('patientCreate is not queued'),
     };
   }
 
@@ -166,26 +122,17 @@ class SyncService {
     final items = await queue.load();
     var synced = 0;
     for (final item in items) {
+      // Queued before patient-scoped uploads (old integer caseId): no way to
+      // map it to a patient, so drop it instead of retrying forever.
+      if (item.type != SyncOpType.patientCreate && item.payload['patientId'] is! String) {
+        debugPrint('Sync: dropping ${item.id}, queued with old caseId ${item.payload['caseId']}');
+        await queue.remove(item.id);
+        continue;
+      }
       try {
-        switch (item.type) {
-          case SyncOpType.photoUpload:
-            final bytes = await store.read(item.payload['relativePath'] as String);
-            await api.uploadPhoto(
-              caseId: item.payload['caseId'] as int,
-              angle: item.payload['angle'] as String,
-              bytes: bytes,
-              filename: item.payload['filename'] as String,
-            );
-          case SyncOpType.scanUpload:
-            final bytes = await store.read(item.payload['relativePath'] as String);
-            await api.uploadScan(
-              caseId: item.payload['caseId'] as int,
-              bytes: bytes,
-              filename: item.payload['filename'] as String,
-            );
-          case SyncOpType.patientCreate:
-            // Reserved for Week 2+ full offline patient create
-            break;
+        if (item.type != SyncOpType.patientCreate) {
+          final bytes = await store.read(item.payload['relativePath'] as String);
+          await _upload(item.type, item.payload, bytes);
         }
         await queue.remove(item.id);
         synced++;

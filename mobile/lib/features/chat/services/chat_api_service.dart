@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../../../core/l10n/app_localizations.dart';
+
 import '../../../core/api/api_client.dart';
 import '../../../core/api/cached_http_client.dart';
 import '../models/chat_models.dart';
@@ -54,7 +56,7 @@ class ChatApiService {
       Uri.parse('$_base/api/media/chat-files/$messageId'),
       headers: _authHeaders,
     );
-    if (res.statusCode != 200) throw Exception(_errorMessage(res));
+    if (res.statusCode != 200) throw _fail(res);
     return (jsonDecode(res.body) as Map)['url'] as String;
   }
 
@@ -66,7 +68,7 @@ class ChatApiService {
       headers: _headersFor(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) {
-      throw Exception(_errorMessage(res));
+      throw _fail(res);
     }
     final body = jsonDecode(res.body);
     if (body is! List) return const [];
@@ -83,7 +85,7 @@ class ChatApiService {
       body: jsonEncode({'target_user_id': targetUserId}),
     );
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(_errorMessage(res));
+      throw _fail(res);
     }
     final body = jsonDecode(res.body);
     if (body is! Map) {
@@ -112,7 +114,7 @@ class ChatApiService {
       headers: _headersFor(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) {
-      throw Exception(_errorMessage(res));
+      throw _fail(res);
     }
     final body = jsonDecode(res.body);
     if (body is! List) return const [];
@@ -139,7 +141,7 @@ class ChatApiService {
       headers: _headersFor(forceRefresh: forceRefresh),
     );
     if (res.statusCode != 200) {
-      throw Exception(_errorMessage(res));
+      throw _fail(res);
     }
     final body = jsonDecode(res.body);
     if (body is! Map) {
@@ -205,13 +207,22 @@ class ChatApiService {
     final streamed = await _api.httpClient.send(request).timeout(timeout);
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(_errorMessage(res));
+      throw _fail(res);
     }
     final body = jsonDecode(res.body);
     if (body is! Map) {
       throw Exception('Invalid media upload response');
     }
     return Message.fromJson(Map<String, dynamic>.from(body));
+  }
+
+  /// 403 `CANNOT_MESSAGE` → [CannotMessage]; anything else → its detail.
+  Exception _fail(http.Response res) {
+    try {
+      final body = jsonDecode(res.body);
+      if (body is Map && body['code'] == 'CANNOT_MESSAGE') return const CannotMessage();
+    } catch (_) {}
+    return Exception(_errorMessage(res));
   }
 
   String _errorMessage(http.Response res) {
@@ -230,4 +241,12 @@ class ChatApiService {
     } catch (_) {}
     return 'Request failed (${res.statusCode})';
   }
+}
+
+/// Messaging this person isn't allowed (any more).
+class CannotMessage implements Exception {
+  const CannotMessage();
+
+  @override
+  String toString() => AppLocalizations.current.tr('chat.cantMessage');
 }

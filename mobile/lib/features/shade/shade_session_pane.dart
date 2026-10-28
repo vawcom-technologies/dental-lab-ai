@@ -21,6 +21,7 @@ class ShadeSessionPane extends StatelessWidget {
     required this.onDelete,
     required this.wide,
     this.thumbnail,
+    this.replaceInsteadOfDelete = false,
   });
 
   final bool collapsed;
@@ -33,7 +34,11 @@ class ShadeSessionPane extends StatelessWidget {
   final Color Function(String) swatch;
   final ValueChanged<bool> onCollapseChanged;
   final ValueChanged<int> onOpen;
-  final ValueChanged<int> onDelete;
+  /// Null for read-only viewers (labs): no remove button.
+  final ValueChanged<int>? onDelete;
+
+  /// Locked case: the button replaces instead of deleting.
+  final bool replaceInsteadOfDelete;
   /// Photo thumbnail for a row (null: none).
   final Widget? Function(Map<String, dynamic> entry)? thumbnail;
 
@@ -168,7 +173,8 @@ class ShadeSessionPane extends StatelessWidget {
                                             ? AppLocalizations.of(context).tr('sh.notAnalysed')
                                             : null,
                                         onOpen: () => onOpen(i),
-                                        onDelete: () => onDelete(i),
+                                        onDelete: onDelete == null ? null : () => onDelete!(i),
+                                        replace: replaceInsteadOfDelete,
                                       );
                                     },
                                   ),
@@ -194,6 +200,7 @@ class SessionRecent extends StatefulWidget {
     required this.onOpen,
     required this.onDelete,
     required this.swatch,
+    this.replace = false,
     this.teeth = const [],
     this.isOverride = false,
     this.selected = false,
@@ -213,7 +220,8 @@ class SessionRecent extends StatefulWidget {
   /// Replaces the shade line, e.g. "Not analysed yet".
   final String? note;
   final VoidCallback onOpen;
-  final VoidCallback onDelete;
+  final VoidCallback? onDelete;
+  final bool replace;
 
   @override
   State<SessionRecent> createState() => _SessionRecentState();
@@ -333,12 +341,15 @@ class _SessionRecentState extends State<SessionRecent> {
                       ),
                     ),
                   ),
-                  AppButtons.icon(
-                    onPressed: widget.onDelete,
-                    tooltip: AppLocalizations.of(context).shadeRemoveFromSession,
-                    icon: Icons.close_rounded,
-                    color: AppColors.muted,
-                  ),
+                  if (widget.onDelete != null)
+                    AppButtons.icon(
+                      onPressed: widget.onDelete,
+                      tooltip: widget.replace
+                          ? AppLocalizations.of(context).tr('case.replace')
+                          : AppLocalizations.of(context).shadeRemoveFromSession,
+                      icon: widget.replace ? Icons.swap_horiz_rounded : Icons.close_rounded,
+                      color: widget.replace ? AppColors.dentalBlue : AppColors.muted,
+                    ),
                 ],
               ),
               const SizedBox(height: 4),

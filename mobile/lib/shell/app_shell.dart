@@ -5,9 +5,18 @@ import '../core/layout/adaptive.dart';
 import '../core/widgets/app_switcher.dart';
 import '../core/widgets/app_snackbar.dart';
 import '../core/widgets/busy_action.dart';
+import '../core/widgets/tooth_loader.dart';
 import '../core/session/patient_session.dart';
 import '../core/theme/app_theme.dart';
+import '../features/admin/admin_dashboard_page.dart';
+import '../features/admin/admin_patients_page.dart';
+import '../features/admin/admin_signups_page.dart';
+import '../features/admin/admin_top_bar.dart';
 import '../features/appointments/screens/appointments_screen.dart';
+import '../features/cases/review_page.dart';
+import '../features/lab/join_lab_page.dart';
+import '../features/lab/lab_dashboard_page.dart';
+import '../features/lab/lab_page.dart';
 import '../features/camera/camera_page.dart';
 import '../features/chat/messages_page.dart';
 import '../features/chat/state/chat_controller.dart';
@@ -48,15 +57,26 @@ class _AppShellState extends State<AppShell> {
   AppNavItem _active = AppNavItem.dashboard;
   int _patientRefresh = 0;
   late String _dentistName;
-  int _notificationBadge = 0;
   int _messageBadge = 0;
-  bool _sidebarCollapsed = false;
-  /// When the window is narrow (iPad portrait), expand overrides auto-collapse.
-  bool _narrowSidebarOpen = false;
+  int _labBadge = 0;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   late final ChatController _chat;
   late final PatientSession _patients;
   late final NotificationInboxController _inbox;
+
+  /// Selected tab on each admin page, so the dashboard can deep-link.
+  final _adminTabs = {
+    for (final item in const [
+      AppNavItem.settings,
+      AppNavItem.laboratories,
+      AppNavItem.patients,
+      AppNavItem.lab,
+    ])
+      item: ValueNotifier<int>(0),
+  };
+
+  /// Admin Patients status filter ('' = all); the dashboard can preset it.
+  final _patientStatus = ValueNotifier<String>('');
 
   /// Lazily mount pages on first visit, then keep their State alive.
   final Set<AppNavItem> _mountedPages = {AppNavItem.dashboard};
@@ -75,6 +95,14 @@ class _AppShellState extends State<AppShell> {
     _chat.addListener(_onChatChanged);
     _patients = PatientSession(widget.api);
     _patients.addListener(_onPatientSessionChanged);
+    // Labs review inside a pushed page (no Scans/Shade/Smile in their sidebar).
+    if (!widget.api.isLaboratory) {
+      _patients.openToolHandler = (tool) => _go(switch (tool) {
+            'shade' => AppNavItem.shade,
+            'smile' => AppNavItem.smilePreview,
+            _ => AppNavItem.scans,
+          });
+    }
     _inbox = NotificationInboxController(widget.api);
     _inbox.onError = (msg) {
       if (!mounted) return;
@@ -83,10 +111,21 @@ class _AppShellState extends State<AppShell> {
       });
     };
     _inbox.addListener(_onInboxChanged);
-    // Warm patient list + chat so the first workflow page opens faster.
+    // Warm patient list + chat after first frame — start()/loadInbox notify
+    // listeners, and doing that while the shell is still mounting dirties
+    // badge ListenableBuilders mid-build.
     _patients.ensureLoaded();
-    _chat.start();
-    _inbox.start();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _chat.start();
+      _inbox.start();
+    });
+    // Dentists: learn whether they have a lab (a restored session doesn't say).
+    if (widget.api.isDentist) {
+      widget.api.fetchMe(forceRefresh: true).then((_) {
+        if (mounted) setState(() {});
+      }, onError: (_) {});
+    }
   }
 
   void _onChatChanged() {
@@ -126,15 +165,15 @@ class _AppShellState extends State<AppShell> {
     _patients.dispose();
     _inbox.removeListener(_onInboxChanged);
     _inbox.dispose();
+    for (final tab in _adminTabs.values) {
+      tab.dispose();
+    }
+    _patientStatus.dispose();
     super.dispose();
   }
 
   void _onInboxChanged() {
     if (!mounted) return;
-    final unread = _inbox.unreadCount;
-    if (_notificationBadge != unread) {
-      setState(() => _notificationBadge = unread);
-    }
     final toasts = _inbox.takePendingToasts();
     if (toasts.isEmpty) return;
     if (_active == AppNavItem.notifications) return;
@@ -173,7 +212,9 @@ class _AppShellState extends State<AppShell> {
   void _go(AppNavItem item) {
     // Scan body parked — restore when needed.
     if (item == AppNavItem.scanBody) return;
-    if (item == AppNavItem.laboratories && !widget.api.isAdmin) {
+    if ((item == AppNavItem.laboratories ||
+            item == AppNavItem.adminSignups) &&
+        !widget.api.isAdmin) {
       AppSnackBars.error(
         context,
         AppLocalizations.of(context).errNoPermission,
@@ -189,8 +230,23 @@ class _AppShellState extends State<AppShell> {
       _pingInbox();
     }
     if (item == AppNavItem.messages) {
-      _chat.loadInbox();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _chat.loadInbox();
+      });
     }
+  }
+
+  /// Deep link from the dashboard. Opening Patients this way clears the
+  /// status filter unless [_openPatientsWithStatus] sets one.
+  void _openAdmin(AppNavItem item, int tab) {
+    _adminTabs[item]?.value = tab;
+    if (item == AppNavItem.patients) _patientStatus.value = '';
+    _go(item);
+  }
+
+  void _openPatientsWithStatus(String status) {
+    _openAdmin(AppNavItem.patients, 0);
+    _patientStatus.value = status;
   }
 
   Future<void> _onPatientCreated() async {
@@ -208,28 +264,26 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
+    // No lab yet: the lab picker is the whole app (plus Settings / sign out).
+    if (widget.api.needsLab) {
+      return JoinLabPage(api: widget.api, onReady: () => setState(() {}));
+    }
     final activeIndex = _navOrder.indexOf(_active);
 
     return ListenableBuilder(
       listenable: _patients,
       builder: (context, _) {
+        // Keyboard overlays content — don't shrink the shell (sidebar / chrome
+        // stay put under dialogs). Pages that need the inset (e.g. Messages)
+        // pad themselves.
         return Scaffold(
           backgroundColor: Colors.transparent,
+          resizeToAvoidBottomInset: false,
           body: BusyBarrier(
             busy: _patients.openingPatientDetail,
             message: AppLocalizations.of(context).patientsOpening,
-            child: DecoratedBox(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color(0xFFEAF1F8),
-                    AppColors.surface,
-                    Color(0xFFDCE6F2),
-                  ],
-                ),
-              ),
+            child: ColoredBox(
+              color: AppColors.surface,
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   // Screen size, not laid-out height — keyboard insets must not
@@ -237,7 +291,7 @@ class _AppShellState extends State<AppShell> {
                   // dismisses the composer immediately).
                   final screen = MediaQuery.sizeOf(context);
                   final phone = AppBreakpoints.isPhoneSize(screen);
-                  final pages = ClipRect(
+                  final stack = ClipRect(
                     child: AppPaneFade(
                       token: _active,
                       child: IndexedStack(
@@ -251,7 +305,7 @@ class _AppShellState extends State<AppShell> {
                                     child: TickerMode(
                                       enabled: item == _active,
                                       child: RepaintBoundary(
-                                        child: _createPage(item),
+                                        child: PageArea(child: _createPage(item)),
                                       ),
                                     ),
                                   )
@@ -259,6 +313,18 @@ class _AppShellState extends State<AppShell> {
                         ],
                       ),
                     ),
+                  );
+                  // Bell, chat, search and profile — shared by admin, lab and dentist.
+                  final pages = AdminChrome(
+                    api: widget.api,
+                    inbox: _inbox,
+                    chat: _chat,
+                    onOpen: _openAdmin,
+                    openChat: (c) {
+                      _chat.openConversation(c);
+                      _go(AppNavItem.messages);
+                    },
+                    child: stack,
                   );
 
                   if (phone) {
@@ -268,22 +334,21 @@ class _AppShellState extends State<AppShell> {
                       child: Scaffold(
                         key: _scaffoldKey,
                         backgroundColor: Colors.transparent,
+                        resizeToAvoidBottomInset: false,
                         drawer: Drawer(
                           backgroundColor: AppColors.sidebarBg,
                           width: (screen.width * 0.86).clamp(260.0, 320.0),
                           child: AppSidebar(
                             active: _active,
-                            collapsed: false,
                             asDrawer: true,
-                            onToggle: () =>
-                                _scaffoldKey.currentState?.closeDrawer(),
                             onSelect: (item) {
                               _scaffoldKey.currentState?.closeDrawer();
                               _go(item);
                             },
                             messageBadge: _messageBadge,
-                            notificationBadge: _notificationBadge,
-                            showLaboratories: widget.api.isAdmin,
+                            admin: widget.api.isAdmin,
+                            lab: widget.api.isLaboratory,
+                            labBadge: _labBadge,
                           ),
                         ),
                         body: SafeArea(child: pages),
@@ -291,33 +356,15 @@ class _AppShellState extends State<AppShell> {
                     );
                   }
 
-                  final narrow = screen.height > screen.width ||
-                      constraints.maxWidth < AppBreakpoints.collapseSidebar;
-                  final sidebarCollapsed =
-                      narrow ? !_narrowSidebarOpen : _sidebarCollapsed;
                   return Row(
                     children: [
                       AppSidebar(
                         active: _active,
-                        onSelect: (item) {
-                          if (narrow && _narrowSidebarOpen) {
-                            setState(() => _narrowSidebarOpen = false);
-                          }
-                          _go(item);
-                        },
-                        collapsed: sidebarCollapsed,
-                        onToggle: () {
-                          setState(() {
-                            if (narrow) {
-                              _narrowSidebarOpen = !_narrowSidebarOpen;
-                            } else {
-                              _sidebarCollapsed = !_sidebarCollapsed;
-                            }
-                          });
-                        },
+                        onSelect: _go,
                         messageBadge: _messageBadge,
-                        notificationBadge: _notificationBadge,
-                        showLaboratories: widget.api.isAdmin,
+                        admin: widget.api.isAdmin,
+                            lab: widget.api.isLaboratory,
+                            labBadge: _labBadge,
                       ),
                       Expanded(
                         child: SafeArea(
@@ -347,14 +394,38 @@ class _AppShellState extends State<AppShell> {
     final active = item == _active;
     switch (item) {
       case AppNavItem.dashboard:
+        if (widget.api.isAdmin) {
+          return AdminDashboardPage(
+            api: widget.api,
+            onOpen: _openAdmin,
+            onOpenStatus: _openPatientsWithStatus,
+            active: active,
+          );
+        }
+        if (widget.api.isLaboratory) {
+          return LabDashboardPage(
+            api: widget.api,
+            onOpen: _openAdmin,
+            onWaiting: (n) {
+              if (mounted && n != _labBadge) setState(() => _labBadge = n);
+            },
+            active: active,
+          );
+        }
         return DashboardPage(
-          dentistName: _dentistName,
           api: widget.api,
-          onNavigate: _go,
-          unreadMessages: _messageBadge,
+          onOpen: _openAdmin,
           active: active,
         );
       case AppNavItem.patients:
+        if (widget.api.isAdmin) {
+          return AdminPatientsPage(
+            api: widget.api,
+            tab: _adminTabs[item]!,
+            status: _patientStatus,
+            active: active,
+          );
+        }
         return PatientsPage(
           api: widget.api,
           dentistName: _dentistName,
@@ -428,16 +499,56 @@ class _AppShellState extends State<AppShell> {
         }
         return LaboratoriesPage(
           api: widget.api,
-          onMessageLab: (lab) async {
-            await _chat.openOrCreateWith(lab.id);
+          tab: _adminTabs[item],
+          active: active,
+          onMessage: (userId) async {
+            await _chat.openOrCreateWith(userId);
             if (!mounted) return;
             _go(AppNavItem.messages);
           },
         );
+      case AppNavItem.lab:
+        if (!widget.api.isLaboratory) {
+          return _ForbiddenRedirect(onLeave: () => _go(AppNavItem.dashboard));
+        }
+        return LabPage(
+          api: widget.api,
+          active: active,
+          tab: _adminTabs[item],
+          onOpenPatient: _patients.requestOpenPatientDetail,
+          onWaiting: (n) {
+            if (mounted && n != _labBadge) setState(() => _labBadge = n);
+          },
+        );
+      case AppNavItem.review:
+        if (!widget.api.isLaboratory) {
+          return _ForbiddenRedirect(onLeave: () => _go(AppNavItem.dashboard));
+        }
+        return ReviewPage(
+          api: widget.api,
+          cases: _patients.cases,
+          patients: _patients,
+          active: active,
+        );
+      case AppNavItem.adminSignups:
+        if (!widget.api.isAdmin) {
+          return _ForbiddenRedirect(
+            onLeave: () => _go(AppNavItem.dashboard),
+          );
+        }
+        return AdminSignupsPage(api: widget.api, active: active);
       case AppNavItem.notifications:
         return NotificationsPage(
           inbox: _inbox,
           onNavigate: _go,
+          onOpenTab: (item, tab) {
+            _adminTabs[item]?.value = tab;
+            _go(item);
+          },
+          onOpenPatient: (id) {
+            _patients.requestOpenPatientDetail(id);
+            _go(AppNavItem.patients);
+          },
           active: active,
         );
       case AppNavItem.reports:
@@ -446,7 +557,7 @@ class _AppShellState extends State<AppShell> {
           onNavigate: _go,
         );
       case AppNavItem.settings:
-        return SettingsPage(api: widget.api);
+        return SettingsPage(api: widget.api, tab: _adminTabs[item]!, active: active);
     }
   }
 }

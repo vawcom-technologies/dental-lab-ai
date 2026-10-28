@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:image/image.dart' as imglib;
@@ -15,6 +16,9 @@ import '../../core/session/patient_session.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/patient_picker.dart';
 import '../../core/widgets/ui_kit.dart';
+import '../cases/case_panel.dart';
+import '../cases/case_store.dart';
+import '../cases/submit_prompt.dart';
 import '../../core/errors/user_facing_error.dart';
 
 /// Single entry in the smile-shape library.
@@ -158,262 +162,118 @@ class ShapeLibrary {
 }
 
 /// Accordion of Batem smile models — jaw sections and rows open independently.
-class BatemModelAccordion extends StatefulWidget {
-  const BatemModelAccordion({
+/// Batem models as a grid of big thumbnails per jaw. One tap picks a model
+/// (a tap on a picked one removes it); a check marks the picked ones.
+class BatemModelGrid extends StatelessWidget {
+  const BatemModelGrid({
     super.key,
     required this.selectedIndexes,
-    required this.openIds,
-    required this.onToggle,
     required this.onSelect,
-    this.shrinkWrap = false,
   });
 
   final Set<int> selectedIndexes;
-  final Set<int> openIds;
-  final ValueChanged<int> onToggle;
   final ValueChanged<int> onSelect;
-  final bool shrinkWrap;
-
-  @override
-  State<BatemModelAccordion> createState() => _BatemModelAccordionState();
-}
-
-class _BatemModelAccordionState extends State<BatemModelAccordion> {
-  final _openArch = <String>{'upper', 'lower'};
 
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
-    final children = <Widget>[
-      _archHeader('upper', loc.smileUpperJaw),
-      if (_openArch.contains('upper'))
-        ..._rowsFor(ShapeLibrary.items, startIndex: 0),
-      _archHeader('lower', loc.smileLowerJaw),
-      if (_openArch.contains('lower'))
-        ..._rowsFor(
-          ShapeLibrary.lowerArchItems,
-          startIndex: ShapeLibrary.items.length,
-        ),
-    ];
+    Widget section(String label, List<ShapeLibraryItem> items, int start) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(padding: const EdgeInsets.fromLTRB(2, 6, 2, 10), child: SectionLabel(label)),
+            LayoutBuilder(
+              builder: (context, box) {
+                final cols = box.maxWidth >= 300 ? 2 : 1;
+                final w = (box.maxWidth - (cols - 1) * 10) / cols;
+                return Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    for (var i = 0; i < items.length; i++)
+                      SizedBox(
+                        width: w,
+                        child: _ModelTile(
+                          key: ValueKey('batem-${items[i].id}'),
+                          item: items[i],
+                          selected: selectedIndexes.contains(start + i),
+                          onTap: () => onSelect(start + i),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ],
+        );
     return ListView(
       primary: false,
-      padding: const EdgeInsets.only(bottom: 8),
-      shrinkWrap: widget.shrinkWrap,
-      physics: widget.shrinkWrap ? const NeverScrollableScrollPhysics() : null,
-      children: children,
+      padding: const EdgeInsets.only(bottom: 12),
+      children: [
+        section(loc.smileUpperJaw, ShapeLibrary.items, 0),
+        const SizedBox(height: 14),
+        section(loc.smileLowerJaw, ShapeLibrary.lowerArchItems, ShapeLibrary.items.length),
+      ],
     );
   }
+}
 
-  Widget _archHeader(String id, String label) {
-    final open = _openArch.contains(id);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Material(
-        color: AppColors.neo,
-        borderRadius: BorderRadius.circular(10),
-        child: InkWell(
-          onTap: () {
-            setState(() {
-              if (open) {
-                _openArch.remove(id);
-              } else {
-                _openArch.add(id);
-              }
-            });
-          },
-          borderRadius: BorderRadius.circular(10),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    label,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 13,
-                      color: AppColors.navy,
-                    ),
-                  ),
-                ),
-                Icon(
-                  open
-                      ? Icons.keyboard_arrow_up_rounded
-                      : Icons.keyboard_arrow_down_rounded,
-                  color: AppColors.navy,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+class _ModelTile extends StatelessWidget {
+  const _ModelTile({super.key, required this.item, required this.selected, required this.onTap});
 
-  List<Widget> _rowsFor(List<ShapeLibraryItem> items, {required int startIndex}) {
-    final loc = AppLocalizations.of(context);
-    return [
-      for (var i = 0; i < items.length; i++)
-        _modelRow(
-          loc: loc,
-          item: items[i],
-          catalogIndex: startIndex + i,
-        ),
-    ];
-  }
+  final ShapeLibraryItem item;
+  final bool selected;
+  final VoidCallback onTap;
 
-  Widget _modelRow({
-    required AppLocalizations loc,
-    required ShapeLibraryItem item,
-    required int catalogIndex,
-  }) {
-    final selected = widget.selectedIndexes.contains(catalogIndex);
-    final open = widget.openIds.contains(item.id);
-    return Padding(
-      key: ValueKey('batem-${item.id}'),
-      padding: const EdgeInsets.only(bottom: 8),
-      child: DecoratedBox(
+  @override
+  Widget build(BuildContext context) {
+    return Pressable(
+      onTap: onTap,
+      scale: 0.97,
+      builder: (_, _) => AnimatedContainer(
+        duration: AppMotion.fast,
+        padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-          color: selected
-              ? AppColors.dentalBlue.withValues(alpha: 0.06)
-              : Colors.white,
-          borderRadius: BorderRadius.circular(12),
+          color: selected ? AppColors.dentalBlue.withValues(alpha: 0.10) : AppColors.surface,
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: selected ? AppColors.dentalBlue : AppColors.border,
-            width: selected ? 1.8 : 1,
+            color: selected ? AppColors.dentalBlue : AppColors.border.withValues(alpha: 0.6),
+            width: selected ? 2 : 1,
           ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            InkWell(
-              onTap: () => widget.onToggle(item.id),
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(12),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 10, 8, 10),
-                child: Row(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: ColoredBox(
-                        color: const Color(0xFF0F1724),
-                        child: SizedBox(
-                          width: 48,
-                          height: 36,
-                          child: ShapeToothImage(
-                            item: item,
-                            fit: BoxFit.contain,
-                          ),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: ColoredBox(
+                color: const Color(0xFF0F1724),
+                child: SizedBox(
+                  height: 84,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Padding(padding: const EdgeInsets.all(8), child: ShapeToothImage(item: item, fit: BoxFit.contain)),
+                      if (selected)
+                        const Positioned(
+                          top: 6,
+                          right: 6,
+                          child: Icon(Icons.check_circle, color: AppColors.dentalBlue, size: 22),
                         ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        shapeLabel(context, item),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
-                          color: selected
-                              ? AppColors.dentalBlue
-                              : AppColors.navy,
-                        ),
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: open
-                            ? AppColors.dentalBlue.withValues(alpha: 0.12)
-                            : AppColors.neo,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        open ? loc.smileModelOpen : loc.smileModelClosed,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: open
-                              ? AppColors.dentalBlue
-                              : AppColors.muted,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Icon(
-                      open
-                          ? Icons.keyboard_arrow_up_rounded
-                          : Icons.keyboard_arrow_down_rounded,
-                      color: AppColors.navy,
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-            ClipRect(
-              child: AnimatedSize(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOut,
-                alignment: Alignment.topCenter,
-                child: open
-                    ? Padding(
-                        padding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Material(
-                              color: const Color(0xFF0F1724),
-                              borderRadius: BorderRadius.circular(10),
-                              clipBehavior: Clip.antiAlias,
-                              child: InkWell(
-                                onTap: () => widget.onSelect(catalogIndex),
-                                child: SizedBox(
-                                  height: 120,
-                                  child: Stack(
-                                    fit: StackFit.expand,
-                                    children: [
-                                      Padding(
-                                        padding: const EdgeInsets.all(8),
-                                        child: ShapeToothImage(
-                                          item: item,
-                                          fit: BoxFit.contain,
-                                        ),
-                                      ),
-                                      if (selected)
-                                        const Positioned(
-                                          top: 8,
-                                          right: 8,
-                                          child: Icon(
-                                            Icons.check_circle,
-                                            color: AppColors.dentalBlue,
-                                            size: 22,
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            FilledButton(
-                              onPressed: () => widget.onSelect(catalogIndex),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: AppColors.navy,
-                                minimumSize: const Size.fromHeight(36),
-                              ),
-                              child: Text(loc.smileUseThisModel),
-                            ),
-                          ],
-                        ),
-                      )
-                    : const SizedBox(width: double.infinity),
+            const SizedBox(height: 6),
+            Text(
+              shapeLabel(context, item),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: AppFonts.style(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: selected ? AppColors.dentalBlue : AppColors.navy,
               ),
             ),
           ],
@@ -477,7 +337,6 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     with SingleTickerProviderStateMixin {
   List<Map<String, dynamic>> _patients = [];
   Map<String, dynamic>? _patient;
-  Map<String, dynamic>? _case;
   Uint8List? _photoBytes;
 
   // One model per jaw (catalog indexes); the placement controls edit the
@@ -503,8 +362,8 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
   bool _showOverlay = true;
   bool _comparing = false;
   bool _showGuides = true;
-  bool _placementOpen = true;
-  final Set<int> _openBatemIds = {ShapeLibrary.items.first.id};
+  /// Right panel: 0 = Models, 1 = Adjust.
+  int _railTab = 0;
 
   double _baseScale = 1.0;
   double _baseRotation = 0;
@@ -558,13 +417,49 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       curve: AppMotion.spring,
       reverseCurve: AppMotion.easeOut,
     );
+    widget.patientSession.cases.addListener(_onCase);
     _bootstrap();
   }
 
   @override
   void dispose() {
+    widget.patientSession.cases.removeListener(_onCase);
     _fsController.dispose();
     super.dispose();
+  }
+
+  void _onCase() {
+    if (mounted) setState(() {});
+  }
+
+  /// Server case for the selected patient (locked → replace, not delete).
+  CaseInfo? get _caseInfo =>
+      widget.patientSession.cases.of(_patient == null ? null : _pid(_patient!));
+
+  /// Labs review only: no photo / save / delete (server returns 403).
+  /// Labs view; while reviewing they edit too, which saves as a suggestion.
+  bool get _readOnly => widget.api.isLaboratory && !(_caseInfo?.canSuggest ?? false);
+
+  /// Saved smile the next new save stands in for (locked case).
+  String? _replacingId;
+
+  void _refreshCase() {
+    final p = _patient;
+    if (p != null) widget.patientSession.cases.refresh(_pid(p));
+  }
+
+  /// Locked case: start a new smile on a new photo; saving it replaces [item].
+  Future<void> _replaceSaved(Map<String, dynamic> item) async {
+    setState(() {
+      _replacingId = '${item['id']}';
+      _smileId = null;
+      _photoBytes = null;
+      _basePhotoId = null;
+      _pendingOverlay = null;
+      _dirty = false;
+      _status = AppLocalizations.of(context).tr('case.replacingSmile');
+    });
+    await _pickPhoto();
   }
 
   void _toggleFullscreen() {
@@ -619,7 +514,6 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       if (_patient != null) {
         setState(() {
           _patient = null;
-          _case = null;
           _smileItems = [];
         });
       }
@@ -645,7 +539,6 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     if (_patients.isEmpty) {
       setState(() {
         _patient = null;
-        _case = null;
       });
       widget.patientSession.clearSelection();
       return;
@@ -678,29 +571,8 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
         _pendingOverlay = null;
       }
     });
-    try {
-      final patientId = _pid(patient);
-      final cases = await widget.api.listCases();
-      final mine = cases
-          .where((c) => '${c['patient_id']}' == patientId)
-          .toList();
-      Map<String, dynamic>? caseRow = mine.isEmpty ? null : mine.first;
-      if (caseRow == null) {
-        final asInt = int.tryParse(patientId);
-        if (asInt != null) {
-          caseRow = await widget.api.createCase(asInt);
-        }
-      }
-      if (!mounted) return;
-      setState(() => _case = caseRow);
-      final caseId = caseRow?['id'];
-      if (caseId is num) {
-        await _restoreSaved(caseId.toInt());
-      }
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _case = null);
-    }
+    _replacingId = null;
+    _refreshCase();
     // Fresh: updating a saved smile (PATCH) doesn't evict this cached list.
     await _loadSmilePreviews(forceRefresh: true);
   }
@@ -901,9 +773,6 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     }
     _lowerActive = _upperIndex == null ||
         (overlay['active_jaw'] == 'lower' && _lowerIndex != null);
-    _openBatemIds
-      ..clear()
-      ..addAll([for (final (_, it) in _chosen) it.id]);
     _centeredOnce = true;
     _dirty = false;
   }
@@ -949,40 +818,6 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
 
   void _openNewPatientPage() {
     widget.patientSession.requestNavigateToNewPatient();
-  }
-
-  Future<void> _restoreSaved(int caseId) async {
-    try {
-      final rows = await widget.api.latestShapes(caseId);
-      if (rows.isEmpty || !mounted) return;
-      setState(() {
-        _upperIndex = null;
-        _lowerIndex = null;
-        for (final r in rows) {
-          final idx = ShapeLibrary.indexOfShapeId(r['shape_id']?.toString());
-          final lower = ShapeLibrary.isLower(idx);
-          final p = lower ? _lowerP : _upperP;
-          if (lower) {
-            _lowerIndex = idx;
-          } else {
-            _upperIndex = idx;
-          }
-          p.offset = Offset(
-            (r['position_x'] as num?)?.toDouble() ?? p.offset.dx,
-            (r['position_y'] as num?)?.toDouble() ?? p.offset.dy,
-          );
-          p.rotation = (r['rotation'] as num?)?.toDouble() ?? 0;
-          p.scale = (r['scale'] as num?)?.toDouble() ?? 1.0;
-        }
-        _lowerActive = _upperIndex == null;
-        _openBatemIds
-          ..clear()
-          ..addAll([for (final (_, it) in _chosen) it.id]);
-        _status = AppLocalizations.of(context).trp('sh.restoredShape', {'n': _chosen.map((c) => shapeLabel(context, c.$2)).join(' + ')});
-        _centeredOnce = true;
-        _dirty = false;
-      });
-    } catch (_) {}
   }
 
   Future<void> _readImageSize(Uint8List bytes) async {
@@ -1032,6 +867,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
   }
 
   Future<void> _pickPhoto() async {
+    if (_readOnly) return;
     if (_patient == null) {
       setState(() => _error = AppLocalizations.of(context).tr('sh.selPat'));
       return;
@@ -1087,17 +923,10 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
         _status = AppLocalizations.of(context).trp('sh.rm', {'n': shapeLabel(context, item)});
       } else {
         _lowerActive = lower;
-        _openBatemIds.add(item.id);
         _status = AppLocalizations.of(context).trp('sh.sel', {'n': shapeLabel(context, item)});
         _showOverlay = true;
       }
       _dirty = true;
-    });
-  }
-
-  void _toggleBatem(int id) {
-    setState(() {
-      if (!_openBatemIds.remove(id)) _openBatemIds.add(id);
     });
   }
 
@@ -1140,50 +969,6 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     });
   }
 
-  Widget _nudgeControls() {
-    // Four 36px buttons + gaps (~168) plus the label overflow a narrow rail
-    // (~133). Scale the pad down when space is tight; full size when wide.
-    return Padding(
-      padding: const EdgeInsets.only(top: 10, bottom: 12),
-      child: Row(
-        children: [
-          Text(
-            AppLocalizations.of(context).smileNudge,
-            style: const TextStyle(fontSize: 12, color: AppColors.muted),
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerRight,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _NudgeBtn(
-                    icon: Icons.keyboard_arrow_left,
-                    onTap: () => _nudge(-4, 0),
-                  ),
-                  _NudgeBtn(
-                    icon: Icons.keyboard_arrow_up,
-                    onTap: () => _nudge(0, -4),
-                  ),
-                  _NudgeBtn(
-                    icon: Icons.keyboard_arrow_down,
-                    onTap: () => _nudge(0, 4),
-                  ),
-                  _NudgeBtn(
-                    icon: Icons.keyboard_arrow_right,
-                    onTap: () => _nudge(4, 0),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Offset _localDragDelta(Offset screenDelta) {
     final rad = _rotation * math.pi / 180;
     final c = math.cos(rad);
@@ -1195,7 +980,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
   }
 
   Future<void> _save() async {
-    if (_saving) return;
+    if (_saving || _readOnly) return;
     final patient = _patient;
     if (patient == null) {
       setState(() => _error = AppLocalizations.of(context).tr('c.selPatFirst'));
@@ -1212,12 +997,16 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     }
     final canvas = _lastCanvas;
     if (canvas == null) return;
+    // Completed case: saving reopens it; ask first.
+    if (!await confirmCaseChange(context, _caseInfo) || !mounted) return;
+    final replacing = _smileId == null ? _replacingId : null;
     setState(() {
       _saving = true;
       _error = null;
     });
     try {
       final saved = await widget.api.saveSmilePreview(
+        replaces: replacing,
         patientId: _pid(patient),
         smileId: _smileId,
         composite: await _renderComposite(canvas),
@@ -1226,31 +1015,15 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
         basePhotoId: _basePhotoId,
         overlay: _overlayJson(canvas),
       );
-      // Legacy numeric-id patients also keep their case shape rows.
-      final caseId = _case?['id'];
-      if (caseId is int) {
-        await widget.api.saveShapes(
-          caseId: caseId,
-          shapes: [
-            for (final (p, it) in _chosen)
-              {
-                'shape_id': it.shapeId,
-                'position_x': p.offset.dx,
-                'position_y': p.offset.dy,
-                'rotation': p.rotation,
-                'scale': p.scale,
-              },
-          ],
-        );
-        await widget.api.markCaseInProgressIfPending(
-          caseId,
-          _case!['status']?.toString(),
-        );
-        _case = {..._case!, 'status': 'in_progress'};
-      }
+      _refreshCase();
       if (!mounted) return;
       final id = '${saved['id'] ?? ''}';
       setState(() {
+        if (replacing != null) {
+          // The server removed the replaced smile.
+          _smileItems = [for (final r in _smileItems) if ('${r['id']}' != replacing) r];
+          _replacingId = null;
+        }
         _smileId = id;
         _basePhotoId = null;
         _dirty = false;
@@ -1263,9 +1036,12 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       final shapes = _chosen.map((c) => '“${shapeLabel(context, c.$2)}”').join(' + ');
       AppSnackBars.success(
         context,
-        caseId is int
-            ? AppLocalizations.of(context).trp('sp.savedCase', {'s': shapes, 'c': caseId})
-            : AppLocalizations.of(context).trp('sp.saved', {'s': shapes}),
+        AppLocalizations.of(context).trp('sp.saved', {'s': shapes}),
+      );
+      await maybePromptSubmitToLab(
+        context,
+        cases: widget.patientSession.cases,
+        patientId: _pid(patient),
       );
     } catch (e) {
       final msg = friendlyError(e);
@@ -1275,11 +1051,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     }
   }
 
-  String get _patientName {
-    final p = _patient;
-    if (p == null) return '—';
-    return '${p['first_name']} ${p['last_name']}';
-  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -1326,6 +1098,21 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           _buildHeader(),
+                          CaseRejectionBanner(
+                            info: _caseInfo,
+                            margin: const EdgeInsets.only(top: 12),
+                            store: widget.patientSession.cases,
+                            patientId: _patient == null ? null : _pid(_patient!),
+                            api: widget.api,
+                          ),
+                          if (_patient != null)
+                            CaseFeedbackBar(
+                            key: ValueKey('fb-smile-${_pid(_patient!)}'),
+                            store: widget.patientSession.cases,
+                            patientId: _pid(_patient!),
+                            item: 'smile',
+                            margin: const EdgeInsets.only(top: 12),
+                          ),
                           if (_status != null)
                             Text(
                               _status!,
@@ -1359,7 +1146,23 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                       ignoring: t > 0.2,
                       child: Opacity(
                         opacity: chrome,
-                        child: _buildRail(),
+                        // Fullscreen shrinks this column to 0: keep the
+                        // rail at its own width and clip it instead of
+                        // squeezing (and overflowing) its rows / segments.
+                        child: LayoutBuilder(
+                          builder: (context, box) {
+                            final minW = portrait ? 260.0 : 300.0;
+                            final w = box.maxWidth < minW ? minW : box.maxWidth;
+                            return ClipRect(
+                              child: OverflowBox(
+                                alignment: Alignment.topLeft,
+                                minWidth: w,
+                                maxWidth: w,
+                                child: _buildRail(),
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ),
                     content: _buildStage(chrome: chrome, expand: t),
@@ -1390,6 +1193,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     });
     try {
       await widget.api.deleteSmilePreview(id);
+      _refreshCase();
       if (!mounted) return;
       setState(() {
         _smileItems = [
@@ -1485,24 +1289,28 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                             color: Colors.white54,
                           ),
                         ),
+                        if (!widget.api.isLaboratory) // labs never delete
                         Positioned(
                           top: 0,
                           right: 0,
                           child: IconButton(
-                            tooltip: AppLocalizations.of(context).tr('sp.delTip'),
+                            tooltip: _caseInfo?.locked == true
+                                ? AppLocalizations.of(context).tr('case.replace')
+                                : AppLocalizations.of(context).tr('sp.delTip'),
                             visualDensity: VisualDensity.compact,
                             padding: EdgeInsets.zero,
                             constraints: const BoxConstraints.tightFor(
                               width: 32,
                               height: 32,
                             ),
-                            onPressed:
-                                _saving ? null : () => _deleteSaved(item),
-                            icon: const CircleAvatar(
+                            onPressed: _saving
+                                ? null
+                                : () => _caseInfo?.locked == true ? _replaceSaved(item) : _deleteSaved(item),
+                            icon: CircleAvatar(
                               radius: 11,
                               backgroundColor: Colors.black54,
                               child: Icon(
-                                Icons.close,
+                                _caseInfo?.locked == true ? Icons.swap_horiz_rounded : Icons.close,
                                 size: 14,
                                 color: Colors.white,
                               ),
@@ -1526,22 +1334,24 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
       icon: Icons.sentiment_satisfied_alt_outlined,
       title: AppLocalizations.of(context).smileTitle,
       subtitle: AppLocalizations.of(context).smilePageSubtitle,
+      subtitleAsInfo: true,
       actions: [
         PatientPickerButton(
           patients: _patients,
           selected: _patient,
-          caseId: _case?['id'],
           onSelect: _selectPatient,
           onAdd: _openNewPatientPage,
           onRefresh: _reloadPatients,
           enabled: !_saving,
           emptyHint: AppLocalizations.of(context).tr('sp.noPat'),
         ),
+        if (!_readOnly)
         OutlinedButton.icon(
           onPressed: _saving || _patient == null ? null : _pickPhoto,
           icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
           label: Text(_photoBytes == null ? AppLocalizations.of(context).smileLoadPhoto : AppLocalizations.of(context).smileChangePhoto),
         ),
+        if (!_readOnly)
         FilledButton.icon(
           onPressed: _saving || _photoBytes == null ? null : _save,
           icon: _saving
@@ -1556,7 +1366,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                 ? AppLocalizations.of(context).tr('sp.saving')
                 : _dirty
                     ? AppLocalizations.of(context).tr('sp.saveChanges')
-                    : (_case?['id'] is int ? AppLocalizations.of(context).tr('sp.saveToCase') : AppLocalizations.of(context).save),
+                    : AppLocalizations.of(context).save,
           ),
         ),
       ],
@@ -1629,6 +1439,7 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                     ),
                   ),
                   const SizedBox(height: 20),
+                  if (!_readOnly)
                   FilledButton.icon(
                     onPressed: _pickPhoto,
                     icon: const Icon(Icons.upload_file, size: 18),
@@ -1639,18 +1450,68 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
             ),
           ),
         ),
-        Positioned(
-          right: 12,
-          bottom: 12,
-          child: _StageIconBtn(
-            icon: _fsController.value > 0.5
-                ? Icons.fullscreen_exit
-                : Icons.fullscreen,
-            tip: _fsController.value > 0.5
-                ? AppLocalizations.of(context).tr('sp.exitFs')
-                : AppLocalizations.of(context).tr('sp.fs'),
+        if (_fsController.value > 0.5)
+          Positioned(
+            left: 12,
+            top: 12,
+            child: _StageIconBtn(
+              icon: Icons.close_rounded,
+              tip: AppLocalizations.of(context).tr('sp.exitFs'),
+              onTap: _toggleFullscreen,
+            ),
+          )
+        else
+          Positioned(
+            right: 12,
+            bottom: 12,
+            child: _StageIconBtn(
+              icon: Icons.fullscreen,
+              tip: AppLocalizations.of(context).tr('sp.fs'),
+              onTap: _toggleFullscreen,
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Compare / layers / center / reset — plus close when fullscreen.
+  Widget _stageToolbar(Size canvas, {required bool fullscreen}) {
+    final loc = AppLocalizations.of(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (fullscreen) ...[
+          _StageIconBtn(
+            icon: Icons.close_rounded,
+            tip: loc.tr('sp.exitFs'),
             onTap: _toggleFullscreen,
           ),
+          const SizedBox(width: 6),
+        ],
+        _StageIconBtn(
+          icon: _comparing ? Icons.visibility_off : Icons.visibility,
+          tip: loc.tr('sp.compare'),
+          onTapDown: () => setState(() => _comparing = true),
+          onTapUp: () => setState(() => _comparing = false),
+          onTapCancel: () => setState(() => _comparing = false),
+        ),
+        const SizedBox(width: 6),
+        _StageIconBtn(
+          icon: _showOverlay ? Icons.layers_outlined : Icons.layers_clear_outlined,
+          tip: _showOverlay ? loc.tr('sp.hideOv') : loc.tr('sp.showOv'),
+          onTap: () => setState(() => _showOverlay = !_showOverlay),
+        ),
+        const SizedBox(width: 6),
+        _StageIconBtn(
+          icon: Icons.center_focus_strong,
+          tip: loc.smileCenterShape,
+          onTap: () => _centerIn(canvas),
+        ),
+        const SizedBox(width: 6),
+        _StageIconBtn(
+          icon: Icons.refresh,
+          tip: loc.smileResetPlacement,
+          onTap: () => _resetTransform(canvas),
         ),
       ],
     );
@@ -1803,6 +1664,10 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (_fsController.value > 0.5) ...[
+                    _stageToolbar(canvas, fullscreen: true),
+                    const SizedBox(height: 8),
+                  ],
                   for (final (_, item) in _chosen)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 6),
@@ -1835,44 +1700,15 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                 ],
               ),
             ),
-            Positioned(
-              right: 12,
-              top: 12,
-              child: Row(
-                children: [
-                  _StageIconBtn(
-                    icon: _comparing ? Icons.visibility_off : Icons.visibility,
-                    tip: AppLocalizations.of(context).tr('sp.compare'),
-                    onTapDown: () => setState(() => _comparing = true),
-                    onTapUp: () => setState(() => _comparing = false),
-                    onTapCancel: () => setState(() => _comparing = false),
-                  ),
-                  const SizedBox(width: 6),
-                  _StageIconBtn(
-                    icon: _showOverlay
-                        ? Icons.layers_outlined
-                        : Icons.layers_clear_outlined,
-                    tip: _showOverlay ? AppLocalizations.of(context).tr('sp.hideOv') : AppLocalizations.of(context).tr('sp.showOv'),
-                    onTap: () => setState(() => _showOverlay = !_showOverlay),
-                  ),
-                  const SizedBox(width: 6),
-                  _StageIconBtn(
-                    icon: Icons.center_focus_strong,
-                    tip: AppLocalizations.of(context).smileCenterShape,
-                    onTap: () => _centerIn(canvas),
-                  ),
-                  const SizedBox(width: 6),
-                  _StageIconBtn(
-                    icon: Icons.refresh,
-                    tip: AppLocalizations.of(context).smileResetPlacement,
-                    onTap: () => _resetTransform(canvas),
-                  ),
-                ],
+            if (_fsController.value <= 0.5)
+              Positioned(
+                right: 12,
+                top: 12,
+                child: _stageToolbar(canvas, fullscreen: false),
               ),
-            ),
             Positioned(
               left: 12,
-              right: 56,
+              right: _fsController.value > 0.5 ? 12 : 56,
               bottom: 12,
               child: _StageChip(
                 child: Text(
@@ -1884,19 +1720,16 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
                 ),
               ),
             ),
-            Positioned(
-              right: 12,
-              bottom: 12,
-              child: _StageIconBtn(
-                icon: _fsController.value > 0.5
-                    ? Icons.fullscreen_exit
-                    : Icons.fullscreen,
-                tip: _fsController.value > 0.5
-                    ? AppLocalizations.of(context).tr('sp.exitFs')
-                    : AppLocalizations.of(context).tr('sp.fs'),
-                onTap: _toggleFullscreen,
+            if (_fsController.value <= 0.5)
+              Positioned(
+                right: 12,
+                bottom: 12,
+                child: _StageIconBtn(
+                  icon: Icons.fullscreen,
+                  tip: AppLocalizations.of(context).tr('sp.fs'),
+                  onTap: _toggleFullscreen,
+                ),
               ),
-            ),
           ],
         );
       },
@@ -1911,374 +1744,202 @@ class _ShapeOverlayPageState extends State<ShapeOverlayPage>
     return '${_lowerActive ? loc.smileLowerJaw : loc.smileUpperJaw} · ${shapeLabel(context, sel)}';
   }
 
-  Widget _libraryHeader() {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            AppLocalizations.of(context).smileBatemModels,
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 15,
-              color: AppColors.navy,
-            ),
-          ),
-        ),
-        Text(
-          '${_chosen.length}/2',
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: AppColors.muted,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _batemList({required bool shrinkWrap}) {
-    return BatemModelAccordion(
-      selectedIndexes: {?_upperIndex, ?_lowerIndex},
-      openIds: _openBatemIds,
-      onToggle: _toggleBatem,
-      onSelect: _selectShape,
-      shrinkWrap: shrinkWrap,
-    );
-  }
-
-  Widget _compactRail() {
-    return SingleChildScrollView(
-      physics: const AlwaysScrollableScrollPhysics(
-        parent: BouncingScrollPhysics(),
-      ),
-      padding: const EdgeInsets.only(bottom: 12),
+  Widget _buildRail() {
+    final loc = AppLocalizations.of(context);
+    return SectionCard(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _libraryHeader(),
-          const SizedBox(height: 2),
-          Text(
-            _activeLabel,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: AppColors.dentalBlue,
+          // Two clear modes, each with the whole panel.
+          SizedBox(
+            width: double.infinity,
+            child: CupertinoSlidingSegmentedControl<int>(
+              groupValue: _railTab,
+              backgroundColor: AppColors.inset.withValues(alpha: 0.7),
+              thumbColor: Colors.white,
+              children: {
+                0: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text('${loc.smileBatemModels} (${_chosen.length}/2)',
+                        maxLines: 1,
+                        style: AppFonts.style(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.navy)),
+                  ),
+                ),
+                1: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(loc.smilePlacement,
+                        maxLines: 1,
+                        style: AppFonts.style(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.navy)),
+                  ),
+                ),
+              },
+              onValueChanged: (v) => setState(() => _railTab = v ?? 0),
             ),
           ),
-          const SizedBox(height: 10),
-          _batemList(shrinkWrap: true),
-          const SizedBox(height: 8),
-          const Divider(height: 1),
-          const SizedBox(height: 4),
-          Text(
-            AppLocalizations.of(context).smilePlacement,
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 13,
+          const SizedBox(height: 12),
+          Expanded(
+            child: AppSwitcher(
+              child: KeyedSubtree(
+                key: ValueKey(_railTab),
+                child: _railTab == 0
+                    ? BatemModelGrid(selectedIndexes: {?_upperIndex, ?_lowerIndex}, onSelect: _selectShape)
+                    : _adjustTab(loc),
+              ),
             ),
-          ),
-          const SizedBox(height: 2),
-          _SliderRow(
-            label: AppLocalizations.of(context).smileSize,
-            value: _scale,
-            min: 0.15,
-            max: 8.0,
-            display: '×${_scale.toStringAsFixed(2)}',
-            onChanged: (v) => setState(() {
-              _scale = v;
-              _dirty = true;
-            }),
-          ),
-          _SliderRow(
-            label: AppLocalizations.of(context).smileWidth,
-            value: _width,
-            min: 0.4,
-            max: 2.4,
-            display: '×${_width.toStringAsFixed(2)}',
-            onChanged: (v) => setState(() {
-              _width = v;
-              _dirty = true;
-            }),
-          ),
-          _SliderRow(
-            label: AppLocalizations.of(context).smileHeight,
-            value: _height,
-            min: 0.4,
-            max: 2.4,
-            display: '×${_height.toStringAsFixed(2)}',
-            onChanged: (v) => setState(() {
-              _height = v;
-              _dirty = true;
-            }),
-          ),
-          _SliderRow(
-            label: AppLocalizations.of(context).smileRotate,
-            value: _rotation,
-            min: -35,
-            max: 35,
-            display: '${_rotation.toStringAsFixed(0)}°',
-            onChanged: (v) => setState(() {
-              _rotation = v;
-              _dirty = true;
-            }),
-          ),
-          _SliderRow(
-            label: AppLocalizations.of(context).smileBlend,
-            value: _opacity,
-            min: 0.25,
-            max: 1.0,
-            display: '${(_opacity * 100).round()}%',
-            onChanged: (v) => setState(() {
-              _opacity = v;
-              _dirty = true;
-            }),
-          ),
-          _nudgeControls(),
-          Row(
-            children: [
-              Expanded(
-                child: FilterChip(
-                  label: Text(AppLocalizations.of(context).smileGuides, style: const TextStyle(fontSize: 12)),
-                  selected: _showGuides,
-                  onSelected: (v) => setState(() => _showGuides = v),
-                  visualDensity: VisualDensity.compact,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _lastCanvas == null
-                      ? null
-                      : () => _resetTransform(_lastCanvas!),
-                  child: Text(AppLocalizations.of(context).shadeReset, style: const TextStyle(fontSize: 12)),
-                ),
-              ),
-            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _buildRail() {
-    return SectionCard(
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final compact = AppBreakpoints.isPortrait(context) ||
-              (constraints.hasBoundedHeight && constraints.maxHeight < 420);
-          if (compact) return _compactRail();
-
-          final short =
-              constraints.hasBoundedHeight && constraints.maxHeight < 560;
-          final previewH = short ? 72.0 : 100.0;
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+  /// Placement of the active jaw's model: big sliders with − / + steps,
+  /// a move pad, guides and reset.
+  Widget _adjustTab(AppLocalizations loc) {
+    if (_chosen.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      AppLocalizations.of(context).smileBatemModels,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15,
-                        color: AppColors.navy,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    '${_chosen.length}/2',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.muted,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 2),
-              Text(
-                _activeLabel,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.dentalBlue,
-                ),
-              ),
+              const Icon(Icons.sentiment_satisfied_alt_outlined, size: 40, color: AppColors.muted),
               const SizedBox(height: 10),
-              Container(
-                height: previewH,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0F1724),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: AppColors.dentalBlue.withValues(alpha: 0.45),
-                    width: 1.5,
-                  ),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: _selected == null
-                    ? null
-                    : ShapeToothImage(item: _selected!, fit: BoxFit.contain),
-              ),
+              Text(loc.tr('smile.pickFirst'),
+                  textAlign: TextAlign.center, style: AppFonts.style(fontSize: 14, color: AppColors.muted, height: 1.4)),
               const SizedBox(height: 12),
-              Expanded(
-                flex: _placementOpen ? 2 : 5,
-                child: NotificationListener<ScrollNotification>(
-                  onNotification: (n) {
-                    if (_placementOpen &&
-                        n is ScrollUpdateNotification &&
-                        (n.scrollDelta ?? 0).abs() > 0) {
-                      setState(() => _placementOpen = false);
-                    }
-                    return false;
-                  },
-                  child: _batemList(shrinkWrap: false),
-                ),
-              ),
-              const SizedBox(height: 4),
-              const Divider(height: 1),
-              InkWell(
-                onTap: () => setState(() => _placementOpen = !_placementOpen),
-                borderRadius: BorderRadius.circular(6),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          AppLocalizations.of(context).smilePlacement,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                      Icon(
-                        _placementOpen
-                            ? Icons.expand_more
-                            : Icons.expand_less,
-                        size: 20,
-                        color: AppColors.muted,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              // Placement sliders scroll inside remaining space — no bottom overflow.
-              if (_placementOpen)
-                Flexible(
-                  flex: 3,
-                  child: SingleChildScrollView(
-                    physics: const BouncingScrollPhysics(),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _SliderRow(
-                          label: AppLocalizations.of(context).smileSize,
-                          value: _scale,
-                          min: 0.15,
-                          max: 8.0,
-                          display: '×${_scale.toStringAsFixed(2)}',
-                          onChanged: (v) => setState(() {
-                            _scale = v;
-                            _dirty = true;
-                          }),
-                        ),
-                        _SliderRow(
-                          label: AppLocalizations.of(context).smileWidth,
-                          value: _width,
-                          min: 0.4,
-                          max: 2.4,
-                          display: '×${_width.toStringAsFixed(2)}',
-                          onChanged: (v) => setState(() {
-                            _width = v;
-                            _dirty = true;
-                          }),
-                        ),
-                        _SliderRow(
-                          label: AppLocalizations.of(context).smileHeight,
-                          value: _height,
-                          min: 0.4,
-                          max: 2.4,
-                          display: '×${_height.toStringAsFixed(2)}',
-                          onChanged: (v) => setState(() {
-                            _height = v;
-                            _dirty = true;
-                          }),
-                        ),
-                        _SliderRow(
-                          label: AppLocalizations.of(context).smileRotate,
-                          value: _rotation,
-                          min: -35,
-                          max: 35,
-                          display: '${_rotation.toStringAsFixed(0)}°',
-                          onChanged: (v) => setState(() {
-                            _rotation = v;
-                            _dirty = true;
-                          }),
-                        ),
-                        _SliderRow(
-                          label: AppLocalizations.of(context).smileBlend,
-                          value: _opacity,
-                          min: 0.25,
-                          max: 1.0,
-                          display: '${(_opacity * 100).round()}%',
-                          onChanged: (v) => setState(() {
-                            _opacity = v;
-                            _dirty = true;
-                          }),
-                        ),
-                        _nudgeControls(),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: FilterChip(
-                                label: Text(
-                                  AppLocalizations.of(context).smileGuides,
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                                selected: _showGuides,
-                                onSelected: (v) =>
-                                    setState(() => _showGuides = v),
-                                visualDensity: VisualDensity.compact,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: _lastCanvas == null
-                                    ? null
-                                    : () => _resetTransform(_lastCanvas!),
-                                child: Text(
-                                  AppLocalizations.of(context).shadeReset,
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _patientName,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: AppColors.muted,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                      ],
-                    ),
-                  ),
-                ),
+              AppButtons.secondary(onPressed: () => setState(() => _railTab = 0), label: loc.smileBatemModels, compact: true),
             ],
-          );
-        },
-      ),
+          ),
+        ),
+      );
+    }
+    final enabled = _photoBytes != null;
+    void set(void Function() f) => setState(() {
+          f();
+          _dirty = true;
+        });
+    return ListView(
+      primary: false,
+      padding: const EdgeInsets.only(bottom: 12),
+      children: [
+        if (_upperIndex != null && _lowerIndex != null) ...[
+          SizedBox(
+            width: double.infinity,
+            child: CupertinoSlidingSegmentedControl<bool>(
+              groupValue: _lowerActive,
+              children: {
+                false: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 4),
+                  child: FittedBox(fit: BoxFit.scaleDown, child: Text(loc.smileUpperJaw, maxLines: 1)),
+                ),
+                true: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 4),
+                  child: FittedBox(fit: BoxFit.scaleDown, child: Text(loc.smileLowerJaw, maxLines: 1)),
+                ),
+              },
+              onValueChanged: (v) => setState(() => _lowerActive = v ?? false),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        Row(
+          children: [
+            if (_selected != null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: ColoredBox(
+                  color: const Color(0xFF0F1724),
+                  child: SizedBox(width: 52, height: 40, child: ShapeToothImage(item: _selected!, fit: BoxFit.contain)),
+                ),
+              ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(_activeLabel,
+                  style: AppFonts.style(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.dentalBlue)),
+            ),
+          ],
+        ),
+        if (!enabled)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(loc.tr('smile.photoFirst'), style: AppFonts.style(fontSize: 12.5, color: AppColors.muted)),
+          ),
+        const SizedBox(height: 8),
+        _AdjustRow(
+          label: loc.smileSize,
+          display: '×${_scale.toStringAsFixed(2)}',
+          value: _scale, min: 0.15, max: 8.0, step: 0.05, enabled: enabled,
+          onChanged: (v) => set(() => _scale = v),
+        ),
+        _AdjustRow(
+          label: loc.smileWidth,
+          display: '×${_width.toStringAsFixed(2)}',
+          value: _width, min: 0.4, max: 2.4, step: 0.05, enabled: enabled,
+          onChanged: (v) => set(() => _width = v),
+        ),
+        _AdjustRow(
+          label: loc.smileHeight,
+          display: '×${_height.toStringAsFixed(2)}',
+          value: _height, min: 0.4, max: 2.4, step: 0.05, enabled: enabled,
+          onChanged: (v) => set(() => _height = v),
+        ),
+        _AdjustRow(
+          label: loc.smileRotate,
+          display: '${_rotation.toStringAsFixed(0)}°',
+          value: _rotation, min: -35, max: 35, step: 1, enabled: enabled,
+          onChanged: (v) => set(() => _rotation = v),
+        ),
+        _AdjustRow(
+          label: loc.smileBlend,
+          display: '${(_opacity * 100).round()}%',
+          value: _opacity, min: 0.25, max: 1.0, step: 0.05, enabled: enabled,
+          onChanged: (v) => set(() => _opacity = v),
+        ),
+        const SizedBox(height: 6),
+        Text(loc.smileNudge, style: AppFonts.style(fontSize: 13.5, fontWeight: FontWeight.w600, color: AppColors.navy)),
+        const SizedBox(height: 8),
+        // Cross-shaped pad with big targets.
+        Center(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _NudgeBtn(icon: Icons.keyboard_arrow_up, onTap: enabled ? () => _nudge(0, -4) : null),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _NudgeBtn(icon: Icons.keyboard_arrow_left, onTap: enabled ? () => _nudge(-4, 0) : null),
+                    const SizedBox(width: 52),
+                    _NudgeBtn(icon: Icons.keyboard_arrow_right, onTap: enabled ? () => _nudge(4, 0) : null),
+                  ],
+                ),
+                _NudgeBtn(icon: Icons.keyboard_arrow_down, onTap: enabled ? () => _nudge(0, 4) : null),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: Text(loc.smileGuides, style: AppFonts.style(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.navy)),
+            ),
+            CupertinoSwitch(value: _showGuides, onChanged: (v) => setState(() => _showGuides = v)),
+          ],
+        ),
+        const SizedBox(height: 10),
+        AppButtons.secondary(
+          onPressed: _lastCanvas == null || !enabled ? null : () => _resetTransform(_lastCanvas!),
+          icon: Icons.restart_alt_rounded,
+          label: loc.shadeReset,
+        ),
+      ],
     );
   }
 }
@@ -2462,22 +2123,22 @@ class _NudgeBtn extends StatelessWidget {
   const _NudgeBtn({required this.icon, required this.onTap});
 
   final IconData icon;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(left: 6),
+      padding: const EdgeInsets.all(3),
       child: Material(
         color: AppColors.inset,
-        borderRadius: AppRadii.borderSm,
+        borderRadius: BorderRadius.circular(14),
         child: InkWell(
           onTap: onTap,
-          borderRadius: AppRadii.borderSm,
+          borderRadius: BorderRadius.circular(14),
           child: SizedBox(
-            width: 36,
-            height: 36,
-            child: Icon(icon, size: 22, color: AppColors.navy),
+            width: 52,
+            height: 52,
+            child: Icon(icon, size: 28, color: onTap == null ? AppColors.muted : AppColors.navy),
           ),
         ),
       ),
@@ -2485,65 +2146,81 @@ class _NudgeBtn extends StatelessWidget {
   }
 }
 
-class _SliderRow extends StatelessWidget {
-  const _SliderRow({
+/// One placement control: label + value, then − [big slider] +.
+class _AdjustRow extends StatelessWidget {
+  const _AdjustRow({
     required this.label,
+    required this.display,
     required this.value,
     required this.min,
     required this.max,
-    required this.display,
+    required this.step,
     required this.onChanged,
+    this.enabled = true,
   });
 
   final String label;
+  final String display;
   final double value;
   final double min;
   final double max;
-  final String display;
+  final double step;
+  final bool enabled;
   final ValueChanged<double> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        SizedBox(
-          width: 80,
-          // One line; long labels ("Überblendung") shrink rather than wrap.
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              label,
-              maxLines: 1,
-              style: const TextStyle(fontSize: 11, color: AppColors.muted),
+    final v = value.clamp(min, max);
+    void bump(double d) => onChanged((v + d).clamp(min, max).toDouble());
+    Widget stepBtn(IconData icon, double d) => Material(
+          color: AppColors.inset,
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            onTap: enabled ? () => bump(d) : null,
+            borderRadius: BorderRadius.circular(12),
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: Icon(icon, size: 22, color: enabled ? AppColors.navy : AppColors.muted),
             ),
           ),
-        ),
-        Expanded(
-          child: SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: 3,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            ),
-            child: Slider(
-              value: value.clamp(min, max),
-              min: min,
-              max: max,
-              onChanged: onChanged,
-            ),
+        );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(label, style: AppFonts.style(fontSize: 13.5, fontWeight: FontWeight.w600, color: AppColors.navy)),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(999)),
+                child: Text(display, style: AppFonts.style(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.navy)),
+              ),
+            ],
           ),
-        ),
-        SizedBox(
-          width: 40,
-          child: Text(
-            display,
-            textAlign: TextAlign.right,
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              stepBtn(Icons.remove_rounded, -step),
+              Expanded(
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 6,
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 12),
+                    overlayShape: const RoundSliderOverlayShape(overlayRadius: 24),
+                  ),
+                  child: Slider(value: v, min: min, max: max, onChanged: enabled ? onChanged : null),
+                ),
+              ),
+              stepBtn(Icons.add_rounded, step),
+            ],
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

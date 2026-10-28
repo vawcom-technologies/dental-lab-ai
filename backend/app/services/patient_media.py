@@ -234,3 +234,26 @@ def delete_record_and_file(
     )
     delete_row(table, row_id)
     return row
+
+
+def replaced_row(table: str, row_id: str | None, patient_id: str) -> dict[str, Any] | None:
+    """The item an upload's `replaces` points at. Checked before uploading, so a
+    bad id never leaves a stray new item behind."""
+    if not row_id:
+        return None
+    row = fetch_row(table, row_id)
+    if row is None or str(row.get("patient_id")) != str(patient_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item to replace not found")
+    return row
+
+
+def remove_replaced(table: str, kind: PatientAssetKind, old: dict[str, Any] | None, *, keep_id: str) -> None:
+    """After the new upload is stored: drop the replaced row and its file.
+    Re-uploading identical bytes returns the same row, which then must stay."""
+    if not old or str(old["id"]) == str(keep_id):
+        return
+    patient_id = str(old["patient_id"])
+    delete_row(table, str(old["id"]))
+    for key in (old.get("file_key"), old.get("base_file_key")):
+        if key:
+            delete_file_if_unused(table=table, kind=kind, patient_id=patient_id, file_key=str(key))

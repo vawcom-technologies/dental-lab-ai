@@ -75,6 +75,10 @@ class PhoneNavScope extends InheritedWidget {
 
 /// Two-pane layout: [panel] sits beside [content] when there is room and
 /// stacks above it when narrow (e.g. iPad portrait).
+///
+/// Does not cross-fade row ↔ column: [panel]/[content] often hold
+/// [GlobalKey]s (e.g. mesh viewer), and keeping both trees in one frame
+/// triggers Duplicate GlobalKey errors.
 class AdaptiveSplit extends StatelessWidget {
   const AdaptiveSplit({
     super.key,
@@ -132,66 +136,72 @@ class AdaptiveSplit extends StatelessWidget {
         final stacked = AppBreakpoints.isPhoneSize(screen) ||
             constraints.maxWidth < breakpoint ||
             (portrait && constraints.maxWidth < 980);
-        if (!stacked) {
-          final w = (constraints.maxWidth * panelFraction)
-              .clamp(minPanelWidth, maxPanelWidth);
-          final panelBox = SizedBox(width: w, child: panel);
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: panelOnRight
-                ? [Expanded(child: content), SizedBox(width: gap), panelBox]
-                : [panelBox, SizedBox(width: gap), Expanded(child: content)],
-          );
-        }
-
-        // Portrait / narrow: keep a usable stage below, clamp panel height.
-        final maxPanel = math.max(
-          160.0,
-          constraints.maxHeight - gap - narrowContentMinHeight,
-        );
-        final panelHeight = narrowPanelHeight == null
-            ? null
-            : math.min(narrowPanelHeight!, maxPanel);
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (narrowContentFirst) ...[
-              if (narrowContentMaxHeight != null) ...[
-                SizedBox(
-                  height: math.min(
-                    math.min(
-                      narrowContentMaxHeight!,
-                      constraints.maxHeight * 0.42,
-                    ),
-                    math.max(
-                      180.0,
-                      constraints.maxHeight - gap - 320,
-                    ),
-                  ),
-                  child: content,
-                ),
-                SizedBox(height: gap),
-                Expanded(child: panel),
-              ] else ...[
-                Expanded(child: content),
-                SizedBox(height: gap),
-                if (panelHeight == null)
-                  panel
-                else
-                  SizedBox(height: panelHeight, child: panel),
-              ],
-            ] else ...[
-              if (panelHeight == null)
-                panel
-              else
-                SizedBox(height: panelHeight, child: panel),
-              SizedBox(height: gap),
-              Expanded(child: content),
-            ],
-          ],
-        );
+        return stacked
+            ? _stacked(constraints)
+            : _sideBySide(constraints);
       },
+    );
+  }
+
+  Widget _sideBySide(BoxConstraints constraints) {
+    final w = (constraints.maxWidth * panelFraction)
+        .clamp(minPanelWidth, maxPanelWidth);
+    final panelBox = SizedBox(width: w, child: panel);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: panelOnRight
+          ? [Expanded(child: content), SizedBox(width: gap), panelBox]
+          : [panelBox, SizedBox(width: gap), Expanded(child: content)],
+    );
+  }
+
+  Widget _stacked(BoxConstraints constraints) {
+    // Portrait / narrow: keep a usable stage below, clamp panel height.
+    final maxPanel = math.max(
+      160.0,
+      constraints.maxHeight - gap - narrowContentMinHeight,
+    );
+    final panelHeight = narrowPanelHeight == null
+        ? null
+        : math.min(narrowPanelHeight!, maxPanel);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (narrowContentFirst) ...[
+          if (narrowContentMaxHeight != null) ...[
+            SizedBox(
+              height: math.min(
+                math.min(
+                  narrowContentMaxHeight!,
+                  constraints.maxHeight * 0.42,
+                ),
+                math.max(
+                  180.0,
+                  constraints.maxHeight - gap - 320,
+                ),
+              ),
+              child: content,
+            ),
+            SizedBox(height: gap),
+            Expanded(child: panel),
+          ] else ...[
+            Expanded(child: content),
+            SizedBox(height: gap),
+            if (panelHeight == null)
+              panel
+            else
+              SizedBox(height: panelHeight, child: panel),
+          ],
+        ] else ...[
+          if (panelHeight == null)
+            panel
+          else
+            SizedBox(height: panelHeight, child: panel),
+          SizedBox(height: gap),
+          Expanded(child: content),
+        ],
+      ],
     );
   }
 }

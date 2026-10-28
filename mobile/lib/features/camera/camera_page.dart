@@ -18,6 +18,7 @@ import 'crop_photo_page.dart';
 import 'incoming_photos_button.dart';
 import 'live_camera_capture.dart';
 import '../../core/errors/user_facing_error.dart';
+import '../../core/widgets/page_kit.dart';
 
 /// Chairside camera — frontal / left / right, max 12 photos per patient.
 class CameraPage extends StatefulWidget {
@@ -322,7 +323,12 @@ class _CameraPageState extends State<CameraPage> {
     }
   }
 
+  /// Labs view photos only: no capture / upload / rename / delete or
+  /// shade / smile handoff (the server returns 403 for them).
+  bool get _readOnly => widget.api.isLaboratory;
+
   Future<void> _capture({required bool fromCamera}) async {
+    if (_readOnly) return;
     final patient = _patient;
     final pid = patient == null ? '' : _pid(patient);
     if (pid.isEmpty) return;
@@ -386,6 +392,7 @@ class _CameraPageState extends State<CameraPage> {
   }
 
   Future<void> _deletePhoto(Map<String, dynamic> photo) async {
+    if (_readOnly) return;
     final patient = _patient;
     final pid = patient == null ? '' : _pid(patient);
     final photoId = '${photo['id'] ?? ''}';
@@ -409,6 +416,7 @@ class _CameraPageState extends State<CameraPage> {
   }
 
   Future<void> _renamePhoto(Map<String, dynamic> photo) async {
+    if (_readOnly) return;
     final patient = _patient;
     final pid = patient == null ? '' : _pid(patient);
     final photoId = '${photo['id'] ?? ''}';
@@ -438,6 +446,7 @@ class _CameraPageState extends State<CameraPage> {
   }
 
   void _openPhotoWithShade(Map<String, dynamic> photo) {
+    if (_readOnly) return;
     final photoId = '${photo['id'] ?? ''}';
     if (photoId.isEmpty) return;
     final label = _photoName(photo);
@@ -447,6 +456,7 @@ class _CameraPageState extends State<CameraPage> {
   }
 
   void _openPhotoWithSmile(Map<String, dynamic> photo) {
+    if (_readOnly) return;
     final photoId = '${photo['id'] ?? ''}';
     if (photoId.isEmpty) return;
     final label = _photoName(photo);
@@ -526,6 +536,7 @@ class _CameraPageState extends State<CameraPage> {
                           ],
                         ),
                       ),
+                      if (!_readOnly) ...[
                       AppButtons.glassIcon(
                         tooltip: AppLocalizations.of(context).commonRename,
                         onPressed: _busy
@@ -543,6 +554,7 @@ class _CameraPageState extends State<CameraPage> {
                         color: AppColors.danger,
                       ),
                       const SizedBox(width: 8),
+                      ],
                       AppButtons.glassIcon(
                         tooltip: AppLocalizations.of(context).commonClose,
                         onPressed: () => Navigator.pop(ctx),
@@ -568,6 +580,7 @@ class _CameraPageState extends State<CameraPage> {
                     spacing: 12,
                     runSpacing: 10,
                     children: [
+                      if (!_readOnly)
                       AppButtons.glass(
                         onPressed: _busy
                             ? null
@@ -578,6 +591,7 @@ class _CameraPageState extends State<CameraPage> {
                         label: AppLocalizations.of(context).cameraOpenShade,
                         icon: Icons.palette_outlined,
                       ),
+                      if (!_readOnly)
                       AppButtons.glass(
                         onPressed: _busy
                             ? null
@@ -634,10 +648,7 @@ class _CameraPageState extends State<CameraPage> {
       },
     );
 
-    return GlassSurface(
-      borderRadius: BorderRadius.circular(16),
-      blur: 16,
-      tint: Colors.white.withValues(alpha: 0.5),
+    return AdminCard(
       padding: EdgeInsets.fromLTRB(compact ? 8 : 8, 6, 8, 6),
       child: Row(
         children: [
@@ -672,7 +683,7 @@ class _CameraPageState extends State<CameraPage> {
         icon: Icons.photo_camera_outlined,
         title: AppLocalizations.of(context).cameraNoPhotosYet,
         message: AppLocalizations.of(context).cameraEmptyPhotosHint,
-        action: AppButtons.primary(
+        action: _readOnly ? null : AppButtons.primary(
           onPressed: _busy ? null : () => _capture(fromCamera: true),
           label: AppLocalizations.of(context).cameraTakePhoto,
           icon: Icons.photo_camera_outlined,
@@ -729,7 +740,7 @@ class _CameraPageState extends State<CameraPage> {
                     message: AppLocalizations.of(context).cameraSwitchAngleHint(
                       AppLocalizations.of(context).cameraAngleLabel(_angle).toLowerCase(),
                     ),
-                    action: AppButtons.primary(
+                    action: _readOnly ? null : AppButtons.primary(
                       onPressed:
                           _busy ? null : () => _capture(fromCamera: true),
                       label: AppLocalizations.of(context).cameraTakePhoto,
@@ -767,8 +778,9 @@ class _CameraPageState extends State<CameraPage> {
                             }
                             _selectPhoto(photo);
                           },
-                          onMenu: (action) =>
-                              _onPhotoMenuSelected(action, photo),
+                          onMenu: _readOnly
+                              ? null
+                              : (action) => _onPhotoMenuSelected(action, photo),
                         );
                       },
                     ),
@@ -974,6 +986,7 @@ class _CameraPageState extends State<CameraPage> {
                     ),
                   ],
                 ),
+                if (!_readOnly) ...[
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 8,
@@ -1008,6 +1021,7 @@ class _CameraPageState extends State<CameraPage> {
                     ),
                   ],
                 ),
+                ],
               ],
             ),
           ),
@@ -1086,6 +1100,7 @@ class _CameraPageState extends State<CameraPage> {
               ),
             ),
           ),
+          if (!_readOnly) ...[
           const SizedBox(height: 12),
           AppButtons.primary(
             onPressed: _busy ? null : () => _openPhotoWithSmile(photo),
@@ -1119,6 +1134,7 @@ class _CameraPageState extends State<CameraPage> {
               ),
             ],
           ),
+          ],
         ],
       ),
     );
@@ -1167,6 +1183,7 @@ class _CameraPageState extends State<CameraPage> {
                   },
                   emptyHint: AppLocalizations.of(context).cameraNoPatientsCaptureHint,
                 ),
+                if (!_readOnly) ...[
                 IncomingPhotosButton(
                   api: widget.api,
                   patientId: _patient == null ? null : _pid(_patient!),
@@ -1202,6 +1219,7 @@ class _CameraPageState extends State<CameraPage> {
                   label: AppLocalizations.of(context).cameraGallery,
                   icon: Icons.photo_library_outlined,
                 ),
+                ],
               ],
             ),
             const SizedBox(height: 14),
@@ -1262,10 +1280,7 @@ class _CameraEmpty extends StatelessWidget {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 440),
-        child: GlassSurface(
-          borderRadius: BorderRadius.circular(24),
-          blur: 18,
-          tint: Colors.white.withValues(alpha: 0.55),
+        child: AdminCard(
           padding: EdgeInsets.fromLTRB(
             AppBreakpoints.isPhone(context) ? 20 : 36,
             AppBreakpoints.isPhone(context) ? 24 : 40,
@@ -1379,7 +1394,8 @@ class _PhotoGridTile extends StatelessWidget {
   final bool selected;
   final bool enabled;
   final VoidCallback onTap;
-  final ValueChanged<_PhotoMenuAction> onMenu;
+  /// Null: no options menu (read-only viewers).
+  final ValueChanged<_PhotoMenuAction>? onMenu;
 
   @override
   Widget build(BuildContext context) {
@@ -1464,6 +1480,7 @@ class _PhotoGridTile extends StatelessWidget {
                               ),
                             ),
                           ),
+                          if (onMenu != null)
                           PopupMenuButton<_PhotoMenuAction>(
                             tooltip: AppLocalizations.of(context).cameraPhotoOptions,
                             enabled: enabled,

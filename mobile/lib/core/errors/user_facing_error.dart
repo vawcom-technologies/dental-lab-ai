@@ -1,4 +1,5 @@
 import '../l10n/app_localizations.dart';
+import '../l10n/server_text.dart';
 
 final _machineCodePrefix = RegExp(
   r'^\s*(?:ERROR|ERR|HTTP)[_-][A-Z0-9_]+\s*:\s*',
@@ -85,6 +86,19 @@ String _fromParts({
   String? code,
   AppLocalizations? loc,
 }) {
+  // Rejected signups: 403 with detail REGISTRATION_REJECTED on sign-up/in.
+  if (detail?.trim() == 'REGISTRATION_REJECTED' ||
+      code == 'REGISTRATION_REJECTED') {
+    return (loc ?? AppLocalizations.current).errRegistrationRejected;
+  }
+  // Dentist without a lab tried to create a patient (the lab picker should
+  // have caught it first).
+  if (code == 'CANNOT_MESSAGE') {
+    return (loc ?? AppLocalizations.current).tr('chat.cantMessage');
+  }
+  if (statusCode == 403 && (detail?.trim() == 'NO_LAB' || code == 'NO_LAB')) {
+    return (loc ?? AppLocalizations.current).tr('join.noLabError');
+  }
   final mappedCode = _mapCode(code, loc);
   final rewritten = _rewriteDetail((detail ?? '').trim(), loc);
   if (rewritten != null && rewritten.isNotEmpty) return rewritten;
@@ -93,7 +107,7 @@ String _fromParts({
 }
 
 String? _rewriteDetail(String text, AppLocalizations? loc) {
-  text = stripMachineErrorCodes(text);
+  text = localizeServerText(stripMachineErrorCodes(text));
   if (text.isEmpty) return null;
   if (_looksLikeCode(text)) return null;
 

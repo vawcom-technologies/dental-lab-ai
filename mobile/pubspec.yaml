@@ -61,6 +61,7 @@ dependencies:
   three_js: ^0.3.0
   three_js_simple_loaders: ^0.3.0
   three_js_controls: ^0.3.0
+  share_plus: ^12.0.2
 dev_dependencies:
   flutter_test:
     sdk: flutter

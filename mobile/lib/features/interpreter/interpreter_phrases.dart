@@ -40,7 +40,7 @@ class PhraseCounts {
   void add(String text) {
     final shown = text.trim();
     final key = phraseKey(shown);
-    if (key.isEmpty) return;
+    if (key.isEmpty || looksPersonal(shown)) return;
     final prev = _rows[key];
     _rows[key] = _Row(shown, (prev?.count ?? 0) + 1, _tick++);
     if (_rows.length > _maxKept) {
@@ -78,3 +78,11 @@ class _Row {
   final int count;
   final int tick;
 }
+
+/// Phrases are kept on the iPad between visits, so skip ones that likely
+/// carry patient details: numbers (dates, phone, tooth / insurance numbers),
+/// email addresses, or long one-off sentences.
+/// ponytail: names can't be told apart from German nouns (all capitalised);
+/// this only catches the obvious cases.
+bool looksPersonal(String text) =>
+    text.length > 120 || RegExp(r'\d').hasMatch(text) || text.contains('@');

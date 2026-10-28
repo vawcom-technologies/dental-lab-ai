@@ -9,6 +9,7 @@ from fastapi import HTTPException, status
 
 from app.core.security import clear_auth_cache
 from app.core.supabase_client import get_supabase_admin
+from app.services import avatars, labs
 from app.services import patient_media as pm
 from app.services.r2 import (
     PatientAssetKind,
@@ -217,6 +218,8 @@ def purge_user_account(user_id: str) -> None:
 
     logger.info("account purge start user_id=%s", uid)
 
+    for row in _select("profiles", id=uid):
+        avatars.delete(row.get("avatar_url"))
     _purge_chat_for_user(uid)
     _purge_inbox_for_user(uid)
     _purge_owned_patients(uid)
@@ -253,3 +256,83 @@ def purge_user_account(user_id: str) -> None:
         ) from exc
 
     logger.info("account purge ok user_id=%s", uid)
+
+
+def _tombstone_auth(uid: str) -> None:
+    """Free the email for a future signup and block the old login for good."""
+    try:
+        get_supabase_admin().auth.admin.update_user_by_id(
+            uid,
+            {
+                "email": f"deleted-{uid}@deleted.invalid",
+                "email_confirm": True,
+                "ban_duration": "876000h",
+                "user_metadata": {},
+            },
+        )
+    except Exception as exc:
+        msg = str(exc).strip().lower()
+        if "not found" in msg:
+            return
+        logger.error("account tombstone auth failed user_id=%s detail=%s", uid, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Auth update failed: {str(exc).strip() or 'unknown error'}",
+        ) from exc
+
+
+def delete_account(user_id: str, *, actor_id: str | None) -> None:
+    """Permanently delete an account (docs/roadmap.md → Deletion).
+
+    Never-approved signups have no data and are purged outright. Approved
+    accounts are tombstoned: personal details cleared, login removed, row kept
+    because patients and uploads point at it. A dentist's patients become
+    unassigned; a lab's dentists lose their lab.
+    """
+    uid = (user_id or "").strip()
+    rows = _select("profiles", id=uid)
+    profile = rows[0] if rows else None
+    if profile is None or profile.get("verified") is not True:
+        purge_user_account(uid)
+        return
+    if profile.get("anonymized_at"):
+        return
+
+    logger.info("account tombstone start user_id=%s", uid)
+    _tombstone_auth(uid)
+    now = pm.utc_now_iso()
+    db = get_supabase_admin()
+    try:
+        if profile.get("role") == "laboratory":
+            for dentist in _select("profiles", lab_id=uid):
+                labs.set_lab(dentist, None, actor_id=actor_id, reason="lab_deleted")
+            db.table("patients").update({"waiting_lab_id": None}).eq("waiting_lab_id", uid).execute()
+        db.table("patients").update({"unassigned_at": now}).eq("created_by", uid).is_(
+            "unassigned_at", "null"
+        ).execute()
+        db.table("patient_access").delete().eq("user_id", uid).execute()
+        db.table("notifications").delete().eq("user_id", uid).execute()
+        db.table("scan_inbox").delete().eq("uploaded_by", uid).execute()
+        db.table("profiles").update(
+            {
+                "name": "Deleted user",
+                "email": None,
+                "phone": None,
+                "clinic_name": None,
+                "avatar_url": None,
+                "lab_id": None,
+                "unassigned_reason": None,
+                "unassigned_at": None,
+                "deleted": True,
+                "anonymized_at": now,
+                "updated_at": now,
+            }
+        ).eq("id", uid).execute()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _db_error(exc) from exc
+    _purge_inbox_for_user(uid)
+    avatars.delete(profile.get("avatar_url"))
+    clear_auth_cache()
+    logger.info("account tombstone ok user_id=%s", uid)

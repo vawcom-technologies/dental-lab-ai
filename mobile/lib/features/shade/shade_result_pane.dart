@@ -66,15 +66,16 @@ class ShadeResultPane extends StatefulWidget {
   final Map<String, dynamic>? Function(Map<String, dynamic>, String) zoneOf;
   final bool Function(Map<String, dynamic>?) zoneOverridden;
   final void Function(int index, {String? zone}) onSelectTooth;
-  final VoidCallback onDeleteTooth;
+  final VoidCallback? onDeleteTooth;
   final void Function(int index, String zone) onBeginZoneOverride;
 
   /// Switch Manual Override to the gum tab (card tap). Distinct from Override.
   final VoidCallback? onSelectGum;
   final VoidCallback? onBeginGumOverride;
   final ValueChanged<String> onOverallShade;
-  final VoidCallback onAcceptAi;
-  final VoidCallback onSaveOverride;
+  /// Null for read-only viewers (labs): the save buttons are hidden.
+  final VoidCallback? onAcceptAi;
+  final VoidCallback? onSaveOverride;
   final ValueNotifier<Offset?> magnifierFocal;
   final Size? magnifierViewSize;
   final Uint8List? previewBytes;
@@ -220,13 +221,24 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
           ),
           const SizedBox(height: 16),
           if (_tab == 1)
-            SizedBox(
-              height: 320,
-              child: FdiToothChart(
-                teeth: widget.teeth,
-                selectedToothIndex: widget.selectedToothIndex,
-                onSelectTooth: (index) => widget.onSelectTooth(index),
-              ),
+            LayoutBuilder(
+              builder: (context, c) {
+                // Portrait splits jaws side-by-side (~4:1). Give the chart
+                // enough height for the label + fitted halves; landscape
+                // orientation still uses the square chart inside.
+                final split = MediaQuery.orientationOf(context) == Orientation.portrait;
+                final h = split
+                    ? (c.maxWidth / 2.6).clamp(180.0, 320.0)
+                    : 320.0;
+                return SizedBox(
+                  height: h,
+                  child: FdiToothChart(
+                    teeth: widget.teeth,
+                    selectedToothIndex: widget.selectedToothIndex,
+                    onSelectTooth: (index) => widget.onSelectTooth(index),
+                  ),
+                );
+              },
             )
           else
             LayoutBuilder(
@@ -628,8 +640,7 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
         ),
       ),
       child: InkWell(
-        onTap: () => widget.onSelectTooth(idx, zone: zone),
-        onLongPress: () => widget.onBeginZoneOverride(idx, zone),
+        onTap: () => widget.onBeginZoneOverride(idx, zone),
         borderRadius: BorderRadius.circular(10),
         child: SizedBox(
           height: 40,
@@ -686,6 +697,9 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
     final detected = widget.detected;
     final selected = widget.selected;
     final saving = widget.saving;
+    if (widget.onAcceptAi == null && widget.onSaveOverride == null) {
+      return const SizedBox.shrink();
+    }
     return Row(
       children: [
         Expanded(
@@ -911,7 +925,7 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
                           ),
                         ),
                       ),
-                    if (active) ...[
+                    if (active && widget.onDeleteTooth != null) ...[
                       IconButton(
                         tooltip: AppLocalizations.of(context).shadeDeleteTooth,
                         onPressed: widget.onDeleteTooth,
@@ -993,12 +1007,9 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
                                       focusZone == zName &&
                                       pendingShade != null,
                                   focused: active && focusZone == zName,
-                                  onTap: () {
-                                    widget.onSelectTooth(idx, zone: zName);
-                                  },
-                                  onOverride: () {
-                                    widget.onBeginZoneOverride(idx, zName);
-                                  },
+                                  // One tap: focus the zone and pick its shade.
+                                  onTap: () => widget.onBeginZoneOverride(idx, zName),
+                                  onOverride: () => widget.onBeginZoneOverride(idx, zName),
                                 ),
                               ),
                             ],
@@ -1209,6 +1220,7 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
                   }).toList(),
                 ),
               ],
+              if (onAcceptAi != null || onSaveOverride != null) ...[
               const SizedBox(height: 14),
               FilledButton(
                 onPressed: saving || detected == '—' ? null : onAcceptAi,
@@ -1252,6 +1264,7 @@ class _ShadeResultPaneState extends State<ShadeResultPane> {
                         ).shadeSaveOverrideShade(selected),
                 ),
               ),
+              ],
             ],
           ),
         );
@@ -1513,33 +1526,6 @@ class MiniZoneChip extends StatelessWidget {
                       : AppColors.navy,
                 ),
               ),
-              if (focused) ...[
-                const SizedBox(height: 6),
-                Material(
-                  color: AppColors.navy.withValues(alpha: 0.92),
-                  borderRadius: BorderRadius.circular(7),
-                  child: InkWell(
-                    onTap: onOverride,
-                    borderRadius: BorderRadius.circular(7),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 5,
-                      ),
-                      child: Text(
-                        AppLocalizations.of(context).shadeOverride,
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
             ],
           ),
         ),
